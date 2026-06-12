@@ -37,16 +37,42 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("--out", required=True)
     pb.add_argument("--xy-stride", type=int, default=1)
 
+    pv = sub.add_parser("validate", help="compare pipeline output to hand-scored ground truth")
+    pv.add_argument("--pred", help="pipeline CSV (counts/lengths mode)")
+    pv.add_argument("--truth", help="ground-truth CSV")
+    pv.add_argument("--key", nargs="+", default=["image_id", "nucleus_id"], help="join key columns")
+    pv.add_argument("--pred-col")
+    pv.add_argument("--truth-col")
+    pv.add_argument("--seg-pred", help="predicted label image .tif (segmentation mode)")
+    pv.add_argument("--seg-truth", help="ground-truth label image .tif")
+    pv.add_argument("--iou", type=float, default=0.5)
+    pv.add_argument("--out", default="validation")
+
+    pp = sub.add_parser("prep-training", help="export DAPI z-slices from .nd2 for annotation")
+    pp.add_argument("folder")
+    pp.add_argument("--config", required=True)
+    pp.add_argument("--out", required=True)
+    pp.add_argument("--n-slices", type=int, default=3)
+    pp.add_argument("--xy-stride", type=int, default=1)
+
+    pf = sub.add_parser("finetune", help="fine-tune a germline Cellpose model (GPU)")
+    pf.add_argument("labeled_dir")
+    pf.add_argument("--out-model", required=True)
+    pf.add_argument("--pretrained", default="cpsam")
+    pf.add_argument("--epochs", type=int, default=100)
+    pf.add_argument("--print-only", action="store_true", help="print the command, don't run")
+
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-    if args.cmd == "info":
-        return _info(args.nd2)
-    if args.cmd == "run":
-        return _run(args)
-    if args.cmd == "batch":
-        return _batch(args)
-    return 1
+    return {
+        "info": lambda: _info(args.nd2),
+        "run": lambda: _run(args),
+        "batch": lambda: _batch(args),
+        "validate": lambda: _validate(args),
+        "prep-training": lambda: _prep_training(args),
+        "finetune": lambda: _finetune(args),
+    }[args.cmd]()
 
 
 def _info(nd2: str) -> int:
@@ -118,6 +144,71 @@ def _batch(args) -> int:
     pd.DataFrame(summaries).to_csv(out_root / "batch_summary.csv", index=False)
     n_pass = sum(s["qc_pass"] for s in summaries)
     print(f"\nDone. {n_pass}/{len(files)} passed QC. Summary -> {out_root / 'batch_summary.csv'}")
+    return 0
+
+
+def _validate(args) -> int:
+    import json
+
+    import pandas as pd
+
+    from .validate import agreement_stats, bland_altman_plot, compare_table, segmentation_metrics
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+
+    if args.seg_pred and args.seg_truth:
+        import tifffile
+
+        pred = tifffile.imread(args.seg_pred)
+        gt = tifffile.imread(args.seg_truth)
+        m = segmentation_metrics(pred, gt, iou_threshold=args.iou)
+        (out / "segmentation_metrics.json").write_text(json.dumps(m, indent=2))
+        print(f"Segmentation @ IoU≥{args.iou}: F1={m['f1']:.3f}  precision={m['precision']:.3f}  "
+              f"recall={m['recall']:.3f}  mean_IoU={m['mean_iou']:.3f}  (TP={m['tp']} FP={m['fp']} FN={m['fn']})")
+        return 0
+
+    if not (args.pred and args.truth and args.pred_col and args.truth_col):
+        print("counts mode needs --pred --truth --pred-col --truth-col (and --key)", file=sys.stderr)
+        return 1
+    paired, stats = compare_table(
+        pd.read_csv(args.pred), pd.read_csv(args.truth), args.key, args.pred_col, args.truth_col
+    )
+    paired.to_csv(out / "paired.csv", index=False)
+    (out / "agreement.json").write_text(json.dumps(stats, indent=2))
+    if stats.get("n", 0) >= 2:
+        bland_altman_plot(paired["pred"], paired["truth"], out / "bland_altman.png",
+                          title=f"{args.pred_col} vs {args.truth_col}")
+    print(f"n={stats.get('n')}  CCC={stats.get('ccc', float('nan')):.3f}  "
+          f"Pearson={stats.get('pearson_r', float('nan')):.3f}  bias={stats.get('bias_mean_diff', float('nan')):.2f}  "
+          f"MAE={stats.get('mae', float('nan')):.2f}")
+    print(f"  -> {out}")
+    return 0
+
+
+def _prep_training(args) -> int:
+    from .segment.finetune import prep_training_data
+
+    cfg = load_config(args.config)
+    root = Path(args.folder)
+    excludes = cfg.get("io.exclude_patterns", [])
+    files = [f for f in sorted(root.rglob("*.nd2"))
+             if not any(fnmatch.fnmatch(f.name.lower(), pat.lower()) for pat in excludes)]
+    if not files:
+        print(f"No .nd2 under {root}", file=sys.stderr)
+        return 1
+    written = prep_training_data(files, cfg.channel_map, args.out,
+                                 n_slices=args.n_slices, xy_stride=args.xy_stride)
+    print(f"Wrote {len(written)} DAPI slices to {args.out}. Annotate them in the Cellpose GUI "
+          f"(see docs/ANNOTATION.md), then `germquant finetune`.")
+    return 0
+
+
+def _finetune(args) -> int:
+    from .segment.finetune import finetune_cellpose
+
+    finetune_cellpose(args.labeled_dir, args.out_model, pretrained=args.pretrained,
+                      n_epochs=args.epochs, run=not args.print_only)
     return 0
 
 

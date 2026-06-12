@@ -53,7 +53,6 @@ def _classical(dna, spacing, diameter_um) -> np.ndarray:
     from scipy import ndimage as ndi
     from skimage.feature import peak_local_max
     from skimage.filters import threshold_li
-    from skimage.morphology import remove_small_holes
     from skimage.segmentation import watershed
 
     img = dna.astype(np.float32)
@@ -63,7 +62,7 @@ def _classical(dna, spacing, diameter_um) -> np.ndarray:
 
     thr = threshold_li(sm)
     fg = sm > thr
-    fg = remove_small_holes(fg, area_threshold=64)
+    fg = ndi.binary_fill_holes(fg)  # version-robust (vs skimage remove_small_holes)
 
     # distance transform in physical units (sampling = spacing)
     dist = ndi.distance_transform_edt(fg, sampling=spacing)
@@ -83,12 +82,21 @@ def _classical(dna, spacing, diameter_um) -> np.ndarray:
 
 
 def _drop_small(labels, spacing, min_volume_um3) -> np.ndarray:
-    from skimage.morphology import remove_small_objects
+    """Drop objects below a physical volume, then relabel consecutively.
+
+    Implemented directly (bincount) rather than via skimage.remove_small_objects,
+    whose `min_size` semantics changed in 0.26 — this is version-robust and never
+    merges touching instances.
+    """
     from skimage.segmentation import relabel_sequential
 
+    lab = labels.astype(np.int32)
     vox_vol = spacing[0] * spacing[1] * spacing[2]
     min_vox = max(1, int(min_volume_um3 / vox_vol))
-    cleaned = remove_small_objects(labels.astype(np.int32), min_size=min_vox)
-    # make labels consecutive WITHOUT merging touching instances
-    cleaned, _, _ = relabel_sequential(cleaned)
-    return cleaned.astype(np.int32)
+    counts = np.bincount(lab.ravel())
+    small = np.where(counts < min_vox)[0]
+    small = small[small != 0]
+    if small.size:
+        lab[np.isin(lab, small)] = 0
+    lab, _, _ = relabel_sequential(lab)
+    return lab.astype(np.int32)
