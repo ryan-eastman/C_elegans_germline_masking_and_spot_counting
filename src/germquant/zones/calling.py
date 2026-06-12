@@ -123,10 +123,23 @@ def _transition_zone_rows(df, n_rows, boundary):
             return False
         s = rows_cresc.loc[r]
         return (s["sum"] >= 2) if boundary == "count_2plus" else (s["mean"] >= 0.60)
-    tz_rows = [r for r in range(n_rows) if is_tz(r)]
-    if not tz_rows:
+    flags = [is_tz(r) for r in range(n_rows)]
+    if not any(flags):
         return None, None
-    return min(tz_rows), max(tz_rows)
+    # The transition zone is a COMPACT DISTAL band, not every scattered crescent row. Take the
+    # distal-most contiguous run of crescent rows (tolerating single-row gaps) and stop at the
+    # first sustained (>1 row) gap — otherwise a lone polarized nucleus deep in pachytene would
+    # stretch the TZ across most of the gonad (observed on real N2 data: TZ called at 60%).
+    start = next(r for r in range(n_rows) if flags[r])
+    end, gap = start, 0
+    for r in range(start + 1, n_rows):
+        if flags[r]:
+            end, gap = r, 0
+        else:
+            gap += 1
+            if gap > 1:
+                break
+    return start, end
 
 
 def _zones_table(df, total_len, n_rows, boundary):

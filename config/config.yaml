@@ -31,7 +31,12 @@ sc:
   enabled: true
   channel: central_element     # SYP-3 here
   ridge_sigmas_um: [0.15, 0.25, 0.40]   # Sato tubeness scales (physical)
-  intensity_percentile: 99.0            # threshold after ridge filter
+  # threshold (ridge percentile inside each nucleus). 99 keeps only the brightest speck
+  # (~1um total/nucleus on real N2 data — ~20x too short); ~90 gives ~5um, ~80 gives ~9um.
+  # MUST be calibrated against Imaris/SNT per-nucleus SC lengths (docs/RUNBOOK.md §5). Lower
+  # also merges the 6 closely-packed SCs into fewer fragments — the dense-pachytene tradeoff
+  # (ARCHITECTURE.md Risk 1); validate fragment COUNTS against ground truth before trusting them.
+  intensity_percentile: 90.0
   min_fragment_length_um: 0.5           # ignore skeleton specks below this
   # headline readout for the heat phenotype = SC FRAGMENTATION:
   #   n_fragments per nucleus + fragment-length distribution + total length
