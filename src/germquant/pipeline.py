@@ -103,6 +103,7 @@ def process_image(
                 method=cfg.get("zones.method", "auto"),
                 crescent_boundary=cfg.get("zones.crescent_boundary", "count_2plus"),
                 axis_bin_um=float(cfg.get("zones.axis_bin_um", 5.0)),
+                polarization_threshold=float(cfg.get("zones.polarization_threshold", 0.18)),
                 pachytene_thirds=bool(cfg.get("zones.pachytene_thirds", True)),
             )
             flags += zone_flags

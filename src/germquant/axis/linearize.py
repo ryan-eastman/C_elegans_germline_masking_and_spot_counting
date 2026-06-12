@@ -33,13 +33,16 @@ log = logging.getLogger(__name__)
 def linearize_germline(
     nuclei: pd.DataFrame,
     *,
-    confidence_min: float = 0.60,
+    confidence_min: float = 0.35,
 ) -> tuple[pd.DataFrame, float, list[str]]:
     """Add axis_position_norm (0..1) + axis_position_um. Return (df, confidence, flags).
 
-    confidence is an R²-like goodness-of-fit of the principal curve (1 = nuclei lie tightly on
-    the fitted axis, 0 = no coherent axis); below ``confidence_min`` a flag routes the gonad to
-    a manual axis-draw. Unlike the old PCA variance-ratio, this does NOT penalise curvature.
+    confidence = 1 − (mean off-centerline scatter) / (total scatter): high when nuclei hug the
+    fitted axis, ~0 for a diffuse blob with no coherent axis. NOTE it scales with tube *width*,
+    so a real (thick) germline reads ~0.5, not ~1 — ``confidence_min`` is therefore a low
+    "is there an axis at all" gate (a blob fails), not a fit-perfection bar. Below it, a flag
+    routes the gonad to a manual axis-draw. Unlike the old PCA variance-ratio it does NOT
+    penalise curvature.
     """
     flags: list[str] = []
     df = nuclei.copy()
@@ -129,47 +132,44 @@ def _mst_backbone_order(sp: np.ndarray) -> np.ndarray | None:
 
 
 def _fit_principal_curve(sp: np.ndarray, n_samples: int = 400) -> tuple[np.ndarray | None, str]:
-    """Fit a smooth principal curve through the MST backbone; return dense samples (S,3).
+    """Extract a centerline down the middle of the tube of nuclei; return dense samples (S,3).
 
-    Tries a smoothing B-spline; falls back to the (smoothed) backbone polyline. Returns
-    (samples, method) or (None, 'none') so the caller can fall back to straight PCA.
+    The MST backbone is a path THROUGH individual nuclei, so in a thick germline tube it zigzags
+    laterally across the tube width and badly inflates arc length (on real data: a 391 µm gonad's
+    raw backbone is ~930 µm). A moving average over the ordered backbone, with a window ~12 % of
+    the path, averages out that lateral zigzag while preserving genuine large-scale curvature —
+    on real data it recovers ~417 µm (just above the true end-to-end distance, as a gentle curve
+    should be). Returns (samples, method) or (None, 'none') so the caller can fall back to PCA.
     """
     order = _mst_backbone_order(sp)
     if order is None or len(order) < 2:
         return None, "none"
     bb = sp[order]
-    # collapse consecutive duplicates (splprep needs strictly increasing parameter)
+    # collapse consecutive duplicates
     keep = np.concatenate([[True], (np.linalg.norm(np.diff(bb, axis=0), axis=1) > 1e-9)])
     bb = bb[keep]
     if len(bb) < 2:
         return None, "none"
 
-    try:
-        from scipy.interpolate import splev, splprep
+    if len(bb) >= 7:
+        w = max(3, int(round(0.12 * len(bb))))
+        if w % 2 == 0:
+            w += 1
+        if w < len(bb):
+            kernel = np.ones(w) / w
+            # 'valid' avoids the endpoint shrink-in artifact of 'same'; the trimmed tip/end is
+            # recovered by foot-point projection (tip nuclei clamp to the nearest centerline end)
+            bb = np.vstack([np.convolve(bb[:, j], kernel, mode="valid") for j in range(3)]).T
+    if len(bb) < 2:
+        return None, "none"
 
-        k = min(3, len(bb) - 1)
-        u = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(bb, axis=0), axis=1))])
-        u = u / u[-1]
-        # s≈m smoothing is sane because coordinates are pre-scaled to unit std
-        tck, _ = splprep(bb.T, u=u, k=k, s=len(bb))
-        uu = np.linspace(0, 1, n_samples)
-        samples = np.vstack(splev(uu, tck)).T
-        return samples, "spline"
-    except Exception as e:  # noqa: BLE001 - spline can fail on pathological backbones
-        log.debug("spline fit failed (%s); using smoothed polyline backbone", e)
-
-    # fallback: moving-average-smoothed backbone, densely re-sampled by arc length
-    if len(bb) >= 5:
-        w = 3
-        kernel = np.ones(w) / w
-        bb = np.vstack([np.convolve(bb[:, j], kernel, mode="same") for j in range(3)]).T
     seg = np.linalg.norm(np.diff(bb, axis=0), axis=1)
     s = np.concatenate([[0.0], np.cumsum(seg)])
     if s[-1] <= 0:
         return None, "none"
     uu = np.linspace(0, s[-1], n_samples)
     samples = np.vstack([np.interp(uu, s, bb[:, j]) for j in range(3)]).T
-    return samples, "polyline"
+    return samples, "centerline"
 
 
 def _pca_fallback(sp: np.ndarray) -> tuple[np.ndarray, float, str | None]:

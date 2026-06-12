@@ -50,10 +50,16 @@ zones:
   crescent_boundary: count_2plus   # count_2plus | pct_60   (NEVER 80% — see ARCHITECTURE.md)
   pachytene_thirds: true
   axis_bin_um: 5.0             # row width for zone scoring along the germline axis
+  # crescent call: a nucleus is "polarized" (TZ-like) if its DAPI weighted-vs-geometric
+  # centroid offset exceeds this many nuclear radii. Tune per dataset/resolution — real N2
+  # data tops out ~0.13 at full res, so 0.18 finds no TZ (see docs/RUNBOOK.md §2).
+  polarization_threshold: 0.10
 
 axis:
-  method: auto                 # auto (PCA/principal-curve through nucleus centroids) | manual
-  qc_confidence_min: 0.60      # below this -> flag for a manual axis-draw (semi-automated v1)
+  method: auto                 # auto (principal-curve centerline through nucleus centroids) | manual
+  # below this -> flag for a manual axis-draw. This is an "is there an axis at all" gate: it
+  # scales with germline tube width, so a healthy (thick) gonad reads ~0.5; a diffuse blob ~0.
+  qc_confidence_min: 0.35
 
 granules:                      # generic 3D-object module (off the critical path; none in N2 data)
   enabled: false               # needs a channel map with a `granule` role to do anything
