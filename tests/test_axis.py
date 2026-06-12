@@ -62,6 +62,28 @@ def test_ordering_follows_the_curve():
     assert abs(rho) > 0.95, f"axis ordering does not follow the germline curve (|rho|={abs(rho):.2f})"
 
 
+def test_distal_tip_oriented_to_position_zero_by_density():
+    # distal mitotic tip = densely packed nuclei; proximal end = sparse. Orientation must put
+    # the dense end at position 0 (the size heuristic failed on real data — density is reliable).
+    rng = np.random.default_rng(1)
+    distal = rng.uniform(0, 25, 60)          # 60 nuclei packed into 25 µm (dense tip)
+    proximal = rng.uniform(25, 140, 20)      # 20 nuclei spread over 115 µm (sparse)
+    x = np.concatenate([distal, proximal])
+    df = pd.DataFrame({
+        "nucleus_id": np.arange(1, len(x) + 1),
+        "centroid_z_um": rng.normal(0, 0.5, len(x)),
+        "centroid_y_um": rng.normal(0, 0.5, len(x)),
+        "centroid_x_um": x,
+        "volume_um3": np.full(len(x), 5.0),   # uniform volume -> isolates the density signal
+    })
+    out, conf, flags = linearize_germline(df)
+    out["x"] = x
+    # the dense end (small x) must map to low axis position
+    assert out.loc[out.x < 25, "axis_position_norm"].median() < 0.4
+    assert out.loc[out.x > 25, "axis_position_norm"].median() > 0.5
+    assert any("density" in f for f in flags)
+
+
 def test_opposite_arms_stay_separated():
     df, t = _hairpin(jitter=0.3)
     out, _, _ = linearize_germline(df)

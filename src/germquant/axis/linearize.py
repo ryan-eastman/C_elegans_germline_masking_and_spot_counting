@@ -77,14 +77,26 @@ def linearize_germline(
         total = float((sp ** 2).sum(axis=1).mean())
         conf = float(np.clip(1.0 - resid2.mean() / total, 0.0, 1.0)) if total > 0 else 0.0
 
-    # orient distal(0) -> proximal(1): distal tip = small mitotic nuclei
-    if "volume_um3" in df and np.ptp(arc_um) > 0:
-        lo_end = arc_um < np.percentile(arc_um, 20)
-        hi_end = arc_um > np.percentile(arc_um, 80)
-        vol = df["volume_um3"].to_numpy()
-        if lo_end.any() and hi_end.any() and vol[lo_end].mean() > vol[hi_end].mean():
-            arc_um = arc_um.max() - arc_um
-            flags.append("axis:orientation_flipped_by_nucleus_size_heuristic")
+    # orient distal(0) -> proximal(1). The distal mitotic tip is DENSELY packed with nuclei —
+    # a far more reliable signal than nucleus size (verified on real N2 data: the smallest
+    # nuclei sit mid-gonad, so the old size heuristic flipped the wrong way). Flip so the denser
+    # end becomes position 0. If the two ends are near-symmetric in density, fall back to the
+    # small-nucleus heuristic and flag the orientation as uncertain (-> manual review).
+    if np.ptp(arc_um) > 0:
+        L = float(arc_um.max())
+        win = 0.12 * L
+        n0, n1 = int((arc_um < win).sum()), int((arc_um > L - win).sum())
+        if abs(n1 - n0) >= 0.15 * max(n0, n1, 1):
+            if n1 > n0:
+                arc_um = L - arc_um
+            flags.append("axis:oriented_by_density")
+        else:
+            vol = df["volume_um3"].to_numpy() if "volume_um3" in df else None
+            lo = arc_um < np.percentile(arc_um, 20)
+            hi = arc_um > np.percentile(arc_um, 80)
+            if vol is not None and lo.any() and hi.any() and vol[lo].mean() > vol[hi].mean():
+                arc_um = L - arc_um
+            flags.append("axis:orientation_uncertain_density_symmetric")
 
     a0, a1 = float(arc_um.min()), float(arc_um.max())
     df["axis_position_um"] = arc_um - a0
