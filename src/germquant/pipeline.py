@@ -22,7 +22,7 @@ from .measure import measure_objects
 from .render import make_montage
 from .sc import trace_sc
 from .segment import segment_nuclei
-from .zones import call_zones
+from .zones import call_zones, refine_pachytene
 
 log = logging.getLogger(__name__)
 
@@ -103,6 +103,7 @@ def process_image(
                 method=cfg.get("zones.method", "auto"),
                 crescent_boundary=cfg.get("zones.crescent_boundary", "count_2plus"),
                 axis_bin_um=float(cfg.get("zones.axis_bin_um", 5.0)),
+                polarization_threshold=float(cfg.get("zones.polarization_threshold", 0.18)),
                 pachytene_thirds=bool(cfg.get("zones.pachytene_thirds", True)),
             )
             flags += zone_flags
@@ -158,8 +159,23 @@ def process_image(
             min_volume_um3=float(cfg.get("granules.min_volume_um3", 0.05)),
         )
 
+    # ---- pachytene refinement (restrict the SC readout to pachytene; ADDITIVE — adds an
+    # is_pachytene column + paired means, never overwrites the whole-germline numbers) ----
+    if cfg.get("zones.pachytene_refine", True) and not nuclei.empty and "sc_total_length_um" in nuclei.columns:
+        nuclei, pach_flags = refine_pachytene(
+            nuclei,
+            sc_floor_frac=float(cfg.get("zones.pachytene_sc_floor_frac", 0.45)),
+            ce_mult=float(cfg.get("zones.pachytene_ce_mult", 1.35)),
+            foci_thr_floor=float(cfg.get("zones.pachytene_foci_thr_floor", 0.6)),
+        )
+        flags += pach_flags
+
     # ---- QC ----
     mean_sc = float(sc_per_nuc["sc_total_length_um"].mean()) if sc_traced else None
+    _pach = nuclei["is_pachytene"] if "is_pachytene" in nuclei.columns else None
+    _has_pach = _pach is not None and bool(_pach.any())
+    mean_frags_pach = float(nuclei.loc[_pach, "sc_n_fragments"].mean()) if _has_pach and "sc_n_fragments" in nuclei else float("nan")
+    mean_sclen_pach = float(nuclei.loc[_pach, "sc_total_length_um"].mean()) if _has_pach and "sc_total_length_um" in nuclei else float("nan")
     qc_pass, qc_all = qc.qc_flags(
         n_nuclei=n_nuclei, channel_flags=ch_flags, axis_flags=[f for f in flags if f.startswith("axis")],
         zone_flags=[f for f in flags if f.startswith("zones")], sc_traced=sc_traced,
@@ -172,6 +188,10 @@ def process_image(
         "n_pachytene_nuclei": int((nuclei.get("zone_call") == "pachytene").sum()) if "zone_call" in nuclei else 0,
         "mean_sc_total_length_um": mean_sc if mean_sc is not None else float("nan"),
         "mean_sc_n_fragments": float(sc_per_nuc["n_fragments"].mean()) if sc_traced else float("nan"),
+        # pachytene-restricted readouts (gradient-window; reported ALONGSIDE the whole-germline
+        # means above, never replacing them — the restriction is auditable & opt-in for analysis)
+        "mean_sc_n_fragments_pachytene": mean_frags_pach,
+        "mean_sc_total_length_um_pachytene": mean_sclen_pach,
         "mean_foci": float(nuclei["n_foci"].mean()) if "n_foci" in nuclei else float("nan"),
         "total_germline_length_um": float(nuclei["axis_position_um"].max()) if "axis_position_um" in nuclei and not nuclei.empty else float("nan"),
         "qc_pass": qc_pass, "qc_flags": ";".join(qc_all),

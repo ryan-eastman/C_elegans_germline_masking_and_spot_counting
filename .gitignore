@@ -5,6 +5,7 @@
 !/data/README.md
 outputs/
 results/
+results_*/        # results_test, results_fullres, results_nas, ... (local run outputs)
 *.nd2
 *.tif
 *.tiff

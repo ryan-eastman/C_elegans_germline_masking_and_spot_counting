@@ -123,10 +123,96 @@ def _transition_zone_rows(df, n_rows, boundary):
             return False
         s = rows_cresc.loc[r]
         return (s["sum"] >= 2) if boundary == "count_2plus" else (s["mean"] >= 0.60)
-    tz_rows = [r for r in range(n_rows) if is_tz(r)]
-    if not tz_rows:
+    flags = [is_tz(r) for r in range(n_rows)]
+    if not any(flags):
         return None, None
-    return min(tz_rows), max(tz_rows)
+    # The transition zone is a COMPACT DISTAL band, not every scattered crescent row. Take the
+    # distal-most contiguous run of crescent rows (tolerating single-row gaps) and stop at the
+    # first sustained (>1 row) gap — otherwise a lone polarized nucleus deep in pachytene would
+    # stretch the TZ across most of the gonad (observed on real N2 data: TZ called at 60%).
+    start = next(r for r in range(n_rows) if flags[r])
+    end, gap = start, 0
+    for r in range(start + 1, n_rows):
+        if flags[r]:
+            end, gap = r, 0
+        else:
+            gap += 1
+            if gap > 1:
+                break
+    return start, end
+
+
+_PACHY_FEATURES = ["axis_position_norm", "n_foci", "central_element_mean_intensity", "sc_total_length_um"]
+
+
+def refine_pachytene(
+    nuclei: pd.DataFrame,
+    *,
+    sc_floor_frac: float = 0.45,
+    ce_mult: float = 1.35,
+    foci_thr_floor: float = 0.6,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Add an ``is_pachytene`` boolean column via the gradient-window method, and relabel
+    ``zone_call`` (kept nuclei -> 'pachytene'; over-called proximal/early -> 'pachytene_excluded').
+
+    Restricting per-nucleus SC fragment counts to pachytene removes the early (still-synapsing)
+    and distal-mitotic nuclei that dilute the heat-fragmentation phenotype. The gate is chosen to
+    be **independent of the SC fragment count it restricts** (the one tested method, of four, that
+    isn't circular): a nucleus is pachytene iff, at its smoothed local position along the axis,
+    RAD-51 foci and SYP density are BELOW their early/transition-zone levels (it has exited early
+    meiosis) AND its SC length is above an incomplete-synapsis floor (synapsis has occurred). It is
+    orientation-agnostic — it never assumes distal=axis-0, because the arc-length axis can fold.
+
+    Validated on real N2 data: control SC fragments move toward the textbook ~6 (oocyte) / ~5
+    (spermatocyte) and the spermatocyte heat contrast sharpens while oocytes stay flat. Still a
+    v1 heuristic — calibrate against Imaris/hand-scored pachytene boundaries before relying on the
+    restricted means (always reported ALONGSIDE the whole-germline means, never replacing them).
+    Must run after the SC and foci stages (it needs their per-nucleus outputs).
+    """
+    df = nuclei.copy()
+    if not set(_PACHY_FEATURES).issubset(df.columns) or df["axis_position_norm"].isna().all():
+        df["is_pachytene"] = (df.get("zone_call") == "pachytene") if "zone_call" in df else False
+        return df, ["zones:pachytene_refine_skipped_missing_features"]
+    if len(df) < 30:  # rolling marker profiles aren't meaningful on a handful of nuclei
+        df["is_pachytene"] = (df.get("zone_call") == "pachytene") if "zone_call" in df else False
+        return df, ["zones:pachytene_too_few_nuclei"]
+
+    s = df.sort_values("axis_position_norm")
+    w = int(np.clip(len(s) // 15, 41, 151))
+    mp = max(10, w // 4)
+    foci = s["n_foci"].rolling(w, center=True, min_periods=mp).mean().to_numpy()
+    ce = s["central_element_mean_intensity"].rolling(w, center=True, min_periods=mp).median().to_numpy()
+    scl = s["sc_total_length_um"].fillna(0).rolling(w, center=True, min_periods=mp).median().to_numpy()
+
+    foci_thr = max(float(np.nanpercentile(foci, 25)) + 0.5, foci_thr_floor)
+    ce_thr = float(np.nanpercentile(ce, 30)) * ce_mult
+    early = (foci > foci_thr) | (ce > ce_thr)          # RAD-51-high / SYP-dense early & TZ
+    low_sc = scl < sc_floor_frac * float(np.nanpercentile(scl, 60))  # not-yet-synapsed
+    mask = (~early) & (~low_sc)
+
+    s = s.assign(is_pachytene=mask)
+    df = s.sort_index()
+    prev = df["zone_call"] if "zone_call" in df else pd.Series("pachytene", index=df.index)
+    df["zone_call"] = np.where(df["is_pachytene"], "pachytene",
+                               np.where(prev == "pachytene", "pachytene_excluded", prev))
+    return df, _pachytene_qc(mask, scl)
+
+
+def _pachytene_qc(mask: np.ndarray, scl_profile: np.ndarray) -> list[str]:
+    """Flag gonads whose pachytene call is untrustworthy (route to manual axis review)."""
+    flags: list[str] = []
+    frac = float(mask.mean())
+    if frac < 0.20:
+        flags.append(f"zones:pachytene_low_fraction_{frac:.2f}")
+    m = mask.astype(int)
+    runs = int((np.diff(m) == 1).sum() + (1 if len(m) and m[0] == 1 else 0))
+    if runs > 1:
+        flags.append(f"zones:pachytene_noncontiguous_{runs}runs")
+    prof = scl_profile[~np.isnan(scl_profile)]
+    d = np.diff(prof)
+    if len(d) > 2 and (np.all(d >= -1e-9) or np.all(d <= 1e-9)):
+        flags.append("zones:pachytene_monotone_sc_profile")  # no interior plateau -> unreliable
+    return flags
 
 
 def _zones_table(df, total_len, n_rows, boundary):

@@ -14,9 +14,12 @@ io:
   channel_map: config/channel_maps/n2_dapi_syp3_rad51.yaml
 
 # Sample metadata parsed from the filename. Named regex groups become columns.
-# Matches e.g. "20251105_n2_nohs_HERM _001", "20251021_n2_hs_MALE_2"
+# Handles both naming styles in the dataset:
+#   "20251105_n2_nohs_HERM _001", "20251021_n2_hs_MALE_2"   (sex = HERM/MALE)
+#   "20260521_n2_hs_dapi_rad51_syp1_M001", "..._HERM001"     (channel block in name; sex = H/M)
+# The (?:[a-z0-9]+_)*? lazily skips any channel/label tokens between treatment and the sex code.
 metadata:
-  filename_regex: '(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?P<treatment>nohs|hs)_(?P<sex>HERM|MALE)\s*_?(?P<replicate>\d+)?'
+  filename_regex: '(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?P<treatment>nohs|hs)_(?:[a-z0-9]+_)*?(?P<sex>HERM|MALE|H|M)\s*_?(?P<replicate>\d+)?\s*$'
   defaults: { genotype: unknown, sex: unknown, treatment: unknown, replicate: "NA" }
 
 segmentation:
@@ -31,7 +34,12 @@ sc:
   enabled: true
   channel: central_element     # SYP-3 here
   ridge_sigmas_um: [0.15, 0.25, 0.40]   # Sato tubeness scales (physical)
-  intensity_percentile: 99.0            # threshold after ridge filter
+  # threshold (ridge percentile inside each nucleus). 99 keeps only the brightest speck
+  # (~1um total/nucleus on real N2 data — ~20x too short); ~90 gives ~5um, ~80 gives ~9um.
+  # MUST be calibrated against Imaris/SNT per-nucleus SC lengths (docs/RUNBOOK.md §5). Lower
+  # also merges the 6 closely-packed SCs into fewer fragments — the dense-pachytene tradeoff
+  # (ARCHITECTURE.md Risk 1); validate fragment COUNTS against ground truth before trusting them.
+  intensity_percentile: 90.0
   min_fragment_length_um: 0.5           # ignore skeleton specks below this
   # headline readout for the heat phenotype = SC FRAGMENTATION:
   #   n_fragments per nucleus + fragment-length distribution + total length
@@ -50,10 +58,25 @@ zones:
   crescent_boundary: count_2plus   # count_2plus | pct_60   (NEVER 80% — see ARCHITECTURE.md)
   pachytene_thirds: true
   axis_bin_um: 5.0             # row width for zone scoring along the germline axis
+  # crescent call: a nucleus is "polarized" (TZ-like) if its DAPI weighted-vs-geometric
+  # centroid offset exceeds this many nuclear radii. Tune per dataset/resolution — real N2
+  # data tops out ~0.13 at full res, so 0.18 finds no TZ (see docs/RUNBOOK.md §2).
+  polarization_threshold: 0.10
+  # Pachytene refinement (gradient-window): restrict the SC fragment readout to pachytene so the
+  # whole-arm average doesn't dilute the heat phenotype. Gates on RAD-51 foci + SYP density
+  # (early/TZ markers, INDEPENDENT of the SC count it restricts) + an SC-length floor. ADDITIVE:
+  # adds is_pachytene + *_pachytene means alongside the whole-germline numbers, never replacing
+  # them. v1 — calibrate thresholds vs Imaris/hand-scored zones before trusting restricted means.
+  pachytene_refine: true
+  pachytene_foci_thr_floor: 0.6   # RAD-51 foci/nucleus floor above which a region reads as early/TZ
+  pachytene_ce_mult: 1.35         # SYP-density (central_element) early-cutoff = this x the p30 level
+  pachytene_sc_floor_frac: 0.45   # keep nuclei with SC length >= this x the p60 level (synapsed)
 
 axis:
-  method: auto                 # auto (PCA/principal-curve through nucleus centroids) | manual
-  qc_confidence_min: 0.60      # below this -> flag for a manual axis-draw (semi-automated v1)
+  method: auto                 # auto (principal-curve centerline through nucleus centroids) | manual
+  # below this -> flag for a manual axis-draw. This is an "is there an axis at all" gate: it
+  # scales with germline tube width, so a healthy (thick) gonad reads ~0.5; a diffuse blob ~0.
+  qc_confidence_min: 0.35
 
 granules:                      # generic 3D-object module (off the critical path; none in N2 data)
   enabled: false               # needs a channel map with a `granule` role to do anything

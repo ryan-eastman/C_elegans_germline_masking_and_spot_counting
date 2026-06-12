@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 # herm = oocytes (6 SCs), male = spermatocytes (5 SCs — X is a univalent)
+_SEX_CANON = {"h": "herm", "herm": "herm", "m": "male", "male": "male"}  # filenames use H/M or HERM/MALE
 _SEX_TO_GERMCELL = {"herm": "oocyte", "male": "spermatocyte"}
 _TREATMENT_CANON = {"hs": "heat", "nohs": "control"}
 
@@ -36,7 +37,7 @@ def parse_sample(path: str | Path, regex: str, defaults: dict | None = None) -> 
             t = g["treatment"].lower()
             fields["treatment"] = _TREATMENT_CANON.get(t, t)
         if "sex" in g:
-            s = g["sex"].lower()
+            s = _SEX_CANON.get(g["sex"].lower(), g["sex"].lower())
             fields["sex"] = s
             fields["germ_cell"] = _SEX_TO_GERMCELL.get(s, "unknown")
         if "replicate" in g:
