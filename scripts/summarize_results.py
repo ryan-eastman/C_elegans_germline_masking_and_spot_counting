@@ -27,13 +27,23 @@ def _per_image(results_dir: str) -> pd.DataFrame:
         scf = nf.replace("__nuclei.csv", "__sc_per_nucleus.csv")
         sc = pd.read_csv(scf) if os.path.exists(scf) else pd.DataFrame(columns=["n_fragments", "sc_total_length_um"])
         traced = sc[sc["n_fragments"] > 0] if "n_fragments" in sc else sc
+        # pachytene-restricted fragment mean (gradient-window), applied on the fly so this works
+        # on outputs produced before the refinement existed
+        frags_pach = float("nan")
+        if {"sc_n_fragments", "n_foci", "central_element_mean_intensity", "sc_total_length_um", "axis_position_norm"}.issubset(n.columns):
+            from germquant.zones.calling import refine_pachytene
+            ref, _ = refine_pachytene(n)
+            kept = ref[ref["is_pachytene"]]
+            if len(kept):
+                frags_pach = round(kept["sc_n_fragments"].mean(), 2)
         rows.append({
             "image_id": meta.get("image_id"),
             "sex": meta.get("sex"), "treatment": meta.get("treatment"),
             "germ_cell": meta.get("germ_cell"), "n_nuclei": len(n),
             "mean_foci": round(n["n_foci"].mean(), 2) if "n_foci" in n else float("nan"),
             "sc_traced_pct": round(100 * (sc["n_fragments"] > 0).mean()) if len(sc) else 0,
-            "mean_frags_traced": round(traced["n_fragments"].mean(), 2) if len(traced) else 0.0,
+            "mean_frags_whole": round(traced["n_fragments"].mean(), 2) if len(traced) else 0.0,
+            "mean_frags_pachytene": frags_pach,
             "mean_sclen_traced_um": round(traced["sc_total_length_um"].mean(), 2) if len(traced) else 0.0,
         })
     return pd.DataFrame(rows).sort_values(["treatment", "sex", "image_id"], ignore_index=True)
@@ -45,7 +55,8 @@ def _by_condition(per_image: pd.DataFrame) -> pd.DataFrame:
         n_gonads=("image_id", "size"),
         nuclei=("n_nuclei", "mean"),
         foci=("mean_foci", "mean"),
-        sc_frags=("mean_frags_traced", "mean"),
+        sc_frags_whole=("mean_frags_whole", "mean"),
+        sc_frags_pachytene=("mean_frags_pachytene", "mean"),
         sc_len_um=("mean_sclen_traced_um", "mean"),
     ).round(2).reset_index()
     return out

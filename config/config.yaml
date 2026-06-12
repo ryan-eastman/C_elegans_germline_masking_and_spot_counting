@@ -62,6 +62,15 @@ zones:
   # centroid offset exceeds this many nuclear radii. Tune per dataset/resolution — real N2
   # data tops out ~0.13 at full res, so 0.18 finds no TZ (see docs/RUNBOOK.md §2).
   polarization_threshold: 0.10
+  # Pachytene refinement (gradient-window): restrict the SC fragment readout to pachytene so the
+  # whole-arm average doesn't dilute the heat phenotype. Gates on RAD-51 foci + SYP density
+  # (early/TZ markers, INDEPENDENT of the SC count it restricts) + an SC-length floor. ADDITIVE:
+  # adds is_pachytene + *_pachytene means alongside the whole-germline numbers, never replacing
+  # them. v1 — calibrate thresholds vs Imaris/hand-scored zones before trusting restricted means.
+  pachytene_refine: true
+  pachytene_foci_thr_floor: 0.6   # RAD-51 foci/nucleus floor above which a region reads as early/TZ
+  pachytene_ce_mult: 1.35         # SYP-density (central_element) early-cutoff = this x the p30 level
+  pachytene_sc_floor_frac: 0.45   # keep nuclei with SC length >= this x the p60 level (synapsed)
 
 axis:
   method: auto                 # auto (principal-curve centerline through nucleus centroids) | manual
