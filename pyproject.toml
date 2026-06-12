@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "germquant"
+version = "0.1.0"
+description = "Reproducible 3D quantification of the C. elegans meiotic germline from confocal .nd2 z-stacks"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Ryan Eastman" }]
+dependencies = [
+  "nd2>=0.10",
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "scikit-image>=0.22",   # needs `spacing=` support in regionprops/marching_cubes
+  "pandas>=2.0",
+  "pyarrow>=14",          # parquet
+  "pyyaml>=6",
+  "matplotlib>=3.7",
+  "dask>=2023.1",
+  "tifffile>=2023.7",
+]
+
+[project.optional-dependencies]
+# Heavy / GPU stages — installed on the 5090 workstation / HPC, not needed for the core path.
+sc  = ["skan>=0.11"]                       # SC skeleton length (pulls numba)
+gpu = ["torch>=2.7", "cellpose>=3.1"]      # 3D nucleus segmentation on CUDA (sm_120 -> cu128 wheel)
+viz = ["napari[all]>=0.4.19", "napari-animation>=0.0.8"]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[project.scripts]
+germquant = "germquant.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100

@@ -1,0 +1,16 @@
+# Build the .sif from the Docker image (rootless, daemonless — HPC-friendly):
+#   docker build -t germquant:gpu .
+#   apptainer build germquant.sif docker-daemon://germquant:gpu
+# Run on a SLURM GPU node:
+#   apptainer exec --nv germquant.sif germquant batch /nas/in --config config/config.yaml --out /nas/out
+Bootstrap: docker-daemon
+From: germquant:gpu
+
+%labels
+    Description germquant — C. elegans germline 3D quantification (GPU)
+
+%post
+    germquant --help >/dev/null 2>&1 || true
+
+%runscript
+    exec germquant "$@"

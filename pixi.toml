@@ -1,0 +1,55 @@
+# Pinned, multi-platform environment. Run `pixi install` to generate pixi.lock (commit it).
+# `pixi run -e gpu ...` on the RTX 5090 / HPC; default env works CPU-only (M4 / laptop).
+[project]
+name = "celegans-germline-quant"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64", "osx-arm64"]
+
+# ---- core scientific stack (conda-forge) ----
+[dependencies]
+python = "3.11.*"
+numpy = ">=1.26,<2.2"
+scipy = "*"
+scikit-image = "0.24.*"      # pinned: 0.26 changed remove_small_objects semantics
+pandas = "2.2.*"
+pyarrow = ">=14"
+pyyaml = ">=6"
+matplotlib-base = ">=3.7"
+dask = ">=2024.1"
+tifffile = ">=2024.1"
+skan = ">=0.11"              # SC skeleton length (pulls numba)
+
+[pypi-dependencies]
+nd2 = ">=0.10"
+germquant = { path = ".", editable = true }
+
+# ---- GPU feature: Cellpose-SAM on CUDA. Blackwell (sm_120) needs cu128 wheels. ----
+[feature.gpu]
+platforms = ["linux-64"]
+[feature.gpu.pypi-dependencies]
+torch = { version = ">=2.7", index = "https://download.pytorch.org/whl/cu128" }
+cellpose = ">=3.1"
+
+# ---- batch orchestration ----
+[feature.workflow.dependencies]
+"snakemake-minimal" = ">=8"
+"snakemake-executor-plugin-slurm" = "*"
+
+# ---- interactive 3D renders ----
+[feature.viz.pypi-dependencies]
+napari = { version = ">=0.4.19", extras = ["all"] }
+napari-animation = "*"
+
+[feature.dev.dependencies]
+pytest = ">=7"
+ruff = ">=0.4"
+
+[environments]
+default = ["workflow"]
+gpu = ["gpu", "workflow", "viz"]
+dev = ["dev", "workflow"]
+
+[tasks]
+test = "pytest -q"
+# assert the GPU is the 5090 (sm_120) before trusting the lock — see ARCHITECTURE.md §4
+check-gpu = "python -c \"import torch; cc=torch.cuda.get_device_capability(); print('CUDA cap', cc); assert cc==(12,0), cc\""

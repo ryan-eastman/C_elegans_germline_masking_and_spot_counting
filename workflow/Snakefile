@@ -1,0 +1,74 @@
+# Batch the germline pipeline over a NAS folder, one job per .nd2, mirroring the input
+# tree onto the output tree. Jobs are keyed by integer index so filenames with spaces
+# (e.g. "...HERM _001.nd2") never break wildcard/shell quoting.
+#
+#   # local / workstation (GPU):
+#   snakemake -s workflow/Snakefile --configfile workflow/config.yaml --cores 8
+#   # HPC (SLURM, one GPU per job):
+#   snakemake -s workflow/Snakefile --configfile workflow/config.yaml \
+#             --workflow-profile config/profiles/slurm
+import fnmatch
+from pathlib import Path
+
+configfile: "workflow/config.yaml"
+
+INPUT_ROOT  = Path(config["input_root"]).resolve()
+OUTPUT_ROOT = Path(config["output_root"]).resolve()
+GQ_CONFIG   = config["germquant_config"]
+EXCLUDE     = config.get("exclude_patterns", [])
+XY_STRIDE   = int(config.get("xy_stride", 1))
+
+
+def _discover():
+    files = []
+    for p in sorted(INPUT_ROOT.rglob("*.nd2")):
+        name = p.name.lower()
+        if any(fnmatch.fnmatch(name, pat.lower()) for pat in EXCLUDE):
+            continue
+        files.append(p)
+    return files
+
+FILES = _discover()
+# per-job out dir mirrors the input tree: <out>/<relative parent>/<stem>/
+OUT_DIRS = [OUTPUT_ROOT / p.relative_to(INPUT_ROOT).parent / p.stem for p in FILES]
+IDX = list(range(len(FILES)))
+
+if not FILES:
+    print(f"[germquant] WARNING: no .nd2 under {INPUT_ROOT}")
+
+
+rule all:
+    input:
+        expand(str(OUTPUT_ROOT / "_done" / "{idx}.done"), idx=IDX),
+        str(OUTPUT_ROOT / "batch_summary.csv"),
+
+
+rule process_one:
+    output:
+        touch(OUTPUT_ROOT / "_done" / "{idx}.done"),
+    params:
+        nd2=lambda wc: str(FILES[int(wc.idx)]),
+        outdir=lambda wc: str(OUT_DIRS[int(wc.idx)]),
+        cfg=GQ_CONFIG,
+        stride=XY_STRIDE,
+    resources:
+        gpu=1,
+    shell:
+        r'germquant run "{params.nd2}" --config "{params.cfg}" '
+        r'--out "{params.outdir}" --xy-stride {params.stride}'
+
+
+rule batch_summary:
+    # collect every per-image image_summary into one table for R/Positron
+    input:
+        expand(str(OUTPUT_ROOT / "_done" / "{idx}.done"), idx=IDX),
+    output:
+        str(OUTPUT_ROOT / "batch_summary.csv"),
+    run:
+        import glob
+        import pandas as pd
+
+        rows = [pd.read_csv(f) for f in glob.glob(str(OUTPUT_ROOT / "**" / "*__image_summary.csv"), recursive=True)]
+        df = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+        df.to_csv(output[0], index=False)
+        print(f"[germquant] wrote {output[0]} ({len(df)} images)")

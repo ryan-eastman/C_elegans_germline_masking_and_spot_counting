@@ -1,0 +1,6 @@
+# Snakemake batch config. Point input_root at the NAS folder; outputs mirror its tree.
+input_root: "/path/to/nas/madeleine_images"
+output_root: "/path/to/nas/madeleine_results"
+germquant_config: "config/config.yaml"
+exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*"]
+xy_stride: 1            # 1 = full resolution (use the GPU); >1 only for quick tests

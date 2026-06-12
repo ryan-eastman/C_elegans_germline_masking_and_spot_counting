@@ -1,0 +1,70 @@
+# =============================================================================
+# germquant — global pipeline config.  Everything tunable lives here or in the
+# referenced channel map.  Lengths/volumes are ALWAYS in microns (voxel size is
+# read from each .nd2 and threaded through every 3D op — never hardcoded).
+# =============================================================================
+project: celegans-germline-quant
+
+io:
+  # which files to process when pointed at a folder (NAS root)
+  input_glob: "**/*.nd2"
+  # skip the 2D whole-slide overview scans (single-channel, no z) — not SC-quant
+  exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*"]
+  # fluor -> biological role mapping for THIS experiment
+  channel_map: config/channel_maps/n2_dapi_syp3_rad51.yaml
+
+# Sample metadata parsed from the filename. Named regex groups become columns.
+# Matches e.g. "20251105_n2_nohs_HERM _001", "20251021_n2_hs_MALE_2"
+metadata:
+  filename_regex: '(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?P<treatment>nohs|hs)_(?P<sex>HERM|MALE)\s*_?(?P<replicate>\d+)?'
+  defaults: { genotype: unknown, sex: unknown, treatment: unknown, replicate: "NA" }
+
+segmentation:
+  nuclei:
+    method: auto          # cellpose | classical | auto (cellpose if importable, else classical)
+    cellpose_model: cpsam # 'cpsam' (Cellpose-SAM) or a path to a fine-tuned germline model
+    diameter_um: 3.0      # approx pachytene nucleus diameter; -> pixels via voxel size
+    min_volume_um3: 4.0   # drop debris below this
+    channel: dna
+
+sc:
+  enabled: true
+  channel: central_element     # SYP-3 here
+  ridge_sigmas_um: [0.15, 0.25, 0.40]   # Sato tubeness scales (physical)
+  intensity_percentile: 99.0            # threshold after ridge filter
+  min_fragment_length_um: 0.5           # ignore skeleton specks below this
+  # headline readout for the heat phenotype = SC FRAGMENTATION:
+  #   n_fragments per nucleus + fragment-length distribution + total length
+
+foci:
+  enabled: true
+  channel: foci                # RAD-51 here
+  min_sigma_um: 0.10
+  max_sigma_um: 0.35
+  threshold_rel: 0.10          # blob_log relative threshold
+  count_in: all_zones          # RAD-51 across zones; crossover markers -> late_pachytene only
+
+zones:
+  enabled: true
+  method: auto                 # dapi_crescent | synapsis_state | auto(dapi if present else synapsis)
+  crescent_boundary: count_2plus   # count_2plus | pct_60   (NEVER 80% — see ARCHITECTURE.md)
+  pachytene_thirds: true
+  axis_bin_um: 5.0             # row width for zone scoring along the germline axis
+
+axis:
+  method: auto                 # auto (PCA/principal-curve through nucleus centroids) | manual
+  qc_confidence_min: 0.60      # below this -> flag for a manual axis-draw (semi-automated v1)
+
+granules:                      # generic 3D-object module (off the critical path; none in N2 data)
+  enabled: false
+  channel: granule
+  threshold_method: li
+
+render:
+  montage: true
+  scalebar_um: 10
+
+output:
+  dir: null                    # null => mirror the input tree under <input_root>/../results
+  formats: [csv, parquet]
+  write_label_images: true     # save nucleus label masks (tif) for QC / re-use

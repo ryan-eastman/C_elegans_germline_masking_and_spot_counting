@@ -1,0 +1,21 @@
+# Snakemake 8+ SLURM profile.  Fill in <PARTITION>/<ACCOUNT> for your HPC, then:
+#   snakemake -s workflow/Snakefile --configfile workflow/config.yaml --workflow-profile config/profiles/slurm
+executor: slurm
+jobs: 32                      # max concurrent SLURM jobs
+latency-wait: 60
+default-resources:
+  slurm_partition: "<PARTITION>"     # e.g. "gpu"
+  slurm_account: "<ACCOUNT>"
+  mem_mb: 48000
+  runtime: 180                       # minutes
+  cpus_per_task: 4
+  # request 1 GPU per job (Cellpose-SAM). Adjust gres name to your cluster.
+  slurm_extra: "'--gres=gpu:1'"
+set-resources:
+  process_one:
+    mem_mb: 64000
+    runtime: 240
+    slurm_extra: "'--gres=gpu:1'"
+# Note: run inside the Apptainer image, e.g. by making `germquant` resolve to
+#   `apptainer exec --nv germquant.sif germquant`  (wrapper on PATH), or add a
+#   `singularity:` directive + `--use-singularity` if you prefer Snakemake-managed containers.

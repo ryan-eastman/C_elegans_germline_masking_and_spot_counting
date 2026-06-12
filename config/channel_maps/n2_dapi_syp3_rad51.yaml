@@ -1,0 +1,21 @@
+# Channel map for the N2 heat-shock SC dataset.
+# .nd2 channels are named by laser line (405/477/545), so we match on those names
+# (case-insensitive substring) and fall back to channel index if a name is missing.
+# `marker` is the antibody label that appears in the output tables / figures.
+match_by: name            # name | index
+roles:
+  dna:
+    names: ["405", "DAPI", "Hoechst"]
+    index: 0
+    required: true
+    marker: DAPI
+  central_element:          # the SC channel traced for length / fragmentation
+    names: ["477", "SYP-3", "SYP3", "SYP-1", "SYP1"]
+    index: 1
+    required: true
+    marker: SYP-3
+  foci:                     # DNA-damage foci counted per nucleus
+    names: ["545", "RAD-51", "RAD51"]
+    index: 2
+    required: false
+    marker: RAD-51

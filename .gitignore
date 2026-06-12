@@ -1,0 +1,39 @@
+# ---- data & outputs (never commit raw microscopy or results) ----
+data/
+!data/README.md
+outputs/
+results/
+*.nd2
+*.tif
+*.tiff
+*.ome.tif
+*.ome.tiff
+*.czi
+*.lif
+*.h5
+*.zarr/
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+env/
+.pixi/
+*.egg-info/
+build/
+dist/
+
+# ---- snakemake ----
+.snakemake/
+
+# ---- R / positron ----
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# ---- os / editor ----
+.DS_Store
+.vscode/
+.idea/
