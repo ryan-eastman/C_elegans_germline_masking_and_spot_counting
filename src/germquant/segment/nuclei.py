@@ -57,7 +57,9 @@ def _cellpose(dna, spacing, model_name, diameter_um) -> np.ndarray:
     else:
         model = models.CellposeModel(gpu=True, pretrained_model=model_name)
         kw = {"diameter": diameter_um / spacing[1]}
-    out = model.eval(dna, do_3D=True, anisotropy=anisotropy, **kw)
+    # dna is a single-channel (Z, Y, X) volume: Cellpose 4.x (SAM) requires an explicit z_axis
+    # (and no channel axis) for a 3-D array, else it raises "z_axis must be specified".
+    out = model.eval(dna, do_3D=True, z_axis=0, channel_axis=None, anisotropy=anisotropy, **kw)
     masks = out[0] if isinstance(out, (list, tuple)) else out
     return np.asarray(masks).astype(np.int32)
 
