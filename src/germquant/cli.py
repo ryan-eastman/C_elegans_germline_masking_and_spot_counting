@@ -62,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
     pf.add_argument("--epochs", type=int, default=100)
     pf.add_argument("--print-only", action="store_true", help="print the command, don't run")
 
+    sub.add_parser("check-gpu", help="assert the GPU is a Blackwell sm_120 (RTX 5090) with cu128 torch")
+
     args = p.parse_args(argv)
     _force_utf8_stdio()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -73,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         "validate": lambda: _validate(args),
         "prep-training": lambda: _prep_training(args),
         "finetune": lambda: _finetune(args),
+        "check-gpu": lambda: _check_gpu(),
     }[args.cmd]()
 
 
@@ -222,6 +225,29 @@ def _finetune(args) -> int:
 
     finetune_cellpose(args.labeled_dir, args.out_model, pretrained=args.pretrained,
                       n_epochs=args.epochs, run=not args.print_only)
+    return 0
+
+
+def _check_gpu() -> int:
+    """Assert the GPU is a Blackwell sm_120 (RTX 5090) on a cu128 torch wheel. Returns nonzero
+    if torch/CUDA is missing or the capability isn't (12, 0) — wire into CI/containers before
+    trusting a run (ARCHITECTURE.md §4)."""
+    try:
+        import torch
+    except Exception as e:  # noqa: BLE001
+        print(f"torch not importable ({e}); install germquant[gpu] on the 5090/HPC.", file=sys.stderr)
+        return 1
+    if not torch.cuda.is_available():
+        print("CUDA not available to torch (CPU-only build or no GPU visible).", file=sys.stderr)
+        return 1
+    cap = torch.cuda.get_device_capability()
+    name = torch.cuda.get_device_name(0)
+    print(f"torch {torch.__version__}  device={name}  CUDA cap {tuple(cap)}")
+    if tuple(cap) != (12, 0):
+        print(f"WARNING: expected sm_120 (12, 0) for the RTX 5090; got {tuple(cap)}. "
+              "If this isn't a 5090 that's fine; if it is, the torch wheel didn't match "
+              "Blackwell — reinstall from the cu128 index (ARCHITECTURE.md §4).", file=sys.stderr)
+        return 1
     return 0
 
 

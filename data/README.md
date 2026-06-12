@@ -12,8 +12,10 @@ plenty (ideally one HERM/oocyte and one MALE/spermatocyte; control + heat if eas
                     --out results_test/ --xy-stride 4      # CPU smoke (classical seg)
 
 ## ground_truth/
-Imaris (or Fiji/SNT) hand quantifications, as CSV or Excel, for `germquant validate`.
-Most useful layout = **one row per nucleus** with a join key:
+Imaris (or Fiji/SNT) hand quantifications, as CSV, for `germquant validate` /
+`scripts/run_and_validate.sh`. Two files (names matter — the script looks for them):
+
+**`per_nucleus.csv`** — one row per nucleus with a join key:
 
 | column                  | meaning                                              |
 |-------------------------|------------------------------------------------------|
@@ -23,7 +25,7 @@ Most useful layout = **one row per nucleus** with a join key:
 | `n_fragments`           | number of SC filaments/fragments per nucleus         |
 | `n_foci`                | RAD-51 foci per nucleus                               |
 
-Per-germline zone truth (one row per image is fine):
+**`zones.csv`** — one row per image:
 
 | column                  | meaning                                              |
 |-------------------------|------------------------------------------------------|
@@ -33,3 +35,4 @@ Per-germline zone truth (one row per image is fine):
 
 If Imaris nucleus numbering can't be matched to the pipeline's, that's fine — provide
 per-image values and we validate at the distribution level (means/medians, CCC) instead.
+Don't have all columns? Provide what you have; the script skips the rest.

@@ -14,6 +14,21 @@ If `check-gpu` fails, the torch wheel didn't match Blackwell — reinstall torch
 `cu128` index (see ARCHITECTURE.md §4). Each gonad stack is ~3 GB in RAM; ≥32 GB system RAM
 recommended.
 
+### 0b. Native Windows on the 5090 (verified, no pixi)
+`pixi.toml` targets linux-64/osx-arm64; on a native-Windows 5090 box use `uv` instead. These
+exact steps were verified to give CUDA cap `(12, 0)` and a working Cellpose-SAM 3D run
+(torch 2.11.0+cu128, cellpose 4.2.0, RTX 5090):
+```powershell
+uv venv --python 3.11
+uv pip install -e ".[dev,sc]"
+uv pip install --index-url https://download.pytorch.org/whl/cu128 "torch>=2.7"
+uv pip install "cellpose>=3.1"
+.venv\Scripts\python -m germquant.cli check-gpu      # -> CUDA cap (12, 0)
+```
+Then `.venv\Scripts\python -m germquant.cli run ...` (or `scripts\run_and_validate.sh` under
+Git Bash). Note: Cellpose-SAM downloads a ~1.15 GB model on first use and needs an explicit
+`z_axis` for 3-D arrays — handled in `segment/nuclei.py`.
+
 ## 1. Sanity-check one stack end-to-end (full res, GPU)
 ```bash
 germquant info "/nas/.../20251105_n2_nohs_HERM _001.nd2"     # confirm voxel/channels
