@@ -14,9 +14,12 @@ io:
   channel_map: config/channel_maps/n2_dapi_syp3_rad51.yaml
 
 # Sample metadata parsed from the filename. Named regex groups become columns.
-# Matches e.g. "20251105_n2_nohs_HERM _001", "20251021_n2_hs_MALE_2"
+# Handles both naming styles in the dataset:
+#   "20251105_n2_nohs_HERM _001", "20251021_n2_hs_MALE_2"   (sex = HERM/MALE)
+#   "20260521_n2_hs_dapi_rad51_syp1_M001", "..._HERM001"     (channel block in name; sex = H/M)
+# The (?:[a-z0-9]+_)*? lazily skips any channel/label tokens between treatment and the sex code.
 metadata:
-  filename_regex: '(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?P<treatment>nohs|hs)_(?P<sex>HERM|MALE)\s*_?(?P<replicate>\d+)?'
+  filename_regex: '(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?P<treatment>nohs|hs)_(?:[a-z0-9]+_)*?(?P<sex>HERM|MALE|H|M)\s*_?(?P<replicate>\d+)?\s*$'
   defaults: { genotype: unknown, sex: unknown, treatment: unknown, replicate: "NA" }
 
 segmentation:
