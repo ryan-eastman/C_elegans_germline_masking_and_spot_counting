@@ -56,9 +56,10 @@ axis:
   qc_confidence_min: 0.60      # below this -> flag for a manual axis-draw (semi-automated v1)
 
 granules:                      # generic 3D-object module (off the critical path; none in N2 data)
-  enabled: false
+  enabled: false               # needs a channel map with a `granule` role to do anything
   channel: granule
-  threshold_method: li
+  threshold_method: li         # li | otsu
+  min_volume_um3: 0.05         # drop sub-resolution specks
 
 render:
   montage: true

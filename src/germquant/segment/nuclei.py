@@ -37,13 +37,27 @@ def segment_nuclei(
 
 
 def _cellpose(dna, spacing, model_name, diameter_um) -> np.ndarray:
+    """Run Cellpose 3D. NOTE: the Cellpose API has drifted across 3.x -> SAM(4.x). Verify
+    against the version pinned for your GPU before the first real run (this path is untested
+    on CPU/CI). Two known sensitivities, handled below:
+      * Cellpose-SAM ('cpsam') is diameter-agnostic — `diameter` is ignored for it, so we
+        only pass diameter for a non-SAM/fine-tuned model.
+      * the built-in SAM model loads via the default CellposeModel; a fine-tuned germline
+        model loads via `pretrained_model=<path>`.
+    method='auto' swallows any failure here and falls back to the classical watershed; only
+    method='cellpose' re-raises (see segment_nuclei).
+    """
     from cellpose import models
 
-    anisotropy = spacing[0] / spacing[1]          # dz / dy
-    diameter_px = diameter_um / spacing[1]
-    model = models.CellposeModel(gpu=True, pretrained_model=model_name)
-    # Cellpose-SAM 3D: do_3D with explicit anisotropy is the key correctness knob.
-    out = model.eval(dna, do_3D=True, anisotropy=anisotropy, diameter=diameter_px)
+    anisotropy = spacing[0] / spacing[1]          # dz / dy (the key 3D correctness knob)
+    is_sam = str(model_name).lower() in ("cpsam", "sam", "")
+    if is_sam:
+        model = models.CellposeModel(gpu=True)
+        kw = {}                                   # SAM ignores diameter
+    else:
+        model = models.CellposeModel(gpu=True, pretrained_model=model_name)
+        kw = {"diameter": diameter_um / spacing[1]}
+    out = model.eval(dna, do_3D=True, anisotropy=anisotropy, **kw)
     masks = out[0] if isinstance(out, (list, tuple)) else out
     return np.asarray(masks).astype(np.int32)
 

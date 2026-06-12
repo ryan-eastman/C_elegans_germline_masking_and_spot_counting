@@ -36,7 +36,6 @@ def make_montage(
     import matplotlib.pyplot as plt
     from skimage.segmentation import find_boundaries
 
-    role_cmaps = {"dna": "gray", "central_element": "green", "foci": "magenta", "axis": "cyan"}
     panels = [(r, i) for r, i in role_to_idx.items() if i is not None]
     n = len(panels) + (1 if labels is not None else 0)
     n = max(n, 1)
@@ -50,7 +49,8 @@ def make_montage(
 
     k = 0
     for role, idx in panels:
-        ax = axes[k]; k += 1
+        ax = axes[k]
+        k += 1
         mip = _norm(_mip(stack.data[idx]))
         ax.imshow(mip, cmap="gray")
         ax.set_title(f"{role} (ch{idx})", fontsize=9)

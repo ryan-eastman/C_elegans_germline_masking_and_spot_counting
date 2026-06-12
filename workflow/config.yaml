@@ -2,5 +2,8 @@
 input_root: "/path/to/nas/madeleine_images"
 output_root: "/path/to/nas/madeleine_results"
 germquant_config: "config/config.yaml"
-exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*"]
+# input_glob / exclude_patterns default to the germquant config's io section (single source
+# of truth, shared with `germquant batch`). Uncomment to override just for this batch:
+# input_glob: "**/*.nd2"
+# exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*"]
 xy_stride: 1            # 1 = full resolution (use the GPU); >1 only for quick tests

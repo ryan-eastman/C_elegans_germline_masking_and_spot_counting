@@ -3,6 +3,7 @@ size into the output folder, so every CSV row traces back to exact code + parame
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from datetime import datetime, timezone
@@ -12,11 +13,36 @@ from pathlib import Path
 _TOOLS = ["germquant", "nd2", "numpy", "scipy", "scikit-image", "pandas", "skan", "cellpose", "torch"]
 
 
+def _repo_root() -> Path | None:
+    """Walk up from this source file looking for the repo root (a .git dir or pixi.lock)."""
+    here = Path(__file__).resolve()
+    for d in (here, *here.parents):
+        if (d / ".git").exists() or (d / "pixi.lock").exists() or (d / "pyproject.toml").exists():
+            return d
+    return None
+
+
 def _repo_dir(repo: str | Path | None) -> str:
     """Default to the germquant source repo, not the process cwd."""
     if repo is not None:
         return str(repo)
-    return str(Path(__file__).resolve().parent)
+    root = _repo_root()
+    return str(root) if root is not None else str(Path(__file__).resolve().parent)
+
+
+def lockfile_sha256() -> str:
+    """sha256 of pixi.lock if present — the ARCHITECTURE §4 reproducibility anchor.
+
+    Returns 'absent' when no lockfile is committed (e.g. a pip/uv install), so the manifest
+    states honestly whether the run was pinned to a resolved environment.
+    """
+    root = _repo_root()
+    if root is None:
+        return "absent"
+    lock = root / "pixi.lock"
+    if not lock.exists():
+        return "absent"
+    return hashlib.sha256(lock.read_bytes()).hexdigest()
 
 
 def git_sha(repo: str | Path | None = None) -> str:
@@ -54,6 +80,7 @@ def write_manifest(out_dir: str | Path, *, config_hash: str, config: dict, extra
     manifest = {
         "pipeline_version": _safe_version("germquant"),
         "git_sha": git_sha(),
+        "pixi_lock_sha256": lockfile_sha256(),
         "config_hash": config_hash,
         "run_timestamp": run_timestamp(),
         "tool_versions": tool_versions(),

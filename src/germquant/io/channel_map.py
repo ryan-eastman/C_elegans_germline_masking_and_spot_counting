@@ -41,8 +41,12 @@ class ChannelMap:
     def resolve(self, channel_names: list[str]) -> tuple[dict[str, int | None], list[str]]:
         """Return ({role: channel_index_or_None}, [qc_flags]).
 
-        Name match is case-insensitive substring (so '477' matches 'Widefield 477').
-        Falls back to the configured index when the name is missing.
+        Name match (match_by=='name') is a case-insensitive substring test: the configured
+        token must appear *in* the actual channel name (e.g. '477' matches 'Widefield 477').
+        The match is one-directional on purpose — an earlier version also tested ``c in w``,
+        which made an empty/blank channel name ('' in 'dapi' == True) silently match the first
+        role and swap DAPI/SYP/RAD-51. Blank channel names are skipped here for the same reason.
+        Falls back to the configured ``index`` when the name doesn't match (or in index mode).
         """
         lowered = [str(c).lower() for c in channel_names]
         n = len(channel_names)
@@ -53,17 +57,32 @@ class ChannelMap:
             idx: int | None = None
             if self.match_by == "name":
                 for want in spec.names:
-                    w = want.lower()
-                    hit = next((i for i, c in enumerate(lowered) if w in c or c in w), None)
+                    w = want.lower().strip()
+                    if not w:
+                        continue
+                    hit = next((i for i, c in enumerate(lowered) if c and w in c), None)
                     if hit is not None:
                         idx = hit
                         break
-            if idx is None and spec.index is not None and spec.index < n:
-                idx = spec.index
-                flags.append(f"channel:{role}:name_unmatched_used_index_{spec.index}")
+                if idx is None and spec.index is not None and spec.index < n:
+                    idx = spec.index
+                    flags.append(f"channel:{role}:name_unmatched_used_index_{spec.index}")
+            else:  # match_by == "index": the configured index is the primary resolution
+                if spec.index is not None and spec.index < n:
+                    idx = spec.index
             if idx is None and spec.required:
                 flags.append(f"channel:{role}:MISSING_REQUIRED")
             mapping[role] = idx
+
+        # two roles must never resolve to the same channel (they'd read identical pixels)
+        seen: dict[int, str] = {}
+        for role, i in mapping.items():
+            if i is None:
+                continue
+            if i in seen:
+                flags.append(f"channel:role_collision:{seen[i]}={role}=idx{i}")
+            else:
+                seen[i] = role
         return mapping, flags
 
     def marker(self, role: str) -> str:

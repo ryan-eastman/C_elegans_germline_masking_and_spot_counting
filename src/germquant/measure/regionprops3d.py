@@ -20,8 +20,12 @@ def surface_area_um2(mask: np.ndarray, spacing: tuple[float, float, float]) -> f
 
     if mask.sum() == 0:
         return float("nan")
+    # pad a 1-voxel background border so an object that fills its bounding box still presents a
+    # closed surface to marching_cubes (otherwise the all-foreground crop has no level-0.5
+    # crossing and it raises -> NaN).
+    padded = np.pad(mask.astype(np.uint8), 1, mode="constant")
     try:
-        verts, faces, _, _ = marching_cubes(mask.astype(np.uint8), level=0.5, spacing=spacing)
+        verts, faces, _, _ = marching_cubes(padded, level=0.5, spacing=spacing)
         return float(mesh_surface_area(verts, faces))
     except (ValueError, RuntimeError):
         return float("nan")

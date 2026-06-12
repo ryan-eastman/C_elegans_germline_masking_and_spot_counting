@@ -109,7 +109,9 @@ def segmentation_metrics(pred_labels: np.ndarray, gt_labels: np.ndarray, iou_thr
         p, g = int(pi[k]), int(gi[k])
         if p in used_p or g in used_g:
             continue
-        used_p.add(p); used_g.add(g); matched_ious.append(float(iou[p, g]))
+        used_p.add(p)
+        used_g.add(g)
+        matched_ious.append(float(iou[p, g]))
 
     tp = len(matched_ious)
     fp = len(pred_ids) - tp
@@ -126,10 +128,12 @@ def segmentation_metrics(pred_labels: np.ndarray, gt_labels: np.ndarray, iou_thr
 
 def _iou_matrix(pred: np.ndarray, gt: np.ndarray):
     """IoU between every (pred, gt) instance pair, excluding background (label 0)."""
-    p = pred.ravel(); g = gt.ravel()
+    p = pred.ravel()
+    g = gt.ravel()
     fg = (p > 0) | (g > 0)
     p, g = p[fg], g[fg]
-    pu = np.unique(p[p > 0]); gu = np.unique(g[g > 0])
+    pu = np.unique(p[p > 0])
+    gu = np.unique(g[g > 0])
     if len(pu) == 0 or len(gu) == 0:
         return np.zeros((0, 0)), pu, gu
     pidx = {v: i for i, v in enumerate(pu)}

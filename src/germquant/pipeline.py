@@ -47,6 +47,10 @@ def process_image(
     flags += ch_flags
     stack = read_stack(nd2_path, xy_stride=xy_stride, z_range=z_range)
     spacing = stack.spacing
+    if not stack.spacing_ok:
+        # voxel size unreadable -> spacing is a 1 µm isotropic guess; every physical
+        # length/area/volume is unreliable. Surface it loudly rather than silently.
+        flags.append("voxel:UNREADABLE_assumed_isotropic_1um")
     dapi_present = role_to_idx.get("dna") is not None
 
     sample = parse_sample(nd2_path, cfg.get("metadata.filename_regex"), cfg.get("metadata.defaults"))
@@ -141,6 +145,19 @@ def process_image(
             counts = foci[foci["nucleus_id"] > 0].groupby("nucleus_id").size()
             nuclei["n_foci"] = nuclei["nucleus_id"].map(counts).fillna(0).astype(int)
 
+    # ---- granules (optional generic 3D-object module; off the N2 critical path) ----
+    granules = pd.DataFrame(columns=schema.GRANULES)
+    gran_idx = role_to_idx.get("granule")
+    if cfg.get("granules.enabled", False) and gran_idx is not None:
+        from .granules import detect_granules
+
+        granules = detect_granules(
+            stack.data[gran_idx], spacing, labels=labels,
+            marker=cfg.channel_map.marker("granule"),
+            threshold_method=cfg.get("granules.threshold_method", "li"),
+            min_volume_um3=float(cfg.get("granules.min_volume_um3", 0.05)),
+        )
+
     # ---- QC ----
     mean_sc = float(sc_per_nuc["sc_total_length_um"].mean()) if sc_traced else None
     qc_pass, qc_all = qc.qc_flags(
@@ -164,7 +181,7 @@ def process_image(
     # ---- write outputs ----
     tables = {
         "nuclei": nuclei, "sc_tracks": sc_tracks, "sc_per_nucleus": sc_per_nuc,
-        "foci": foci, "zones": zones_tbl, "image_summary": image_summary,
+        "foci": foci, "zones": zones_tbl, "granules": granules, "image_summary": image_summary,
     }
     _write_tables(tables, shared, out_dir, sample["image_id"], cfg.get("output.formats", ["csv"]))
 
@@ -184,7 +201,7 @@ def process_image(
 
 def _write_tables(tables, shared, out_dir, image_id, formats):
     for name, df in tables.items():
-        df = df.copy()
+        df = _conform_schema(df, name)
         for k, v in shared.items():
             df[k] = v
         base = out_dir / f"{image_id}__{name}"
@@ -195,6 +212,20 @@ def _write_tables(tables, shared, out_dir, image_id, formats):
                 df.to_parquet(base.with_suffix(".parquet"), index=False)
             except Exception as e:  # pyarrow missing
                 log.warning("parquet write failed (%s); CSV written.", e)
+
+
+def _conform_schema(df, name):
+    """Guarantee every declared schema column exists (filled NA if a stage didn't produce it)
+    and is ordered first, so producer/consumer drift surfaces as an empty column rather than a
+    KeyError in R. Extra columns a stage adds (e.g. per-role intensities) are kept after.
+    """
+    df = df.copy()
+    declared = schema.TABLES.get(name, [])
+    for col in declared:
+        if col not in df.columns:
+            df[col] = pd.NA
+    extras = [c for c in df.columns if c not in declared]
+    return df[list(declared) + extras]
 
 
 def _save_labels(labels, path):

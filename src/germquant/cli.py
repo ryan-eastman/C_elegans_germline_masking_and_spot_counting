@@ -63,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     pf.add_argument("--print-only", action="store_true", help="print the command, don't run")
 
     args = p.parse_args(argv)
+    _force_utf8_stdio()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     return {
@@ -73,6 +74,18 @@ def main(argv: list[str] | None = None) -> int:
         "prep-training": lambda: _prep_training(args),
         "finetune": lambda: _finetune(args),
     }[args.cmd]()
+
+
+def _force_utf8_stdio() -> None:
+    """Windows consoles default to cp1252; our status glyphs (✓ ⚠ ≥ µ) would raise
+    UnicodeEncodeError *after* the work is done, reporting a success as a crash. Reconfigure
+    stdout/stderr to UTF-8 (replacing anything truly unencodable) so output never aborts a run.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # py3.7+ TextIOWrapper
+        except (AttributeError, ValueError):  # already wrapped / not reconfigurable
+            pass
 
 
 def _info(nd2: str) -> int:
@@ -152,7 +165,7 @@ def _validate(args) -> int:
 
     import pandas as pd
 
-    from .validate import agreement_stats, bland_altman_plot, compare_table, segmentation_metrics
+    from .validate import bland_altman_plot, compare_table, segmentation_metrics
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

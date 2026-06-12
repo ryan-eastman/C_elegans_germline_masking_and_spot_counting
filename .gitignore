@@ -1,6 +1,8 @@
 # ---- data & outputs (never commit raw microscopy or results) ----
-data/
-!data/README.md
+# ignore everything under data/ EXCEPT the drop-folder guide (a parent `data/` rule would
+# make the negation below impossible — git can't re-include under a fully-ignored dir).
+/data/*
+!/data/README.md
 outputs/
 results/
 *.nd2
