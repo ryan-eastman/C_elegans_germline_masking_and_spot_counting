@@ -20,6 +20,7 @@ class Stack:
     channel_names: list[str]
     path: Path
     downsample_xy: int = 1
+    spacing_ok: bool = True               # False => voxel size unreadable, spacing is a guess
 
     @property
     def n_channels(self) -> int:
@@ -50,12 +51,20 @@ def _channel_names(f) -> list[str]:
     return names
 
 
-def _voxel(f) -> tuple[float, float, float]:
+def _voxel(f) -> tuple[float, float, float] | None:
+    """(dz, dy, dx) microns, or None if the .nd2 voxel size is unreadable/degenerate.
+
+    Returning None (rather than silently defaulting to 1 µm isotropic) lets callers flag the
+    file — a wrong spacing silently corrupts every length/area/volume (ARCHITECTURE.md §2).
+    """
     try:
         vs = f.voxel_size()
-        return (float(vs.z), float(vs.y), float(vs.x))
+        sp = (float(vs.z), float(vs.y), float(vs.x))
     except Exception:
-        return (1.0, 1.0, 1.0)
+        return None
+    if not all(np.isfinite(s) and s > 0 for s in sp):
+        return None
+    return sp
 
 
 def read_nd2_metadata(path: str | Path) -> dict:
@@ -63,9 +72,11 @@ def read_nd2_metadata(path: str | Path) -> dict:
     import nd2
 
     with nd2.ND2File(str(path)) as f:
+        sp = _voxel(f)
         return {
             "sizes": dict(f.sizes),
-            "spacing": _voxel(f),          # (dz, dy, dx) microns
+            "spacing": sp if sp is not None else (1.0, 1.0, 1.0),  # (dz, dy, dx) microns
+            "spacing_ok": sp is not None,
             "channel_names": _channel_names(f),
             "dtype": str(f.dtype),
             "is_2d": "Z" not in f.sizes,
@@ -87,7 +98,9 @@ def read_stack(
     with nd2.ND2File(str(path)) as f:
         sizes = dict(f.sizes)
         names = _channel_names(f)
-        dz, dy, dx = _voxel(f)
+        sp = _voxel(f)
+        spacing_ok = sp is not None
+        dz, dy, dx = sp if sp is not None else (1.0, 1.0, 1.0)
         darr = f.to_dask()
         dims = list(sizes.keys())
 
@@ -134,4 +147,5 @@ def read_stack(
         channel_names=names,
         path=path,
         downsample_xy=xy_stride,
+        spacing_ok=spacing_ok,
     )

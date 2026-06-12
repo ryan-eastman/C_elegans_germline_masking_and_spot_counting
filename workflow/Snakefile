@@ -10,18 +10,28 @@
 import fnmatch
 from pathlib import Path
 
+import yaml
+
 configfile: "workflow/config.yaml"
 
 INPUT_ROOT  = Path(config["input_root"]).resolve()
 OUTPUT_ROOT = Path(config["output_root"]).resolve()
 GQ_CONFIG   = config["germquant_config"]
-EXCLUDE     = config.get("exclude_patterns", [])
 XY_STRIDE   = int(config.get("xy_stride", 1))
+
+# Single source of truth for which files to process: the germquant config's io section,
+# so `germquant batch` and this Snakemake run never disagree on the file set. The workflow
+# config may still override (e.g. a one-off extra exclude) but defaults to the germquant config.
+_gq = yaml.safe_load(Path(GQ_CONFIG).read_text()).get("io", {})
+INPUT_GLOB = config.get("input_glob", _gq.get("input_glob", "**/*.nd2"))
+EXCLUDE    = config.get("exclude_patterns", _gq.get("exclude_patterns", []))
 
 
 def _discover():
     files = []
-    for p in sorted(INPUT_ROOT.rglob("*.nd2")):
+    for p in sorted(INPUT_ROOT.glob(INPUT_GLOB)):
+        if p.suffix.lower() != ".nd2":
+            continue
         name = p.name.lower()
         if any(fnmatch.fnmatch(name, pat.lower()) for pat in EXCLUDE):
             continue

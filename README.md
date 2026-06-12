@@ -19,21 +19,31 @@ Every readout is **spacing-aware**: voxel size (`0.108 × 0.108 × 0.20 µm`, z 
 is read from each `.nd2` and threaded into every 3D operation. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Status
-Core pipeline **runs end-to-end on real `.nd2` data** (read → segment → axis → zones → SC →
-foci → measure → tidy CSV/Parquet → QC montage → provenance manifest). The science modules
-(SC tracing, zone-calling, foci thresholds, Cellpose segmentation) are **first-pass and need
-full-resolution GPU runs + ground-truth validation** before publication — tracked in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §8.
+Core pipeline **runs end-to-end** (read → segment → axis → zones → SC → foci → measure → tidy
+CSV/Parquet → QC montage → provenance manifest), covered by a synthetic full-pipeline test plus
+unit tests for the spacing-critical maths (`pytest`, CPU, no GPU/data needed). The science
+modules (SC tracing, zone-calling, foci thresholds, Cellpose segmentation) are **first-pass and
+need full-resolution GPU runs + ground-truth validation** before publication — see
+[docs/RUNBOOK.md](docs/RUNBOOK.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §8.
+
+**Not yet implemented / experimental:** the no-DAPI *synapsis-state* zoning route returns
+`zone_call=unknown` (a flagged stub — use the DAPI-crescent route); StarDist-3D / ilastik
+segmenters from ARCHITECTURE §2 are not built (Cellpose-SAM + a classical watershed fallback
+are). The axis linearizer now fits a **principal curve** (arc length along the U-shaped gonad),
+not a straight PCA line — older runs' `axis_position_*`/zone lengths will differ.
 
 ## Install
 ```bash
 # core (CPU) — enough to read, segment (classical), measure, render, batch
 pip install -e .
 
-# on the RTX 5090 / HPC, add GPU + SC tracing:
-pip install -e ".[gpu,sc,viz]"   # Cellpose-SAM (cu128 torch), skan, napari
+# on the RTX 5090 / HPC, add GPU + SC tracing + batch orchestration:
+pip install -e ".[gpu,sc,viz,workflow]"   # Cellpose-SAM (cu128 torch), skan, napari, snakemake
 ```
-(A pinned `pixi`/conda env + Apptainer recipe for the 5090 and SLURM lands next — see §6 todo.)
+For a pinned, reproducible environment use the committed [pixi.toml](pixi.toml) /
+[environment.yml](environment.yml), and the GPU container ([Dockerfile](Dockerfile) →
+[apptainer.def](apptainer.def)) for SLURM. Run `pixi install` once on each platform to generate
+and commit `pixi.lock` (the provenance manifest records its hash).
 
 ## Quickstart
 ```bash
@@ -63,10 +73,11 @@ git_sha, config_hash, run_timestamp` — join on `image_id` (+ `nucleus_id`) in 
 ## Layout
 ```
 config/        # YAML: global params + per-experiment channel maps
-src/germquant/ # io, segment, axis, zones, sc, foci, measure, render, qc, provenance, pipeline, cli
-workflow/      # Snakemake batch orchestration (NAS → mirrored outputs)   [next]
-analysis_R/    # R / Positron project consuming the tidy outputs           [next]
-tests/         # spacing/anisotropy + filename-metadata unit tests
-data/          # raw .nd2 (gitignored)
+src/germquant/ # io, segment, axis, zones, sc, foci, granules, measure, render, qc, provenance, pipeline, cli
+workflow/      # Snakemake batch orchestration (NAS → mirrored outputs)
+analysis_R/    # R / Positron project consuming the tidy outputs
+tests/         # full-pipeline smoke + spacing/axis/SC/foci/validate unit tests
+data/          # raw .nd2 + ground truth (gitignored; see data/README.md)
 docs/ARCHITECTURE.md   # the verified, cited design of record
+docs/RUNBOOK.md        # full-res GPU run + threshold tuning + ground-truth validation
 ```

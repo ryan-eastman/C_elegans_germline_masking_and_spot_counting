@@ -35,9 +35,27 @@ plot_sc_length <- function(nuclei_sc)
   .violin(nuclei_sc, "sc_total_length_um", "Total SC length / nucleus (µm)",
           "Synaptonemal complex length")
 
+# RAD-51 is reported across ALL zones (ARCHITECTURE.md §3 / README) — not pachytene-only.
 plot_rad51 <- function(nuclei)
   .violin(nuclei, "n_foci", "RAD-51 foci / nucleus",
-          "RAD-51 DNA-damage foci")
+          "RAD-51 DNA-damage foci (all zones)", pachytene_only = FALSE)
+
+# per-fragment SC length distribution (one row per SC track) — the fragmentation readout's
+# companion to the per-nucleus fragment count. x = fragment length, split by treatment × sex.
+plot_sc_fragment_lengths <- function(sc_tracks) {
+  if (nrow(sc_tracks) == 0 ||
+      !all(c("length_um", "treatment", "germ_cell") %in% names(sc_tracks))) {
+    message("  [skip] SC fragment lengths — no/empty sc_tracks table"); return(NULL)
+  }
+  df <- dplyr::filter(sc_tracks, !is.na(length_um), !is.na(treatment), !is.na(germ_cell))
+  if (nrow(df) == 0) { message("  [skip] SC fragment lengths — no rows"); return(NULL) }
+  ggplot(df, aes(length_um, fill = treatment)) +
+    geom_histogram(bins = 30, alpha = 0.7, position = "identity") +
+    facet_grid(treatment ~ germ_cell) +
+    labs(x = "SC fragment length (µm)", y = "fragments",
+         title = "SC fragment-length distribution") +
+    GQ_FILL + GQ_THEME + theme(legend.position = "none")
+}
 
 # zone lengths (one row per zone per germline) — not per-nucleus
 plot_zone_length <- function(zones) {

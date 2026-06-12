@@ -7,7 +7,9 @@ name = "germquant"
 version = "0.1.0"
 description = "Reproducible 3D quantification of the C. elegans meiotic germline from confocal .nd2 z-stacks"
 readme = "README.md"
-requires-python = ">=3.10"
+# 3.11 is the floor the pinned envs (pixi.toml, environment.yml) target; the code uses
+# PEP 604 unions and is only tested on 3.11.
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Ryan Eastman" }]
 dependencies = [
@@ -28,6 +30,9 @@ dependencies = [
 sc  = ["skan>=0.11"]                       # SC skeleton length (pulls numba)
 gpu = ["torch>=2.7", "cellpose>=3.1"]      # 3D nucleus segmentation on CUDA (sm_120 -> cu128 wheel)
 viz = ["napari[all]>=0.4.19", "napari-animation>=0.0.8"]
+# Snakemake batch orchestration. `germquant batch` is a pure-python loop and needs none of
+# this; the NAS->mirrored-tree Snakemake workflow (workflow/Snakefile) does.
+workflow = ["snakemake>=8", "snakemake-executor-plugin-slurm"]
 dev = ["pytest>=7", "ruff>=0.4"]
 
 [project.scripts]

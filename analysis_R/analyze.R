@@ -29,6 +29,7 @@ save_plot <- function(p, name, w = 6, h = 4) {
 
 save_plot(plot_sc_fragmentation(nsc), "sc_fragmentation.png")
 save_plot(plot_sc_length(nsc),        "sc_length.png")
+save_plot(plot_sc_fragment_lengths(res$sc_tracks), "sc_fragment_lengths.png")
 save_plot(plot_rad51(res$nuclei),     "rad51_foci.png")
 save_plot(plot_zone_length(res$zones), "zone_length.png", w = 6, h = 5)
 
