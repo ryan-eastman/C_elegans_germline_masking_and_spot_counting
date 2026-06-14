@@ -31,7 +31,7 @@ def main():
     st = R.read_stack(REAL)
     crop = st.data[0][CZ, CY - H:CY + H, CX - H:CX + H].astype(np.float32)
     stock = models.CellposeModel(gpu=True)
-    custom = models.CellposeModel(gpu=True, pretrained_model="models/germline_nuclei")
+    custom = models.CellposeModel(gpu=True, pretrained_model="models/models/germline_nuclei")
 
     ms = seg(stock, crop)
     mc = seg(custom, crop)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Validate the pipeline's SC tracer against synthetic ground truth, with PERFECT nucleus labels
-(isolating the tracer from the nucleus model). Does ridge+skeletonize recover the known
-fragment counts and SC lengths? Tests control (intact) and heat (fragmented).
+"""Validate the v2 SC tracer against synthetic ground truth with PERFECT nucleus labels (isolating
+the tracer). Reports what is recoverable: SC LENGTH (reliable) and the FRAGMENTATION INDEX
+(population-level control-vs-heat). Per-nucleus fragment COUNT is a lower bound (strands merge in 3D).
 
     python scripts/validate_sc_tracer.py
 """
@@ -18,21 +18,30 @@ from germquant.sc.skeleton import trace_sc  # noqa: E402
 SP = (DZ, DY, DX)
 
 
+def cohens_d(a, b):
+    sp = np.sqrt(((len(a) - 1) * a.var(ddof=1) + (len(b) - 1) * b.var(ddof=1)) / (len(a) + len(b) - 2))
+    return float((b.mean() - a.mean()) / (sp + 1e-12))
+
+
 def main():
-    for cond, frag in (("CONTROL", 0.0), ("HEAT", 0.7)):
+    print("LENGTH (the reliable readout): detected vs GT, per-nucleus correlation")
+    idx = {}
+    for cond, frag in (("CONTROL", 0.0), ("HEAT", 1.0)):
         dapi, syp, label, gt = synthesize_scene(seed=3, frag_rate=frag)
         sypimg = degrade(syp, seed=30)
-        _, det = trace_sc(sypimg, label, SP, intensity_percentile=90.0, min_fragment_length_um=0.5)
-        gtpn = gt.groupby("nucleus_id").agg(gt_frags=("n_fragments", "sum"),
-                                            gt_len=("sc_length_um", "sum")).reset_index()
-        m = gtpn.merge(det[["nucleus_id", "n_fragments", "sc_total_length_um"]],
+        _, det = trace_sc(sypimg, label, SP)
+        gtpn = gt.groupby("nucleus_id").agg(gt_len=("sc_length_um", "sum")).reset_index()
+        m = gtpn.merge(det[["nucleus_id", "sc_total_length_um", "sc_fragmentation_index"]],
                        on="nucleus_id", how="left").fillna(0.0)
-        cf = m[["gt_frags", "n_fragments"]].corr().iloc[0, 1]
         cl = m[["gt_len", "sc_total_length_um"]].corr().iloc[0, 1]
-        print(f"=== {cond} (n={len(m)} nuclei) ===")
-        print(f"  fragments/nucleus:  GT {m.gt_frags.mean():5.1f}   detected {m.n_fragments.mean():5.1f}   corr={cf:.2f}")
-        print(f"  SC length/nucleus:  GT {m.gt_len.mean():5.1f}um detected {m.sc_total_length_um.mean():5.1f}um corr={cl:.2f}")
-        print(f"  %% nuclei traced: {100 * (m.n_fragments > 0).mean():.0f}%%")
+        print(f"  {cond:8} GT_len {m.gt_len.mean():5.1f}um  detected {m.sc_total_length_um.mean():5.1f}um  "
+              f"corr={cl:.2f}   frag_index mean={m.sc_fragmentation_index.mean():.3f}")
+        idx[cond] = m.sc_fragmentation_index.values
+
+    d = cohens_d(idx["CONTROL"], idx["HEAT"])
+    print(f"\nFRAGMENTATION INDEX (population control-vs-heat): "
+          f"control {idx['CONTROL'].mean():.3f} -> heat {idx['HEAT'].mean():.3f}  Cohen's d = {d:+.2f}")
+    print("  (per-nucleus noisy; population-level proxy for the heat phenotype — calibrate vs Imaris.)")
 
 
 if __name__ == "__main__":
