@@ -14,6 +14,7 @@ SHARED_META = [
 NUCLEI = [
     "nucleus_id", "volume_um3", "n_voxels",
     "centroid_z_um", "centroid_y_um", "centroid_x_um",
+    "in_germline",
     "axis_position_norm", "axis_position_um",
     "zone_call", "zone_call_method", "pachytene_subzone", "zone_confidence",
     "chromatin_polarized", "dna_mean_intensity",
@@ -30,7 +31,7 @@ SC_TRACKS = [
 SC_PER_NUCLEUS = [
     "nucleus_id", "marker", "n_fragments", "sc_total_length_um",
     "sc_mean_fragment_um", "sc_median_fragment_um", "sc_longest_fragment_um",
-    "sc_mean_intensity", "expected_n_tracks",
+    "sc_mean_intensity", "sc_fragmentation_index", "expected_n_tracks",
 ]
 
 FOCI = [
@@ -54,7 +55,7 @@ ZONES = [
 
 # one row per image (QC summary)
 IMAGE_SUMMARY = [
-    "n_nuclei", "n_pachytene_nuclei",
+    "n_nuclei", "n_germline_nuclei", "n_pachytene_nuclei",
     "mean_sc_total_length_um", "mean_sc_n_fragments",
     "mean_sc_n_fragments_pachytene", "mean_sc_total_length_um_pachytene",
     "mean_foci", "total_germline_length_um", "qc_pass", "qc_flags",

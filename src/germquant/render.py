@@ -28,6 +28,7 @@ def make_montage(
     out_path: str | Path,
     *,
     foci_df=None,
+    excluded_ids=None,
     scalebar_um: float = 10.0,
     title: str = "",
 ) -> Path:
@@ -62,16 +63,28 @@ def make_montage(
         dna_idx = role_to_idx.get("dna")
         base = _norm(_mip(stack.data[dna_idx])) if dna_idx is not None else np.zeros(stack.shape_zyx[1:])
         ax.imshow(base, cmap="gray")
-        bnd = find_boundaries(labels.max(axis=0), mode="outer")
-        overlay = np.zeros((*bnd.shape, 4))
-        overlay[bnd] = (1, 1, 0, 1)  # yellow nucleus outlines
+        lab_mip = labels.max(axis=0)
+        if excluded_ids:
+            # green = germline (kept), red = off-germline (dropped). inner boundaries carry the label.
+            bnd = find_boundaries(lab_mip, mode="inner")
+            is_excl = np.isin(lab_mip, list(excluded_ids))
+            overlay = np.zeros((*bnd.shape, 4))
+            overlay[bnd & ~is_excl] = (0, 1, 0, 1)
+            overlay[bnd & is_excl] = (1, 0, 0, 1)
+        else:
+            bnd = find_boundaries(lab_mip, mode="outer")
+            overlay = np.zeros((*bnd.shape, 4))
+            overlay[bnd] = (1, 1, 0, 1)  # yellow nucleus outlines
         ax.imshow(overlay)
         if foci_df is not None and len(foci_df):
             ax.scatter(
                 foci_df["x_um"] / stack.spacing[2], foci_df["y_um"] / stack.spacing[1],
                 s=6, facecolors="none", edgecolors="magenta", linewidths=0.5,
             )
-        ax.set_title(f"nuclei={int(labels.max())}" + (f"  foci={len(foci_df)}" if foci_df is not None else ""), fontsize=9)
+        n_excl = len(excluded_ids) if excluded_ids else 0
+        seg_t = (f"germline={int(labels.max()) - n_excl} (red=off-gonad {n_excl})" if excluded_ids
+                 else f"nuclei={int(labels.max())}")
+        ax.set_title(seg_t + (f"  foci={len(foci_df)}" if foci_df is not None else ""), fontsize=9)
         _scalebar(ax, base.shape, bar_px, scalebar_um)
         ax.axis("off")
 

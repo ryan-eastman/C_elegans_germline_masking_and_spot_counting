@@ -40,3 +40,6 @@ dist/
 .DS_Store
 .vscode/
 .idea/
+
+# trained models (large) + synthetic training data
+models/

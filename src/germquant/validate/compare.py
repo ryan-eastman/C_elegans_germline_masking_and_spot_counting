@@ -140,8 +140,8 @@ def _iou_matrix(pred: np.ndarray, gt: np.ndarray):
     gidx = {v: i for i, v in enumerate(gu)}
     inter = np.zeros((len(pu), len(gu)), dtype=np.int64)
     both = (p > 0) & (g > 0)
-    pi = np.array([pidx[v] for v in p[both]])
-    gi = np.array([gidx[v] for v in g[both]])
+    pi = np.array([pidx[v] for v in p[both]], dtype=np.int64)   # int64 even when empty (zero overlap)
+    gi = np.array([gidx[v] for v in g[both]], dtype=np.int64)
     np.add.at(inter, (pi, gi), 1)
     p_area = np.array([int((pred == v).sum()) for v in pu])
     g_area = np.array([int((gt == v).sum()) for v in gu])

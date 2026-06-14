@@ -50,13 +50,18 @@ def _cellpose(dna, spacing, model_name, diameter_um) -> np.ndarray:
     from cellpose import models
 
     anisotropy = spacing[0] / spacing[1]          # dz / dy (the key 3D correctness knob)
-    is_sam = str(model_name).lower() in ("cpsam", "sam", "")
-    if is_sam:
+    is_builtin_sam = str(model_name).lower() in ("cpsam", "sam", "")
+    if is_builtin_sam:
         model = models.CellposeModel(gpu=True)
-        kw = {}                                   # SAM ignores diameter
     else:
         model = models.CellposeModel(gpu=True, pretrained_model=model_name)
-        kw = {"diameter": diameter_um / spacing[1]}
+    # cpsam AND models fine-tuned FROM cpsam (our germline_nuclei_* models) are diameter-AGNOSTIC, so
+    # run them at NATIVE scale — the regime they were validated in (F1 0.98). Passing `diameter` resizes
+    # the image before inference: empirically marginally WORSE on real GT (0.978 vs 0.980) and ~15%
+    # different object count. `diameter_um` is kept in the signature/config only for a hypothetical
+    # CLASSIC (non-SAM) Cellpose model, which would need it; none of our models do. See diameter_test.py.
+    _ = diameter_um
+    kw = {}
     # dna is a single-channel (Z, Y, X) volume: Cellpose 4.x (SAM) requires an explicit z_axis
     # (and no channel axis) for a 3-D array, else it raises "z_axis must be specified".
     out = model.eval(dna, do_3D=True, z_axis=0, channel_axis=None, anisotropy=anisotropy, **kw)

@@ -25,24 +25,48 @@ metadata:
 segmentation:
   nuclei:
     method: auto          # cellpose | classical | auto (cellpose if importable, else classical)
-    cellpose_model: cpsam # 'cpsam' (Cellpose-SAM) or a path to a fine-tuned germline model
-    diameter_um: 3.0      # approx pachytene nucleus diameter; -> pixels via voxel size
+    # fine-tuned germline model (real Koehler + synthetic). On held-out real data F1 0.98 vs stock
+    # cpsam 0.87, and it produces whole pachytene nuclei where stock fragments them (~160 vs 1650
+    # objects on a real crop). 1.2 GB, gitignored -> models/models/germline_nuclei_combined must exist
+    # locally (rebuild via scripts/train_nucleus_model_combined.py). Set to 'cpsam' to use stock.
+    # Runs at NATIVE scale (diameter_um is ignored for cpsam-derived models — see segment/nuclei.py).
+    cellpose_model: models/models/germline_nuclei_combined
+    diameter_um: 3.0      # only used for a classic (non-SAM) Cellpose model; ignored here
     min_volume_um3: 4.0   # drop debris below this
     channel: dna
+
+germline:
+  # Isolate the gonad: drop nuclei segmented OUTSIDE the germline (gut autofluorescence, debris,
+  # non-gonad structures) so they don't pollute the axis fit, zones, and per-nucleus means. Uses SYP
+  # (central_element) intensity + spatial connectivity — NEVER the foci count, so foci-recall is an
+  # independent validation (scripts/validate_germline_select.py: multi_cc mean recall 0.97 on 14
+  # real gonads). ADDITIVE: adds an `in_germline` column; excluded nuclei stay in the output table
+  # flagged False. Downstream analysis (axis/zones/SC/foci means) runs on in_germline nuclei only.
+  enabled: true
+  method: syp_seeded_cc        # syp_seeded_cc (default) | multi_cc | largest_cc | seed_mass
+  syp_percentile: 25           # SYP floor that defines a synapsed "seed" nucleus
+  link_radius_um: 12.0         # connect nuclei whose centroids are within this many µm
+  min_seed_frac: 0.10          # syp_seeded_cc: keep a connected component if it holds >= this fraction
+                               #   of all seed nuclei (so the whole gonad tube — incl. the SYP-negative
+                               #   distal tip — is kept, while separate gut/debris clusters are dropped)
+  size_frac: 0.10              # multi_cc only: keep secondary components >= this fraction of the largest
 
 sc:
   enabled: true
   channel: central_element     # SYP-3 here
   ridge_sigmas_um: [0.15, 0.25, 0.40]   # Sato tubeness scales (physical)
-  # threshold (ridge percentile inside each nucleus). 99 keeps only the brightest speck
-  # (~1um total/nucleus on real N2 data — ~20x too short); ~90 gives ~5um, ~80 gives ~9um.
-  # MUST be calibrated against Imaris/SNT per-nucleus SC lengths (docs/RUNBOOK.md §5). Lower
-  # also merges the 6 closely-packed SCs into fewer fragments — the dense-pachytene tradeoff
-  # (ARCHITECTURE.md Risk 1); validate fragment COUNTS against ground truth before trusting them.
-  intensity_percentile: 90.0
+  # v2 tracer: HYSTERESIS thresholding on the ridge keeps the thin SC as a CONTINUOUS strand
+  # (seed at high_pct, grow down to low_pct) — a single percentile shreds it into blobs and
+  # under-measures length ~2x (verified on synthetic SC GT, scripts/sc_proto.py). These recover
+  # SC LENGTH (the reliable readout); STILL calibrate absolute length vs Imaris/SNT (RUNBOOK §5).
+  ridge_hyst_low_pct: 45.0              # tuned on synthetic GT: detected 34.7 vs 35.2 µm, corr 0.60
+  ridge_hyst_high_pct: 80.0
+  intensity_percentile: 90.0            # DEPRECATED (old single-threshold method); unused by v2
   min_fragment_length_um: 0.5           # ignore skeleton specks below this
-  # headline readout for the heat phenotype = SC FRAGMENTATION:
-  #   n_fragments per nucleus + fragment-length distribution + total length
+  # HEAT-PHENOTYPE readout = sc_fragmentation_index (SYP intensity CV per nucleus). Per-nucleus
+  # fragment COUNT is NOT recoverable from light microscopy at pachytene density (the ~6 SCs overlap
+  # in 3D; ARCHITECTURE.md Risk 1) — n_fragments is a lower bound, not the biological count. The
+  # index separates control vs heat at the POPULATION level (Cohen's d ~0.57); calibrate vs Imaris.
 
 foci:
   enabled: true

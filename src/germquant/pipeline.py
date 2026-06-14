@@ -89,6 +89,27 @@ def process_image(
     else:
         nuclei = pd.DataFrame(columns=["nucleus_id"])
 
+    # ---- isolate germline (drop nuclei segmented OUTSIDE the gonad: gut, debris, off-gonad) ----
+    # Runs on the SYP-measured table; downstream stages (axis/zones/SC/foci means) operate on the
+    # germline subset so off-gonad nuclei don't distort the centerline or dilute the means. Excluded
+    # nuclei are re-attached (flagged in_germline=False) before writing, so nothing is hidden.
+    excluded = nuclei.iloc[0:0].copy()
+    if cfg.get("germline.enabled", True) and not nuclei.empty:
+        from .germline import select_germline
+
+        nuclei, germ_flags = select_germline(
+            nuclei,
+            method=cfg.get("germline.method", "syp_seeded_cc"),
+            syp_percentile=float(cfg.get("germline.syp_percentile", 25.0)),
+            link_radius_um=float(cfg.get("germline.link_radius_um", 12.0)),
+            min_seed_frac=float(cfg.get("germline.min_seed_frac", 0.10)),
+            size_frac=float(cfg.get("germline.size_frac", 0.10)),
+        )
+        flags += germ_flags
+        excluded = nuclei[~nuclei["in_germline"]].copy()
+        nuclei = nuclei[nuclei["in_germline"]].copy()
+    n_germline_nuclei = int(len(nuclei))
+
     # ---- axis + zones ----
     axis_conf = float("nan")
     zones_tbl = pd.DataFrame(columns=schema.ZONES)
@@ -120,6 +141,8 @@ def process_image(
             stack.data[ce_idx], labels, spacing,
             marker=cfg.channel_map.marker("central_element"),
             ridge_sigmas_um=cfg.get("sc.ridge_sigmas_um", [0.15, 0.25, 0.40]),
+            ridge_hyst_low_pct=float(cfg.get("sc.ridge_hyst_low_pct", 40.0)),
+            ridge_hyst_high_pct=float(cfg.get("sc.ridge_hyst_high_pct", 80.0)),
             intensity_percentile=float(cfg.get("sc.intensity_percentile", 99.0)),
             min_fragment_length_um=float(cfg.get("sc.min_fragment_length_um", 0.5)),
             expected_n_tracks=exp_map,
@@ -127,7 +150,7 @@ def process_image(
         sc_traced = not sc_per_nuc.empty
         if sc_traced:
             nuclei = nuclei.merge(
-                sc_per_nuc[["nucleus_id", "n_fragments", "sc_total_length_um"]]
+                sc_per_nuc[["nucleus_id", "n_fragments", "sc_total_length_um", "sc_fragmentation_index"]]
                 .rename(columns={"n_fragments": "sc_n_fragments"}),
                 on="nucleus_id", how="left",
             )
@@ -185,6 +208,7 @@ def process_image(
 
     image_summary = pd.DataFrame([{
         "n_nuclei": n_nuclei,
+        "n_germline_nuclei": n_germline_nuclei,
         "n_pachytene_nuclei": int((nuclei.get("zone_call") == "pachytene").sum()) if "zone_call" in nuclei else 0,
         "mean_sc_total_length_um": mean_sc if mean_sc is not None else float("nan"),
         "mean_sc_n_fragments": float(sc_per_nuc["n_fragments"].mean()) if sc_traced else float("nan"),
@@ -199,6 +223,10 @@ def process_image(
     }])
 
     # ---- write outputs ----
+    # re-attach the off-gonad nuclei (in_germline=False; NaN for axis/zone/SC/foci) so the table is a
+    # complete, auditable record of every segmented object — analysis filters on in_germline.
+    if not excluded.empty:
+        nuclei = pd.concat([nuclei, excluded], ignore_index=True)
     tables = {
         "nuclei": nuclei, "sc_tracks": sc_tracks, "sc_per_nucleus": sc_per_nuc,
         "foci": foci, "zones": zones_tbl, "granules": granules, "image_summary": image_summary,
@@ -208,9 +236,11 @@ def process_image(
     if cfg.get("output.write_label_images", True):
         _save_labels(labels, out_dir / f"{sample['image_id']}__nuclei_labels.tif")
     if cfg.get("render.montage", True):
+        excl_ids = set(excluded["nucleus_id"]) if not excluded.empty else None
         make_montage(
             stack, labels, role_to_idx, out_dir / f"{sample['image_id']}__montage.png",
-            foci_df=foci if len(foci) else None, scalebar_um=float(cfg.get("render.scalebar_um", 10)),
+            foci_df=foci if len(foci) else None, excluded_ids=excl_ids,
+            scalebar_um=float(cfg.get("render.scalebar_um", 10)),
             title=f"{sample['image_id']}  [{sample['sex']}/{sample['treatment']}]  n={n_nuclei}",
         )
 
