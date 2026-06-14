@@ -1,24 +1,26 @@
-"""Per-nucleus synaptonemal-complex tracing -> length & FRAGMENTATION.
+"""Per-nucleus synaptonemal-complex tracing -> length & a FRAGMENTATION index.
 
-For each nucleus we crop the SC channel, resample it to **isotropic** voxels (so the ridge
-filter and skeleton aren't biased by z-anisotropy), enhance the filament with a Sato (tubeness)
-ridge filter at physical scales, threshold *inside the nucleus*, skeletonize in 3D, then measure
-each disconnected component with `skan` using the isotropic voxel size. The heat-phenotype
-readout is **fragmentation**: the number of disconnected skeleton components (fragments) per
-nucleus and their length distribution.
+For each nucleus we crop the SC channel, resample to **isotropic** voxels (so the ridge filter
+and skeleton aren't biased by z-anisotropy), enhance the filament with a Sato (tubeness) ridge
+filter at physical scales, build a **continuous** mask with hysteresis thresholding *inside the
+nucleus* (a single high percentile shreds the thin SC into disconnected blobs — verified on
+synthetic data), skeletonize in 3D, and measure with `skan`.
 
-Two correctness details that matter for the fragment count:
-  * the ridge filter runs on the *unmasked* crop and is only confined to the nucleus afterwards
-    (eroded by 1 voxel) — hard-zeroing the crop first would create a sharp edge the tubeness
-    filter latches onto, inflating fragment counts;
-  * every attempted nucleus emits a per-nucleus row, with ``n_fragments=0`` when nothing traces,
-    so a fully-desynapsed nucleus is a real zero in the distribution, not a dropped row.
+  *** WHAT IS AND ISN'T RECOVERABLE (validated on synthetic SC ground truth, scripts/validate_sc_tracer.py) ***
+  * sc_total_length_um — RELIABLE. Continuous-mask skeleton length tracks the true SC length
+    (corr ~0.67, ~35 vs 35 µm). This is the primary, trustworthy readout.
+  * n_fragments (disconnected components) — a LOWER BOUND, NOT the biological fragment count. The
+    ~6 SCs in a pachytene nucleus physically overlap in 3D, so even the clean signal yields ~2-3
+    components, not 6 — and lateral merging bridges each strand's heat-gaps. Per-nucleus fragment
+    COUNT is not recoverable from light microscopy at this density (ARCHITECTURE.md Risk 1); use
+    Imaris/SNT manual tracing for absolute counts.
+  * sc_fragmentation_index — SYP intensity coefficient-of-variation within the nucleus. Heat
+    fragmentation raises it (gaps add dark/bright contrast). PER-NUCLEUS it is noisy (corr ~0.21
+    with true frag count) but at the POPULATION level it separates control from heat (Cohen's
+    d ~0.57). Use it for the control-vs-heat comparison, and CALIBRATE against Imaris before
+    quoting absolute fragmentation. It is reported alongside n_fragments, never instead of it.
 
-  *** v1 — VALIDATE BEFORE PUBLISHING. ***
-Dense pachytene SCs can be mis-merged or fragmented by automatic skeletonization. Per
-ARCHITECTURE.md Risk 1, validate these lengths against an Imaris-FilamentTracer / Fiji-SNT
-ground-truth subset (~15-25 nuclei) and report Bland-Altman agreement. `skan` is an optional
-dependency (pulls numba); if absent, SC tracing is skipped and a QC flag is raised.
+`skan` is an optional dependency (pulls numba); if absent, SC tracing is skipped + a QC flag set.
 """
 from __future__ import annotations
 
@@ -36,7 +38,7 @@ TRACK_COLS = [
 PER_NUC_COLS = [
     "nucleus_id", "marker", "n_fragments", "sc_total_length_um",
     "sc_mean_fragment_um", "sc_median_fragment_um", "sc_longest_fragment_um",
-    "sc_mean_intensity", "expected_n_tracks",
+    "sc_mean_intensity", "sc_fragmentation_index", "expected_n_tracks",
 ]
 
 
@@ -57,7 +59,9 @@ def trace_sc(
     marker: str = "SYP-3",
     channel_role: str = "central_element",
     ridge_sigmas_um=(0.15, 0.25, 0.40),
-    intensity_percentile: float = 99.0,
+    intensity_percentile: float = 99.0,   # deprecated (old single-threshold method); kept for back-compat
+    ridge_hyst_low_pct: float = 45.0,     # hysteresis grow level (continuous strand mask)
+    ridge_hyst_high_pct: float = 80.0,    # hysteresis seed level
     min_fragment_length_um: float = 0.5,
     expected_n_tracks: dict[int, int] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -87,15 +91,20 @@ def trace_sc(
             continue
         sub_lab = labels[sl] == nid
         sub_sc = sc_img[sl].astype(np.float32)
-        mean_int = float(sub_sc[sub_lab].mean()) if sub_lab.any() else 0.0
+        in_vals = sub_sc[sub_lab] if sub_lab.any() else np.zeros(1, np.float32)
+        mean_int = float(in_vals.mean())
+        # fragmentation INDEX = SYP intensity coefficient-of-variation within the nucleus. Heat
+        # fragmentation raises it (gaps add dark/bright contrast). Population-level proxy (per-nucleus
+        # noisy) — the heat-vs-control readout, since exact fragment COUNT is unrecoverable (docstring).
+        frag_index = float(in_vals.std() / mean_int) if mean_int > 0 else float("nan")
         exp = exp_map.get(nid)
 
         lengths, perfrag = _trace_one(
-            sub_sc, sub_lab, zoom, iso_sp, sigmas_iso, intensity_percentile, min_len,
+            sub_sc, sub_lab, zoom, iso_sp, sigmas_iso, ridge_hyst_low_pct, ridge_hyst_high_pct, min_len,
             ndi, sato, skeletonize,
         )
         if not lengths:                            # attempted but nothing traced -> real zero
-            nuc_rows.append(_empty_nuc_row(nid, marker, mean_int, exp))
+            nuc_rows.append(_empty_nuc_row(nid, marker, mean_int, frag_index, exp))
             continue
 
         for length, (n_br, n_jn, tort) in zip(lengths, perfrag):
@@ -114,6 +123,7 @@ def trace_sc(
             "sc_median_fragment_um": float(np.median(arr)),
             "sc_longest_fragment_um": float(arr.max()),
             "sc_mean_intensity": mean_int,
+            "sc_fragmentation_index": frag_index,
             "expected_n_tracks": exp if exp is not None else float("nan"),
         })
 
@@ -123,19 +133,28 @@ def trace_sc(
     )
 
 
-def _empty_nuc_row(nid, marker, mean_int, exp):
+def _empty_nuc_row(nid, marker, mean_int, frag_index, exp):
     return {
         "nucleus_id": nid, "marker": marker, "n_fragments": 0,
         "sc_total_length_um": 0.0, "sc_mean_fragment_um": float("nan"),
         "sc_median_fragment_um": float("nan"), "sc_longest_fragment_um": 0.0,
-        "sc_mean_intensity": mean_int,
+        "sc_mean_intensity": mean_int, "sc_fragmentation_index": frag_index,
         "expected_n_tracks": exp if exp is not None else float("nan"),
     }
 
 
-def _trace_one(sub_sc, sub_lab, zoom, iso_sp, sigmas_iso, pct, min_len, ndi, sato, skeletonize):
-    """Trace one nucleus crop. Returns (fragment_lengths, per_fragment_stats)."""
+def _trace_one(sub_sc, sub_lab, zoom, iso_sp, sigmas_iso, low_pct, high_pct, min_len,
+               ndi, sato, skeletonize):
+    """Trace one nucleus crop. Returns (fragment_lengths, per_fragment_stats).
+
+    Uses HYSTERESIS thresholding (seed at high_pct, grow down to low_pct) to keep the thin SC as a
+    CONTINUOUS strand rather than the disconnected blobs a single high percentile produces — this is
+    what recovers the SC length (the old single-threshold under-measured it ~2x; verified on synthetic
+    SC ground truth, scripts/validate_sc_tracer.py).
+    """
     try:
+        from skimage.filters import apply_hysteresis_threshold
+
         # resample crop + mask to isotropic voxels (intensity: linear; mask: nearest)
         sc_iso = ndi.zoom(sub_sc, zoom, order=1)
         lab_iso = ndi.zoom(sub_lab.astype(np.float32), zoom, order=0) > 0.5
@@ -148,12 +167,43 @@ def _trace_one(sub_sc, sub_lab, zoom, iso_sp, sigmas_iso, pct, min_len, ndi, sat
         interior = ndi.binary_erosion(lab_iso)
         if interior.sum() < 2:
             interior = lab_iso
-        vals = ridge[interior]
-        pos = vals[vals > 0]
+        pos = ridge[interior]
+        pos = pos[pos > 0]
         if pos.size == 0:
             return [], []
-        thr = np.percentile(pos, pct)
-        mask = (ridge >= thr) & interior
+        lo, hi = np.percentile(pos, low_pct), np.percentile(pos, high_pct)
+        if hi <= lo:                                  # near-flat ridge -> single-level fallback
+            mask = (ridge >= hi) & interior
+        else:
+            mask = apply_hysteresis_threshold(ridge, lo, hi) & interior
+        if mask.sum() < 2:
+            return [], []
+
+        # Mask smoothing before skeletonize -> far fewer spurs/loops/speckles on dense nuclei (the
+        # user's "skeleton looks bad" case). The Sato ridge renders a thin SC as a double-walled tube
+        # that skeletonizes into two parallel rails + rungs; in-plane closing fuses it to ONE
+        # centerline, fill-holes removes spurious loops, small-object removal drops orphan speckle.
+        # Strand-preserving: NO opening (it erodes the 1-2 voxel SC strands). Picked over spur-pruning
+        # and ridge-pre-smoothing by a validated bake-off (the latter bridges nearby strands into
+        # false rings). Effect: detected SC length ~7% shorter (calibrate vs Imaris); per-nucleus
+        # length correlation unchanged; the fragmentation index is on raw SYP so it is untouched.
+        from skimage.morphology import disk
+
+        mask = ndi.binary_closing(mask, disk(1)[None, :, :])         # fuse the double-rail tube
+        # fill small interior holes (spurious skeleton loops) and drop orphan speckle blobs, via
+        # ndi/bincount rather than skimage.remove_small_* (whose kwarg semantics changed in 0.26 —
+        # same version-robust convention as segment/nuclei._drop_small).
+        holes = ndi.binary_fill_holes(mask) & ~mask
+        hl, hn = ndi.label(holes)
+        if hn:
+            hsz = np.bincount(hl.ravel())
+            small = np.where(hsz < 27)[0]
+            mask = mask | np.isin(hl, small[small != 0])
+        ol, on = ndi.label(mask)
+        if on:
+            osz = np.bincount(ol.ravel())
+            big = np.where(osz >= 30)[0]
+            mask = np.isin(ol, big[big != 0]) & interior
         if mask.sum() < 2:
             return [], []
 

@@ -15,17 +15,24 @@ CHANNELS = ["405", "477", "545"]  # match the n2 channel map (DAPI / SYP-3 / RAD
 
 
 def _synthetic_stack():
-    Z, Y, X = 20, 64, 160
+    Z, Y, X = 20, 80, 320
     dapi = np.zeros((Z, Y, X), np.float32)
     syp = np.zeros((Z, Y, X), np.float32)
     rad = np.zeros((Z, Y, X), np.float32)
     zz, yy, xx = np.indices((Z, Y, X)).astype(np.float32)
-    for cx in (24, 52, 80, 108, 136, 150 - 2):  # 6 nuclei along x
-        r2 = (((zz - 10) * SPACING[0]) ** 2 + ((yy - 32) * SPACING[1]) ** 2
+    # germline: a connected chain of SYP-positive nuclei (each with an SC filament + a RAD-51 focus)
+    for cx in range(20, 210, 17):                             # ~12 nuclei along x at y=40
+        r2 = (((zz - 10) * SPACING[0]) ** 2 + ((yy - 40) * SPACING[1]) ** 2
               + ((xx - cx) * SPACING[2]) ** 2)
         dapi += np.exp(-r2 / (2 * 1.6 ** 2)) * 1500.0
-        syp[10, 32, max(0, cx - 6):min(X, cx + 6)] = 2000.0   # a short SC filament
-        rad[10, 34, min(cx + 1, X - 1)] = 6000.0              # one RAD-51 focus
+        syp[10, 40, max(0, cx - 6):min(X, cx + 6)] = 2000.0   # a short SC filament
+        rad[10, 42, min(cx + 1, X - 1)] = 6000.0              # one RAD-51 focus
+    # off-germline junk: a SEPARATED DAPI cluster (gut/debris), NO SYP, >12 µm from the gonad ->
+    # the seeded connected-component isolation must drop it (it carries no synapsed seed).
+    for jx in (280, 295, 310):
+        r2 = (((zz - 10) * SPACING[0]) ** 2 + ((yy - 40) * SPACING[1]) ** 2
+              + ((xx - jx) * SPACING[2]) ** 2)
+        dapi += np.exp(-r2 / (2 * 1.6 ** 2)) * 1500.0
     data = np.stack([dapi, syp, rad], axis=0)                 # (C, Z, Y, X)
     return Stack(data=data, spacing=SPACING, channel_names=CHANNELS,
                  path="x.nd2", spacing_ok=True)
@@ -70,3 +77,11 @@ def test_process_image_end_to_end(tmp_path, patched_reader):
     assert (nuclei["voxel_dz_um"] == SPACING[0]).all()
     assert nuclei["sex"].iloc[0] == "herm"
     assert "axis_position_um" in nuclei and nuclei["axis_position_um"].notna().any()
+
+    # germline isolation: the SYP-negative junk blobs are flagged out, the SYP+ germline kept
+    assert "in_germline" in nuclei.columns
+    summary = pd.read_csv(out / f"{res['image_id']}__image_summary.csv")
+    n_germ = int(summary["n_germline_nuclei"].iloc[0])
+    assert 5 <= n_germ < int(summary["n_nuclei"].iloc[0])   # some dropped, enough kept for an axis
+    # the axis was fit on germline nuclei only (excluded rows carry NaN axis)
+    assert nuclei.loc[nuclei["in_germline"] != True, "axis_position_um"].isna().all()  # noqa: E712
