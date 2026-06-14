@@ -70,6 +70,16 @@ def _fib_sphere(n, rng):
     return pts @ q
 
 
+def _tz_seats(n, rng, spread=0.33):
+    """Transition-zone (leptotene/zygotene 'bouquet') seats: chromosome ends CLUSTERED toward one
+    random pole -> chromatin gathered in a crescent on one side of the nucleus (vs the spread
+    Fibonacci seats of pachytene). `spread` sets how tight the cluster is (smaller = sharper crescent)."""
+    pole = rng.normal(size=3)
+    pole /= np.linalg.norm(pole)
+    seats = pole[None] + rng.normal(0, spread, (n, 3))
+    return seats / np.linalg.norm(seats, axis=1, keepdims=True)
+
+
 def _chromosome(center, R, rng, p, seat_dir):
     """One bivalent: a bowed (curved) arc seated near the periphery in direction seat_dir, tangent
     to the shell -> a distinct bright loop. The 6 are spread by _fib_sphere -> separated, with a
@@ -191,6 +201,28 @@ def synthesize_scene(crop_um=CROP_UM, p=P, seed=0, frag_rate=0.0, max_pieces=5):
                    "frag_lengths_um": [round(_arc_len(pc), 2) for pc in pieces]})
     syp = p["syp_bright"] * _splat_tube(syp_pts, p["syp_sigma_um"], shape)
     return dapi.astype(np.float32), syp.astype(np.float32), label, pd.DataFrame(gt)
+
+
+def synthesize_zone_scene(crop_um=CROP_UM, p=P, seed=0, tz_frac=0.5):
+    """DAPI + nucleus labels + per-nucleus ZONE ground truth (transition_zone vs pachytene), for
+    developing/validating the zone caller. TZ nuclei get chromatin clustered to one pole (crescent
+    'bouquet'); pachytene nuclei get the spread 6-strand morphology. Returns (dapi, label, zone_gt)."""
+    import pandas as pd
+    rng = np.random.default_rng(seed)
+    shape = _grid(crop_um)
+    centers = _centers(crop_um, p["pack_spacing_um"], rng)
+    radii = np.clip(p["nuc_radius_um"] + rng.normal(0, p["radius_jitter"], len(centers)), 0.9, 3.5)
+    zones = np.where(rng.random(len(centers)) < tz_frac, "transition_zone", "pachytene")
+    chroms = []
+    for nid, (c, r, z) in enumerate(zip(centers, radii, zones), start=1):
+        seats = _tz_seats(p["n_strings"], rng) if z == "transition_zone" else _fib_sphere(p["n_strings"], rng)
+        for sd in seats:
+            chroms.append(_chromosome(c, r, rng, p, sd))
+    label = _nucleus_label(centers, radii, shape)
+    dapi = p["string_bright"] * _splat_tube(chroms, p["string_sigma_um"], shape) \
+        + p["interior_bright"] * (label > 0)
+    gt = pd.DataFrame({"nucleus_id": np.arange(1, len(centers) + 1), "zone": zones})
+    return dapi.astype(np.float32), label, gt
 
 
 def degrade(clean, p=P, seed=1):
