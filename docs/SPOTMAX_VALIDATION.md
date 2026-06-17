@@ -34,8 +34,14 @@ coincidental count tie). The lab's canonical per-nucleus number for it (xlsx col
 | Metric | Result |
 |---|---|
 | **Segmentation recall** of the 146 Imaris nuclei | **1.000** (every one found within 1.5 µm) |
-| **Per-nucleus RAD-51 correlation** (ours vs Imaris) | **Pearson r = 0.856**, Spearman 0.879, p<0.0005 |
-| **Total spots** after the z-fix (§3) | **~1269 ≈ Imaris 1222** |
+| **Per-nucleus RAD-51 correlation** (ours vs Imaris) | **Pearson r = 0.864**, Spearman ~0.88, p<0.0005 |
+| **Total spots** after the z-fix (§3), confirmed end-to-end | **1262 ≈ Imaris 1222** (+3.3 %) |
+| **Per-nucleus RAD-51** (146 matched, de-duped) | ours 4.66 — between Imaris's own inside-sphere 2.92 and coloc 5.81 |
+
+The whole-pipeline run with the z-fix produced **617 nuclei → 595 germline, 1262 spots, qc_pass**
+(down from 2033 pre-fix; max foci/nucleus 33 → 21 as z-splits collapsed). The per-nucleus number
+sits between Imaris's two assignment methods — their ~2× disagreement (inside-sphere 2.92 vs coloc
+5.81 *for the same gonad*) is now the dominant uncertainty, not our detector. Hence §5.
 
 ## 3. The over-count was Z-axis spot-splitting (not dim noise) — FIXED
 
@@ -46,7 +52,7 @@ same (x,y) voxel**. 60.7 % of in-nucleus spots share an exact (x,y) column.
 
 **Fix:** `detect_spots(..., merge_z_columns=True, z_merge_gap_um=0.8)` collapses peaks sharing an
 (x,y) voxel within `z_merge_gap_um` (keeps the brightest), while leaving genuinely distinct foci
-that are farther apart in z. Result: **2033 → ~1269 spots ≈ Imaris's 1222.** On by default.
+that are farther apart in z. Result: **2033 → 1262 spots ≈ Imaris's 1222** (confirmed end-to-end). On by default.
 
 **Do NOT use `effect_size_min ≈ 4.0`.** It can hit the same per-nucleus number arithmetically, but
 it is overfit to one gonad/stage, collapses the whole-germline mean, and *masks* the z-splitting
