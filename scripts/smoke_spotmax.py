@@ -70,6 +70,28 @@ def main():
         print(f"  per-nucleus RAD-51 count: mean={inside.size / max(n_nuc,1):.2f}  "
               f"(N2 control biological expectation ~0.5-2/nucleus)")
         print(f"  nuclei with >=1 spot: {per_nuc.size}/{n_nuc}")
+
+        # --- effect-size filtering: the step that makes SpotMAX accurate ---
+        print("\n  --- spots_calc_features_and_filter (Cell_ID-indexed) ---")
+        dfc = df.copy()
+        dfc["Cell_ID"] = nid
+        dfc = dfc[dfc["Cell_ID"] > 0].set_index("Cell_ID")
+        try:
+            out = P.spots_calc_features_and_filter(
+                pre, radii_px, dfc, lab=lab, raw_image=rad, zyx_voxel_size=SP,
+                gop_filtering_thresholds=None)
+            keys, dfs_det, dfs_gop = out if isinstance(out, tuple) and len(out) == 3 else (None, out, out)
+            det = pd.concat(dfs_det) if isinstance(dfs_det, list) and dfs_det else dfs_det
+            print(f"  computed {len(det.columns)} features for {len(det)} candidate spots")
+            es = "spot_vs_backgr_effect_size_glass"
+            print(f"  effect-size filter sweep on {es}:")
+            for thr in (0.0, 0.5, 0.8, 1.0, 1.5, 2.0):
+                n = int((det[es] >= thr).sum())
+                print(f"    Glass >= {thr:<4}:  {n:4d} spots  ->  {n/max(n_nuc,1):.2f}/nucleus")
+        except Exception as e:
+            import traceback
+            print("  filter FAIL:", type(e).__name__, str(e)[:300])
+            traceback.print_exc()
     else:
         print("  (coords columns not z/y/x; df head:)\n", df.head())
 
