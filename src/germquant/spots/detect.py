@@ -38,15 +38,18 @@ def detect_spots(
     effect_size_min: float = 0.0,
     merge_z_columns: bool = True,
     z_merge_gap_um: float = 0.8,
+    z_merge_valley_frac: float = 0.8,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (per_spot_df, per_nucleus_df). Spots are assigned to the nucleus whose mask they fall
     in; `effect_size_min` (>0) drops spots below that spot-vs-background effect size.
 
     `merge_z_columns` (default on) collapses the z-axis spot-splitting artifact: confocal axial PSF
     (~0.6-0.8 um) is far wider than the z spot-radius, so SpotMAX detects one focus as 2-3 stacked
-    peaks at the SAME (x,y) voxel. We merge peaks sharing an (x,y) voxel within `z_merge_gap_um` and
-    keep the brightest. Validated vs Imaris on 20251105_N2_HERM_001: 2033 -> ~1269 spots ~= Imaris
-    1222 (the lab does the same). Without this we over-count ~1.6x. effect_size_min is NOT the right
+    peaks at the SAME (x,y) voxel. Two stacked peaks are merged ONLY if they are within
+    `z_merge_gap_um` in z AND there is no real intensity valley between them along z (the dip stays
+    above `z_merge_valley_frac` * the dimmer peak) — i.e. one PSF-blurred focus, not two distinct
+    foci. A genuine valley keeps them separate, so dense pachytene nuclei are not over-merged.
+    Validated vs Imaris on 20251105_N2_HERM_001 (2033 -> ~Imaris 1222). effect_size_min is NOT the right
     knob for the over-count (the extras are real bright peaks of one focus, not dim noise)."""
     import spotmax.pipe as P
 
@@ -101,7 +104,7 @@ def detect_spots(
 
     # collapse z-axis spot-splitting BEFORE filtering/aggregation (see docstring)
     if merge_z_columns:
-        df = _merge_z_columns(df, sp, z_merge_gap_um)
+        df = _merge_z_columns(df, sp, z_merge_gap_um, pre, z_merge_valley_frac)
 
     if effect_size_min > 0:
         if df["effect_size"].notna().any():
@@ -136,25 +139,40 @@ def detect_spots(
     return per_spot, per_nuc
 
 
-def _merge_z_columns(df: pd.DataFrame, spacing: np.ndarray, gap_um: float) -> pd.DataFrame:
-    """Collapse spots sharing an (x,y) voxel into z-clusters split by gaps > gap_um; keep the
-    brightest per cluster. Removes the confocal z-axis spot-splitting of a single focus into stacked
-    peaks, while preserving genuinely distinct foci that are far enough apart in z."""
+def _merge_z_columns(df: pd.DataFrame, spacing: np.ndarray, gap_um: float,
+                     image: np.ndarray | None = None, valley_frac: float = 0.8) -> pd.DataFrame:
+    """Collapse z-axis spot-splitting: spots sharing an (x,y) voxel are merged into one ONLY when a
+    consecutive z-pair is within `gap_um` AND has no real intensity valley between them (the dip along
+    z stays above `valley_frac` * the dimmer peak) — one PSF-blurred focus. A genuine valley (two
+    bright blobs with a dip between) or a z-gap > gap_um starts a new focus, so distinct stacked foci
+    in dense nuclei are preserved. `image` is the (smoothed) spot channel used for the valley test;
+    without it, falls back to a gap-only rule. Keeps the brightest spot per merged cluster."""
     if df.empty:
         return df
     bright = "spot_mean_intensity" if df["spot_mean_intensity"].notna().any() else "effect_size"
     gap_vox = gap_um / float(spacing[0])
+    nz = image.shape[0] if image is not None else None
     work = df.assign(_xp=np.round(df["x"].to_numpy()).astype(int),
                      _yp=np.round(df["y"].to_numpy()).astype(int))
     keep = []
-    for _, g in work.groupby(["_xp", "_yp"], sort=False):
+    for (xp, yp), g in work.groupby(["_xp", "_yp"], sort=False):
         if len(g) == 1:
             keep.append(g.index[0])
             continue
         g = g.sort_values("z")
-        zv = g["z"].to_numpy()
-        cluster = (np.diff(zv, prepend=zv[0]) > gap_vox).cumsum()
-        for _, gc in g.groupby(cluster):
+        zc = g["z"].to_numpy()
+        zi = np.clip(np.round(zc).astype(int), 0, (nz - 1) if nz else 2**30)
+        prof = None
+        if image is not None and 0 <= yp < image.shape[1] and 0 <= xp < image.shape[2]:
+            prof = image[:, yp, xp]
+        cluster_id = np.zeros(len(g), dtype=int)
+        for k in range(1, len(g)):
+            same = (zc[k] - zc[k - 1]) <= gap_vox
+            if same and prof is not None and zi[k] > zi[k - 1]:
+                seg = prof[zi[k - 1]:zi[k] + 1]
+                same = seg.min() >= valley_frac * min(prof[zi[k - 1]], prof[zi[k]])  # no real valley
+            cluster_id[k] = cluster_id[k - 1] if same else cluster_id[k - 1] + 1
+        for _, gc in g.groupby(cluster_id):
             keep.append(gc[bright].fillna(-np.inf).idxmax())
     return df.loc[keep].reset_index(drop=True)
 

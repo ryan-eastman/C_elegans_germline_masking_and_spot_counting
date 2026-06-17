@@ -188,6 +188,7 @@ def process_image(
             effect_size_min=float(cfg.get("spots.effect_size_min", 0.0)),
             merge_z_columns=bool(cfg.get("spots.merge_z_columns", True)),
             z_merge_gap_um=float(cfg.get("spots.z_merge_gap_um", 0.8)),
+            z_merge_valley_frac=float(cfg.get("spots.z_merge_valley_frac", 0.8)),
         )
         spots = per_spot
         if not nuclei.empty and not per_nuc_spots.empty:

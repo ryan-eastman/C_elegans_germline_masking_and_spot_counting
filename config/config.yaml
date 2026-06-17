@@ -68,6 +68,9 @@ spots:
   # 20251105_N2_HERM_001: 2033 -> ~1269 spots ~= Imaris's 1222. Without it we over-count ~1.6x.
   merge_z_columns: true
   z_merge_gap_um: 0.8          # ~ axial PSF; peaks farther apart in z stay as distinct foci
+  z_merge_valley_frac: 0.8     # merge stacked peaks only if the z-dip between them stays above this
+                               #   * the dimmer peak (no real valley = one PSF focus). A true valley
+                               #   keeps them separate, so dense pachytene nuclei aren't over-merged.
   effect_size_metric: spot_vs_backgr_effect_size_glass
   effect_size_min: 0.0         # KEEP 0. The over-count was z-splitting (fixed above), NOT dim noise,
                                #   so effect_size is the wrong knob. Do NOT set ~4.0 (overfit to one
