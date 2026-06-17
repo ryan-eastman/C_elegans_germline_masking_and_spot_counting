@@ -5,7 +5,10 @@
 !/data/README.md
 outputs/
 results/
-results_*/        # results_test, results_fullres, results_nas, ... (local run outputs)
+# local run outputs (results_test, results_fullres, results_nas, results_spotmax_test, ...).
+# NOTE: keep this pattern on its OWN line — an inline '# comment' is NOT a comment in .gitignore,
+# it becomes part of the pattern and silently breaks the ignore.
+results_*/
 *.nd2
 *.tif
 *.tiff
@@ -46,3 +49,6 @@ models/
 
 smoke_crop.npz
 smoke.log
+
+# throwaway probes / one-off introspection scripts (underscore-prefixed)
+scripts/_*.py

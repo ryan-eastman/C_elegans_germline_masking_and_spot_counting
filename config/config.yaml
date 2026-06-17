@@ -51,8 +51,31 @@ germline:
                                #   distal tip — is kept, while separate gut/debris clusters are dropped)
   size_frac: 0.10              # multi_cc only: keep secondary components >= this fraction of the largest
 
-sc:
+# SpotMAX spot counting (RAD-51 etc.). This is the PI's pipeline: segment -> spots -> Imaris.
+# Replaces the v1 blob_log `foci` module (which UNDER-detected vs the Cahoon Fig5 reference).
+# Detects only peaks ABOVE local background inside each nucleus mask; every spot is tagged with
+# its spot-vs-background effect size so counts can be CALIBRATED against Imaris ground truth.
+# Headless (no GUI/prompt). Validated chain: scripts/smoke_spotmax.py + scripts/test_spots_module.py.
+spots:
   enabled: true
+  channel: foci                # RAD-51 here (same channel role as the old blob_log foci)
+  spot_radius_um: 0.3          # expected spot radius -> detection footprint (px = radius / voxel)
+  gauss_sigma_um: 0.08         # light pre-smoothing (~1 px at this voxel size)
+  thresholding_method: threshold_otsu   # semantic-segmentation threshold (where spots can be)
+  # z-axis spot-splitting fix: the confocal axial PSF (~0.6-0.8um) is far wider than the z spot
+  # radius, so SpotMAX detects one RAD-51 focus as 2-3 stacked peaks at the SAME (x,y) voxel. Merge
+  # peaks sharing an (x,y) voxel within z_merge_gap_um (keep brightest). Validated vs Imaris on
+  # 20251105_N2_HERM_001: 2033 -> ~1269 spots ~= Imaris's 1222. Without it we over-count ~1.6x.
+  merge_z_columns: true
+  z_merge_gap_um: 0.8          # ~ axial PSF; peaks farther apart in z stay as distinct foci
+  effect_size_metric: spot_vs_backgr_effect_size_glass
+  effect_size_min: 0.0         # KEEP 0. The over-count was z-splitting (fixed above), NOT dim noise,
+                               #   so effect_size is the wrong knob. Do NOT set ~4.0 (overfit to one
+                               #   gonad/stage, collapses the whole-germline mean). Calibrate only
+                               #   after leave-one-gonad-out CV across the N2 xlsx GT set.
+
+sc:
+  enabled: false               # OFF: not in the PI's seg->spots->Imaris path. Re-enable to restore.
   channel: central_element     # SYP-3 here
   ridge_sigmas_um: [0.15, 0.25, 0.40]   # Sato tubeness scales (physical)
   # v2 tracer: HYSTERESIS thresholding on the ridge keeps the thin SC as a CONTINUOUS strand
@@ -69,7 +92,7 @@ sc:
   # index separates control vs heat at the POPULATION level (Cohen's d ~0.57); calibrate vs Imaris.
 
 foci:
-  enabled: true
+  enabled: false               # OFF: superseded by the `spots` (SpotMAX) module above.
   channel: foci                # RAD-51 here
   min_sigma_um: 0.10
   max_sigma_um: 0.35
@@ -77,7 +100,7 @@ foci:
   count_in: all_zones          # RAD-51 across zones; crossover markers -> late_pachytene only
 
 zones:
-  enabled: true
+  enabled: false               # OFF: not in the PI's seg->spots->Imaris path. Re-enable to restore.
   method: auto                 # dapi_crescent | synapsis_state | auto(dapi if present else synapsis)
   crescent_boundary: count_2plus   # count_2plus | pct_60   (NEVER 80% — see ARCHITECTURE.md)
   pachytene_thirds: true
@@ -91,7 +114,7 @@ zones:
   # (early/TZ markers, INDEPENDENT of the SC count it restricts) + an SC-length floor. ADDITIVE:
   # adds is_pachytene + *_pachytene means alongside the whole-germline numbers, never replacing
   # them. v1 — calibrate thresholds vs Imaris/hand-scored zones before trusting restricted means.
-  pachytene_refine: true
+  pachytene_refine: false      # OFF with zones/sc; depends on the SC readout. Re-enable to restore.
   pachytene_foci_thr_floor: 0.6   # RAD-51 foci/nucleus floor above which a region reads as early/TZ
   pachytene_ce_mult: 1.35         # SYP-density (central_element) early-cutoff = this x the p30 level
   pachytene_sc_floor_frac: 0.45   # keep nuclei with SC length >= this x the p60 level (synapsed)

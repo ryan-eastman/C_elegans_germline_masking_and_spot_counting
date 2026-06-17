@@ -18,7 +18,7 @@ NUCLEI = [
     "axis_position_norm", "axis_position_um",
     "zone_call", "zone_call_method", "pachytene_subzone", "zone_confidence",
     "chromatin_polarized", "dna_mean_intensity",
-    "sc_total_length_um", "sc_n_fragments", "n_foci", "is_pachytene",
+    "sc_total_length_um", "sc_n_fragments", "n_foci", "n_spots", "is_pachytene",
 ]
 
 # one row per SC track/fragment (the fragmentation readout lives here)
@@ -40,6 +40,14 @@ FOCI = [
     "intensity_mean", "intensity_max", "detector", "detection_radius_um",
 ]
 
+# one row per detected spot (RAD-51 etc.) — SpotMAX detector. Replaces blob_log FOCI.
+# Carries the spot-vs-background effect size (>0 = above local background) for calibration.
+SPOTS = [
+    "spot_id", "nucleus_id", "marker",
+    "z_um", "y_um", "x_um",
+    "effect_size", "spot_mean_intensity", "detector",
+]
+
 GRANULES = [
     "granule_id", "nucleus_id", "marker",
     "volume_um3", "surface_area_um2", "n_voxels", "sphericity",
@@ -58,7 +66,7 @@ IMAGE_SUMMARY = [
     "n_nuclei", "n_germline_nuclei", "n_pachytene_nuclei",
     "mean_sc_total_length_um", "mean_sc_n_fragments",
     "mean_sc_n_fragments_pachytene", "mean_sc_total_length_um_pachytene",
-    "mean_foci", "total_germline_length_um", "qc_pass", "qc_flags",
+    "mean_foci", "mean_spots", "total_germline_length_um", "qc_pass", "qc_flags",
 ]
 
 TABLES = {
@@ -66,6 +74,7 @@ TABLES = {
     "sc_tracks": SC_TRACKS,
     "sc_per_nucleus": SC_PER_NUCLEUS,
     "foci": FOCI,
+    "spots": SPOTS,
     "granules": GRANULES,
     "zones": ZONES,
     "image_summary": IMAGE_SUMMARY,

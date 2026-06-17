@@ -10,8 +10,12 @@ is for *viewing*, not counting. Validated chain: scripts/smoke_spotmax.py.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+log = logging.getLogger(__name__)
 
 PER_SPOT_COLS = [
     "spot_id", "nucleus_id", "marker", "z_um", "y_um", "x_um",
@@ -32,9 +36,18 @@ def detect_spots(
     thresholding_method: str = "threshold_otsu",
     effect_size_metric: str = _EFFECT,
     effect_size_min: float = 0.0,
+    merge_z_columns: bool = True,
+    z_merge_gap_um: float = 0.8,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (per_spot_df, per_nucleus_df). Spots are assigned to the nucleus whose mask they fall
-    in; `effect_size_min` (>0) drops spots below that spot-vs-background effect size."""
+    in; `effect_size_min` (>0) drops spots below that spot-vs-background effect size.
+
+    `merge_z_columns` (default on) collapses the z-axis spot-splitting artifact: confocal axial PSF
+    (~0.6-0.8 um) is far wider than the z spot-radius, so SpotMAX detects one focus as 2-3 stacked
+    peaks at the SAME (x,y) voxel. We merge peaks sharing an (x,y) voxel within `z_merge_gap_um` and
+    keep the brightest. Validated vs Imaris on 20251105_N2_HERM_001: 2033 -> ~1269 spots ~= Imaris
+    1222 (the lab does the same). Without this we over-count ~1.6x. effect_size_min is NOT the right
+    knob for the over-count (the extras are real bright peaks of one focus, not dim noise)."""
     import spotmax.pipe as P
 
     sp = np.asarray(spacing, dtype=float)
@@ -82,11 +95,20 @@ def detect_spots(
             ic = next((c for c in feat.columns if c.startswith("spot_raw_mean")), None)
             feat["spot_mean_intensity"] = feat[ic].astype(float) if ic else np.nan
             df = feat  # has nucleus_id, z, y, x, effect_size, spot_mean_intensity
-    except Exception:  # noqa: BLE001 - features are an enrichment; detection counts still stand
-        pass
+    except Exception as e:  # noqa: BLE001 - features are an enrichment; detection counts still stand
+        log.warning("spot feature computation failed (%s: %s); effect_size unavailable this run.",
+                    type(e).__name__, e)
 
-    if effect_size_min > 0 and df["effect_size"].notna().any():
-        df = df[df["effect_size"].fillna(np.inf) >= effect_size_min].reset_index(drop=True)
+    # collapse z-axis spot-splitting BEFORE filtering/aggregation (see docstring)
+    if merge_z_columns:
+        df = _merge_z_columns(df, sp, z_merge_gap_um)
+
+    if effect_size_min > 0:
+        if df["effect_size"].notna().any():
+            df = df[df["effect_size"].fillna(np.inf) >= effect_size_min].reset_index(drop=True)
+        else:
+            log.warning("effect_size_min=%.2f requested but effect sizes unavailable; NOT filtering.",
+                        effect_size_min)
 
     per_spot = pd.DataFrame({
         "spot_id": np.arange(len(df)),
@@ -112,6 +134,29 @@ def detect_spots(
         "detector": "spotmax",
     }, columns=PER_NUC_COLS)
     return per_spot, per_nuc
+
+
+def _merge_z_columns(df: pd.DataFrame, spacing: np.ndarray, gap_um: float) -> pd.DataFrame:
+    """Collapse spots sharing an (x,y) voxel into z-clusters split by gaps > gap_um; keep the
+    brightest per cluster. Removes the confocal z-axis spot-splitting of a single focus into stacked
+    peaks, while preserving genuinely distinct foci that are far enough apart in z."""
+    if df.empty:
+        return df
+    bright = "spot_mean_intensity" if df["spot_mean_intensity"].notna().any() else "effect_size"
+    gap_vox = gap_um / float(spacing[0])
+    work = df.assign(_xp=np.round(df["x"].to_numpy()).astype(int),
+                     _yp=np.round(df["y"].to_numpy()).astype(int))
+    keep = []
+    for _, g in work.groupby(["_xp", "_yp"], sort=False):
+        if len(g) == 1:
+            keep.append(g.index[0])
+            continue
+        g = g.sort_values("z")
+        zv = g["z"].to_numpy()
+        cluster = (np.diff(zv, prepend=zv[0]) > gap_vox).cumsum()
+        for _, gc in g.groupby(cluster):
+            keep.append(gc[bright].fillna(-np.inf).idxmax())
+    return df.loc[keep].reset_index(drop=True)
 
 
 def _empty(labels, marker):
