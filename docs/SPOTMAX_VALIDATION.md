@@ -3,9 +3,10 @@
 **Date:** 2026-06-17 · **Pipeline:** `segment → isolate germline → SpotMAX spots → Imaris`
 **Test image:** `20251105_N2_nohs_HERM_001` (N2 control, 2600×2600×71, voxel 0.108×0.108×0.2 µm)
 
-This documents the switch from the v1 `blob_log` foci detector to **SpotMAX**, and what we learned
-validating it against your Imaris ground truth. Findings here were independently re-derived and
-**adversarially verified** (a 9-agent review caught and corrected one wrong conclusion — see §4).
+This documents the switch from the v1 `blob_log` foci detector to **SpotMAX**, the cross-gonad
+calibration of the detector against your Imaris ground truth, and the honest limits of that
+calibration. Every headline was independently re-derived and **adversarially verified** by two
+multi-agent reviews that caught and corrected several of my own conclusions (see §5).
 
 ---
 
@@ -54,28 +55,78 @@ same (x,y) voxel**. 60.7 % of in-nucleus spots share an exact (x,y) column.
 (x,y) voxel within `z_merge_gap_um` (keeps the brightest), while leaving genuinely distinct foci
 that are farther apart in z. Result: **2033 → 1262 spots ≈ Imaris's 1222** (confirmed end-to-end). On by default.
 
-**Do NOT use `effect_size_min ≈ 4.0`.** It can hit the same per-nucleus number arithmetically, but
-it is overfit to one gonad/stage, collapses the whole-germline mean, and *masks* the z-splitting
-defect instead of fixing it. `effect_size_min` stays **0.0**.
+(`effect_size_min` does **not** subsume this: z-split duplicate peaks are *bright* — they survive an
+effect-size cut — so the merge is required. Verified on HERM_001: merge on → 5.94/nuc; merge off →
+9.35/nuc, ~1.57× over.)
 
-## 4. How this was verified
+## 4. Cross-gonad validation — the detector needed a threshold change (the central result)
 
-A background workflow ran 4 independent investigators → 4 adversarial verifiers → 1 synthesizer.
-It **confirmed** gonad identity, canonical 5.81, recall 1.000, and r=0.856; and **refuted** my
-initial "no spot-splitting" conclusion (my <0.3 µm test was structurally blind to z-splitting,
-since the z-voxel is 0.2 µm). It also produced the bug list now fixed in this commit (silent
-`except`, n_spots off-gonad invariant, radius-aware `spots_per_surface`, hard-coded 5.84→5.81).
+Tuning on one gonad is exactly the trap, so we ran the full pipeline on **all 6 N2 no-HS gonads**
+(20251105; 3 HERM, 3 MALE) that have Imaris GT, matched each gonad's traced surfaces to our nuclei,
+and compared to the lab's coloc per-nucleus counts. This **overturned the single-gonad picture**:
 
-## 5. Open calibration work (before trusting absolute RAD-51 numbers)
+- **Segmentation is robust** — recall 0.96–1.0 across all 6 gonads.
+- **Spot detection with SpotMAX's default per-image otsu threshold is NOT** — it *starves* some
+  images (HERM_002 → 1.04/nuc vs coloc 4.66) and *floods* others (MALE_002 → 109.7/nuc vs 8.15).
+  Pooled cross-gonad CCC ≈ **0.04**. otsu adapts to each image's intensity histogram and swings the
+  wrong way per image.
 
-1. **Run the pipeline on all N2 gonads that have xlsx GT** (HERM_1/2/3, MALE_1/2/3, 20251021 set).
-   Today our per-spot data exists only for HERM_001, so cross-validation is impossible.
-2. **Leave-one-gonad-out**: confirm `merge_z_columns` (and any threshold) generalizes — the GT
-   per-nucleus count itself ranges 3.72–8.15 across gonads, so single-gonad tuning is fragile.
-3. **Pin one ground truth per metric.** The `.ims` (1222) and xlsx-raw (3086) disagree ~2.5× for
-   the same gonad; the lab's canonical reference is the **xlsx coloc** method (848 assigned → 5.81).
+Sweeping thresholding method × `effect_size_min` over all 6 gonads, the robust choice is
+**`threshold_triangle` + `effect_size_min = 3.0`** (`threshold_li` over-floods):
 
-## 6. How to run
+| gonad | ours (triangle/es3) | Imaris coloc |
+|---|---|---|
+| HERM_ | 4.98 | 3.72 |
+| HERM_001 | 5.94 | 5.81 |
+| HERM_002 | 3.74 | 4.66 |
+| MALE_ | 6.80 | 7.57 |
+| MALE_001 | 5.86 | 4.35 |
+| MALE_002 | 9.46 | 8.15 |
+
+| metric | triangle/es3 | otsu/es3 | otsu/es0 (old default) |
+|---|---|---|---|
+| pooled per-nucleus CCC (n=712) | **0.483** | 0.441 | 0.040 |
+| **gonad-mean CCC** | **0.805** | 0.711 | 0.040 |
+| gonad-mean MAE | **0.98** | 1.35 | — |
+| pooled bias | +0.39 | −0.45 | +18.7 |
+
+### Honest caveats (verified)
+- **One date / condition / session.** All 6 are 20251105 / N2 / no-HS (only sex varies). **No HS, no
+  other genotype, no second scope/date.** Re-CV before trusting the absolute numbers there.
+- **It's a modest, not dominant, win.** Triangle beats otsu in **5 of 6** leave-one-gonad-out folds
+  (dropping HERM_002, otsu/es3 edges ahead). Call it "best available," not "robustly dominant."
+- **`effect_size_min = 3` is a knife-edge, not a plateau** — CCC drops sharply at es=2 (over-counts)
+  and es≥4 (under-counts); es=3 wins partly by zeroing the mean bias on *these* gonads. Expect to
+  re-tune per condition.
+- **Per-nucleus CCC ≈ 0.48 is modest**; the cleaner story is **gonad-mean agreement (CCC 0.80, MAE
+  ~1 spot/nucleus)**. Residuals are mixed-sign scatter (4 over / 2 under), *not* a correctable
+  constant bias — do **not** apply a global correction.
+- Our cellpose masks are ~1.4× the Imaris surface volume; only **recall + per-nucleus** are valid
+  comparisons (Imaris masked a subset).
+- **This config is *proposed*: re-run the pipeline end-to-end before treating it as deployed.**
+
+## 5. How this was verified
+
+Two independent background workflows (4 investigators → 4 adversarial verifiers → synthesis each).
+The first **refuted** my initial "no spot-splitting" conclusion (my <0.3 µm test was blind to
+z-splitting since the z-voxel is 0.2 µm) and fixed a bug list. The second **confirmed** triangle/es3
+as the best config but **corrected** my overclaims (the 5-of-6-fold dependency; "~1.5" not "within
+1.5" since MALE_001 = 1.505; otsu's flood is 109.7 not 130) and found two more bugs now fixed: the
+GT coloc reader double-counted spots when two Imaris surfaces share a mask label (~3% of nuclei), and
+a `fillna` mismatch between the CV script and production. Net: conclusion stands, numbers tightened.
+
+## 6. Open calibration work (priority order)
+
+1. **Add HS gonads** — highest priority; RAD-51 density + image statistics differ most under heat, so
+   the threshold/effect-size interaction is most likely to need re-tuning there.
+2. **≥1 non-N2 genotype + a second date/scope**; re-validate per-nucleus **recall and CCC** there.
+3. **Pin one ground truth per metric.** The `.ims` (1222 spots) and xlsx-raw (3086) disagree ~2.5×
+   for the same gonad; the lab's canonical reference is the **xlsx coloc** method.
+4. Tooling to do all of the above already exists: `scripts/cv_run.py` (batch),
+   `scripts/build_cv_manifest.py` (auto-pair GT), `scripts/cv_analyze.py` / `cv_sweep.py` /
+   `cv_detect.py` (per-gonad + pooled agreement, threshold × effect-size sweeps).
+
+## 7. How to run
 
 ```powershell
 $py = ".venv\Scripts\python.exe"
@@ -92,7 +143,7 @@ $py = ".venv\Scripts\python.exe"
 Readers: `germquant.validate.imaris_xlsx` (lab coloc method, canonical per-nucleus counts) and
 `germquant.validate.imaris_ims` (Spots + Surfaces in image-relative µm, same frame as our output).
 
-## 7. Cellpose retraining feasibility
+## 8. Cellpose retraining feasibility
 
 There are **no ready-to-use nucleus label masks** on the E: drive — but 188 `.ims` projects hold
 Imaris nucleus Surfaces, and 179 `.nd2` raw stacks. The catch: Imaris stores surfaces in a

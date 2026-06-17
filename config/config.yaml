@@ -61,7 +61,12 @@ spots:
   channel: foci                # RAD-51 here (same channel role as the old blob_log foci)
   spot_radius_um: 0.3          # expected spot radius -> detection footprint (px = radius / voxel)
   gauss_sigma_um: 0.08         # light pre-smoothing (~1 px at this voxel size)
-  thresholding_method: threshold_otsu   # semantic-segmentation threshold (where spots can be)
+  # semantic-segmentation threshold (where spots can be). CROSS-VALIDATED across 6 N2 gonads w/
+  # Imaris GT: otsu is UNSTABLE per-image (starved HERM_002 -> 1.0/nuc, flooded MALE_002 -> 130/nuc;
+  # pooled CCC 0.04). threshold_triangle is robust (recovers starved gonads, controls floods); paired
+  # with effect_size_min below it gives pooled CCC 0.48, bias +0.4, all 6 gonads within ~1.5 of coloc.
+  # (scripts/cv_detect.py: otsu/li/triangle x effect_size_min sweep.) 'li' over-floods.
+  thresholding_method: threshold_triangle
   # z-axis spot-splitting fix: the confocal axial PSF (~0.6-0.8um) is far wider than the z spot
   # radius, so SpotMAX detects one RAD-51 focus as 2-3 stacked peaks at the SAME (x,y) voxel. Merge
   # peaks sharing an (x,y) voxel within z_merge_gap_um (keep brightest). Validated vs Imaris on
@@ -72,10 +77,12 @@ spots:
                                #   * the dimmer peak (no real valley = one PSF focus). A true valley
                                #   keeps them separate, so dense pachytene nuclei aren't over-merged.
   effect_size_metric: spot_vs_backgr_effect_size_glass
-  effect_size_min: 0.0         # KEEP 0. The over-count was z-splitting (fixed above), NOT dim noise,
-                               #   so effect_size is the wrong knob. Do NOT set ~4.0 (overfit to one
-                               #   gonad/stage, collapses the whole-germline mean). Calibrate only
-                               #   after leave-one-gonad-out CV across the N2 xlsx GT set.
+  effect_size_min: 3.0         # CROSS-VALIDATED noise filter. With threshold_triangle, es_min=3.0
+                               #   maximised pooled cross-gonad CCC (0.48, bias +0.4) over the 6 N2
+                               #   gonads; es=2 over-counts (bias +5), es>=4 under-counts. Removes the
+                               #   low-effect noise that the more-sensitive triangle threshold admits.
+                               #   NB: tuned on 20251105 N2 no-HS only — re-CV before trusting on
+                               #   HS / other genotypes (scripts/cv_detect.py + cv_sweep.py).
 
 sc:
   enabled: false               # OFF: not in the PI's seg->spots->Imaris path. Re-enable to restore.
