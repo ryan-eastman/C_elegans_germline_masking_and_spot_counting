@@ -103,7 +103,9 @@ Sweeping thresholding method × `effect_size_min` over all 6 gonads, the robust 
   constant bias — do **not** apply a global correction.
 - Our cellpose masks are ~1.4× the Imaris surface volume; only **recall + per-nucleus** are valid
   comparisons (Imaris masked a subset).
-- **This config is *proposed*: re-run the pipeline end-to-end before treating it as deployed.**
+- **Confirmed end-to-end:** the committed triangle/es3 config, run through the full pipeline on
+  HERM_001, reproduces the CV exactly (1653 spots, matching `cv_detect` grid) — so it's wired
+  correctly. The *generalization* caveats above (single date/condition) still stand.
 
 ## 5. How this was verified
 
