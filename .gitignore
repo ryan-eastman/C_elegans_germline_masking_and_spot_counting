@@ -43,3 +43,6 @@ dist/
 
 # trained models (large) + synthetic training data
 models/
+
+smoke_crop.npz
+smoke.log
