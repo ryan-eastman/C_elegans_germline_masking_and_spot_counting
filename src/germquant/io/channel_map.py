@@ -1,7 +1,8 @@
 """Resolve .nd2 channels (named by laser line) to biological roles.
 
-Roles drive the rest of the pipeline: `dna` -> nuclei + zoning, `central_element`
--> SC tracing, `foci` -> RAD-51 counting, `axis` -> no-DAPI zoning, `granule` -> 3D objects.
+Roles drive the pipeline: `dna` -> nucleus segmentation, `central_element` (SYP) -> germline
+isolation, `foci` -> the RAD-51 channel counted by the SpotMAX spots stage. Name match falls back
+to channel index, so a map made for one laser-line naming still works if the order is the same.
 """
 from __future__ import annotations
 

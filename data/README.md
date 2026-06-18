@@ -1,38 +1,26 @@
 # data/  (gitignored — nothing here is committed)
 
-Drop inputs here for local verification. The whole folder is in `.gitignore`
-(except this README), so raw microscopy and ground truth never get committed.
+Drop inputs here for local checks. The whole folder is in `.gitignore` (except this README),
+so raw microscopy and ground truth never get committed.
 
 ## raw_examples/
-Real `.nd2` germline stacks for end-to-end checks. A couple of representative files is
-plenty (ideally one HERM/oocyte and one MALE/spermatocyte; control + heat if easy).
+Real `.nd2` germline stacks for end-to-end checks (ideally one HERM/oocyte and one MALE/spermatocyte;
+control + heat if easy).
 
     germquant info  data/raw_examples/<file>.nd2          # channels + voxel size
-    germquant run   data/raw_examples/<file>.nd2 --config config/config.yaml \
-                    --out results_test/ --xy-stride 4      # CPU smoke (classical seg)
+    germquant run   data/raw_examples/<file>.nd2 --config config/config.yaml --out results_test/
 
 ## ground_truth/
-Imaris (or Fiji/SNT) hand quantifications, as CSV, for `germquant validate` /
-`scripts/run_and_validate.sh`. Two files (names matter — the script looks for them):
+Imaris ground truth for validating the spot counts. The readers in `germquant.validate` consume the
+lab's native Imaris exports directly — no reformatting needed:
+- **`.xlsx`** Imaris Statistics export (the coloc method) — `germquant.validate.imaris_xlsx`.
+- **`.ims`** Imaris project (Spots + Surfaces) — `germquant.validate.imaris_ims`.
 
-**`per_nucleus.csv`** — one row per nucleus with a join key:
+Validate against them with:
 
-| column                  | meaning                                              |
-|-------------------------|------------------------------------------------------|
-| `image_id`              | matches the `.nd2` stem (the pipeline's image_id)    |
-| `nucleus_id`            | per-nucleus id (any consistent numbering)            |
-| `sc_total_length_um`    | Imaris filament length per nucleus (µm)              |
-| `n_fragments`           | number of SC filaments/fragments per nucleus         |
-| `n_foci`                | RAD-51 foci per nucleus                               |
+    python scripts/imaris_gt_counts.py      # per-gonad RAD-51/nucleus from the xlsx coloc method
+    python scripts/validate_same_image.py   # pipeline output vs the .ims for one image
+    # cross-gonad CV: scripts/cv_run.py -> build_cv_manifest.py -> cv_detect.py  (see docs/RUNBOOK.md)
 
-**`zones.csv`** — one row per image:
-
-| column                  | meaning                                              |
-|-------------------------|------------------------------------------------------|
-| `image_id`              | matches the `.nd2` stem                              |
-| `transition_zone_um`    | TZ length (µm)                                        |
-| `pachytene_um`          | pachytene length (µm)                                |
-
-If Imaris nucleus numbering can't be matched to the pipeline's, that's fine — provide
-per-image values and we validate at the distribution level (means/medians, CCC) instead.
-Don't have all columns? Provide what you have; the script skips the rest.
+Imaris masks only a *subset* of nuclei, so only **recall** and **per-nucleus RAD-51** are valid
+comparisons (not nucleus count / precision / F1). See [docs/SPOTMAX_VALIDATION.md](../docs/SPOTMAX_VALIDATION.md).

@@ -18,12 +18,12 @@ COPY config ./config
 COPY workflow ./workflow
 
 # Explicit cu128 torch wheel FIRST (do not let resolvers pick a CPU/older build),
-# then the package + GPU/SC/workflow extras.
+# then the package + GPU/spots/workflow extras.
 RUN pip install --index-url https://download.pytorch.org/whl/cu128 "torch>=2.7" \
-    && pip install ".[gpu,sc,workflow]"
+    && pip install ".[gpu,workflow]" spotmax cellacdc
 
 # build-time smoke check (imports only — a GPU is not attached during `docker build`).
-RUN python -c "import germquant, skan, cellpose; print('germquant ok')"
+RUN python -c "import germquant, cellpose; print('germquant ok')"
 
 # Runtime sm_120 assertion lives in the entrypoint, not the build: `docker build` has no
 # GPU, so the (12,0) capability check can only run with `--gpus all` at `docker run`.

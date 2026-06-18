@@ -37,11 +37,11 @@ segmentation:
 
 germline:
   # Isolate the gonad: drop nuclei segmented OUTSIDE the germline (gut autofluorescence, debris,
-  # non-gonad structures) so they don't pollute the axis fit, zones, and per-nucleus means. Uses SYP
-  # (central_element) intensity + spatial connectivity — NEVER the foci count, so foci-recall is an
-  # independent validation (scripts/validate_germline_select.py: multi_cc mean recall 0.97 on 14
-  # real gonads). ADDITIVE: adds an `in_germline` column; excluded nuclei stay in the output table
-  # flagged False. Downstream analysis (axis/zones/SC/foci means) runs on in_germline nuclei only.
+  # non-gonad structures) so they don't pollute the axis fit and per-nucleus spot means. Uses SYP
+  # (central_element) intensity + spatial connectivity — NEVER the spot count, so spot recall is an
+  # independent validation (scripts/validate_germline_select.py: mean recall ~0.97 on 14 real
+  # gonads). ADDITIVE: adds an `in_germline` column; excluded nuclei stay in the output table
+  # flagged False. Downstream analysis (axis position, spots/nucleus) runs on in_germline nuclei.
   enabled: true
   method: syp_seeded_cc        # syp_seeded_cc (default) | multi_cc | largest_cc | seed_mass
   syp_percentile: 25           # SYP floor that defines a synapsed "seed" nucleus

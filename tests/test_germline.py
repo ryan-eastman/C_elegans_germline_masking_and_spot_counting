@@ -1,5 +1,5 @@
-"""Germline isolation (germquant.germline.select). Selection uses SYP + geometry only — never
-n_foci — so these tests never reference foci."""
+"""Germline isolation (germquant.germline.select). Selection uses SYP + geometry only — never the
+spot count — so these tests never reference spots."""
 import pandas as pd
 
 from germquant.germline import select_germline

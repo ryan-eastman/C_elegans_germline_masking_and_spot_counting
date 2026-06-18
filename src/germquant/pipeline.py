@@ -151,7 +151,7 @@ def process_image(
     qc_pass, qc_all = qc.qc_flags(
         n_nuclei=n_nuclei, channel_flags=ch_flags,
         axis_flags=[f for f in flags if f.startswith("axis")],
-        zone_flags=[], sc_traced=False, mean_sc_len=None, foci_found=len(spots) > 0,
+        spots_found=len(spots) > 0,
     )
     qc_all = sorted(set(flags + qc_all))
 

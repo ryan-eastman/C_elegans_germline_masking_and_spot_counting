@@ -2,8 +2,8 @@
 debris, or nuclei outside the germline (the "nuclei called outside the germline" montage problem).
 
 Uses the SYP / central-element signal as the germline marker plus spatial connectivity — and NEVER
-the foci count, so the selection is independent of the RAD-51 readout it protects. That independence
-lets us validate it with foci-recall (foci-bearing cells are germline) without circularity.
+the spot count, so the selection is independent of the RAD-51 readout it protects. That independence
+lets us validate it with spot-recall (spot-bearing cells are germline) without circularity.
 
 Methods (config `germline.method`):
   syp_seeded_cc — DEFAULT. Seed on SYP-bright (synapsed) nuclei, then keep the WHOLE spatially-connected
@@ -11,14 +11,14 @@ Methods (config `germline.method`):
                 tip (mitotic + transition zone, before SYP-3 loads) because it is contiguous with the
                 pachytene core — the other methods, which threshold each nucleus on SYP independently,
                 wrongly drop the distal third of the gonad (verified on real data). 14-gonad validation:
-                mean foci-recall 0.995, min 0.98, ~7% dropped (the separated gut/debris clusters).
+                mean spot-recall ~0.99, ~7% dropped (the separated gut/debris clusters).
   multi_cc    — keep the largest SYP-positive component + any other >= 10% of its size. Recovers split
                 gonads but, like all SYP-threshold methods, drops the SYP-negative distal tip.
   largest_cc  — single largest SYP-positive component only. Simplest; truncates split gonads.
   seed_mass   — components carrying enough strong-SYP seeds; over-drops (~47%).
 
 All add a boolean `in_germline` column and return (df, flags). Geometry is in microns. The selection
-NEVER reads n_foci, so foci-recall is an independent (non-circular) validation — see
+NEVER reads the spot count, so spot-recall is an independent (non-circular) validation — see
 scripts/validate_germline_select.py.
 """
 from __future__ import annotations

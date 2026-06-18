@@ -70,16 +70,6 @@ def _fib_sphere(n, rng):
     return pts @ q
 
 
-def _tz_seats(n, rng, spread=0.33):
-    """Transition-zone (leptotene/zygotene 'bouquet') seats: chromosome ends CLUSTERED toward one
-    random pole -> chromatin gathered in a crescent on one side of the nucleus (vs the spread
-    Fibonacci seats of pachytene). `spread` sets how tight the cluster is (smaller = sharper crescent)."""
-    pole = rng.normal(size=3)
-    pole /= np.linalg.norm(pole)
-    seats = pole[None] + rng.normal(0, spread, (n, 3))
-    return seats / np.linalg.norm(seats, axis=1, keepdims=True)
-
-
 def _chromosome(center, R, rng, p, seat_dir):
     """One bivalent: a bowed (curved) arc seated near the periphery in direction seat_dir, tangent
     to the shell -> a distinct bright loop. The 6 are spread by _fib_sphere -> separated, with a
@@ -149,80 +139,6 @@ def synthesize(crop_um=CROP_UM, p=P, seed=0):
     label = _nucleus_label(centers, radii, shape)
     clean = p["string_bright"] * strands + p["interior_bright"] * (label > 0)
     return clean.astype(np.float32), label
-
-
-def _arc_len(pts):
-    return float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
-
-
-def fragment_strand(pts, rng, n_pieces, gap_um=0.4):
-    """Break a chromosome's SC into n_pieces contiguous pieces separated by dark gaps (models
-    heat-induced SC fragmentation). Returns a list of piece point-arrays."""
-    if n_pieces <= 1:
-        return [pts]
-    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
-    cum = np.concatenate([[0.0], np.cumsum(seg)]); total = cum[-1]
-    breaks = np.sort(rng.uniform(0.12, 0.88, n_pieces - 1)) * total
-    bounds = np.concatenate([[0.0], breaks, [total]])
-    pieces = []
-    for i in range(n_pieces):
-        lo = bounds[i] + (gap_um / 2 if i > 0 else 0.0)
-        hi = bounds[i + 1] - (gap_um / 2 if i < n_pieces - 1 else 0.0)
-        m = (cum >= lo) & (cum <= hi)
-        if m.sum() >= 2:
-            pieces.append(pts[m])
-    return pieces or [pts]
-
-
-def synthesize_scene(crop_um=CROP_UM, p=P, seed=0, frag_rate=0.0, max_pieces=5):
-    """Full scene: DAPI + SYP channels + nucleus labels + per-chromosome SC ground truth.
-
-    frag_rate = fraction of chromosomes whose SC is fragmented (the heat phenotype); each such
-    chromosome breaks into 2..max_pieces pieces with dark gaps. The SYP channel carries the SC
-    (thinner/sharper than DAPI chromatin) along the (fragmented) strands.
-    Returns (dapi, syp, label, sc_gt) where sc_gt is a per-chromosome DataFrame with the KNOWN
-    sc_length_um, n_fragments and fragment lengths -> ground truth for the SC tracer.
-    """
-    import pandas as pd
-    rng = np.random.default_rng(seed)
-    shape = _grid(crop_um)
-    centers, radii, chroms = build_chromosomes(crop_um, p, rng)
-    label = _nucleus_label(centers, radii, shape)
-    dapi = p["string_bright"] * _splat_tube([ch["pts"] for ch in chroms], p["string_sigma_um"], shape) \
-        + p["interior_bright"] * (label > 0)
-
-    syp_pts, gt = [], []
-    for ch in chroms:
-        k = int(rng.integers(2, max_pieces + 1)) if rng.random() < frag_rate else 1
-        pieces = fragment_strand(ch["pts"], rng, k)
-        syp_pts.extend(pieces)
-        gt.append({"nucleus_id": ch["nid"], "sc_length_um": round(_arc_len(ch["pts"]), 2),
-                   "n_fragments": len(pieces),
-                   "frag_lengths_um": [round(_arc_len(pc), 2) for pc in pieces]})
-    syp = p["syp_bright"] * _splat_tube(syp_pts, p["syp_sigma_um"], shape)
-    return dapi.astype(np.float32), syp.astype(np.float32), label, pd.DataFrame(gt)
-
-
-def synthesize_zone_scene(crop_um=CROP_UM, p=P, seed=0, tz_frac=0.5):
-    """DAPI + nucleus labels + per-nucleus ZONE ground truth (transition_zone vs pachytene), for
-    developing/validating the zone caller. TZ nuclei get chromatin clustered to one pole (crescent
-    'bouquet'); pachytene nuclei get the spread 6-strand morphology. Returns (dapi, label, zone_gt)."""
-    import pandas as pd
-    rng = np.random.default_rng(seed)
-    shape = _grid(crop_um)
-    centers = _centers(crop_um, p["pack_spacing_um"], rng)
-    radii = np.clip(p["nuc_radius_um"] + rng.normal(0, p["radius_jitter"], len(centers)), 0.9, 3.5)
-    zones = np.where(rng.random(len(centers)) < tz_frac, "transition_zone", "pachytene")
-    chroms = []
-    for nid, (c, r, z) in enumerate(zip(centers, radii, zones), start=1):
-        seats = _tz_seats(p["n_strings"], rng) if z == "transition_zone" else _fib_sphere(p["n_strings"], rng)
-        for sd in seats:
-            chroms.append(_chromosome(c, r, rng, p, sd))
-    label = _nucleus_label(centers, radii, shape)
-    dapi = p["string_bright"] * _splat_tube(chroms, p["string_sigma_um"], shape) \
-        + p["interior_bright"] * (label > 0)
-    gt = pd.DataFrame({"nucleus_id": np.arange(1, len(centers) + 1), "zone": zones})
-    return dapi.astype(np.float32), label, gt
 
 
 def degrade(clean, p=P, seed=1):

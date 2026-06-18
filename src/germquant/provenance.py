@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
 
-_TOOLS = ["germquant", "nd2", "numpy", "scipy", "scikit-image", "pandas", "skan", "cellpose", "torch"]
+_TOOLS = ["germquant", "nd2", "numpy", "scipy", "scikit-image", "pandas", "cellpose", "spotmax", "torch"]
 
 
 def _repo_root() -> Path | None:
