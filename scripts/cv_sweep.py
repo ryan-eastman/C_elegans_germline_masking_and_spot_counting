@@ -37,7 +37,11 @@ def gonad_data(g):
     return spots, matched
 
 
-gonads = json.load(open("cv_manifest.json"))
+import argparse
+
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--manifest", default="cv_manifest.json")
+gonads = json.load(open(_ap.parse_args().manifest))
 data = {g["name"]: gonad_data(g) for g in gonads}
 
 # effect-size distribution per gonad

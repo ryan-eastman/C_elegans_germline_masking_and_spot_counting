@@ -3,6 +3,7 @@ segmentation) and re-run only SpotMAX detection on the RAD-51 channel with otsu 
 sweep effect_size_min. For each (method, effect_size_min) report the per-gonad matched per-nucleus
 mean vs Imaris coloc and the pooled cross-gonad agreement (CCC/bias). Finds the combo that is robust
 across all 6 gonads, not overfit to one. Writes results_cv_detect/grid.csv + pooled.csv."""
+import argparse
 import glob
 import json
 import os
@@ -17,9 +18,15 @@ from germquant.validate.imaris_ims import read_imaris_ims
 from germquant.validate.imaris_xlsx import per_nucleus_rad51
 from scripts.cv_analyze import _ccc, _greedy
 
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--manifest", default="cv_manifest.json")
+_ap.add_argument("--ndir", default=r"E:\Madeleine\N2\20251105_N2_noHS", help="folder with the .nd2 files")
+_ap.add_argument("--out", default="results_cv_detect")
+_args = _ap.parse_args()
+
 SP = (0.2, 0.108333, 0.108333)
-NDIR = r"E:\Madeleine\N2\20251105_N2_noHS"
-OUT = r"C:\Users\ryane\C_elegans_germline_masking_and_spot_counting\results_cv_detect"
+NDIR = _args.ndir
+OUT = _args.out
 TOL = 2.5
 METHODS = ["threshold_otsu", "threshold_li", "threshold_triangle"]
 ESMINS = [0.0, 2.0, 3.0, 4.0, 5.0]
@@ -43,7 +50,7 @@ def matched_for(g):
     return [(int(oid[oj]), coloc[sj]) for sj, oj in _greedy(surf, oxyz, TOL) if not np.isnan(coloc[sj])]
 
 
-gonads = json.load(open("cv_manifest.json"))
+gonads = json.load(open(_args.manifest))
 matched = {g["name"]: matched_for(g) for g in gonads}
 nd2_of = {g["name"]: os.path.join(NDIR, g["name"] + ".nd2") for g in gonads}
 lab_of = {g["name"]: glob.glob(os.path.join(g["out_dir"], "*__nuclei_labels.tif"))[0] for g in gonads}
