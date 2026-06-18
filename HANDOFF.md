@@ -32,17 +32,32 @@ All commands below use the project's Python:
 - **Repo is lab-usable:** beginner README + `quantify.bat` (drag a .nd2 on it). Legacy SC/zones/foci
   stages stripped; all old-pipeline references audited out; **25 tests pass** (`$py -m pytest`).
 - **QC:** `germquant batch` flags germline-count outliers (two-arm / framing) in `batch_summary.csv`.
-- **Flood guard (2026-06-18):** the spots stage now caps candidate peaks at `spots.max_spot_candidates`
-  (30000) before the O(n) feature step, so an artefact/over-bright image can't wedge the run for hours
-  (a syp-2 gonad did exactly that). Flooded images log a loud `FLOODED` warning; their count is a floor.
+- **Flood guard v1 (partial, committed):** the spots stage caps candidate peaks at
+  `spots.max_spot_candidates` (30000) before the feature step. Helps, BUT the 2026-06-18 re-test showed
+  the wedge is actually UPSTREAM — inside SpotMAX's own detection/segmentation, which is single-threaded
+  (~1 of 16 cores) — so the cap alone is NOT sufficient. The real fix is in §3.
 
-## 3. Mutant validation — status (NOT a clean run yet)
+## 3. Mutant validation — BLOCKED on one robustness fix (DO THIS FIRST)
 
-- **DLW188 (syp-2):** the overnight run **wedged on gonad 2** (`HERM _2`) — it flooded the detector and
-  the (pre-fix) spots stage hung for 8 h. Process was killed; **only `HERM _1` completed**
-  (`results_cv_dlw188_nohs/`). The flood guard above now prevents that. **Re-launch is safe (§4).**
-  - FIRST thing to verify on re-run: gonad 2 now finishes (in ~minutes) and logs `FLOODED` — confirms
-    the cap works on real data + tells you that gonad's image is likely artefact/bleed-through (check it).
+- **DLW188 (syp-2):** `HERM _1` runs fine (849 nuclei, 4016 spots, ~21 min). `HERM _2` is a **bad image**
+  (almost certainly the bleed-through this dataset is known for): it floods SpotMAX's detector, which
+  then grinds **single-threaded for hours and hangs the whole batch** — there's no per-image escape
+  hatch. Confirmed twice (overnight 8 h wedge; a 2026-06-18 re-test sat 14 min in detection on 1 core,
+  then killed). The cap (§2) doesn't help because the stall is upstream of it.
+- **So the batch is NOT safe to re-run as-is** — one bad gonad stalls everything. The validated **N2
+  result is unaffected**; this only blocks the *mutant breadth* runs.
+
+### PRIORITY FIX (before re-running any mutant batch) — two layers
+1. **Cheap up-front flood check** in/around `germquant.spots.detect_spots`: one NumPy pass over the
+   RAD-51 channel inside the nucleus masks — if the bright-voxel fraction is abnormally high (calibrate
+   the threshold against N2 + DLW188 `HERM_1`, which are normal), set flag `spots:flooded_skipped` and
+   **skip** the spots stage (return empty) instead of entering SpotMAX's slow chain. O(voxels), seconds.
+2. **Hard per-gonad timeout** as a backstop — run `detect_spots` in a child process and terminate after
+   N minutes (flag `spots:timeout`) so NOTHING (detection or features) can ever stall the batch.
+   (Windows = spawn, so pass the arrays in; for one gonad that's fine.)
+Then re-run §4: bad gonads get flagged + skipped, good ones processed. `_cap_candidates` stays as a
+third line of defence. Also worth: lower `max_spot_candidates` (~8–10k) so even kept floods stay fast
+single-threaded.
 - The rest of the mutant validation (DLW190, CCW68) is in §6, unchanged.
 
 ## 4. Re-launch the validation runs (if interrupted)
