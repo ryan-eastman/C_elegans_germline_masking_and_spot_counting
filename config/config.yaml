@@ -107,4 +107,5 @@ render:
 output:
   dir: null                    # null => mirror the input tree under <input_root>/../results
   formats: [csv, parquet]
-  write_label_images: true     # save nucleus label masks (tif) for QC / re-use
+  write_label_images: true     # save nucleus label masks (tif) -> Imaris Surfaces / QC / re-use
+  write_spots_image: true      # save detected spots as a 3D blob tif -> Imaris Channel / Spots detection

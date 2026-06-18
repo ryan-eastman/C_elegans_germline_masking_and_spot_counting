@@ -5,9 +5,33 @@
 import numpy as np
 import pandas as pd
 
+from germquant.spots import spots_to_image
 from germquant.spots.detect import _cap_candidates, _merge_z_columns
 
 SP = np.array([0.2, 0.108, 0.108])  # dz, dy, dx (anisotropic, like the real data)
+
+
+def test_spots_to_image_blobs_at_voxel_locations():
+    # spots given in um -> blobs land at the matching voxel, on the requested grid (Imaris-ready)
+    df = pd.DataFrame({"z_um": [2 * 0.2, 5 * 0.2], "y_um": [20 * 0.108, 40 * 0.108],
+                       "x_um": [20 * 0.108, 50 * 0.108]})
+    img = spots_to_image(df, (8, 70, 70), SP, radius_um=0.3)
+    assert img.shape == (8, 70, 70) and img.dtype == np.uint16
+    assert img[2, 20, 20] == 65535 and img[5, 40, 50] == 65535   # blob centers are bright
+    assert img.min() == 0                                        # background stays empty
+
+
+def test_spots_to_image_empty_is_blank():
+    img = spots_to_image(pd.DataFrame(columns=["z_um", "y_um", "x_um"]), (5, 10, 10), SP)
+    assert img.shape == (5, 10, 10) and img.max() == 0
+
+
+def test_spots_to_image_label_mode_unique_ids():
+    # far-apart spots -> distinct integer ids (for Imaris label import)
+    df = pd.DataFrame({"z_um": [1 * 0.2, 6 * 0.2], "y_um": [5 * 0.108, 50 * 0.108],
+                       "x_um": [5 * 0.108, 50 * 0.108]})
+    img = spots_to_image(df, (8, 70, 70), SP, radius_um=0.2, label=True)
+    assert set(np.unique(img)) - {0} == {1, 2}
 
 
 def test_cap_candidates_keeps_brightest():

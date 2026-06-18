@@ -182,6 +182,9 @@ def process_image(
 
     if cfg.get("output.write_label_images", True):
         _save_labels(labels, out_dir / f"{sample['image_id']}__nuclei_labels.tif")
+    if cfg.get("output.write_spots_image", True) and len(spots):
+        _save_spots_image(spots, labels.shape, spacing, out_dir / f"{sample['image_id']}__spots.tif",
+                          radius_um=float(cfg.get("spots.spot_radius_um", 0.3)))
     if cfg.get("render.montage", True):
         excl_ids = set(excluded["nucleus_id"]) if not excluded.empty else None
         make_montage(
@@ -233,3 +236,20 @@ def _save_labels(labels, path):
         tifffile.imwrite(str(path), labels.astype(np.int32), compression="zlib")
     except Exception as e:  # noqa: BLE001
         log.warning("could not save label image: %s", e)
+
+
+def _save_spots_image(spots, shape, spacing, path, radius_um=0.3):
+    """3D blob image of detected spots, on the same voxel grid as the label TIF / original image, with
+    voxel size baked in — load it in Imaris as a Channel, or run Imaris Spots detection on it."""
+    try:
+        import tifffile
+
+        from .spots import spots_to_image
+
+        img = spots_to_image(spots, shape, spacing, radius_um=radius_um)
+        sp = tuple(float(s) for s in spacing)
+        tifffile.imwrite(str(path), img, compression="zlib", imagej=True,
+                         resolution=(1 / sp[2], 1 / sp[1]),
+                         metadata={"spacing": sp[0], "unit": "um", "axes": "ZYX"})
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not save spots image: %s", e)

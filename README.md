@@ -74,7 +74,8 @@ Inside the results folder, each image produces files that start with the image's
 | `..._spots.csv` | One row per individual RAD-51 spot (its 3D position + brightness). For deeper analysis. |
 | `..._image_summary.csv` | One row of totals for the whole image (number of nuclei, average spots, pass/fail QC). |
 | `..._montage.png` | A **picture to eyeball that it worked** — nucleus outlines with the spots marked. Open it and glance at it every time. |
-| `..._nuclei_labels.tif` | The 3D nucleus map. You can load this into Imaris to double-check the segmentation. |
+| `..._nuclei_labels.tif` | The 3D nucleus map. Load it into Imaris as **Surfaces** to double-check the segmentation. |
+| `..._spots.tif` | The detected spots as a 3D image, on the same grid as the nuclei map. Load it into Imaris as a **Channel** (Edit → Add Channels), or run Imaris **Spots** detection on it (diameter ~0.4 µm) to get Spots objects next to your Surfaces. |
 
 **To get "average RAD-51 spots per nucleus":** open `..._nuclei.csv` in Excel → filter so
 `in_germline = True` → average the **`n_spots`** column.
