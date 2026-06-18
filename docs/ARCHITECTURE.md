@@ -1,5 +1,11 @@
 # Architecture — *C. elegans* germline 3D quantification
 
+> **Partly legacy.** This describes the original multi-readout pipeline (SC tracing, zone calling,
+> blob_log foci). **This fork's pipeline is segment → germline → SpotMAX spots → Imaris** — those
+> SC/zones/foci stages were removed. Current pipeline: [../README.md](../README.md) +
+> [SPOTMAX_VALIDATION.md](SPOTMAX_VALIDATION.md). The segmentation / germline-isolation / IO /
+> voxel-awareness design below is still accurate.
+
 > Design of record. Produced from a web-grounded, adversarially-verified research pass
 > (15 agents, ~540k tokens). Citations are inline. Decisive throughout; inference flagged.
 

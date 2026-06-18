@@ -1,5 +1,10 @@
 # Runbook — full-resolution GPU run + tuning
 
+> **Partly legacy.** Tuning sections for SC / zones / blob_log foci no longer apply (those stages
+> were removed). The current pipeline is segment → germline → SpotMAX spots → Imaris; for the
+> spot-detection calibration see [SPOTMAX_VALIDATION.md](SPOTMAX_VALIDATION.md) and the README.
+
+
 The Mac smoke tests proved the plumbing at low resolution with the classical fallback. The
 real quantification happens here, on the RTX 5090 (or HPC), at full resolution with Cellpose.
 
