@@ -39,6 +39,7 @@ def detect_spots(
     merge_z_columns: bool = True,
     z_merge_gap_um: float = 0.8,
     z_merge_valley_frac: float = 0.8,
+    max_spot_candidates: int = 30000,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (per_spot_df, per_nucleus_df). Spots are assigned to the nucleus whose mask they fall
     in; `effect_size_min` (>0) drops spots below that spot-vs-background effect size.
@@ -74,6 +75,14 @@ def detect_spots(
     xi = np.clip(df["x"].astype(int), 0, labels.shape[2] - 1)
     df = df.assign(nucleus_id=np.asarray(labels)[zi, yi, xi])
     df = df[df["nucleus_id"] > 0].reset_index(drop=True)
+
+    # FLOOD GUARD: a high-signal or artefact image can propose tens-to-hundreds of thousands of
+    # candidate peaks, and the per-spot feature step below is O(n) and CPU-bound — on one syp-2 mutant
+    # gonad it ran for 8 h without finishing. Cap to the brightest `max_spot_candidates` before
+    # features so the pipeline can never wedge. A real RAD-51 count is far below this, so hitting the
+    # cap means the image is flooded (artefact / bleed-through / over-bright) and its count is a floor,
+    # not a measurement — surfaced via a loud warning.
+    df = _cap_candidates(df, img, max_spot_candidates)
 
     # Per-spot features (effect size + intensity). SpotMAX needs the FULL detection frame
     # (incl. the *_local columns) Cell_ID-indexed, and it regroups by Cell_ID — so use the
@@ -137,6 +146,23 @@ def detect_spots(
         "detector": "spotmax",
     }, columns=PER_NUC_COLS)
     return per_spot, per_nuc
+
+
+def _cap_candidates(df: pd.DataFrame, image: np.ndarray, cap: int) -> pd.DataFrame:
+    """Flood guard: if more than `cap` candidate spots, keep the brightest `cap` (by raw intensity at
+    the peak voxel), in original order. Bounds the O(n) per-spot feature step so an artefact /
+    over-bright image can't wedge the run for hours. A real RAD-51 count is far below `cap`, so
+    triggering this means the image is flooded and its count is a floor, not a measurement."""
+    if len(df) <= cap:
+        return df
+    z = np.clip(df["z"].astype(int), 0, image.shape[0] - 1)
+    y = np.clip(df["y"].astype(int), 0, image.shape[1] - 1)
+    x = np.clip(df["x"].astype(int), 0, image.shape[2] - 1)
+    bright = np.asarray(image)[z, y, x]
+    keep = np.sort(np.argsort(bright)[::-1][:cap])
+    log.warning("FLOODED: %d spot candidates exceed cap %d — likely artefact/over-bright; keeping the "
+                "brightest %d, count is a FLOOR not a measurement.", len(df), cap, cap)
+    return df.iloc[keep].reset_index(drop=True)
 
 
 def _merge_z_columns(df: pd.DataFrame, spacing: np.ndarray, gap_um: float,

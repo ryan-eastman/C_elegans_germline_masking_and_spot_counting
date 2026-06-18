@@ -136,6 +136,7 @@ def process_image(
                 merge_z_columns=bool(cfg.get("spots.merge_z_columns", True)),
                 z_merge_gap_um=float(cfg.get("spots.z_merge_gap_um", 0.8)),
                 z_merge_valley_frac=float(cfg.get("spots.z_merge_valley_frac", 0.8)),
+                max_spot_candidates=int(cfg.get("spots.max_spot_candidates", 30000)),
             )
             spots = per_spot
             if not nuclei.empty and not per_nuc_spots.empty:

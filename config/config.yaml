@@ -77,6 +77,10 @@ spots:
                                #   * the dimmer peak (no real valley = one PSF focus). A true valley
                                #   keeps them separate, so dense pachytene nuclei aren't over-merged.
   effect_size_metric: spot_vs_backgr_effect_size_glass
+  max_spot_candidates: 30000   # FLOOD GUARD: cap candidate peaks before the (O(n), CPU-bound)
+                               #   feature step so an artefact/over-bright image can't wedge the run
+                               #   for hours (a syp-2 mutant gonad did exactly that). A real count is
+                               #   far below this; hitting the cap = flooded image, count is a floor.
   effect_size_min: 3.0         # CROSS-VALIDATED noise filter. With threshold_triangle, es_min=3.0
                                #   maximised pooled cross-gonad CCC (0.48, bias +0.4) over the 6 N2
                                #   gonads; es=2 over-counts (bias +5), es>=4 under-counts. Removes the
