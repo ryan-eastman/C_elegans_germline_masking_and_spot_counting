@@ -1,7 +1,8 @@
 """Single-image pipeline: .nd2 -> tidy tables + montage + label mask + manifest.
 
-Each stage is wrapped so one failure degrades gracefully (flags it) instead of killing
-the whole batch. Voxel spacing from the .nd2 is threaded into every 3D op.
+Stages: read -> segment nuclei (Cellpose) -> measure -> isolate germline -> linearize axis ->
+count spots (SpotMAX) -> tidy tables. Each stage is wrapped so one failure degrades gracefully
+(flags it) instead of killing the batch. Voxel spacing from the .nd2 is threaded into every 3D op.
 """
 from __future__ import annotations
 
@@ -15,14 +16,10 @@ import pandas as pd
 from . import provenance, qc, schema
 from .axis import linearize_germline
 from .config import Config
-from .foci import detect_foci
 from .io import parse_sample, read_nd2_metadata, read_stack
-from .io.sample_metadata import expected_sc_count
 from .measure import measure_objects
 from .render import make_montage
-from .sc import trace_sc
 from .segment import segment_nuclei
-from .zones import call_zones, refine_pachytene
 
 log = logging.getLogger(__name__)
 
@@ -90,9 +87,9 @@ def process_image(
         nuclei = pd.DataFrame(columns=["nucleus_id"])
 
     # ---- isolate germline (drop nuclei segmented OUTSIDE the gonad: gut, debris, off-gonad) ----
-    # Runs on the SYP-measured table; downstream stages (axis/zones/SC/foci means) operate on the
-    # germline subset so off-gonad nuclei don't distort the centerline or dilute the means. Excluded
-    # nuclei are re-attached (flagged in_germline=False) before writing, so nothing is hidden.
+    # Uses SYP (central_element) intensity + spatial connectivity, NEVER the spot count. Excluded
+    # nuclei are re-attached (flagged in_germline=False) before writing, so nothing is hidden;
+    # downstream means (axis, spots/nucleus) operate on the germline subset.
     excluded = nuclei.iloc[0:0].copy()
     if cfg.get("germline.enabled", True) and not nuclei.empty:
         from .germline import select_germline
@@ -110,149 +107,67 @@ def process_image(
         nuclei = nuclei[nuclei["in_germline"]].copy()
     n_germline_nuclei = int(len(nuclei))
 
-    # ---- axis + zones ----
+    # ---- linearize axis (principal-curve centerline -> per-nucleus distal->proximal position) ----
     axis_conf = float("nan")
-    zones_tbl = pd.DataFrame(columns=schema.ZONES)
     if not nuclei.empty:
         nuclei, axis_conf, axis_flags = linearize_germline(
             nuclei, confidence_min=float(cfg.get("axis.qc_confidence_min", 0.6))
         )
         flags += axis_flags
-        if cfg.get("zones.enabled", True):
-            nuclei, zones_tbl, zone_flags = call_zones(
-                nuclei, dna=dna, labels=labels, spacing=spacing,
-                method=cfg.get("zones.method", "auto"),
-                crescent_boundary=cfg.get("zones.crescent_boundary", "count_2plus"),
-                axis_bin_um=float(cfg.get("zones.axis_bin_um", 5.0)),
-                polarization_threshold=float(cfg.get("zones.polarization_threshold", 0.18)),
-                pachytene_thirds=bool(cfg.get("zones.pachytene_thirds", True)),
-            )
-            flags += zone_flags
 
-    # ---- SC tracing + fragmentation ----
-    sc_tracks = pd.DataFrame(columns=schema.SC_TRACKS)
-    sc_per_nuc = pd.DataFrame(columns=schema.SC_PER_NUCLEUS)
-    sc_traced = False
-    ce_idx = role_to_idx.get("central_element")
-    if cfg.get("sc.enabled", True) and ce_idx is not None and n_nuclei > 0:
-        exp = expected_sc_count(sample["germ_cell"])
-        exp_map = {int(nid): exp for nid in nuclei["nucleus_id"]} if exp else None
-        sc_tracks, sc_per_nuc = trace_sc(
-            stack.data[ce_idx], labels, spacing,
-            marker=cfg.channel_map.marker("central_element"),
-            ridge_sigmas_um=cfg.get("sc.ridge_sigmas_um", [0.15, 0.25, 0.40]),
-            ridge_hyst_low_pct=float(cfg.get("sc.ridge_hyst_low_pct", 40.0)),
-            ridge_hyst_high_pct=float(cfg.get("sc.ridge_hyst_high_pct", 80.0)),
-            intensity_percentile=float(cfg.get("sc.intensity_percentile", 99.0)),
-            min_fragment_length_um=float(cfg.get("sc.min_fragment_length_um", 0.5)),
-            expected_n_tracks=exp_map,
-        )
-        sc_traced = not sc_per_nuc.empty
-        if sc_traced:
-            nuclei = nuclei.merge(
-                sc_per_nuc[["nucleus_id", "n_fragments", "sc_total_length_um", "sc_fragmentation_index"]]
-                .rename(columns={"n_fragments": "sc_n_fragments"}),
-                on="nucleus_id", how="left",
-            )
-
-    # ---- RAD-51 foci ----
-    foci = pd.DataFrame(columns=schema.FOCI)
-    foci_idx = role_to_idx.get("foci")
-    if cfg.get("foci.enabled", True) and foci_idx is not None:
-        foci = detect_foci(
-            stack.data[foci_idx], spacing, marker=cfg.channel_map.marker("foci"),
-            min_sigma_um=float(cfg.get("foci.min_sigma_um", 0.10)),
-            max_sigma_um=float(cfg.get("foci.max_sigma_um", 0.35)),
-            threshold_rel=float(cfg.get("foci.threshold_rel", 0.10)), labels=labels,
-        )
-        if not nuclei.empty:
-            counts = foci[foci["nucleus_id"] > 0].groupby("nucleus_id").size()
-            nuclei["n_foci"] = nuclei["nucleus_id"].map(counts).fillna(0).astype(int)
-
-    # ---- spots (SpotMAX) — the PI's spot counter; replaces blob_log foci when spots.enabled.
-    # Same channel role (RAD-51); detects only peaks ABOVE local background inside each nucleus
-    # mask and tags every spot with its effect size, so counts can be calibrated against Imaris. ----
+    # ---- spots (SpotMAX) — RAD-51 (or other) foci per nucleus.
+    # Detects peaks ABOVE local background inside each nucleus mask, merges z-axis spot-splits, and
+    # tags every spot with its effect size. Detection params are cross-validated vs Imaris (config). ----
     spots = pd.DataFrame(columns=schema.SPOTS)
     per_nuc_spots = None  # kept so off-gonad (excluded) nuclei also get n_spots at re-attach
     spots_idx = role_to_idx.get("foci")
-    if cfg.get("spots.enabled", False) and spots_idx is not None and n_nuclei > 0:
-        from .spots import detect_spots
+    if cfg.get("spots.enabled", True) and spots_idx is not None and n_nuclei > 0:
+        try:
+            from .spots import detect_spots
 
-        per_spot, per_nuc_spots = detect_spots(
-            stack.data[spots_idx], labels, spacing,
-            marker=cfg.channel_map.marker("foci"),
-            spot_radius_um=float(cfg.get("spots.spot_radius_um", 0.3)),
-            gauss_sigma_um=float(cfg.get("spots.gauss_sigma_um", 0.08)),
-            thresholding_method=cfg.get("spots.thresholding_method", "threshold_otsu"),
-            effect_size_metric=cfg.get("spots.effect_size_metric", "spot_vs_backgr_effect_size_glass"),
-            effect_size_min=float(cfg.get("spots.effect_size_min", 0.0)),
-            merge_z_columns=bool(cfg.get("spots.merge_z_columns", True)),
-            z_merge_gap_um=float(cfg.get("spots.z_merge_gap_um", 0.8)),
-            z_merge_valley_frac=float(cfg.get("spots.z_merge_valley_frac", 0.8)),
-        )
-        spots = per_spot
-        if not nuclei.empty and not per_nuc_spots.empty:
-            nuclei = nuclei.merge(per_nuc_spots[["nucleus_id", "n_spots"]], on="nucleus_id", how="left")
-            nuclei["n_spots"] = nuclei["n_spots"].fillna(0).astype(int)
-        flags.append(f"spots:spotmax_n={len(spots)}")
-
-    # ---- granules (optional generic 3D-object module; off the N2 critical path) ----
-    granules = pd.DataFrame(columns=schema.GRANULES)
-    gran_idx = role_to_idx.get("granule")
-    if cfg.get("granules.enabled", False) and gran_idx is not None:
-        from .granules import detect_granules
-
-        granules = detect_granules(
-            stack.data[gran_idx], spacing, labels=labels,
-            marker=cfg.channel_map.marker("granule"),
-            threshold_method=cfg.get("granules.threshold_method", "li"),
-            min_volume_um3=float(cfg.get("granules.min_volume_um3", 0.05)),
-        )
-
-    # ---- pachytene refinement (restrict the SC readout to pachytene; ADDITIVE — adds an
-    # is_pachytene column + paired means, never overwrites the whole-germline numbers) ----
-    if cfg.get("zones.pachytene_refine", True) and not nuclei.empty and "sc_total_length_um" in nuclei.columns:
-        nuclei, pach_flags = refine_pachytene(
-            nuclei,
-            sc_floor_frac=float(cfg.get("zones.pachytene_sc_floor_frac", 0.45)),
-            ce_mult=float(cfg.get("zones.pachytene_ce_mult", 1.35)),
-            foci_thr_floor=float(cfg.get("zones.pachytene_foci_thr_floor", 0.6)),
-        )
-        flags += pach_flags
+            per_spot, per_nuc_spots = detect_spots(
+                stack.data[spots_idx], labels, spacing,
+                marker=cfg.channel_map.marker("foci"),
+                spot_radius_um=float(cfg.get("spots.spot_radius_um", 0.3)),
+                gauss_sigma_um=float(cfg.get("spots.gauss_sigma_um", 0.08)),
+                thresholding_method=cfg.get("spots.thresholding_method", "threshold_triangle"),
+                effect_size_metric=cfg.get("spots.effect_size_metric", "spot_vs_backgr_effect_size_glass"),
+                effect_size_min=float(cfg.get("spots.effect_size_min", 3.0)),
+                merge_z_columns=bool(cfg.get("spots.merge_z_columns", True)),
+                z_merge_gap_um=float(cfg.get("spots.z_merge_gap_um", 0.8)),
+                z_merge_valley_frac=float(cfg.get("spots.z_merge_valley_frac", 0.8)),
+            )
+            spots = per_spot
+            if not nuclei.empty and not per_nuc_spots.empty:
+                nuclei = nuclei.merge(per_nuc_spots[["nucleus_id", "n_spots"]], on="nucleus_id", how="left")
+                nuclei["n_spots"] = nuclei["n_spots"].fillna(0).astype(int)
+            flags.append(f"spots:spotmax_n={len(spots)}")
+        except Exception as e:  # noqa: BLE001 - SpotMAX missing or detection failure shouldn't kill the batch
+            log.warning("spot detection failed (%s: %s); continuing without spots.", type(e).__name__, e)
+            flags.append(f"spots:FAILED_{type(e).__name__}")
+            per_nuc_spots = None
 
     # ---- QC ----
-    mean_sc = float(sc_per_nuc["sc_total_length_um"].mean()) if sc_traced else None
-    _pach = nuclei["is_pachytene"] if "is_pachytene" in nuclei.columns else None
-    _has_pach = _pach is not None and bool(_pach.any())
-    mean_frags_pach = float(nuclei.loc[_pach, "sc_n_fragments"].mean()) if _has_pach and "sc_n_fragments" in nuclei else float("nan")
-    mean_sclen_pach = float(nuclei.loc[_pach, "sc_total_length_um"].mean()) if _has_pach and "sc_total_length_um" in nuclei else float("nan")
     qc_pass, qc_all = qc.qc_flags(
-        n_nuclei=n_nuclei, channel_flags=ch_flags, axis_flags=[f for f in flags if f.startswith("axis")],
-        zone_flags=[f for f in flags if f.startswith("zones")], sc_traced=sc_traced,
-        mean_sc_len=mean_sc, foci_found=len(foci) > 0,
+        n_nuclei=n_nuclei, channel_flags=ch_flags,
+        axis_flags=[f for f in flags if f.startswith("axis")],
+        zone_flags=[], sc_traced=False, mean_sc_len=None, foci_found=len(spots) > 0,
     )
     qc_all = sorted(set(flags + qc_all))
 
     image_summary = pd.DataFrame([{
         "n_nuclei": n_nuclei,
         "n_germline_nuclei": n_germline_nuclei,
-        "n_pachytene_nuclei": int((nuclei.get("zone_call") == "pachytene").sum()) if "zone_call" in nuclei else 0,
-        "mean_sc_total_length_um": mean_sc if mean_sc is not None else float("nan"),
-        "mean_sc_n_fragments": float(sc_per_nuc["n_fragments"].mean()) if sc_traced else float("nan"),
-        # pachytene-restricted readouts (gradient-window; reported ALONGSIDE the whole-germline
-        # means above, never replacing them — the restriction is auditable & opt-in for analysis)
-        "mean_sc_n_fragments_pachytene": mean_frags_pach,
-        "mean_sc_total_length_um_pachytene": mean_sclen_pach,
-        "mean_foci": float(nuclei["n_foci"].mean()) if "n_foci" in nuclei else float("nan"),
         "mean_spots": float(nuclei["n_spots"].mean()) if "n_spots" in nuclei else float("nan"),
-        "total_germline_length_um": float(nuclei["axis_position_um"].max()) if "axis_position_um" in nuclei and not nuclei.empty else float("nan"),
+        "total_germline_length_um": float(nuclei["axis_position_um"].max())
+        if "axis_position_um" in nuclei and not nuclei.empty else float("nan"),
         "qc_pass": qc_pass, "qc_flags": ";".join(qc_all),
         "segmentation_method": seg_method, "axis_confidence": axis_conf,
     }])
 
     # ---- write outputs ----
-    # re-attach the off-gonad nuclei (in_germline=False; NaN for axis/zone/SC/foci) so the table is a
-    # complete, auditable record of every segmented object — analysis filters on in_germline.
+    # re-attach the off-gonad nuclei (in_germline=False) so the table is a complete, auditable record
+    # of every segmented object — analysis filters on in_germline.
     if not excluded.empty:
         # give off-gonad nuclei their spot counts too, so n_spots is complete (spots may land in
         # debris/gut nuclei); without this they'd read NaN and per-spot vs per-nucleus totals diverge.
@@ -261,27 +176,22 @@ def process_image(
             excluded = excluded.copy()
             excluded["n_spots"] = excluded["nucleus_id"].map(m).fillna(0).astype(int)
         nuclei = pd.concat([nuclei, excluded], ignore_index=True)
-    tables = {
-        "nuclei": nuclei, "sc_tracks": sc_tracks, "sc_per_nucleus": sc_per_nuc,
-        "foci": foci, "spots": spots, "zones": zones_tbl, "granules": granules,
-        "image_summary": image_summary,
-    }
+    tables = {"nuclei": nuclei, "spots": spots, "image_summary": image_summary}
     _write_tables(tables, shared, out_dir, sample["image_id"], cfg.get("output.formats", ["csv"]))
 
     if cfg.get("output.write_label_images", True):
         _save_labels(labels, out_dir / f"{sample['image_id']}__nuclei_labels.tif")
     if cfg.get("render.montage", True):
         excl_ids = set(excluded["nucleus_id"]) if not excluded.empty else None
-        overlay = spots if len(spots) else (foci if len(foci) else None)
         make_montage(
             stack, labels, role_to_idx, out_dir / f"{sample['image_id']}__montage.png",
-            foci_df=overlay, excluded_ids=excl_ids,
+            foci_df=spots if len(spots) else None, excluded_ids=excl_ids,
             scalebar_um=float(cfg.get("render.scalebar_um", 10)),
             title=f"{sample['image_id']}  [{sample['sex']}/{sample['treatment']}]  n={n_nuclei}",
         )
 
-    log.info("%s: %d nuclei, sc=%s, foci=%d, spots=%d, qc_pass=%s",
-             sample["image_id"], n_nuclei, sc_traced, len(foci), len(spots), qc_pass)
+    log.info("%s: %d nuclei, %d germline, spots=%d, qc_pass=%s",
+             sample["image_id"], n_nuclei, n_germline_nuclei, len(spots), qc_pass)
     return {"image_id": sample["image_id"], "n_nuclei": n_nuclei, "qc_pass": qc_pass,
             "qc_flags": qc_all, "out_dir": str(out_dir), "tables": tables}
 

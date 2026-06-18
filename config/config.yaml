@@ -84,62 +84,11 @@ spots:
                                #   NB: tuned on 20251105 N2 no-HS only — re-CV before trusting on
                                #   HS / other genotypes (scripts/cv_detect.py + cv_sweep.py).
 
-sc:
-  enabled: false               # OFF: not in the PI's seg->spots->Imaris path. Re-enable to restore.
-  channel: central_element     # SYP-3 here
-  ridge_sigmas_um: [0.15, 0.25, 0.40]   # Sato tubeness scales (physical)
-  # v2 tracer: HYSTERESIS thresholding on the ridge keeps the thin SC as a CONTINUOUS strand
-  # (seed at high_pct, grow down to low_pct) — a single percentile shreds it into blobs and
-  # under-measures length ~2x (verified on synthetic SC GT, scripts/sc_proto.py). These recover
-  # SC LENGTH (the reliable readout); STILL calibrate absolute length vs Imaris/SNT (RUNBOOK §5).
-  ridge_hyst_low_pct: 45.0              # tuned on synthetic GT: detected 34.7 vs 35.2 µm, corr 0.60
-  ridge_hyst_high_pct: 80.0
-  intensity_percentile: 90.0            # DEPRECATED (old single-threshold method); unused by v2
-  min_fragment_length_um: 0.5           # ignore skeleton specks below this
-  # HEAT-PHENOTYPE readout = sc_fragmentation_index (SYP intensity CV per nucleus). Per-nucleus
-  # fragment COUNT is NOT recoverable from light microscopy at pachytene density (the ~6 SCs overlap
-  # in 3D; ARCHITECTURE.md Risk 1) — n_fragments is a lower bound, not the biological count. The
-  # index separates control vs heat at the POPULATION level (Cohen's d ~0.57); calibrate vs Imaris.
-
-foci:
-  enabled: false               # OFF: superseded by the `spots` (SpotMAX) module above.
-  channel: foci                # RAD-51 here
-  min_sigma_um: 0.10
-  max_sigma_um: 0.35
-  threshold_rel: 0.10          # blob_log relative threshold
-  count_in: all_zones          # RAD-51 across zones; crossover markers -> late_pachytene only
-
-zones:
-  enabled: false               # OFF: not in the PI's seg->spots->Imaris path. Re-enable to restore.
-  method: auto                 # dapi_crescent | synapsis_state | auto(dapi if present else synapsis)
-  crescent_boundary: count_2plus   # count_2plus | pct_60   (NEVER 80% — see ARCHITECTURE.md)
-  pachytene_thirds: true
-  axis_bin_um: 5.0             # row width for zone scoring along the germline axis
-  # crescent call: a nucleus is "polarized" (TZ-like) if its DAPI weighted-vs-geometric
-  # centroid offset exceeds this many nuclear radii. Tune per dataset/resolution — real N2
-  # data tops out ~0.13 at full res, so 0.18 finds no TZ (see docs/RUNBOOK.md §2).
-  polarization_threshold: 0.10
-  # Pachytene refinement (gradient-window): restrict the SC fragment readout to pachytene so the
-  # whole-arm average doesn't dilute the heat phenotype. Gates on RAD-51 foci + SYP density
-  # (early/TZ markers, INDEPENDENT of the SC count it restricts) + an SC-length floor. ADDITIVE:
-  # adds is_pachytene + *_pachytene means alongside the whole-germline numbers, never replacing
-  # them. v1 — calibrate thresholds vs Imaris/hand-scored zones before trusting restricted means.
-  pachytene_refine: false      # OFF with zones/sc; depends on the SC readout. Re-enable to restore.
-  pachytene_foci_thr_floor: 0.6   # RAD-51 foci/nucleus floor above which a region reads as early/TZ
-  pachytene_ce_mult: 1.35         # SYP-density (central_element) early-cutoff = this x the p30 level
-  pachytene_sc_floor_frac: 0.45   # keep nuclei with SC length >= this x the p60 level (synapsed)
-
 axis:
   method: auto                 # auto (principal-curve centerline through nucleus centroids) | manual
   # below this -> flag for a manual axis-draw. This is an "is there an axis at all" gate: it
   # scales with germline tube width, so a healthy (thick) gonad reads ~0.5; a diffuse blob ~0.
   qc_confidence_min: 0.35
-
-granules:                      # generic 3D-object module (off the critical path; none in N2 data)
-  enabled: false               # needs a channel map with a `granule` role to do anything
-  channel: granule
-  threshold_method: li         # li | otsu
-  min_volume_um3: 0.05         # drop sub-resolution specks
 
 render:
   montage: true

@@ -1,4 +1,4 @@
-from germquant.io.sample_metadata import expected_sc_count, parse_sample
+from germquant.io.sample_metadata import parse_sample
 
 REGEX = r"(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?P<treatment>nohs|hs)_(?:[a-z0-9]+_)*?(?P<sex>HERM|MALE|H|M)\s*_?(?P<replicate>\d+)?\s*$"
 
@@ -33,9 +33,3 @@ def test_parse_new_naming_channel_block_and_h_m_codes():
     assert g["sex"] == "herm"
     assert g["germ_cell"] == "oocyte"
     assert g["replicate"] == "NA"      # no replicate suffix -> default
-
-
-def test_expected_sc_counts():
-    assert expected_sc_count("oocyte") == 6      # 5 autosomal + XX
-    assert expected_sc_count("spermatocyte") == 5  # X univalent
-    assert expected_sc_count("unknown") is None

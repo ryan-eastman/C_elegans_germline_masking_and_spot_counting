@@ -43,8 +43,3 @@ def parse_sample(path: str | Path, regex: str, defaults: dict | None = None) -> 
         if "replicate" in g:
             fields["replicate"] = g["replicate"]
     return fields
-
-
-def expected_sc_count(germ_cell: str) -> int | None:
-    """WT pachytene: oocyte = 6 SCs (5 autosomal + XX); spermatocyte = 5 (X univalent)."""
-    return {"oocyte": 6, "spermatocyte": 5}.get(germ_cell)

@@ -41,5 +41,8 @@ germquant = "germquant.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]   # the unit suite; scripts/ holds runnable dev/validation tools, not tests
+
 [tool.ruff]
 line-length = 100
