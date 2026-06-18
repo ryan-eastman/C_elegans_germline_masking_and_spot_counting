@@ -6,9 +6,12 @@ let you eyeball every unattended result. Heavy/3D renders go through napari (viz
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
+
+from .fsutil import long_path
 
 
 def _mip(img: np.ndarray) -> np.ndarray:
@@ -91,8 +94,8 @@ def make_montage(
     fig.suptitle(title, fontsize=10)
     fig.tight_layout()
     out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=140, bbox_inches="tight")
+    os.makedirs(long_path(out_path.parent), exist_ok=True)
+    fig.savefig(long_path(out_path), dpi=140, bbox_inches="tight", format="png")
     plt.close(fig)
     return out_path
 

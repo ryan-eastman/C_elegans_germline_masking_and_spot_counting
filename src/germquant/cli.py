@@ -183,7 +183,8 @@ def _batch(args) -> int:
                 flag = f"qc:germline_count_outlier_{s['n_germline']}_vs_median{med:.0f}_review_framing"
                 s["qc_flags"] = f"{s['qc_flags']};{flag}" if s["qc_flags"] else flag
 
-    pd.DataFrame(summaries).to_csv(out_root / "batch_summary.csv", index=False)
+    from .fsutil import long_path
+    pd.DataFrame(summaries).to_csv(long_path(out_root / "batch_summary.csv"), index=False)
     n_pass = sum(s["qc_pass"] for s in summaries)
     print(f"\nDone. {n_pass}/{len(files)} passed QC. Summary -> {out_root / 'batch_summary.csv'}")
     return 0

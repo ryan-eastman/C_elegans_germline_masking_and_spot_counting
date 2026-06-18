@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
+
+from .fsutil import long_path
 
 _TOOLS = ["germquant", "nd2", "numpy", "scipy", "scikit-image", "pandas", "cellpose", "spotmax", "torch"]
 
@@ -76,7 +79,7 @@ def run_timestamp() -> str:
 
 def write_manifest(out_dir: str | Path, *, config_hash: str, config: dict, extra: dict | None = None) -> dict:
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    os.makedirs(long_path(out_dir), exist_ok=True)
     manifest = {
         "pipeline_version": _safe_version("germquant"),
         "git_sha": git_sha(),
@@ -88,7 +91,8 @@ def write_manifest(out_dir: str | Path, *, config_hash: str, config: dict, extra
     }
     if extra:
         manifest.update(extra)
-    (out_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=2, default=str))
+    with open(long_path(out_dir / "run_manifest.json"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(manifest, indent=2, default=str))
     return manifest
 
 

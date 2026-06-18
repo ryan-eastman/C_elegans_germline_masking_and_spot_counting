@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +17,7 @@ import pandas as pd
 from . import provenance, qc, schema
 from .axis import linearize_germline
 from .config import Config
+from .fsutil import long_path
 from .io import parse_sample, read_nd2_metadata, read_stack
 from .measure import measure_objects
 from .render import make_montage
@@ -35,7 +37,7 @@ def process_image(
 ) -> dict:
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    os.makedirs(long_path(out_dir), exist_ok=True)
     flags: list[str] = []
 
     # ---- read + resolve channels ----
@@ -208,10 +210,10 @@ def _write_tables(tables, shared, out_dir, image_id, formats):
             df[k] = v
         base = out_dir / f"{image_id}__{name}"
         if "csv" in formats:
-            df.to_csv(base.with_suffix(".csv"), index=False)
+            df.to_csv(long_path(base.with_suffix(".csv")), index=False)
         if "parquet" in formats:
             try:
-                df.to_parquet(base.with_suffix(".parquet"), index=False)
+                df.to_parquet(long_path(base.with_suffix(".parquet")), index=False)
             except Exception as e:  # pyarrow missing
                 log.warning("parquet write failed (%s); CSV written.", e)
 
@@ -234,7 +236,7 @@ def _save_labels(labels, path):
     try:
         import tifffile
 
-        tifffile.imwrite(str(path), labels.astype(np.int32), compression="zlib")
+        tifffile.imwrite(long_path(path), labels.astype(np.int32), compression="zlib")
     except Exception as e:  # noqa: BLE001
         log.warning("could not save label image: %s", e)
 
@@ -249,7 +251,7 @@ def _save_spots_image(spots, shape, spacing, path, radius_um=0.3):
 
         img = spots_to_image(spots, shape, spacing, radius_um=radius_um)
         sp = tuple(float(s) for s in spacing)
-        tifffile.imwrite(str(path), img, compression="zlib", imagej=True,
+        tifffile.imwrite(long_path(path), img, compression="zlib", imagej=True,
                          resolution=(1 / sp[2], 1 / sp[1]),
                          metadata={"spacing": sp[0], "unit": "um", "axes": "ZYX"})
     except Exception as e:  # noqa: BLE001
