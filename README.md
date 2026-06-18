@@ -79,10 +79,11 @@ Inside the results folder, each image produces files that start with the image's
 **To get "average RAD-51 spots per nucleus":** open `..._nuclei.csv` in Excel → filter so
 `in_germline = True` → average the **`n_spots`** column.
 
-> ⚠️ **Read this before trusting the numbers.** The spot counts are **calibrated for N2 (wild-type),
-> no-heat-shock** germlines, where they match Imaris closely. For **heat-shocked or mutant** worms the
-> numbers may need re-checking against Imaris first — ask whoever maintains this tool before reporting
-> absolute counts on a new condition. (The full why is in [docs/SPOTMAX_VALIDATION.md](docs/SPOTMAX_VALIDATION.md).)
+> ⚠️ **Read this before trusting the numbers.** The spot counts are **validated against Imaris for N2
+> (wild-type) worms — both no-heat-shock and heat-shock** (they match closely, ~1:1, across 4–21
+> foci/nucleus). For **other genotypes (mutants)** they have **not** been checked yet — re-check
+> against Imaris first, and ask whoever maintains this tool before reporting absolute counts on a new
+> genotype. (The full why is in [docs/SPOTMAX_VALIDATION.md](docs/SPOTMAX_VALIDATION.md).)
 
 ---
 

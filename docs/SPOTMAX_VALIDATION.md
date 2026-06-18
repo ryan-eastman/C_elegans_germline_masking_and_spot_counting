@@ -91,13 +91,14 @@ Sweeping thresholding method × `effect_size_min` over all 6 gonads, the robust 
 | pooled bias | +0.39 | −0.45 | +18.7 |
 
 ### Honest caveats (verified)
-- **One date / condition / session.** All 6 are 20251105 / N2 / no-HS (only sex varies). **No HS, no
-  other genotype, no second scope/date.** Re-CV before trusting the absolute numbers there.
-- **It's a modest, not dominant, win.** Triangle beats otsu in **5 of 6** leave-one-gonad-out folds
-  (dropping HERM_002, otsu/es3 edges ahead). Call it "best available," not "robustly dominant."
-- **`effect_size_min = 3` is a knife-edge, not a plateau** — CCC drops sharply at es=2 (over-counts)
-  and es≥4 (under-counts); es=3 wins partly by zeroing the mean bias on *these* gonads. Expect to
-  re-tune per condition.
+- **Two conditions, one date/genotype/scope.** Validated on 20251105 N2 **no-HS AND HS** (§4b) — but
+  still **no other genotype and no second imaging session/scope.** Re-CV those before trusting absolute
+  numbers (the tooling makes it a few commands).
+- **It's a modest, not dominant, win (no-HS).** Triangle beats otsu in **5 of 6** leave-one-gonad-out
+  folds (dropping HERM_002, otsu/es3 edges ahead). Call it "best available," not "robustly dominant."
+- **`effect_size_min = 3` is a knife-edge, not a plateau** on no-HS — CCC drops sharply at es=2
+  (over-counts) and es≥4 (under-counts). Reassuringly, **es=3 transferred to HS unchanged** (§4b), but
+  still re-check per new genotype/scope.
 - **Per-nucleus CCC ≈ 0.48 is modest**; the cleaner story is **gonad-mean agreement (CCC 0.80, MAE
   ~1 spot/nucleus)**. Residuals are mixed-sign scatter (4 over / 2 under), *not* a correctable
   constant bias — do **not** apply a global correction.
@@ -105,7 +106,28 @@ Sweeping thresholding method × `effect_size_min` over all 6 gonads, the robust 
   comparisons (Imaris masked a subset).
 - **Confirmed end-to-end:** the committed triangle/es3 config, run through the full pipeline on
   HERM_001, reproduces the CV exactly (1653 spots, matching `cv_detect` grid) — so it's wired
-  correctly. The *generalization* caveats above (single date/condition) still stand.
+  correctly.
+
+## 4b. Heat-shock generalization — VALIDATED (the no-HS config transfers)
+
+The biggest open risk was whether the no-HS-calibrated config survives heat-shock (RAD-51 density and
+image statistics shift under heat). **It does.** The *same `triangle/es3` config, unchanged*, run on
+all 6 20251105 N2 **heat-shock** gonads vs their Imaris coloc GT:
+
+| metric | HS result |
+|---|---|
+| **gonad-mean agreement** | **Pearson 0.967, CCC 0.958**, fit ours ≈ 1.07×coloc − 0.14 (near 1:1) |
+| paired per-nucleus (n=481) | Pearson 0.745, **CCC 0.739**, bias **+0.53** |
+| segmentation recall | **1.000** (all 6 gonads) |
+| range covered | coloc 4.1–20.8 RAD-51/nucleus (HS HERM low, HS MALE high — heat drives DSBs in spermatocytes) |
+
+Per-gonad residuals are mixed-sign and small (−2.8 to +2.7, no catastrophic failures), and the HS
+per-nucleus CCC (0.74) is *higher* than no-HS (0.48). Independently re-derived; the GT coloc-collision
+fix was active. (Curiosity: the MALE_ `.ims` holds 772k raw Imaris spots — a wide-open detection in
+that file — but only 1,060 were coloc-assigned, so the comparison is unaffected.) **Net: the detector
+generalizes across no-HS + HS spanning 4–21 foci/nucleus with no re-tuning.** Not yet run: a full
+otsu/li/triangle sweep on HS to confirm triangle is still *optimal* there — but the deployed config
+already lands at CCC 0.96 (gonad-mean) / 0.74 (paired).
 
 ## 5. How this was verified
 
@@ -119,11 +141,14 @@ a `fillna` mismatch between the CV script and production. Net: conclusion stands
 
 ## 6. Open calibration work (priority order)
 
-1. **Add HS gonads** — highest priority; RAD-51 density + image statistics differ most under heat, so
-   the threshold/effect-size interaction is most likely to need re-tuning there.
-2. **≥1 non-N2 genotype + a second date/scope**; re-validate per-nucleus **recall and CCC** there.
-3. **Pin one ground truth per metric.** The `.ims` (1222 spots) and xlsx-raw (3086) disagree ~2.5×
-   for the same gonad; the lab's canonical reference is the **xlsx coloc** method.
+1. ✅ **HS gonads — DONE (§4b):** config generalizes, gonad-mean CCC 0.96, no re-tuning.
+2. **≥1 non-N2 genotype + a second imaging session/scope** — the remaining generalization gap; the
+   xlsx GT folder has DLW188/190 (syp) mutants. Re-validate per-nucleus **recall and CCC** there.
+3. *(optional)* full otsu/li/triangle sweep on HS (`cv_detect --manifest cv_manifest_hs.json`) to
+   confirm triangle is still *optimal* under heat, not just adequate.
+4. **Pin one ground truth per metric.** The `.ims` raw Spot count and xlsx-raw disagree for the same
+   gonad (sometimes wildly — see the MALE_ 772k); the lab's canonical reference is the **xlsx coloc**
+   method, which the readers reproduce.
 4. Tooling to do all of the above already exists: `scripts/cv_run.py` (batch),
    `scripts/build_cv_manifest.py` (auto-pair GT), `scripts/cv_analyze.py` / `cv_sweep.py` /
    `cv_detect.py` (per-gonad + pooled agreement, threshold × effect-size sweeps).
