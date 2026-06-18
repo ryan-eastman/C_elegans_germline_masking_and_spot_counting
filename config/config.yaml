@@ -90,6 +90,12 @@ axis:
   # scales with germline tube width, so a healthy (thick) gonad reads ~0.5; a diffuse blob ~0.
   qc_confidence_min: 0.35
 
+qc:
+  # `germquant batch` flags any image whose germline nucleus count exceeds this factor x the batch
+  # median as "review_framing" — a robust, threshold-free signal for two gonad arms / extra tissue /
+  # fuller distal capture in frame. Advisory only (spot counts are unaffected; the axis readout is not).
+  germline_outlier_factor: 1.8
+
 render:
   montage: true
   scalebar_um: 10

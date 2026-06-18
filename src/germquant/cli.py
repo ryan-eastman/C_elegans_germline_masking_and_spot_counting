@@ -149,13 +149,29 @@ def _batch(args) -> int:
         print(f"[{i}/{len(files)}] {f.name}")
         try:
             res = process_image(f, cfg, out_dir, xy_stride=args.xy_stride, prov=prov)
+            isum = res["tables"]["image_summary"]
+            n_germ = int(isum["n_germline_nuclei"].iloc[0]) if "n_germline_nuclei" in isum else 0
             summaries.append({"image_id": res["image_id"], "n_nuclei": res["n_nuclei"],
-                              "qc_pass": res["qc_pass"], "qc_flags": ";".join(res["qc_flags"]),
-                              "out_dir": res["out_dir"]})
+                              "n_germline": n_germ, "qc_pass": res["qc_pass"],
+                              "qc_flags": ";".join(res["qc_flags"]), "out_dir": res["out_dir"]})
         except Exception as e:  # noqa: BLE001
             logging.exception("FAILED %s", f.name)
-            summaries.append({"image_id": f.stem, "n_nuclei": 0, "qc_pass": False,
+            summaries.append({"image_id": f.stem, "n_nuclei": 0, "n_germline": 0, "qc_pass": False,
                               "qc_flags": f"EXCEPTION:{e}", "out_dir": str(out_dir)})
+
+    # Framing QC: flag images whose germline count is a strong outlier vs the batch median (a robust,
+    # threshold-free proxy for "two gonad arms / extra tissue / fuller distal capture in frame" — worth
+    # eyeballing the montage; the axis/position readout for such gonads is unreliable). Spot COUNTS are
+    # unaffected, so this is advisory, not a failure.
+    germ = [s["n_germline"] for s in summaries if s["qc_pass"] and s["n_germline"] > 0]
+    if len(germ) >= 4:
+        import statistics
+        med = statistics.median(germ)
+        factor = float(cfg.get("qc.germline_outlier_factor", 1.8))
+        for s in summaries:
+            if med > 0 and s["n_germline"] > factor * med:
+                flag = f"qc:germline_count_outlier_{s['n_germline']}_vs_median{med:.0f}_review_framing"
+                s["qc_flags"] = f"{s['qc_flags']};{flag}" if s["qc_flags"] else flag
 
     pd.DataFrame(summaries).to_csv(out_root / "batch_summary.csv", index=False)
     n_pass = sum(s["qc_pass"] for s in summaries)
