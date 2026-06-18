@@ -25,6 +25,7 @@ class Config:
         self.channel_map = channel_map
         self._raw_text = raw_text
         self._channel_map_text = channel_map_text
+        self._overrides: dict[str, Any] = {}
 
     # ---- access helpers ----
     def __getattr__(self, name: str) -> Any:
@@ -42,14 +43,30 @@ class Config:
             node = node[part]
         return node
 
+    def set(self, dotted: str, value: Any) -> None:
+        """Override a (possibly nested) value at runtime — for CLI flags like ``--no-spots`` that
+        flip a config switch. The override shows up in ``as_dict()`` AND changes ``hash``, so a
+        ``--no-spots`` run is provenance-distinguishable from a normal one."""
+        node = self._data
+        parts = dotted.split(".")
+        for part in parts[:-1]:
+            nxt = node.setdefault(part, {})
+            if not isinstance(nxt, dict):
+                raise ValueError(f"cannot set {dotted!r}: {part!r} is not a section")
+            node = nxt
+        node[parts[-1]] = value
+        self._overrides[dotted] = value
+
     @property
     def hash(self) -> str:
         """Stable hash of the resolved config — goes into the provenance manifest.
 
-        Includes the referenced channel-map file, since it changes the effective parameters
-        (which channel is DAPI/SYP/RAD-51) just as much as config.yaml does.
+        Includes the referenced channel-map file (it sets which channel is DAPI/SYP/RAD-51, as
+        much an effective parameter as config.yaml) and any runtime overrides (e.g. ``--no-spots``).
         """
         payload = self._raw_text + "\x00" + self._channel_map_text
+        if self._overrides:
+            payload += "\x00" + json.dumps(self._overrides, sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
     def as_dict(self) -> dict:

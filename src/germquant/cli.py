@@ -30,12 +30,16 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--out", required=True)
     pr.add_argument("--xy-stride", type=int, default=1, help="downsample xy for a quick test")
     pr.add_argument("--z-range", type=int, nargs=2, default=None, metavar=("Z0", "Z1"))
+    pr.add_argument("--no-spots", action="store_true",
+                    help="segmentation only: skip RAD-51/SpotMAX spot detection (fast, never wedges)")
 
     pb = sub.add_parser("batch", help="process every .nd2 under a folder, mirroring the tree")
     pb.add_argument("folder")
     pb.add_argument("--config", required=True)
     pb.add_argument("--out", required=True)
     pb.add_argument("--xy-stride", type=int, default=1)
+    pb.add_argument("--no-spots", action="store_true",
+                    help="segmentation only: skip RAD-51/SpotMAX spot detection (fast, never wedges)")
 
     pv = sub.add_parser("validate", help="compare pipeline output to hand-scored ground truth")
     pv.add_argument("--pred", help="pipeline CSV (counts/lengths mode)")
@@ -106,6 +110,9 @@ def _run(args) -> int:
     from .pipeline import process_image
 
     cfg = load_config(args.config)
+    if getattr(args, "no_spots", False):
+        cfg.set("spots.enabled", False)
+        print("segmentation only: skipping spot detection (--no-spots)")
     out = Path(args.out)
     prov = provenance.write_manifest(out, config_hash=cfg.hash, config=cfg.as_dict())
     z_range = tuple(args.z_range) if args.z_range else None
@@ -126,6 +133,9 @@ def _batch(args) -> int:
     from .pipeline import process_image
 
     cfg = load_config(args.config)
+    if getattr(args, "no_spots", False):
+        cfg.set("spots.enabled", False)
+        print("segmentation only: skipping spot detection (--no-spots)")
     root = Path(args.folder)
     out_root = Path(args.out)
     glob = cfg.get("io.input_glob", "**/*.nd2")

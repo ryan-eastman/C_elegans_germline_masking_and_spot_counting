@@ -153,6 +153,7 @@ def process_image(
         n_nuclei=n_nuclei, channel_flags=ch_flags,
         axis_flags=[f for f in flags if f.startswith("axis")],
         spots_found=len(spots) > 0,
+        spots_enabled=bool(cfg.get("spots.enabled", True)) and spots_idx is not None,
     )
     qc_all = sorted(set(flags + qc_all))
 

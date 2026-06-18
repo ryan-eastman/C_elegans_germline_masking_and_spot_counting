@@ -85,3 +85,25 @@ def test_process_image_end_to_end(tmp_path, patched_reader):
     assert 5 <= n_germ < int(summary["n_nuclei"].iloc[0])   # some dropped, enough kept for an axis
     # the axis was fit on germline nuclei only (excluded rows carry NaN axis)
     assert nuclei.loc[nuclei["in_germline"] != True, "axis_position_um"].isna().all()  # noqa: E712
+
+
+def test_process_image_no_spots_segmentation_only(tmp_path, patched_reader):
+    """--no-spots path: segmentation still runs, the spot stage is skipped (never touches SpotMAX),
+    and it's recorded as a deliberate choice — not flagged as a detection failure."""
+    cfg = load_config("config/config.yaml")
+    cfg._data["segmentation"]["nuclei"]["method"] = "classical"
+    h_before = cfg.hash
+    cfg.set("spots.enabled", False)
+    assert cfg.get("spots.enabled") is False
+    assert cfg.hash != h_before                          # provenance-distinguishable from a normal run
+
+    out = tmp_path / "seg_only"
+    res = pipeline.process_image("20251105_n2_nohs_HERM_001.nd2", cfg, out, prov=None)
+
+    assert res["n_nuclei"] >= 1
+    assert (out / f"{res['image_id']}__nuclei_labels.tif").exists()   # segmentation produced
+    assert not (out / f"{res['image_id']}__spots.tif").exists()       # no spots image (nothing to draw)
+    spots = pd.read_csv(out / f"{res['image_id']}__spots.csv")
+    assert len(spots) == 0                                            # spot stage skipped entirely
+    flags = str(pd.read_csv(out / f"{res['image_id']}__image_summary.csv")["qc_flags"].iloc[0])
+    assert "disabled_segmentation_only" in flags and "no_spots_detected" not in flags

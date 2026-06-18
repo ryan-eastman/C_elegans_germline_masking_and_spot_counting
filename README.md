@@ -64,6 +64,19 @@ can take hours — it does them one at a time.
 
 ---
 
+## ⚡ Segmentation only (skip the spot counting)
+
+Only need the **nucleus segmentation** — e.g. to load the nucleus map into Imaris, or for a quick
+pass? Add **`--no-spots`** to either `run` or `batch`. It skips the RAD-51 spot-counting step
+entirely, so it's much faster and **can't get stuck** on a hard image:
+```
+.venv\Scripts\germquant.exe run "...\YOUR_IMAGE.nd2" --config config\config.yaml --out "...\RESULTS" --no-spots
+```
+You still get the `_nuclei.csv` table, the `_nuclei_labels.tif` map, and the montage — just no spots
+(`_spots.csv` will be empty and there's no `_spots.tif`).
+
+---
+
 ## 📊 Your results — where they are and what they mean
 
 Inside the results folder, each image produces files that start with the image's name:
