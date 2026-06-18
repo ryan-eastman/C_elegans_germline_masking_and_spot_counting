@@ -30,15 +30,20 @@ All commands below use the project's Python:
 - **Validated vs Imaris (N2):** no-HS gonad-mean CCC **0.80**; HS gonad-mean CCC **0.96** (generalizes,
   no re-tuning). Full story: `docs/SPOTMAX_VALIDATION.md`.
 - **Repo is lab-usable:** beginner README + `quantify.bat` (drag a .nd2 on it). Legacy SC/zones/foci
-  stages stripped; all old-pipeline references audited out; **21 tests pass** (`$py -m pytest`).
+  stages stripped; all old-pipeline references audited out; **25 tests pass** (`$py -m pytest`).
 - **QC:** `germquant batch` flags germline-count outliers (two-arm / framing) in `batch_summary.csv`.
+- **Flood guard (2026-06-18):** the spots stage now caps candidate peaks at `spots.max_spot_candidates`
+  (30000) before the O(n) feature step, so an artefact/over-bright image can't wedge the run for hours
+  (a syp-2 gonad did exactly that). Flooded images log a loud `FLOODED` warning; their count is a floor.
 
-## 3. What's RUNNING / IN PROGRESS
+## 3. Mutant validation — status (NOT a clean run yet)
 
-- **DLW188 (syp-2 het) mutant validation** — background, ~6 h. Outputs to `results_cv_dlw188_nohs/`
-  (9 gonads) then `results_cv_dlw188_hs/` (8 gonads). Check progress:
-  `Get-Content results_cv_dlw188_nohs\run.log | Select-String "=== done|COMPLETE"`.
-  If it finished, analyze it (§5). If it died on restart, re-run it (§4).
+- **DLW188 (syp-2):** the overnight run **wedged on gonad 2** (`HERM _2`) — it flooded the detector and
+  the (pre-fix) spots stage hung for 8 h. Process was killed; **only `HERM _1` completed**
+  (`results_cv_dlw188_nohs/`). The flood guard above now prevents that. **Re-launch is safe (§4).**
+  - FIRST thing to verify on re-run: gonad 2 now finishes (in ~minutes) and logs `FLOODED` — confirms
+    the cap works on real data + tells you that gonad's image is likely artefact/bleed-through (check it).
+- The rest of the mutant validation (DLW190, CCW68) is in §6, unchanged.
 
 ## 4. Re-launch the validation runs (if interrupted)
 
