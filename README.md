@@ -1,83 +1,83 @@
-# celegans-germline-quant
+# C. elegans germline — nucleus segmentation + RAD-51 spot counting
 
-Reproducible, headless 3D quantification of the *C. elegans* meiotic germline from confocal
-`.nd2` z-stacks.
+Reproducible, **headless** 3D quantification of RAD-51 (or other) foci in the *C. elegans* meiotic
+germline from confocal `.nd2` z-stacks, **cross-validated against Imaris**.
 
-**Point it at a folder (e.g. on a NAS) → it reconstructs 3D objects → writes a mirrored output
-folder of tidy results (for R / Positron) + publication-quality renders.**
-
-## What it measures
-- **Synaptonemal complex (SC) per nucleus** — traces the SYP/axis filament in 3D and reports
-  total length (µm), per-fragment length distribution, and **fragment count** (the heat
-  phenotype: heat *fragments* the SC in spermatocytes but not oocytes).
-- **Transition-zone & pachytene zone lengths** along the distal→proximal germline axis
-  (DAPI-crescent morphology; no-DAPI synapsis-state fallback for other experiments).
-- **RAD-51 foci per nucleus** — 3D blob detection, assigned to segmented nuclei.
-- **Granules / generic 3D objects** — optional module (count, volume, surface area, intensity).
-
-Every readout is **spacing-aware**: voxel size (`0.108 × 0.108 × 0.20 µm`, z anisotropic ≈1.85×)
-is read from each `.nd2` and threaded into every 3D operation. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Pipeline:** `read .nd2 → segment nuclei (fine-tuned Cellpose) → isolate the gonad → count spots
+inside each nucleus (SpotMAX) → tidy per-nucleus + per-spot tables (CSV/Parquet) + QC montage`.
+Counting is headless and reproducible; the GUI / Imaris is for *viewing*, not counting.
 
 ## Status
-Core pipeline **runs end-to-end** (read → segment → axis → zones → SC → foci → measure → tidy
-CSV/Parquet → QC montage → provenance manifest), covered by a synthetic full-pipeline test plus
-unit tests for the spacing-critical maths (`pytest`, CPU, no GPU/data needed). The science
-modules (SC tracing, zone-calling, foci thresholds, Cellpose segmentation) are **first-pass and
-need full-resolution GPU runs + ground-truth validation** before publication — see
-[docs/RUNBOOK.md](docs/RUNBOOK.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §8.
-
-**Not yet implemented / experimental:** the no-DAPI *synapsis-state* zoning route returns
-`zone_call=unknown` (a flagged stub — use the DAPI-crescent route); StarDist-3D / ilastik
-segmenters from ARCHITECTURE §2 are not built (Cellpose-SAM + a classical watershed fallback
-are). The axis linearizer now fits a **principal curve** (arc length along the U-shaped gonad),
-not a straight PCA line — older runs' `axis_position_*`/zone lengths will differ.
+- **Segmentation — production-ready.** Fine-tuned Cellpose model (`germline_nuclei_combined`);
+  instance **recall 0.96–1.0** vs Imaris-traced nuclei across 6 gonads.
+- **RAD-51 spot counting — cross-validated on N2 no-HS.** `threshold_triangle` + effect-size
+  filtering + a z-axis spot-split fix track the lab's Imaris coloc counts (**gonad-mean CCC 0.80,
+  ~1 spot/nucleus MAE**). Full story + honest caveats: [docs/SPOTMAX_VALIDATION.md](docs/SPOTMAX_VALIDATION.md).
+  Heat-shock / other-genotype CV is the next step (tooling is in `scripts/cv_*.py`).
+- **Voxel-size aware throughout** — voxel size is read from each `.nd2` and threaded into every 3D op.
 
 ## Install
 ```bash
-# core (CPU) — enough to read, segment (classical), measure, render, batch
-pip install -e .
-
-# on the RTX 5090 / HPC, add GPU + SC tracing + batch orchestration:
-pip install -e ".[gpu,sc,viz,workflow]"   # Cellpose-SAM (cu128 torch), skan, napari, snakemake
+pip install -e .                        # core (CPU): read, measure, render, batch
+pip install -e ".[gpu,viz,workflow]"    # RTX 5090 / HPC: Cellpose-SAM (cu128 torch), napari, snakemake
+pip install spotmax cellacdc            # the SpotMAX spot detector (+ its framework)
 ```
-For a pinned, reproducible environment use the committed [pixi.toml](pixi.toml) /
-[environment.yml](environment.yml), and the GPU container ([Dockerfile](Dockerfile) →
-[apptainer.def](apptainer.def)) for SLURM. Run `pixi install` once on each platform to generate
-and commit `pixi.lock` (the provenance manifest records its hash).
+The spot pipeline also needs the trained model at `models/models/germline_nuclei_combined`
+(gitignored, ~1.2 GB; rebuild via `scripts/train_nucleus_model_combined.py`). For a pinned
+environment use [pixi.toml](pixi.toml) / [environment.yml](environment.yml); the GPU container is
+[Dockerfile](Dockerfile) → [apptainer.def](apptainer.def).
 
 ## Quickstart
 ```bash
-# 1. peek at a file's channels + voxel size (no pixels loaded)
-germquant info "data/raw_examples/.../20251105_n2_nohs_HERM _001.nd2"
+# 1. inspect a file's channels + voxel size (no pixels loaded)
+germquant info "STACK.nd2"
 
-# 2. run one stack (full res on GPU; --xy-stride downsamples for a laptop smoke test)
-germquant run STACK.nd2 --config config/config.yaml --out results/
+# 2. run one stack: segment -> germline -> SpotMAX spots -> tidy tables + montage
+germquant run "STACK.nd2" --config config/config.yaml --out results/
 
-# 3. batch a whole NAS folder -> mirrored output tree + batch_summary.csv
-germquant batch /nas/madeleine_images --config config/config.yaml --out /nas/madeleine_results
+# 3. batch a whole folder (mirrors the tree, writes batch_summary.csv)
+germquant batch /path/to/nd2s --config config/config.yaml --out results/
 ```
+
+## Outputs (per image — tidy, long-format, one row per object)
+| file | one row per | key columns |
+|---|---|---|
+| `*__nuclei.csv` | segmented nucleus | `nucleus_id`, `volume_um3`, centroid (µm), `in_germline`, **`n_spots`**, axis position |
+| `*__spots.csv` | detected spot | `nucleus_id`, position (µm), **`effect_size`**, intensity |
+| `*__image_summary.csv` | image | nuclei, germline nuclei, **`mean_spots`**, QC flags |
+| `*__nuclei_labels.tif` | — | 3D integer label mask (QC / Imaris import) |
+| `*__montage.png` | — | QC montage (nucleus outlines + spots) |
+
+Every row carries a shared metadata block (`image_id`, genotype, sex, treatment, voxel size,
+`git_sha`, `config_hash`) so analysis in R/Positron joins on `image_id` (+ `nucleus_id`).
 
 ## Configure
-- [config/config.yaml](config/config.yaml) — all parameters (segmentation, SC, foci, zones, axis, render, output).
-- [config/channel_maps/](config/channel_maps/) — map fluor → biological role per experiment.
-  The N2 set uses [n2_dapi_syp3_rad51.yaml](config/channel_maps/n2_dapi_syp3_rad51.yaml)
-  (`405`→DAPI, `477`→SYP-3, `545`→RAD-51).
+The **`spots:`** block in [config/config.yaml](config/config.yaml) holds the cross-validated detection
+parameters — `thresholding_method: threshold_triangle`, `effect_size_min: 3.0`,
+`merge_z_columns: true` (the z-axis spot-split fix). Channel→role mapping lives in
+`config/channel_maps/` (the N2 set: `405`→DAPI, `477`→SYP, `545`→RAD-51). The legacy
+**SC / zones / blob_log-foci** stages are present but **disabled** (`enabled: false`); this fork's
+pipeline is segment → spots → Imaris.
 
-## Outputs (per image, tidy long-format)
-`*__nuclei`, `*__sc_tracks`, `*__sc_per_nucleus`, `*__foci`, `*__zones`, `*__image_summary`
-(CSV + Parquet) · `*__nuclei_labels.tif` · `*__montage.png` · `run_manifest.json`.
-Every row carries `image_id, genotype, sex, germ_cell, treatment, replicate, voxel_d{z,y,x}_um,
-git_sha, config_hash, run_timestamp` — join on `image_id` (+ `nucleus_id`) in R, facet by
-`sex`/`treatment`/`zone`.
+## Validate against Imaris
+```bash
+python scripts/imaris_gt_counts.py        # per-gonad RAD-51/nucleus from the xlsx coloc method
+python scripts/validate_same_image.py     # our pipeline output vs the .ims for one image
+# cross-gonad CV (segment a folder of gonads, then sweep threshold x effect-size vs Imaris GT):
+python scripts/cv_run.py            --ndir <nd2_dir> --out results_cv
+python scripts/build_cv_manifest.py --ndir <nd2_dir> --xdir <xlsx_dir> --results results_cv \
+                                    --xlsx-glob "<glob>" --out cv_manifest.json
+python scripts/cv_detect.py         --manifest cv_manifest.json --ndir <nd2_dir> --out results_cv_detect
+```
+Readers: `germquant.validate.imaris_xlsx` (lab coloc method) and `germquant.validate.imaris_ims`
+(Spots + Surfaces in image-relative µm). Imaris masks only a *subset* of nuclei, so only **recall**
+and **per-nucleus** counts are valid comparisons — not nucleus count / precision / F1.
 
 ## Layout
-```
-config/        # YAML: global params + per-experiment channel maps
-src/germquant/ # io, segment, axis, zones, sc, foci, granules, measure, render, qc, provenance, pipeline, cli
-workflow/      # Snakemake batch orchestration (NAS → mirrored outputs)
-analysis_R/    # R / Positron project consuming the tidy outputs
-tests/         # full-pipeline smoke + spacing/axis/SC/foci/validate unit tests
-data/          # raw .nd2 + ground truth (gitignored; see data/README.md)
-docs/ARCHITECTURE.md   # the verified, cited design of record
-docs/RUNBOOK.md        # full-res GPU run + threshold tuning + ground-truth validation
-```
+- `src/germquant/` — the package: `io/` (nd2 reader), `segment/` (Cellpose), `germline/` (gonad
+  isolation), `spots/` (SpotMAX), `measure/`, `validate/` (Imaris readers + agreement stats),
+  `pipeline.py`, `cli.py`.
+- `scripts/` — `run_real.py`, `cv_*.py` (cross-validation), `validate_*` / `*imaris*` (validation),
+  `train_nucleus_model_combined.py` (retrain the segmentation model).
+- `docs/` — **SPOTMAX_VALIDATION.md** (calibration + caveats), ARCHITECTURE.md, RUNBOOK.md, ANNOTATION.md.
+- `config/` — `config.yaml` + `channel_maps/`. · `tests/` — `pytest` (CPU, no GPU/data needed).

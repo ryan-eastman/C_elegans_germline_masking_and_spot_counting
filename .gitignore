@@ -52,3 +52,6 @@ smoke.log
 
 # throwaway probes / one-off introspection scripts (underscore-prefixed)
 scripts/_*.py
+
+# generated CV manifests (rebuilt by scripts/build_cv_manifest.py per condition)
+cv_manifest*.json
