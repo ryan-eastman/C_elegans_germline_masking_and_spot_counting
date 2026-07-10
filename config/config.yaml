@@ -10,8 +10,10 @@ io:
   input_glob: "**/*.nd2"
   # skip the 2D whole-slide overview scans (single-channel, no z) — not SC-quant
   exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*"]
-  # fluor -> biological role mapping for THIS experiment
-  channel_map: config/channel_maps/n2_dapi_syp3_rad51.yaml
+  # fluor -> biological role mapping for THIS experiment. The 4-channel map adds the PGL-1
+  # (p-granule) `granule` role for SYP<->PGL-1 colocalization; it is backward-compatible with
+  # 3-channel DAPI/SYP/RAD-51 .nd2 files (granule simply resolves to None and the coloc stage skips).
+  channel_map: config/channel_maps/n2_dapi_syp_rad51_pgl1.yaml
 
 # Sample metadata parsed from the filename. Named regex groups become columns.
 # Handles both naming styles in the dataset:
@@ -87,6 +89,39 @@ spots:
                                #   low-effect noise that the more-sensitive triangle threshold admits.
                                #   NB: tuned on 20251105 N2 no-HS only — re-CV before trusting on
                                #   HS / other genotypes (scripts/cv_detect.py + cv_sweep.py).
+
+# -----------------------------------------------------------------------------------------------
+# PGL-1 (p-granule) surfacing + SYP<->PGL-1 colocalization. Only runs when the channel map resolves
+# a `granule` (PGL-1) channel; 3-channel DAPI/SYP/RAD-51 runs skip this entirely. Measures DIRECT
+# voxel/object overlap between SYP and PGL-1 inside the germline dilated by a perinuclear shell
+# (P-granules sit just OUTSIDE the nuclear envelope, so the region must include the perinuclear
+# cytoplasm — a nucleus-only region would report ~0 overlap by construction). Tune thresholds and
+# region_dilation_um on real .nd2, then cross-check against Imaris' Coloc module.
+granule:
+  # PGL-1 puncta segmentation (also reused on SYP-in-shell to find cytoplasmic SYP aggregates).
+  thresholding_method: threshold_triangle   # triangle (robust, matches spots) | otsu | li
+  gauss_sigma_um: 0.1          # light pre-smoothing (~1 px)
+  min_volume_um3: 0.03         # drop sub-resolution speckle
+  max_volume_um3: 8.0          # drop large blobs that aren't discrete granules (autofluor/sheets)
+
+sc:
+  # Intranuclear SC ribbon surfacing (Sato ridge filter + hysteresis; headless equivalent of Fiji
+  # Ridge Detection). Used as the CONTROL coloc operand (the SC ribbon is inside the nucleus, so it
+  # should NOT coincide with perinuclear P-granules). Length readout needs the optional `skan` dep.
+  enabled: true
+  ridge_sigmas_um: [0.15, 0.25, 0.40]   # physical tubeness scales for the ridge filter
+  ridge_hyst_low_pct: 45       # hysteresis grow level (continuous strand, not shredded blobs)
+  ridge_hyst_high_pct: 80      # hysteresis seed level
+
+coloc:
+  enabled: true
+  sc_operand: both             # both | syp_aggregate | sc_ribbon  (headline = syp_aggregate)
+  region: perinuclear_shell    # perinuclear_shell (default) | nuclear | germline_bbox
+  region_dilation_um: 1.5      # perinuclear shell thickness added around each germline nucleus
+  object_overlap_min_frac: 0.0 # a granule "overlaps" SYP if >= this fraction of its voxels are in it
+                               #   (0 = any single shared voxel counts)
+  n_random: 100                # translation-null iterations for the overlap p-value/z-score (0 = off)
+  costes: false                # optional Costes auto-threshold + regression (slower; off by default)
 
 axis:
   method: auto                 # auto (principal-curve centerline through nucleus centroids) | manual

@@ -1,0 +1,32 @@
+# 4-channel map: DAPI / SYP / RAD-51 / PGL-1.
+# Same as n2_dapi_syp3_rad51.yaml but adds the `granule` role (PGL-1, the p-granule marker) as a
+# 4th channel so the SC(SYP)<->PGL-1 colocalization stage can run. The first three roles are
+# byte-identical to the 3-channel map, so a 3-channel .nd2 opened with THIS map still resolves
+# DAPI/SYP/RAD-51 correctly and simply leaves `granule -> None` (required: false, and index 3 is
+# out of range for a 3-channel file), which makes the granule/coloc stages skip cleanly.
+match_by: name            # name | index
+roles:
+  dna:                      # nucleus channel -> Cellpose 3D segmentation
+    names: ["405", "DAPI", "Hoechst"]
+    index: 0
+    required: true
+    marker: DAPI
+  central_element:          # SYP channel -> germline isolation AND the SC operand for coloc
+    names: ["477", "488", "SYP-3", "SYP3", "SYP-2", "SYP2", "SYP-1", "SYP1"]
+    index: 1
+    required: true
+    marker: SYP
+  foci:                     # RAD-51 channel -> counted per nucleus by the SpotMAX `spots` stage
+    names: ["545", "555", "RAD-51", "RAD51"]
+    index: 2
+    required: false
+    marker: RAD-51
+  granule:                  # PGL-1 channel -> p-granule surfacing + SYP<->PGL-1 colocalization
+    # PGL-1 is usually the far-red channel; the exact laser line isn't known yet, so match the
+    # common far-red names and fall back to channel index 3. Add the real channel name here once
+    # seen to avoid the index fallback (which raises a channel:granule:name_unmatched_used_index_3
+    # QC flag).
+    names: ["647", "640", "Cy5", "Alexa 647", "Alexa647", "AF647", "PGL-1", "PGL1", "GFP"]
+    index: 3
+    required: false
+    marker: PGL-1

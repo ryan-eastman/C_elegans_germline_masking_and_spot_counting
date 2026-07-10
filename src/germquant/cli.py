@@ -32,6 +32,8 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--z-range", type=int, nargs=2, default=None, metavar=("Z0", "Z1"))
     pr.add_argument("--no-spots", action="store_true",
                     help="segmentation only: skip RAD-51/SpotMAX spot detection (fast, never wedges)")
+    pr.add_argument("--no-coloc", action="store_true",
+                    help="skip PGL-1 granule surfacing + SYP<->PGL-1 colocalization stage")
 
     pb = sub.add_parser("batch", help="process every .nd2 under a folder, mirroring the tree")
     pb.add_argument("folder")
@@ -40,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("--xy-stride", type=int, default=1)
     pb.add_argument("--no-spots", action="store_true",
                     help="segmentation only: skip RAD-51/SpotMAX spot detection (fast, never wedges)")
+    pb.add_argument("--no-coloc", action="store_true",
+                    help="skip PGL-1 granule surfacing + SYP<->PGL-1 colocalization stage")
 
     pv = sub.add_parser("validate", help="compare pipeline output to hand-scored ground truth")
     pv.add_argument("--pred", help="pipeline CSV (counts/lengths mode)")
@@ -113,6 +117,9 @@ def _run(args) -> int:
     if getattr(args, "no_spots", False):
         cfg.set("spots.enabled", False)
         print("segmentation only: skipping spot detection (--no-spots)")
+    if getattr(args, "no_coloc", False):
+        cfg.set("coloc.enabled", False)
+        print("skipping PGL-1 granule surfacing + colocalization (--no-coloc)")
     out = Path(args.out)
     prov = provenance.write_manifest(out, config_hash=cfg.hash, config=cfg.as_dict())
     z_range = tuple(args.z_range) if args.z_range else None
@@ -136,6 +143,9 @@ def _batch(args) -> int:
     if getattr(args, "no_spots", False):
         cfg.set("spots.enabled", False)
         print("segmentation only: skipping spot detection (--no-spots)")
+    if getattr(args, "no_coloc", False):
+        cfg.set("coloc.enabled", False)
+        print("skipping PGL-1 granule surfacing + colocalization (--no-coloc)")
     root = Path(args.folder)
     out_root = Path(args.out)
     glob = cfg.get("io.input_glob", "**/*.nd2")
