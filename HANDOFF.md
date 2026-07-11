@@ -23,6 +23,12 @@ All commands below use the project's Python:
 
 ## 2. What's DONE (validated + committed)
 
+- **PGL-1 (p-granule) + SYP↔PGL-1 colocalization (branch `feat/pgl1-sc-coloc`, NOT yet merged/pushed):**
+  4th channel (PGL-1); surfaces PGL-1 granules + the SYP signal and measures direct voxel/object
+  overlap in a perinuclear-shell region. New `granule`/`sc`/`coloc` modules + `granules`/`coloc`
+  tables + Imaris TIFs + `--no-coloc`. Backward-compatible (3-ch runs skip it; RAD-51 unchanged).
+  Built + unit/e2e tested (synthetic); **pending Imaris ground-truth tuning** (Monday). Full writeup:
+  **`docs/COLOCALIZATION.md`**. Validate: `scripts/validate_coloc.py`; tune: `scripts/coloc_param_sweep.py`.
 - **Pipeline:** `read .nd2 -> segment nuclei (trained Cellpose) -> isolate germline -> linearize axis
   -> count RAD-51 spots (SpotMAX) -> tidy CSV + montage`. Config: `config/config.yaml` `spots:` block.
 - **Cross-validated config:** `thresholding_method: threshold_triangle`, `effect_size_min: 3.0`,

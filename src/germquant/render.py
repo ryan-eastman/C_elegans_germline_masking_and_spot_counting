@@ -66,6 +66,7 @@ def make_montage(
 
     if labels is not None:
         ax = axes[k]
+        k += 1
         dna_idx = role_to_idx.get("dna")
         base = _norm(_mip(stack.data[dna_idx])) if dna_idx is not None else np.zeros(stack.shape_zyx[1:])
         ax.imshow(base, cmap="gray")
