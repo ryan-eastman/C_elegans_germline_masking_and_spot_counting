@@ -54,11 +54,12 @@ def compare_granules(our_df: pd.DataFrame, ref_df: pd.DataFrame, *, max_match_um
 
 
 def compare_coloc_metrics(our_coloc_df: pd.DataFrame, imaris_metrics: dict | None, *,
-                          operand: str = "syp_aggregate") -> pd.DataFrame:
+                          operand: str = "shell_voxel") -> pd.DataFrame:
     """Side-by-side of our vs Imaris coloc metrics (Manders M1/M2, Pearson) with absolute diffs.
 
     `imaris_metrics` is a dict with any of {manders_m1, manders_m2, pearson_r} from the Imaris Coloc
-    module; missing keys read NaN. `operand` picks which of our SYP operands to compare."""
+    module; missing keys read NaN. `operand` picks which of our coloc rows to compare — default
+    `shell_voxel` (the validated headline: SYP<->PGL-1 in the lamin-defined perinuclear shell)."""
     imaris_metrics = imaris_metrics or {}
     sub = our_coloc_df[our_coloc_df["sc_operand"] == operand] if not our_coloc_df.empty else our_coloc_df
     ours = sub.iloc[0] if len(sub) else {}

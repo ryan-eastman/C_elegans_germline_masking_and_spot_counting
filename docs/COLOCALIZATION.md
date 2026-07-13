@@ -11,13 +11,27 @@ SYP's **SC ribbon is inside the nucleus**; **P-granules dock just OUTSIDE the nu
 whole-image Pearson is dominated by empty background. This pipeline therefore:
 
 - restricts every metric to a **region R** = the germline-nucleus union **dilated by a perinuclear
-  shell** (`coloc.region_dilation_um`, default 1.5 µm), which includes the cytoplasm where granules and
+  shell** (`coloc.region_dilation_um`, default 1.0 µm), which includes the cytoplasm where granules and
   cytoplasmic SYP aggregates live;
+- when a **lamin channel** is present (`coloc.use_lamin_shell`), anchors the cytoplasmic shell to the
+  **real nuclear envelope** (thresholded lamin) instead of a fixed DAPI dilation — the anatomically
+  correct perinuclear zone;
 - compares PGL-1 against **two SYP operands**:
   - **`syp_aggregate`** — cytoplasmic SYP blobs segmented in the shell (the **headline**: this is where
     aggregate↔granule coincidence would show up);
   - **`sc_ribbon`** — the intranuclear SC ribbon (a **control**: it should *not* coincide with
     perinuclear granules; if it does, suspect segmentation bleed).
+
+## HEADLINE metric (validated on ccw77) — the `shell_voxel` coloc row
+The most robust readout is the **threshold-light voxel colocalization of SYP vs PGL-1 in the
+(lamin-defined) perinuclear cytoplasmic shell, with the bright intranuclear SC ribbon excluded**:
+`shell_pearson`, `shell_manders_m1`, `shell_manders_m2` (row `sc_operand="shell_voxel"`; also on
+image_summary). On real ccw77 HS gonads this cleanly reproduces the expected **male ≫ herm** effect
+(shell Pearson herm 0.39 → male 0.53; shell Manders M1 herm 0.014 → male 0.085, ~6×), matching the
+direction of the Imaris Coloc module. The whole-germline metric barely separates them and the
+object-overlap metric (below) actually **inverts** — because it depends on fragile per-image blob
+segmentation, whereas the shell voxel metric is threshold-light and confined to the cytoplasmic pool
+that matters. **Use `shell_*` as the headline; treat the object metrics as secondary/diagnostic.**
 
 ## What it computes (per image, per operand — the `coloc` table)
 Headline (object/mask overlap, the defensible "how much do they coincide" numbers):

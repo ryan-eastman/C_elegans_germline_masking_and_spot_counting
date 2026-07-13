@@ -1,9 +1,31 @@
 """Colocalization metrics on tiny planted volumes with KNOWN overlap."""
 import numpy as np
 
-from germquant.coloc import colocalize
+from germquant.coloc import colocalize, shell_voxel_coloc
 
 SP = (0.4, 0.2, 0.2)
+
+
+def test_shell_voxel_coloc_tracks_intensity_overlap():
+    shape = (6, 20, 20)
+    shell = np.zeros(shape, bool)
+    shell[2:4, 5:15, 5:15] = True                 # the cytoplasmic band we measure in
+    syp = np.zeros(shape, np.float32)
+    pgl = np.zeros(shape, np.float32)
+    # SYP and PGL bright in the SAME sub-region of the shell -> strong positive coloc
+    syp[2:4, 5:10, 5:15] = 100.0
+    pgl[2:4, 5:10, 5:15] = 100.0
+    hi = shell_voxel_coloc(syp, pgl, shell, SP)
+    assert hi["shell_pearson"] > 0.5
+    assert hi["shell_manders_m1"] > 0.9 and hi["shell_manders_m2"] > 0.9
+    assert hi["shell_voxels"] == int(shell.sum())
+
+    # now put them in DISJOINT halves of the shell -> low/negative coloc
+    pgl2 = np.zeros(shape, np.float32)
+    pgl2[2:4, 10:15, 5:15] = 100.0
+    lo = shell_voxel_coloc(syp, pgl2, shell, SP)
+    assert lo["shell_pearson"] < hi["shell_pearson"]
+    assert lo["shell_manders_m1"] < 0.5
 
 
 def _one_granule(shape, sl):

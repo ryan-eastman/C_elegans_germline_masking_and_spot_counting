@@ -144,11 +144,12 @@ def test_process_image_4channel_coloc(tmp_path, patched_reader_4ch):
     assert {"overlaps_syp_aggregate", "nearest_syp_aggregate_um"} <= set(granules.columns)
 
     coloc = pd.read_csv(out / f"{res['image_id']}__coloc.csv")
-    assert set(coloc["sc_operand"]) == {"syp_aggregate", "sc_ribbon"}
+    assert {"syp_aggregate", "sc_ribbon", "shell_voxel"} == set(coloc["sc_operand"])
 
     summary = pd.read_csv(out / f"{res['image_id']}__image_summary.csv")
     assert int(summary["n_granules"].iloc[0]) > 0
     assert "manders_m1_syp_aggregate" in summary.columns
+    assert "shell_pearson" in summary.columns          # headline shell voxel coloc present
 
     nuclei = pd.read_csv(out / f"{res['image_id']}__nuclei.csv")
     assert "n_granules" in nuclei.columns

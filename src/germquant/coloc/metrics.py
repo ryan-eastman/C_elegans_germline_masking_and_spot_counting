@@ -97,6 +97,36 @@ def colocalize(
     return row, per_g
 
 
+def shell_voxel_coloc(syp_img, pgl_img, shell_mask, spacing) -> dict:
+    """Voxel SYP<->PGL-1 coloc restricted to the perinuclear CYTOPLASMIC shell (nucleus interior, and
+    thus the bright intranuclear SC ribbon, excluded). This is the HEADLINE: on real ccw77 data it
+    cleanly separates male (high) from herm (low) where the whole-germline metric barely does and the
+    object-overlap metric inverts — because it is threshold-light (Pearson) and confined to the pool
+    that matters (cytoplasmic SYP vs perinuclear P-granules). Manders use an in-shell triangle threshold
+    to define each channel's positive voxels."""
+    from skimage.filters import threshold_triangle
+
+    sp = np.asarray(spacing, dtype=float)
+    vox = float(sp[0] * sp[1] * sp[2])
+    shell = np.asarray(shell_mask, dtype=bool)
+    n = int(shell.sum())
+    if n < 3:
+        return {"shell_pearson": float("nan"), "shell_manders_m1": float("nan"),
+                "shell_manders_m2": float("nan"), "shell_voxels": n, "shell_volume_um3": n * vox}
+
+    def _thr(img):
+        v = np.asarray(img)[shell]
+        return float(threshold_triangle(v)) if v.size and v.max() > v.min() else np.inf
+
+    tp, ts = _thr(pgl_img), _thr(syp_img)
+    return {
+        "shell_pearson": _pearson(syp_img, pgl_img, shell),
+        "shell_manders_m1": _manders(syp_img, np.asarray(pgl_img) > tp, shell),  # SYP intensity in PGL+
+        "shell_manders_m2": _manders(pgl_img, np.asarray(syp_img) > ts, shell),  # PGL intensity in SYP+
+        "shell_voxels": n, "shell_volume_um3": n * vox,
+    }
+
+
 def _manders(intensity: np.ndarray, other_mask: np.ndarray, region: np.ndarray) -> float:
     """Fraction of `intensity` (within `region`) that falls inside `other_mask`. Non-negative
     intensities assumed (fluorescence); a zero floor guards a rare negative background."""

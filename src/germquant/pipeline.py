@@ -334,7 +334,7 @@ def _run_coloc(stack, labels, role_to_idx, nuclei, spacing, cfg):
     """Surface PGL-1 granules + both SYP operands, then colocalize each vs the granules within the
     perinuclear region. Returns (granules_df, coloc_df, masks, granule_labels, per_nucleus_granules_df).
     """
-    from .coloc import colocalize
+    from .coloc import colocalize, shell_voxel_coloc
     from .granule import segment_granules
     from .sc import surface_sc_ribbon
 
@@ -345,6 +345,16 @@ def _run_coloc(stack, labels, role_to_idx, nuclei, spacing, cfg):
 
     syp = stack.data[role_to_idx["central_element"]]
     pgl = stack.data[role_to_idx["granule"]]
+
+    # Refine the cytoplasmic shell using the lamin (nuclear-envelope) channel when present: anchor it to
+    # the real envelope instead of a fixed DAPI dilation. On real ccw77 data the shell voxel coloc
+    # (below), which excludes the bright intranuclear SC ribbon, is what cleanly separates male (high)
+    # from herm (low) — see docs/COLOCALIZATION.md.
+    lamin_idx = role_to_idx.get("lamin")
+    lamin_img = stack.data[lamin_idx] if lamin_idx is not None else None
+    use_lamin = bool(cfg.get("coloc.use_lamin_shell", True)) and lamin_img is not None
+    shell, shell_region_name = _perinuclear_shell(
+        _nuc_union, spacing, dilation_um, lamin_img, use_lamin, shell)
     g_kw = dict(
         thresholding_method=cfg.get("granule.thresholding_method", "threshold_triangle"),
         gauss_sigma_um=float(cfg.get("granule.gauss_sigma_um", 0.1)),
@@ -392,6 +402,16 @@ def _run_coloc(stack, labels, role_to_idx, nuclei, spacing, cfg):
                 "nearest_um": f"nearest_{op}_um"})
             granules = granules.merge(per_g, on="granule_id", how="left")
 
+    # HEADLINE: threshold-light SYP<->PGL-1 voxel coloc in the (lamin-defined) cytoplasmic shell,
+    # excluding the intranuclear SC ribbon. Robust where the object-overlap metric is not.
+    sv = shell_voxel_coloc(syp, pgl, shell, spacing)
+    coloc_rows.append({
+        "sc_operand": "shell_voxel", "region": shell_region_name, "region_dilation_um": dilation_um,
+        "region_voxels": sv["shell_voxels"], "region_volume_um3": sv["shell_volume_um3"],
+        "pearson_r": sv["shell_pearson"], "manders_m1": sv["shell_manders_m1"],
+        "manders_m2": sv["shell_manders_m2"],
+    })
+
     coloc_df = pd.DataFrame(coloc_rows, columns=list(schema.COLOC))
     return granules, coloc_df, masks, granule_labels, per_nuc
 
@@ -418,6 +438,32 @@ def _build_region(labels, germ_ids, spacing, region_name, dilation_um):
             region = nuc_union.copy()
     shell = region & ~nuc_union
     return region, nuc_union, shell
+
+
+def _perinuclear_shell(nuc_union, spacing, dilation_um, lamin_img, use_lamin, dapi_shell):
+    """Cytoplasmic shell just OUTSIDE the germline nuclei. When a lamin channel is present and
+    `use_lamin`, anchor the shell to the REAL nuclear envelope (thresholded lamin) rather than the
+    fixed DAPI dilation — the anatomically correct perinuclear zone where P-granules dock. Falls back
+    to the DAPI-dilation shell if lamin is absent/degenerate. Returns (shell_mask, region_label)."""
+    if not use_lamin or lamin_img is None:
+        return dapi_shell, "dapi_shell"
+    from scipy import ndimage as ndi
+    from skimage.filters import threshold_triangle
+
+    sp = tuple(float(s) for s in spacing)
+    dt_out = ndi.distance_transform_edt(~nuc_union, sampling=sp)
+    gonad = nuc_union | (dt_out <= max(3.0, dilation_um * 2))       # germline neighbourhood
+    vals = np.asarray(lamin_img)[gonad]
+    if vals.size == 0 or float(vals.max()) <= float(vals.min()):
+        return dapi_shell, "dapi_shell"
+    env = (np.asarray(lamin_img) > threshold_triangle(vals)) & gonad
+    if not env.any():
+        return dapi_shell, "dapi_shell"
+    dt_env = ndi.distance_transform_edt(~env, sampling=sp)
+    shell = (dt_env <= dilation_um) & (~nuc_union) & gonad          # near the envelope, outside nucleus
+    if int(shell.sum()) < 100:
+        return dapi_shell, "dapi_shell"
+    return shell, "lamin_shell"
 
 
 def _assign_granules_to_nuclei(granules, nuclei):
@@ -452,6 +498,11 @@ def _coloc_summary(coloc_df, granules):
 
     return {
         "n_granules": int(len(granules)),
+        # HEADLINE: shell voxel coloc (excludes the SC ribbon; separates male>herm on real data)
+        "shell_pearson": _get("shell_voxel", "pearson_r"),
+        "shell_manders_m1": _get("shell_voxel", "manders_m1"),
+        "shell_manders_m2": _get("shell_voxel", "manders_m2"),
+        # secondary object metrics (threshold-fragile — see docs)
         "manders_m1_syp_aggregate": _get("syp_aggregate", "manders_m1"),
         "manders_m2_syp_aggregate": _get("syp_aggregate", "manders_m2"),
         "frac_granules_overlapping_syp_aggregate": _get("syp_aggregate", "frac_granules_overlapping_sc"),

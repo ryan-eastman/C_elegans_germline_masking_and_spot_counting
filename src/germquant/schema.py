@@ -59,11 +59,14 @@ COLOC = [
     "costes_threshold_syp", "costes_threshold_pgl",
 ]
 
-# one row per image (QC summary). The coloc headline is the cytoplasmic-SYP-aggregate operand.
+# one row per image (QC summary). The coloc HEADLINE is the shell voxel coloc (SYP<->PGL-1 in the
+# lamin-defined perinuclear cytoplasmic shell, SC ribbon excluded) — it separates male>herm on real
+# data. The syp_aggregate object metrics are secondary (threshold-fragile).
 IMAGE_SUMMARY = [
     "n_nuclei", "n_germline_nuclei", "mean_spots",
     "total_germline_length_um", "qc_pass", "qc_flags",
     "n_granules",
+    "shell_pearson", "shell_manders_m1", "shell_manders_m2",
     "manders_m1_syp_aggregate", "manders_m2_syp_aggregate",
     "frac_granules_overlapping_syp_aggregate", "overlap_pvalue_syp_aggregate",
     "frac_granules_overlapping_sc_ribbon",

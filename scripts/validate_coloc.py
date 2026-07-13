@@ -50,7 +50,8 @@ def main(argv=None) -> int:
     p.add_argument("--imaris-ims", help="Imaris .ims with PGL-1 Surfaces")
     p.add_argument("--imaris-granules-csv", help="alt to --imaris-ims: CSV z_um,y_um,x_um[,volume_um3]")
     p.add_argument("--imaris-coloc-json", help="JSON of Imaris Coloc-module metrics")
-    p.add_argument("--operand", default="syp_aggregate", choices=["syp_aggregate", "sc_ribbon"])
+    p.add_argument("--operand", default="shell_voxel",
+                   choices=["shell_voxel", "syp_aggregate", "sc_ribbon"])
     p.add_argument("--max-match-um", type=float, default=1.5)
     p.add_argument("--out", default="validation_coloc")
     args = p.parse_args(argv)

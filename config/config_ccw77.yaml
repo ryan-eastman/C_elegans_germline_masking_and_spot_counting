@@ -1,0 +1,88 @@
+# =============================================================================
+# germquant config — Hallie Febvre's ccw77 IF: DAPI / SYP-3 / PGL-1 / lamin (no RAD-51).
+# Same as config/config.yaml EXCEPT it points at the ccw77 4-channel map. There is no RAD-51
+# channel, so the SpotMAX `spots` stage auto-skips (no `foci` role). The coloc stage runs
+# (SYP<->PGL-1). Keep coloc/granule/sc params in sync with config.yaml unless deliberately tuning.
+# Run:  .venv\Scripts\python -m germquant run <file>.nd2 --config config/config_ccw77.yaml --out <dir>
+# =============================================================================
+project: celegans-germline-quant
+
+io:
+  input_glob: "**/*.nd2"
+  exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*"]
+  channel_map: config/channel_maps/ccw77_dapi_syp_pgl_lamin.yaml   # <-- the only structural difference
+
+metadata:
+  filename_regex: '(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?:[a-z0-9]+_)*?(?P<treatment>nohs|hs)_(?:[a-z0-9]+_)*?(?P<sex>HERM|MALE|H|M)\s*_?(?P<replicate>\d+)?\s*$'
+  defaults: { genotype: unknown, sex: unknown, treatment: unknown, replicate: "NA" }
+
+segmentation:
+  nuclei:
+    method: auto
+    cellpose_model: models/models/germline_nuclei_combined
+    diameter_um: 3.0
+    min_volume_um3: 4.0
+    channel: dna
+
+germline:
+  enabled: true
+  method: syp_seeded_cc
+  syp_percentile: 25
+  link_radius_um: 12.0
+  min_seed_frac: 0.10
+  size_frac: 0.10
+
+# No RAD-51 channel in this panel -> `foci` role is absent -> this stage is skipped automatically.
+spots:
+  enabled: true
+  channel: foci
+  spot_radius_um: 0.3
+  gauss_sigma_um: 0.08
+  thresholding_method: threshold_triangle
+  merge_z_columns: true
+  z_merge_gap_um: 0.8
+  z_merge_valley_frac: 0.8
+  effect_size_metric: spot_vs_backgr_effect_size_glass
+  max_spot_candidates: 30000
+  effect_size_min: 3.0
+
+granule:
+  thresholding_method: threshold_triangle   # tune on this data + Imaris (triangle | otsu | li)
+  gauss_sigma_um: 0.1
+  min_volume_um3: 0.03
+  max_volume_um3: 8.0
+
+sc:
+  enabled: true
+  ridge_sigmas_um: [0.15, 0.25, 0.40]
+  ridge_hyst_low_pct: 45
+  ridge_hyst_high_pct: 80
+
+coloc:
+  enabled: true
+  sc_operand: both
+  region: perinuclear_shell    # perinuclear_shell | nuclear | germline_bbox
+  region_dilation_um: 1.0      # cytoplasmic shell thickness (also lamin-shell band width)
+  use_lamin_shell: true        # anchor the shell to the real lamin (640) envelope, not a DAPI dilation.
+                               #   HEADLINE metric = SYP<->PGL-1 voxel coloc in this shell (SC ribbon
+                               #   excluded) -> shell_pearson / shell_manders_* (separates male>herm).
+  object_overlap_min_frac: 0.0
+  n_random: 100
+  costes: false
+
+axis:
+  method: auto
+  qc_confidence_min: 0.35
+
+qc:
+  germline_outlier_factor: 1.8
+
+render:
+  montage: true
+  scalebar_um: 10
+
+output:
+  dir: null
+  formats: [csv, parquet]
+  write_label_images: true
+  write_spots_image: true

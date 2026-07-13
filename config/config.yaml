@@ -21,7 +21,10 @@ io:
 #   "20260521_n2_hs_dapi_rad51_syp1_M001", "..._HERM001"     (channel block in name; sex = H/M)
 # The (?:[a-z0-9]+_)*? lazily skips any channel/label tokens between treatment and the sex code.
 metadata:
-  filename_regex: '(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?P<treatment>nohs|hs)_(?:[a-z0-9]+_)*?(?P<sex>HERM|MALE|H|M)\s*_?(?P<replicate>\d+)?\s*$'
+  # The (?:[a-z0-9]+_)*? AFTER genotype lazily skips any stain/label block between the genotype and
+  # the treatment token (e.g. "..._ccw77_if_pgl1_syp3_lmn1_hs_herm_011"); a second skip handles a
+  # label block between treatment and the sex code. Verified on both the N2 and ccw77 naming styles.
+  filename_regex: '(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?:[a-z0-9]+_)*?(?P<treatment>nohs|hs)_(?:[a-z0-9]+_)*?(?P<sex>HERM|MALE|H|M)\s*_?(?P<replicate>\d+)?\s*$'
   defaults: { genotype: unknown, sex: unknown, treatment: unknown, replicate: "NA" }
 
 segmentation:
@@ -115,11 +118,14 @@ sc:
 
 coloc:
   enabled: true
-  sc_operand: both             # both | syp_aggregate | sc_ribbon  (headline = syp_aggregate)
+  sc_operand: both             # both | syp_aggregate | sc_ribbon
   region: perinuclear_shell    # perinuclear_shell (default) | nuclear | germline_bbox
-  region_dilation_um: 1.5      # perinuclear shell thickness added around each germline nucleus
+  region_dilation_um: 1.0      # cytoplasmic shell thickness around each germline nucleus
+  use_lamin_shell: true        # if a `lamin` channel is present, anchor the shell to the real nuclear
+                               #   envelope instead of a DAPI dilation. HEADLINE metric = SYP<->PGL-1
+                               #   voxel coloc in this shell (SC ribbon excluded): shell_pearson /
+                               #   shell_manders_* — robust where the object-overlap metric is not.
   object_overlap_min_frac: 0.0 # a granule "overlaps" SYP if >= this fraction of its voxels are in it
-                               #   (0 = any single shared voxel counts)
   n_random: 100                # translation-null iterations for the overlap p-value/z-score (0 = off)
   costes: false                # optional Costes auto-threshold + regression (slower; off by default)
 

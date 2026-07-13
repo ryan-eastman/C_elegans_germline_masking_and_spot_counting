@@ -1,0 +1,33 @@
+# Channel map for Hallie Febvre's ccw77 IF: DAPI / SYP-3 / PGL-1 / lamin (4-colour immunofluorescence).
+# Colours reported by the microscopist: SYP = green, PGL-1 = red, lamin = purple (far-red), DAPI = blue.
+# There is NO RAD-51 channel in this panel, so the `foci`/SpotMAX spot stage simply doesn't run
+# (it gates on the `foci` role being present). Instead the 4th channel is `lamin` = the nuclear
+# envelope, which the coloc stage can use to define the true perinuclear region.
+#
+# ** VERIFY the channel order/names against a real file before trusting this **:
+#   .venv\Scripts\python -m germquant info <file>.nd2
+# and adjust the `names`/`index` below to match. Name-match (substring, case-insensitive) is tried
+# first, then the index fallback; typical 4-colour IF laser lines are 405 / 488 / 555(561) / 647.
+match_by: name
+roles:
+  dna:                      # DAPI (blue) -> Cellpose 3D nucleus segmentation
+    names: ["405", "DAPI", "Hoechst"]
+    index: 0
+    required: true
+    marker: DAPI
+  central_element:          # SYP-3 (green, 477) -> germline isolation + the SC operand for coloc
+    names: ["477", "488", "525", "GFP", "AF488", "Alexa 488", "SYP-3", "SYP3", "SYP"]
+    index: 1
+    required: true
+    marker: SYP-3
+  granule:                  # PGL-1 (red, 545) -> p-granule surfacing + SYP<->PGL-1 colocalization
+    names: ["545", "555", "561", "568", "594", "TRITC", "RFP", "AF568", "PGL-1", "PGL1"]
+    index: 2
+    required: false
+    marker: PGL-1
+  lamin:                    # lamin / LMN-1 (purple/far-red, 640) -> nuclear envelope; defines the true
+                            # perinuclear region for coloc and lets us measure granule<->envelope distance
+    names: ["640", "647", "Cy5", "AF647", "Alexa 647", "LMN-1", "LMN", "lamin"]
+    index: 3
+    required: false
+    marker: lamin
