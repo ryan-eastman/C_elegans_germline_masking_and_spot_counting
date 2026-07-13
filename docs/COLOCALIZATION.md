@@ -87,6 +87,18 @@ stage. A 3-channel (no PGL-1) image skips it automatically and RAD-51 output is 
 4. **Tune first** without GT if useful: `scripts/coloc_param_sweep.py` shows how the numbers move with the
    granule threshold, volume floor, and shell thickness.
 
+## Why not an object/per-granule metric? (tested, retired)
+The segmentation-based object overlap (`frac_granules_overlapping_*`) depends on a per-image SYP
+threshold and is unstable gonad-to-gonad — on real ccw77 data it **inverted** (herm > male). We tested a
+threshold-free per-granule replacement (SYP intensity at each PGL-1 granule): raw SYP-at-granule is higher
+in the male (513 vs 349) but so is the male's overall cytoplasmic SYP (bg 303 vs 206), and the
+background-normalized **enrichment is identical (~1.69× in both sexes)**. Interpretation: individual
+P-granules do not recruit more SYP in males — the male↔herm difference is in the **global cytoplasmic
+SYP↔PGL co-distribution**, a spatial-correlation property that a per-granule number cannot capture but the
+shell **Pearson** does. Pearson is also scale-invariant, so it is immune to the staining/brightness
+differences between slides that confound intensity- and segmentation-based readouts. → Use `shell_pearson`
+as the quantitative headline; keep the object overlap only as a labeled visualization, not a figure number.
+
 ## Known limits
 - SC ribbon **length** (optional, needs `skan`, `pip install -e .[sc]`) is usable; per-nucleus SC
   **fragment count** is NOT recoverable in 3D at pachytene density — don't build on it.
