@@ -1,0 +1,29 @@
+# Snakemake 8+ profile for RMACC Alpine (CU Boulder / CSU RMACC). One GPU job per .nd2 —
+# queue them all and walk away; the workstation 5090 is freed. Usage:
+#   module load apptainer
+#   export GERMQUANT_SIF=/scratch/alpine/$USER/germquant.sif
+#   export GERMQUANT_MODELS=/scratch/alpine/$USER/models         # holds models/germline_nuclei_combined
+#   snakemake -s workflow/Snakefile --configfile workflow/config.yaml --workflow-profile config/profiles/alpine
+#
+# `germquant` in the Snakefile rule resolves to scripts/germquant-apptainer (put it on PATH), which
+# runs `apptainer exec --nv` with the model + data bind-mounts. See docs/HPC_ALPINE.md.
+executor: slurm
+jobs: 20                         # max concurrent SLURM jobs — be polite on the shared GPU partition
+latency-wait: 90
+default-resources:
+  # Alpine GPU partitions: aa100 = A100 (sm_80), al40 = L40 (sm_89, usually LESS contended).
+  # Prefer al40 for "queue 100s and walk away"; use aa100 if you need the extra memory/throughput.
+  # (Skip ami100 = AMD MI100 — needs a ROCm torch build, not this cu128 image.)
+  slurm_partition: "al40"
+  slurm_account: "<YOUR_ALPINE_ACCOUNT>"      # your allocation, e.g. csu-general / ucb-general
+  mem_mb: 64000
+  runtime: 240                                # minutes (a full-res 2720x2720xZ gonad is ~20-30 min)
+  cpus_per_task: 8
+  slurm_extra: "'--gres=gpu:1 --qos=normal'"
+set-resources:
+  process_one:                                # the per-gonad GPU job (Cellpose-SAM + SpotMAX)
+    mem_mb: 80000
+    runtime: 300
+    slurm_extra: "'--gres=gpu:1 --qos=normal'"
+# Resume is automatic: re-running skips gonads whose <out>/_done/<idx>.done exists, so a walltime
+# kill or a partial run just picks up where it left off.

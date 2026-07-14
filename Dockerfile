@@ -1,5 +1,6 @@
-# GPU container for the RTX 5090 (Blackwell sm_120) — build on the workstation,
-# then convert to Apptainer for the HPC (see apptainer.def).
+# GPU container — the cu128 torch wheel covers the workstation RTX 5090 (Blackwell sm_120) AND the
+# HPC A100 (sm_80) / L40 (sm_89), so this single image is PORTABLE across the desktop and RMACC
+# Alpine. Build on the workstation, convert to Apptainer for the HPC (see apptainer.def, docs/HPC_ALPINE.md).
 #   docker build -t germquant:gpu .
 FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 

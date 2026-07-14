@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Make `germquant ...` run inside the Apptainer image on an Alpine GPU node, with the trained
+# Cellpose model and the data trees bind-mounted in. Put this on PATH as `germquant` so the
+# Snakefile rule (`germquant run ...`) transparently runs in the container:
+#   ln -s "$PWD/scripts/germquant-apptainer" ~/bin/germquant   # (with ~/bin on PATH)
+#
+# Env:
+#   GERMQUANT_SIF     path to germquant.sif                         (required)
+#   GERMQUANT_MODELS  host dir holding models/germline_nuclei_combined; bound to /opt/germquant/models
+#   GERMQUANT_BIND    extra colon/comma binds, e.g. "/scratch/alpine/$USER:/scratch/alpine/$USER"
+set -euo pipefail
+
+: "${GERMQUANT_SIF:?set GERMQUANT_SIF=/path/to/germquant.sif}"
+
+binds=()
+[[ -n "${GERMQUANT_MODELS:-}" ]] && binds+=(--bind "${GERMQUANT_MODELS}:/opt/germquant/models")
+# bind the current working dir (config/, workflow/, outputs) and any user-specified paths
+binds+=(--bind "${PWD}:${PWD}")
+[[ -n "${GERMQUANT_BIND:-}" ]] && binds+=(--bind "${GERMQUANT_BIND}")
+
+exec apptainer exec --nv "${binds[@]}" --pwd "${PWD}" "${GERMQUANT_SIF}" germquant "$@"

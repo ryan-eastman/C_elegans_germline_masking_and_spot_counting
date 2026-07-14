@@ -70,7 +70,8 @@ def main(argv: list[str] | None = None) -> int:
     pf.add_argument("--epochs", type=int, default=100)
     pf.add_argument("--print-only", action="store_true", help="print the command, don't run")
 
-    sub.add_parser("check-gpu", help="assert the GPU is a Blackwell sm_120 (RTX 5090) with cu128 torch")
+    sub.add_parser("check-gpu", help="pre-flight: confirm a CUDA GPU adequate for Cellpose-SAM is visible "
+                                     "(RTX 5090 / A100 / L40 — compute capability >= 7.0)")
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
@@ -266,13 +267,14 @@ def _finetune(args) -> int:
 
 
 def _check_gpu() -> int:
-    """Assert the GPU is a Blackwell sm_120 (RTX 5090) on a cu128 torch wheel. Returns nonzero
-    if torch/CUDA is missing or the capability isn't (12, 0) — wire into CI/containers before
-    trusting a run (ARCHITECTURE.md §4)."""
+    """Pre-flight GPU check for a real run. Passes on any CUDA GPU adequate for Cellpose-SAM
+    (compute capability >= 7.0) — the workstation RTX 5090 (sm_120) AND the HPC A100 (sm_80) /
+    L40 (sm_89) on RMACC Alpine. Returns nonzero only if torch/CUDA is missing or the GPU is too
+    old. The single cu128 wheel covers all these archs, so one container is portable across them."""
     try:
         import torch
     except Exception as e:  # noqa: BLE001
-        print(f"torch not importable ({e}); install germquant[gpu] on the 5090/HPC.", file=sys.stderr)
+        print(f"torch not importable ({e}); install germquant[gpu].", file=sys.stderr)
         return 1
     if not torch.cuda.is_available():
         print("CUDA not available to torch (CPU-only build or no GPU visible).", file=sys.stderr)
@@ -280,11 +282,12 @@ def _check_gpu() -> int:
     cap = torch.cuda.get_device_capability()
     name = torch.cuda.get_device_name(0)
     print(f"torch {torch.__version__}  device={name}  CUDA cap {tuple(cap)}")
-    if tuple(cap) != (12, 0):
-        print(f"WARNING: expected sm_120 (12, 0) for the RTX 5090; got {tuple(cap)}. "
-              "If this isn't a 5090 that's fine; if it is, the torch wheel didn't match "
-              "Blackwell — reinstall from the cu128 index (ARCHITECTURE.md §4).", file=sys.stderr)
+    if cap < (7, 0):
+        print(f"GPU compute capability {tuple(cap)} < 7.0 is too old for Cellpose-SAM.", file=sys.stderr)
         return 1
+    known = {(12, 0): "RTX 5090 (Blackwell)", (9, 0): "H100 (Hopper)",
+             (8, 9): "L40/L40S (Ada)", (8, 0): "A100 (Ampere)"}
+    print(f"OK — {known.get(tuple(cap), 'CUDA GPU')}: usable for Cellpose-SAM + SpotMAX.")
     return 0
 
 
