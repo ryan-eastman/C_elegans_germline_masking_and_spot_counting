@@ -13,7 +13,7 @@ shock, built on top of the germquant pipeline outputs (Cellpose nuclei + germlin
 | `scripts/trace_pachytene.py` | pop-up tool to draw the pachytene region per gonad (scroll = z-planes, m = max projection); writes `staging/zones` |
 | `scripts/rezone_all.py` | re-derive zones from saved traces after any change to the zoning rule |
 | `scripts/pc_zone_worker.py` | early / mid / late pachytene partition coefficients from the traced zones |
-| `scripts/granule_tail.py`, `scripts/tail_by_distance.py` | per-granule SYP-3 excess: fraction of granules that "light up", by distance from the envelope, with GFP bleed-through calibration |
+| `scripts/granule_tail.py`, `scripts/tail_by_distance.py` | per-granule SYP-3 excess: fraction of granules that "light up", by distance from the envelope, with GFP bleed-through calibration (v4 drops no-envelope labels first) |
 | `scripts/amount_metrics.py`, `denominator_check.py`, `exposure_sim.py` | method robustness: absolute-amount metrics, cytoplasm-denominator and background variants, synthetic re-exposure |
 | `scripts/pubstyle.py`, `scripts/fig_pub_*.py` | publication figures (Arial, 180 mm, Okabe-Ito, PDF + 600 dpi PNG) |
 | `scripts/qc_mask_audit.py`, `qc_mask_zoom.py` | per-gonad nucleus-mask audit: all-depth overlay, lamin-only nucleus detection (missed rings), no-envelope test for every label; zoom with flagged ids |
@@ -33,7 +33,8 @@ shock, built on top of the germquant pipeline outputs (Cellpose nuclei + germlin
   pachytene region 1.085 v 1.311, P = 0.016, figure 1; early pachytene P = 0.016, figure 2; whole gonad
   P = 0.032, figure 1S); hermaphrodites are underpowered (n = 2 v 2, floor P = 0.333), not null.
 * The metric that matches the images is the fraction of P granules holding SYP-3 above half the nuclear
-  level: ~25% in HS males, ~8% in unshocked males, <1% in unshocked hermaphrodites.
+  level (no-envelope objects removed, `granule_tail_v4.csv`): 22% in HS males, 6% in unshocked males
+  (P = 0.032), 14% v 1% in hermaphrodites (n = 2 v 2).
 * Imaging session is the dominant covariate (the 8-Jul session amplified the HS response in both sexes);
   exposure, background choice, cytoplasm-denominator choice and GFP bleed-through were each tested and
   ruled out as drivers.
@@ -60,9 +61,9 @@ n = 5, granule-specific PC): all labels 1.158 v 1.333 (P = 0.032); no-envelope r
 region 1.085 v 1.311 (P = 0.016). Hermaphrodites (n = 2 v 2) move by +0.18 to +0.22 in every version
 (P floor 0.333). The pooled pachytene region (`pach_*` columns) is therefore figure 1, and the whole-gonad version is
 figure 1S. Figures 3 to 5 (imaging-session covariate) stay on the whole-gonad values because they
-also show the untraced, excluded gonads for context. The per-granule lit-fraction table
-(`granule_tail_v3.csv`, figure 6) uses the unfiltered label set; a no-envelope-filtered rerun
-(`granule_tail_v4.csv`) follows in a separate commit.
+also show the untraced, excluded gonads for context. The per-granule lit-fraction table and figure 6 now use
+the no-envelope-filtered envelope set (`granule_tail_v4.csv`; v3, unfiltered, is kept for the record:
+male noHS 8.2% v HS 24.7% before, 5.8% v 21.9% after, P = 0.032 both).
 
 ## Caveats
 

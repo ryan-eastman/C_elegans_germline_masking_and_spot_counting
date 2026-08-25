@@ -1,4 +1,4 @@
-"""Two questions from the per-granule v3 table (granule_tail_pergranule_v3.parquet):
+"""Two questions from the per-granule v4 table (granule_tail_pergranule_v4.parquet):
  1. RADIUS: fraction of granules "lit" (SYP-3 excess > 0.5 nuclear) as a function of distance from the
     nuclear envelope, per group. The right detection window keeps noHS herms at ~0 (no false positives)
     and HS males high.
@@ -10,7 +10,7 @@ import pandas as pd
 from scipy import stats
 
 CA = r"C:/Users/ryane/coloc_analysis"
-g = pd.read_parquet(f"{CA}/granule_tail_pergranule_v3.parquet")
+g = pd.read_parquet(f"{CA}/granule_tail_pergranule_v4.parquet")
 g["grp"] = g.sex + " " + g.treat
 SHELLS = [(0, 0.5), (0.5, 1.0), (1.0, 1.5), (1.5, 2.0), (2.0, 2.5)]
 
