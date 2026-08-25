@@ -1,0 +1,13 @@
+sex,treat,stage,zsh_floor,source
+male,noHS,early,1.23,log_exact
+male,noHS,mid,1.18,log_exact
+male,noHS,late,1.07,log_exact
+herm,noHS,early,1.161,pixel_recovered
+herm,noHS,mid,1.187,pixel_recovered
+herm,noHS,late,1.239,pixel_recovered
+male,HS,early,1.24,log_exact
+male,HS,mid,1.29,log_exact
+male,HS,late,1.17,log_exact
+herm,HS,early,1.385,pixel_recovered
+herm,HS,mid,1.234,pixel_recovered
+herm,HS,late,1.205,pixel_recovered

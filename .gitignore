@@ -9,6 +9,8 @@ results/
 # NOTE: keep this pattern on its OWN line — an inline '# comment' is NOT a comment in .gitignore,
 # it becomes part of the pattern and silently breaks the ignore.
 results_*/
+# the ccw77 coloc analysis tables are small, derived from the pipeline outputs and reviewed; keep them
+!/analysis/coloc/results/
 *.nd2
 *.tif
 *.tiff
