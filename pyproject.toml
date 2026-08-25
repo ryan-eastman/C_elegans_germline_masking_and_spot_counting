@@ -29,6 +29,8 @@ dependencies = [
 # Heavy / GPU stages — installed on the 5090 workstation / HPC, not needed for the core path.
 gpu  = ["torch>=2.7", "cellpose>=3.1"]     # 3D nucleus segmentation on CUDA (sm_120 -> cu128 wheel)
 spots = ["spotmax", "cellacdc"]            # SpotMAX spot detection (the RAD-51 counter)
+sc = ["skan>=0.11"]                         # OPTIONAL: SC ribbon length (skan). The ribbon MASK +
+                                           #   all coloc metrics need only scikit-image (core dep).
 viz = ["napari[all]>=0.4.19", "napari-animation>=0.0.8"]
 # Snakemake batch orchestration. `germquant batch` is a pure-python loop and needs none of
 # this; the NAS->mirrored-tree Snakemake workflow (workflow/Snakefile) does.

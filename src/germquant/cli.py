@@ -6,6 +6,19 @@
 """
 from __future__ import annotations
 
+# --- cuBLAS load-order guard (must be the FIRST import) ---------------------------------------
+# torch (cuBLAS 12.8) and CuPy (cuBLAS 12.9, via the nvidia-*-cu12 wheels SpotMAX/CuPy pull in)
+# each ship their own cublas64_12.dll. On Windows the first one imported claims that DLL name for
+# the whole process; if CuPy wins, torch's batched GEMMs fail on the RTX 5090 (Blackwell/sm_120)
+# with CUBLAS_STATUS_INVALID_VALUE and Cellpose-SAM silently falls back to classical watershed.
+# germquant.exe enters here, so importing torch first (before any SpotMAX/CuPy import) is the one
+# place that guarantees torch's cuBLAS loads first. See pipeline.py for the same guard (defence in
+# depth for `from germquant.pipeline import ...` used by scripts/notebooks).
+try:
+    import torch  # noqa: F401  (side effect: claim cublas64_12.dll before CuPy can)
+except Exception:
+    pass
+
 import argparse
 import fnmatch
 import logging
@@ -32,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--z-range", type=int, nargs=2, default=None, metavar=("Z0", "Z1"))
     pr.add_argument("--no-spots", action="store_true",
                     help="segmentation only: skip RAD-51/SpotMAX spot detection (fast, never wedges)")
+    pr.add_argument("--no-coloc", action="store_true",
+                    help="skip PGL-1 granule surfacing + SYP<->PGL-1 colocalization stage")
 
     pb = sub.add_parser("batch", help="process every .nd2 under a folder, mirroring the tree")
     pb.add_argument("folder")
@@ -40,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("--xy-stride", type=int, default=1)
     pb.add_argument("--no-spots", action="store_true",
                     help="segmentation only: skip RAD-51/SpotMAX spot detection (fast, never wedges)")
+    pb.add_argument("--no-coloc", action="store_true",
+                    help="skip PGL-1 granule surfacing + SYP<->PGL-1 colocalization stage")
 
     pv = sub.add_parser("validate", help="compare pipeline output to hand-scored ground truth")
     pv.add_argument("--pred", help="pipeline CSV (counts/lengths mode)")
@@ -66,7 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     pf.add_argument("--epochs", type=int, default=100)
     pf.add_argument("--print-only", action="store_true", help="print the command, don't run")
 
-    sub.add_parser("check-gpu", help="assert the GPU is a Blackwell sm_120 (RTX 5090) with cu128 torch")
+    sub.add_parser("check-gpu", help="pre-flight: confirm a CUDA GPU adequate for Cellpose-SAM is visible "
+                                     "(RTX 5090 / A100 / L40 — compute capability >= 7.0)")
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
@@ -113,6 +131,9 @@ def _run(args) -> int:
     if getattr(args, "no_spots", False):
         cfg.set("spots.enabled", False)
         print("segmentation only: skipping spot detection (--no-spots)")
+    if getattr(args, "no_coloc", False):
+        cfg.set("coloc.enabled", False)
+        print("skipping PGL-1 granule surfacing + colocalization (--no-coloc)")
     out = Path(args.out)
     prov = provenance.write_manifest(out, config_hash=cfg.hash, config=cfg.as_dict())
     z_range = tuple(args.z_range) if args.z_range else None
@@ -136,6 +157,9 @@ def _batch(args) -> int:
     if getattr(args, "no_spots", False):
         cfg.set("spots.enabled", False)
         print("segmentation only: skipping spot detection (--no-spots)")
+    if getattr(args, "no_coloc", False):
+        cfg.set("coloc.enabled", False)
+        print("skipping PGL-1 granule surfacing + colocalization (--no-coloc)")
     root = Path(args.folder)
     out_root = Path(args.out)
     glob = cfg.get("io.input_glob", "**/*.nd2")
@@ -256,13 +280,14 @@ def _finetune(args) -> int:
 
 
 def _check_gpu() -> int:
-    """Assert the GPU is a Blackwell sm_120 (RTX 5090) on a cu128 torch wheel. Returns nonzero
-    if torch/CUDA is missing or the capability isn't (12, 0) — wire into CI/containers before
-    trusting a run (ARCHITECTURE.md §4)."""
+    """Pre-flight GPU check for a real run. Passes on any CUDA GPU adequate for Cellpose-SAM
+    (compute capability >= 7.0) — the workstation RTX 5090 (sm_120) AND the HPC A100 (sm_80) /
+    L40 (sm_89) on RMACC Alpine. Returns nonzero only if torch/CUDA is missing or the GPU is too
+    old. The single cu128 wheel covers all these archs, so one container is portable across them."""
     try:
         import torch
     except Exception as e:  # noqa: BLE001
-        print(f"torch not importable ({e}); install germquant[gpu] on the 5090/HPC.", file=sys.stderr)
+        print(f"torch not importable ({e}); install germquant[gpu].", file=sys.stderr)
         return 1
     if not torch.cuda.is_available():
         print("CUDA not available to torch (CPU-only build or no GPU visible).", file=sys.stderr)
@@ -270,11 +295,12 @@ def _check_gpu() -> int:
     cap = torch.cuda.get_device_capability()
     name = torch.cuda.get_device_name(0)
     print(f"torch {torch.__version__}  device={name}  CUDA cap {tuple(cap)}")
-    if tuple(cap) != (12, 0):
-        print(f"WARNING: expected sm_120 (12, 0) for the RTX 5090; got {tuple(cap)}. "
-              "If this isn't a 5090 that's fine; if it is, the torch wheel didn't match "
-              "Blackwell — reinstall from the cu128 index (ARCHITECTURE.md §4).", file=sys.stderr)
+    if cap < (7, 0):
+        print(f"GPU compute capability {tuple(cap)} < 7.0 is too old for Cellpose-SAM.", file=sys.stderr)
         return 1
+    known = {(12, 0): "RTX 5090 (Blackwell)", (9, 0): "H100 (Hopper)",
+             (8, 9): "L40/L40S (Ada)", (8, 0): "A100 (Ampere)"}
+    print(f"OK — {known.get(tuple(cap), 'CUDA GPU')}: usable for Cellpose-SAM + SpotMAX.")
     return 0
 
 

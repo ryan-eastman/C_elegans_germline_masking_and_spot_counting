@@ -32,6 +32,8 @@ def make_montage(
     *,
     foci_df=None,
     excluded_ids=None,
+    sc_mask=None,
+    granule_mask=None,
     scalebar_um: float = 10.0,
     title: str = "",
 ) -> Path:
@@ -41,7 +43,8 @@ def make_montage(
     from skimage.segmentation import find_boundaries
 
     panels = [(r, i) for r, i in role_to_idx.items() if i is not None]
-    n = len(panels) + (1 if labels is not None else 0)
+    show_coloc = sc_mask is not None and granule_mask is not None
+    n = len(panels) + (1 if labels is not None else 0) + (1 if show_coloc else 0)
     n = max(n, 1)
 
     fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
@@ -63,6 +66,7 @@ def make_montage(
 
     if labels is not None:
         ax = axes[k]
+        k += 1
         dna_idx = role_to_idx.get("dna")
         base = _norm(_mip(stack.data[dna_idx])) if dna_idx is not None else np.zeros(stack.shape_zyx[1:])
         ax.imshow(base, cmap="gray")
@@ -88,6 +92,24 @@ def make_montage(
         seg_t = (f"germline={int(labels.max()) - n_excl} (red=off-gonad {n_excl})" if excluded_ids
                  else f"nuclei={int(labels.max())}")
         ax.set_title(seg_t + (f"  foci={len(foci_df)}" if foci_df is not None else ""), fontsize=9)
+        _scalebar(ax, base.shape, bar_px, scalebar_um)
+        ax.axis("off")
+
+    if show_coloc:
+        ax = axes[k]
+        k += 1
+        syp_idx = role_to_idx.get("central_element")
+        base = (_norm(_mip(stack.data[syp_idx])) if syp_idx is not None
+                else np.zeros(stack.shape_zyx[1:]))
+        ax.imshow(base, cmap="gray")
+        sc_mip = np.asarray(sc_mask).max(axis=0) > 0
+        gr_mip = np.asarray(granule_mask).max(axis=0) > 0
+        overlay = np.zeros((*sc_mip.shape, 4))
+        overlay[sc_mip] = (1, 0, 0, 0.6)            # SYP aggregate = red
+        overlay[gr_mip] = (0, 1, 0, 0.6)            # PGL-1 granules = green
+        overlay[sc_mip & gr_mip] = (1, 1, 0, 0.95)  # overlap = yellow
+        ax.imshow(overlay)
+        ax.set_title(f"coloc: SYP-agg∩PGL-1 ({int((sc_mip & gr_mip).sum())} px)", fontsize=9)
         _scalebar(ax, base.shape, bar_px, scalebar_um)
         ax.axis("off")
 

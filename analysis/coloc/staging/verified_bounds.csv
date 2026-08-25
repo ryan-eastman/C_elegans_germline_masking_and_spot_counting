@@ -1,0 +1,11 @@
+image_id,sex,treat,tip_imaged,pach_start_row,confidence,source
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_herm_011,herm,HS,yes,16,high,visual_review_2026-08-22
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_male_008,male,HS,yes,15,high,visual_review_2026-08-22
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_male_013,male,HS,yes,14,medium,visual_review_2026-08-22
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_herm_004,herm,noHS,yes,25,high,visual_review_2026-08-22
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_002,male,noHS,yes,35,high,visual_review_2026-08-22
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_male_009,male,HS,no,,high,axis_fused_somatic+germline
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_male_010,male,HS,no,,high,field_opens_in_pachytene
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_001,male,noHS,no,,high,field_opens_in_pachytene
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_003,male,noHS,no,,high,syp_io_peaks_at_row0
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_006,male,noHS,unclear,,medium,sparse_distal+z_truncated

@@ -1,0 +1,152 @@
+# =============================================================================
+# germquant — global pipeline config.  Everything tunable lives here or in the
+# referenced channel map.  Lengths/volumes are ALWAYS in microns (voxel size is
+# read from each .nd2 and threaded through every 3D op — never hardcoded).
+# =============================================================================
+project: celegans-germline-quant
+
+io:
+  # which files to process when pointed at a folder (NAS root)
+  input_glob: "**/*.nd2"
+  # skip the 2D whole-slide overview scans (single-channel, no z) — not SC-quant
+  exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*"]
+  # fluor -> biological role mapping for THIS experiment. The 4-channel map adds the PGL-1
+  # (p-granule) `granule` role for SYP<->PGL-1 colocalization; it is backward-compatible with
+  # 3-channel DAPI/SYP/RAD-51 .nd2 files (granule simply resolves to None and the coloc stage skips).
+  channel_map: config/channel_maps/ccw77_dapi_syp_pgl_lamin.yaml
+
+# Sample metadata parsed from the filename. Named regex groups become columns.
+# Handles both naming styles in the dataset:
+#   "20251105_n2_nohs_HERM _001", "20251021_n2_hs_MALE_2"   (sex = HERM/MALE)
+#   "20260521_n2_hs_dapi_rad51_syp1_M001", "..._HERM001"     (channel block in name; sex = H/M)
+# The (?:[a-z0-9]+_)*? lazily skips any channel/label tokens between treatment and the sex code.
+metadata:
+  # The (?:[a-z0-9]+_)*? AFTER genotype lazily skips any stain/label block between the genotype and
+  # the treatment token (e.g. "..._ccw77_if_pgl1_syp3_lmn1_hs_herm_011"); a second skip handles a
+  # label block between treatment and the sex code. Verified on both the N2 and ccw77 naming styles.
+  filename_regex: '(?P<date>\d{6,8})_(?P<genotype>[A-Za-z0-9]+)_(?:[a-z0-9]+_)*?(?P<treatment>nohs|hs)_(?:[a-z0-9]+_)*?(?P<sex>HERM|MALE|H|M)\s*_?(?P<replicate>\d+)?\s*$'
+  defaults: { genotype: unknown, sex: unknown, treatment: unknown, replicate: "NA" }
+
+segmentation:
+  nuclei:
+    method: auto          # cellpose | classical | auto (cellpose if importable, else classical)
+    # fine-tuned germline model (real Koehler + synthetic). On held-out real data F1 0.98 vs stock
+    # cpsam 0.87, and it produces whole pachytene nuclei where stock fragments them (~160 vs 1650
+    # objects on a real crop). 1.2 GB, gitignored -> models/models/germline_nuclei_combined must exist
+    # locally (rebuild via scripts/train_nucleus_model_combined.py). Set to 'cpsam' to use stock.
+    # Runs at NATIVE scale (diameter_um is ignored for cpsam-derived models — see segment/nuclei.py).
+    cellpose_model: models/models/germline_nuclei_combined
+    diameter_um: 3.0      # only used for a classic (non-SAM) Cellpose model; ignored here
+    min_volume_um3: 4.0   # drop debris below this
+    channel: dna
+
+germline:
+  # Isolate the gonad: drop nuclei segmented OUTSIDE the germline (gut autofluorescence, debris,
+  # non-gonad structures) so they don't pollute the axis fit and per-nucleus spot means. Uses SYP
+  # (central_element) intensity + spatial connectivity — NEVER the spot count, so spot recall is an
+  # independent validation (scripts/validate_germline_select.py: mean recall ~0.97 on 14 real
+  # gonads). ADDITIVE: adds an `in_germline` column; excluded nuclei stay in the output table
+  # flagged False. Downstream analysis (axis position, spots/nucleus) runs on in_germline nuclei.
+  enabled: true
+  method: syp_seeded_cc        # syp_seeded_cc (default) | multi_cc | largest_cc | seed_mass
+  syp_percentile: 25           # SYP floor that defines a synapsed "seed" nucleus
+  link_radius_um: 12.0         # connect nuclei whose centroids are within this many µm
+  min_seed_frac: 0.10          # syp_seeded_cc: keep a connected component if it holds >= this fraction
+                               #   of all seed nuclei (so the whole gonad tube — incl. the SYP-negative
+                               #   distal tip — is kept, while separate gut/debris clusters are dropped)
+  size_frac: 0.10              # multi_cc only: keep secondary components >= this fraction of the largest
+
+# SpotMAX spot counting (RAD-51 etc.). This is the PI's pipeline: segment -> spots -> Imaris.
+# Replaces the v1 blob_log `foci` module (which UNDER-detected vs the Cahoon Fig5 reference).
+# Detects only peaks ABOVE local background inside each nucleus mask; every spot is tagged with
+# its spot-vs-background effect size so counts can be CALIBRATED against Imaris ground truth.
+# Headless (no GUI/prompt). Validated chain: scripts/smoke_spotmax.py + scripts/test_spots_module.py.
+spots:
+  enabled: true
+  channel: foci                # RAD-51 here (same channel role as the old blob_log foci)
+  spot_radius_um: 0.3          # expected spot radius -> detection footprint (px = radius / voxel)
+  gauss_sigma_um: 0.08         # light pre-smoothing (~1 px at this voxel size)
+  # semantic-segmentation threshold (where spots can be). CROSS-VALIDATED across 6 N2 gonads w/
+  # Imaris GT: otsu is UNSTABLE per-image (starved HERM_002 -> 1.0/nuc, flooded MALE_002 -> 130/nuc;
+  # pooled CCC 0.04). threshold_triangle is robust (recovers starved gonads, controls floods); paired
+  # with effect_size_min below it gives pooled CCC 0.48, bias +0.4, all 6 gonads within ~1.5 of coloc.
+  # (scripts/cv_detect.py: otsu/li/triangle x effect_size_min sweep.) 'li' over-floods.
+  thresholding_method: threshold_triangle
+  # z-axis spot-splitting fix: the confocal axial PSF (~0.6-0.8um) is far wider than the z spot
+  # radius, so SpotMAX detects one RAD-51 focus as 2-3 stacked peaks at the SAME (x,y) voxel. Merge
+  # peaks sharing an (x,y) voxel within z_merge_gap_um (keep brightest). Validated vs Imaris on
+  # 20251105_N2_HERM_001: 2033 -> ~1269 spots ~= Imaris's 1222. Without it we over-count ~1.6x.
+  merge_z_columns: true
+  z_merge_gap_um: 0.8          # ~ axial PSF; peaks farther apart in z stay as distinct foci
+  z_merge_valley_frac: 0.8     # merge stacked peaks only if the z-dip between them stays above this
+                               #   * the dimmer peak (no real valley = one PSF focus). A true valley
+                               #   keeps them separate, so dense pachytene nuclei aren't over-merged.
+  effect_size_metric: spot_vs_backgr_effect_size_glass
+  max_spot_candidates: 30000   # FLOOD GUARD: cap candidate peaks before the (O(n), CPU-bound)
+                               #   feature step so an artefact/over-bright image can't wedge the run
+                               #   for hours (a syp-2 mutant gonad did exactly that). A real count is
+                               #   far below this; hitting the cap = flooded image, count is a floor.
+  effect_size_min: 3.0         # CROSS-VALIDATED noise filter. With threshold_triangle, es_min=3.0
+                               #   maximised pooled cross-gonad CCC (0.48, bias +0.4) over the 6 N2
+                               #   gonads; es=2 over-counts (bias +5), es>=4 under-counts. Removes the
+                               #   low-effect noise that the more-sensitive triangle threshold admits.
+                               #   NB: tuned on 20251105 N2 no-HS only — re-CV before trusting on
+                               #   HS / other genotypes (scripts/cv_detect.py + cv_sweep.py).
+
+# -----------------------------------------------------------------------------------------------
+# PGL-1 (p-granule) surfacing + SYP<->PGL-1 colocalization. Only runs when the channel map resolves
+# a `granule` (PGL-1) channel; 3-channel DAPI/SYP/RAD-51 runs skip this entirely. Measures DIRECT
+# voxel/object overlap between SYP and PGL-1 inside the germline dilated by a perinuclear shell
+# (P-granules sit just OUTSIDE the nuclear envelope, so the region must include the perinuclear
+# cytoplasm — a nucleus-only region would report ~0 overlap by construction). Tune thresholds and
+# region_dilation_um on real .nd2, then cross-check against Imaris' Coloc module.
+granule:
+  # PGL-1 puncta segmentation (also reused on SYP-in-shell to find cytoplasmic SYP aggregates).
+  thresholding_method: threshold_triangle   # triangle (robust, matches spots) | otsu | li
+  gauss_sigma_um: 0.1          # light pre-smoothing (~1 px)
+  min_volume_um3: 0.03         # drop sub-resolution speckle
+  max_volume_um3: 8.0          # drop large blobs that aren't discrete granules (autofluor/sheets)
+
+sc:
+  # Intranuclear SC ribbon surfacing (Sato ridge filter + hysteresis; headless equivalent of Fiji
+  # Ridge Detection). Used as the CONTROL coloc operand (the SC ribbon is inside the nucleus, so it
+  # should NOT coincide with perinuclear P-granules). Length readout needs the optional `skan` dep.
+  enabled: true
+  ridge_sigmas_um: [0.15, 0.25, 0.40]   # physical tubeness scales for the ridge filter
+  ridge_hyst_low_pct: 45       # hysteresis grow level (continuous strand, not shredded blobs)
+  ridge_hyst_high_pct: 80      # hysteresis seed level
+
+coloc:
+  enabled: true
+  sc_operand: both             # both | syp_aggregate | sc_ribbon
+  region: perinuclear_shell    # perinuclear_shell (default) | nuclear | germline_bbox
+  region_dilation_um: 1.0      # cytoplasmic shell thickness around each germline nucleus
+  use_lamin_shell: true        # if a `lamin` channel is present, anchor the shell to the real nuclear
+                               #   envelope instead of a DAPI dilation. HEADLINE metric = SYP<->PGL-1
+                               #   voxel coloc in this shell (SC ribbon excluded): shell_pearson /
+                               #   shell_manders_* — robust where the object-overlap metric is not.
+  object_overlap_min_frac: 0.0 # a granule "overlaps" SYP if >= this fraction of its voxels are in it
+  n_random: 100                # translation-null iterations for the overlap p-value/z-score (0 = off)
+  costes: false                # optional Costes auto-threshold + regression (slower; off by default)
+
+axis:
+  method: auto                 # auto (principal-curve centerline through nucleus centroids) | manual
+  # below this -> flag for a manual axis-draw. This is an "is there an axis at all" gate: it
+  # scales with germline tube width, so a healthy (thick) gonad reads ~0.5; a diffuse blob ~0.
+  qc_confidence_min: 0.35
+
+qc:
+  # `germquant batch` flags any image whose germline nucleus count exceeds this factor x the batch
+  # median as "review_framing" — a robust, threshold-free signal for two gonad arms / extra tissue /
+  # fuller distal capture in frame. Advisory only (spot counts are unaffected; the axis readout is not).
+  germline_outlier_factor: 1.8
+
+render:
+  montage: true
+  scalebar_um: 10
+
+output:
+  dir: null                    # null => mirror the input tree under <input_root>/../results
+  formats: [csv, parquet]
+  write_label_images: true     # save nucleus label masks (tif) -> Imaris Surfaces / QC / re-use
+  write_spots_image: true      # save detected spots as a 3D blob tif -> Imaris Channel / Spots detection

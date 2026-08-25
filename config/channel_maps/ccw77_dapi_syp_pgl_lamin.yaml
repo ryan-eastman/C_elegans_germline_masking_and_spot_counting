@@ -1,0 +1,37 @@
+# Channel map for Hallie Febvre's ccw77 IF: DAPI / PGL-1 / SYP-3 / lamin (4-colour immunofluorescence).
+# CONFIRMED CHANNEL IDENTITY (2026-07-14, by morphology vs Madeleine's SYP + the sibling filenames
+# "488pgl1_555syp3"): 477(488,green)=PGL-1, 545(555,red)=SYP-3, 640=lamin. NOTE: the wavelength->marker
+# map is EXPERIMENT-SPECIFIC (in N2 SYP/HTP experiments 488=SYP-1) — always confirm per experiment by
+# morphology (SYP = intranuclear SC tracks; PGL-1 = perinuclear puncta). The original map had SYP/PGL
+# SWAPPED; this is the corrected version.
+# There is NO RAD-51 channel in this panel, so the `foci`/SpotMAX spot stage simply doesn't run
+# (it gates on the `foci` role being present). Instead the 4th channel is `lamin` = the nuclear
+# envelope, which the coloc stage can use to define the true perinuclear region.
+#
+# ** VERIFY the channel order/names against a real file before trusting this **:
+#   .venv\Scripts\python -m germquant info <file>.nd2
+# and adjust the `names`/`index` below to match. Name-match (substring, case-insensitive) is tried
+# first, then the index fallback; typical 4-colour IF laser lines are 405 / 488 / 555(561) / 647.
+match_by: name
+roles:
+  dna:                      # DAPI (blue) -> Cellpose 3D nucleus segmentation
+    names: ["405", "DAPI", "Hoechst"]
+    index: 0
+    required: true
+    marker: DAPI
+  central_element:          # SYP-3 (RED, 545/555) -> germline isolation + the SC operand for coloc
+    names: ["545", "555", "561", "568", "594", "TRITC", "AF568", "SYP-3", "SYP3", "SYP-1", "SYP1", "SYP"]
+    index: 2
+    required: true
+    marker: SYP-3
+  granule:                  # PGL-1 (GREEN, 477/488) -> p-granule surfacing + SYP<->PGL-1 colocalization
+    names: ["477", "488", "525", "GFP", "AF488", "Alexa 488", "PGL-1", "PGL1"]
+    index: 1
+    required: false
+    marker: PGL-1
+  lamin:                    # lamin / LMN-1 (purple/far-red, 640) -> nuclear envelope; defines the true
+                            # perinuclear region for coloc and lets us measure granule<->envelope distance
+    names: ["640", "647", "Cy5", "AF647", "Alexa 647", "LMN-1", "LMN", "lamin"]
+    index: 3
+    required: false
+    marker: lamin
