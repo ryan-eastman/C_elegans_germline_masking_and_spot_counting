@@ -21,11 +21,10 @@ shock, built on top of the germquant pipeline outputs (Cellpose nuclei + germlin
 | `scripts/fig_pub_pachytene_pooled.py`, `fig_pub_partition.py` | figure 1 (primary): partition coefficient within the pooled hand-traced pachytene region (`pach_*` columns of `pc_zone_all.csv`); figure 1S: the whole-gonad version (all `in_germline` labels, supplementary) |
 | `scripts/fig_grant_assets.py`, `fig_grant_pipeline.py` | grant pipeline figure: real crops + editable SVG (`figures/grant/pipeline_figure.svg`, 180 x 48 mm artboard, spare parts outside it) |
 | `scripts/make_staged_review.py` | builds the pre-commit review page from the staged diff |
-| `scripts/crescent_axis.py`, `axis_v2.py` | automated staging attempt (validated NOT accurate enough: ~5 rows error; superseded by hand tracing, kept for the record) |
-| `scripts/superseded/` | earlier figure/recovery scripts, no longer on the analysis path |
+| `scripts/crescent_axis.py` | shared data-location and crop-cache helpers (`find_run`, `find_nd2`, `load_crops`, `lamin_labels`) used by every worker; the rest of the file is the automated staging attempt, validated not accurate enough (~5 rows error) and superseded by hand tracing |
 | `results/` | per-gonad tables (acquisition metadata, PC tables, zone rows, robustness checks) |
 | `staging/` | hand traces (`pachytene_traces.json`), per-nucleus zones, human-verified landmarks |
-| `figures/` | publication figures (`figpub1` pooled pachytene, `figpub1S` whole gonad, `figpub2..6`), the grant pipeline figure (`grant/`) and QC images |
+| `figures/` | publication figures (`figpub1` pooled pachytene, `figpub1S` whole gonad, `figpub2..6`), the grant pipeline figure (`grant/`), and the segmentation-validation and robustness figures (`fig71`, `fig72`) |
 
 ## Key results (clean 13 gonads, lamin masking)
 
@@ -62,8 +61,8 @@ region 1.085 v 1.311 (P = 0.016). Hermaphrodites (n = 2 v 2) move by +0.18 to +0
 (P floor 0.333). The pooled pachytene region (`pach_*` columns) is therefore figure 1, and the whole-gonad version is
 figure 1S. Figures 3 to 5 (imaging-session covariate) stay on the whole-gonad values because they
 also show the untraced, excluded gonads for context. The per-granule lit-fraction table and figure 6 now use
-the no-envelope-filtered envelope set (`granule_tail_v4.csv`; v3, unfiltered, is kept for the record:
-male noHS 8.2% v HS 24.7% before, 5.8% v 21.9% after, P = 0.032 both).
+the no-envelope-filtered envelope set (`granule_tail_v4.csv`; unfiltered it was male noHS 8.2% v HS
+24.7%, filtered 5.8% v 21.9%, P = 0.032 both).
 
 ## Caveats
 
