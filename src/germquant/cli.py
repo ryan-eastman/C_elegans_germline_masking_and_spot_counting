@@ -6,6 +6,19 @@
 """
 from __future__ import annotations
 
+# --- cuBLAS load-order guard (must be the FIRST import) ---------------------------------------
+# torch (cuBLAS 12.8) and CuPy (cuBLAS 12.9, via the nvidia-*-cu12 wheels SpotMAX/CuPy pull in)
+# each ship their own cublas64_12.dll. On Windows the first one imported claims that DLL name for
+# the whole process; if CuPy wins, torch's batched GEMMs fail on the RTX 5090 (Blackwell/sm_120)
+# with CUBLAS_STATUS_INVALID_VALUE and Cellpose-SAM silently falls back to classical watershed.
+# germquant.exe enters here, so importing torch first (before any SpotMAX/CuPy import) is the one
+# place that guarantees torch's cuBLAS loads first. See pipeline.py for the same guard (defence in
+# depth for `from germquant.pipeline import ...` used by scripts/notebooks).
+try:
+    import torch  # noqa: F401  (side effect: claim cublas64_12.dll before CuPy can)
+except Exception:
+    pass
+
 import argparse
 import fnmatch
 import logging

@@ -1,0 +1,58 @@
+"""Publication figure 1 (primary, 2026-08-24): SYP-3 partitioning into P granules
+within the HAND-TRACED PACHYTENE REGION (early + mid + late pooled as one region), clean-13 dataset.
+Why: the whole-gonad `in_germline` nucleus set carries sperm and somatic nuclei in most gonads (mask
+audit, 2026-08-24); the traced pachytene region excludes them by construction.
+Data: pc_zone_all.csv, columns pach_PC / pach_PCspec (pc_zone_worker.py)."""
+import sys
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+sys.path.insert(0, r"C:\Users\ryane\coloc_analysis\scripts")
+import pubstyle as ps
+
+ps.apply()
+import matplotlib.pyplot as plt
+
+CA = r"C:/Users/ryane/coloc_analysis"
+d = pd.read_csv(f"{CA}/pc_zone_all.csv")
+
+fig, axes = plt.subplots(1, 2, figsize=(7.09, 2.5))
+POS = {("male", "noHS"): 0.0, ("male", "HS"): 0.75, ("herm", "noHS"): 2.0, ("herm", "HS"): 2.75}
+
+for k, (metric, ylab, ylim) in enumerate([
+        ("pach_PC",
+         "SYP-3 partition coefficient, pachytene\n(SYP$_{granule}$ - bkg) / (SYP$_{cytoplasm}$ - bkg)",
+         (0.9, 2.35)),
+        ("pach_PCspec",
+         "Granule-specific SYP-3 enrichment, pachytene\n(partition coefficient / z-shift control)",
+         (0.9, 1.62))]):
+    ax = axes[k]
+    ax.axhline(1.0, ls=(0, (4, 3)), c="0.6", lw=0.7, zorder=1)
+    ns = {}
+    for (sex, treat), x in POS.items():
+        v = d[(d.sex == sex) & (d.treat == treat)][metric].dropna()
+        ns[(sex, treat)] = len(v)
+        ps.dots_with_mean(ax, x, v, ps.COL_NOHS if treat == "noHS" else ps.COL_HS)
+    for sex, x0, x1 in [("male", 0.0, 0.75), ("herm", 2.0, 2.75)]:
+        a = d[(d.sex == sex) & (d.treat == "noHS")][metric].dropna()
+        b = d[(d.sex == sex) & (d.treat == "HS")][metric].dropna()
+        p = stats.mannwhitneyu(a, b)[1] if len(a) > 1 and len(b) > 1 else np.nan
+        ytop = max(a.max(), b.max()) + (ylim[1] - ylim[0]) * 0.05
+        ps.p_bracket(ax, x0, x1, ytop, p, h=(ylim[1] - ylim[0]) * 0.02)
+        print(f"{metric} {sex}: noHS {a.mean():.3f} (n{len(a)}) HS {b.mean():.3f} (n{len(b)}) P={p:.3f}")
+    ax.set_xticks(list(POS.values()))
+    ax.set_xticklabels([f"No HS\n(n = {ns[('male','noHS')]})", f"HS\n(n = {ns[('male','HS')]})",
+                        f"No HS\n(n = {ns[('herm','noHS')]})", f"HS\n(n = {ns[('herm','HS')]})"])
+    for x, lab in [(0.375, "Male"), (2.375, "Hermaphrodite")]:
+        ax.text(x, -0.24, lab, transform=ax.get_xaxis_transform(), ha="center", fontsize=7.5,
+                fontweight="bold")
+    ax.set_xlim(-0.5, 3.25)
+    ax.set_ylim(*ylim)
+    ax.set_ylabel(ylab)
+    ps.clean_axes(ax)
+    ps.panel_letter(ax, "AB"[k])
+
+fig.subplots_adjust(wspace=0.42, bottom=0.22)
+ps.save(fig, f"{CA}/figpub1_partition")

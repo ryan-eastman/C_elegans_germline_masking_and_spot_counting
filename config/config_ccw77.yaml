@@ -62,10 +62,13 @@ coloc:
   enabled: true
   sc_operand: both
   region: perinuclear_shell    # perinuclear_shell | nuclear | germline_bbox
-  region_dilation_um: 1.0      # cytoplasmic shell thickness (also lamin-shell band width)
-  use_lamin_shell: true        # anchor the shell to the real lamin (640) envelope, not a DAPI dilation.
-                               #   HEADLINE metric = SYP<->PGL-1 voxel coloc in this shell (SC ribbon
-                               #   excluded) -> shell_pearson / shell_manders_* (separates male>herm).
+  region_dilation_um: 1.2      # cytoplasmic shell thickness (perinuclear band width outside the nucleus)
+  use_lamin_shell: false       # 2026-07-14: switched OFF. The lamin (640) channel is UNRELIABLE here
+                               #   (hazy in long-exposure gonads, thick/merging in HS), so thresholding it
+                               #   gave garbage shells. The DAPI/Cellpose nuclei ARE good and their edge sits
+                               #   on the lamin envelope (verified fig36/38), so the perinuclear shell =
+                               #   DAPI-nucleus dilation is cleaner AND more robust. Set true only if a run
+                               #   has a clean lamin channel and you want to anchor to the real envelope.
   object_overlap_min_frac: 0.0
   n_random: 100
   costes: false

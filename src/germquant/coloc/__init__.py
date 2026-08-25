@@ -1,3 +1,3 @@
-from .metrics import colocalize, shell_voxel_coloc
+from .metrics import colocalize, partition_coefficient, shell_voxel_coloc
 
-__all__ = ["colocalize", "shell_voxel_coloc"]
+__all__ = ["colocalize", "partition_coefficient", "shell_voxel_coloc"]

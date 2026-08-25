@@ -6,6 +6,18 @@ count spots (SpotMAX) -> tidy tables. Each stage is wrapped so one failure degra
 """
 from __future__ import annotations
 
+# --- cuBLAS load-order guard (Windows / RTX 5090) --------------------------------------------
+# torch (ships cuBLAS 12.8) and CuPy (pulls cuBLAS 12.9 via the nvidia-*-cu12 wheels) each carry
+# their own cublas64_12.dll. Whichever is imported first claims that DLL name for the whole
+# process. If CuPy wins, torch's bf16/fp32 *batched* GEMMs fail on Blackwell (sm_120) with
+# CUBLAS_STATUS_INVALID_VALUE, and segment_nuclei silently drops from Cellpose-SAM to the
+# classical watershed fallback (different, worse masks). Importing torch HERE — before any
+# SpotMAX/CuPy import happens during a run — makes torch's cuBLAS load first and win.
+try:
+    import torch  # noqa: F401  (imported for side effect: claim cublas64_12.dll before CuPy)
+except Exception:  # CPU-only / torch-not-installed smoke test: watershed fallback still runs
+    pass
+
 import json
 import logging
 import os
@@ -334,7 +346,7 @@ def _run_coloc(stack, labels, role_to_idx, nuclei, spacing, cfg):
     """Surface PGL-1 granules + both SYP operands, then colocalize each vs the granules within the
     perinuclear region. Returns (granules_df, coloc_df, masks, granule_labels, per_nucleus_granules_df).
     """
-    from .coloc import colocalize, shell_voxel_coloc
+    from .coloc import colocalize, partition_coefficient, shell_voxel_coloc
     from .granule import segment_granules
     from .sc import surface_sc_ribbon
 
@@ -405,11 +417,17 @@ def _run_coloc(stack, labels, role_to_idx, nuclei, spacing, cfg):
     # HEADLINE: threshold-light SYP<->PGL-1 voxel coloc in the (lamin-defined) cytoplasmic shell,
     # excluding the intranuclear SC ribbon. Robust where the object-overlap metric is not.
     sv = shell_voxel_coloc(syp, pgl, shell, spacing)
+    # HEADLINE 2: partition coefficient — SYP-3 enrichment INSIDE the PGL-1 p-granules vs the shell
+    # cytoplasm. Exposure-INDEPENDENT (a ratio) + blur-robust (rotation null), so it holds where the
+    # shell voxel Pearson is confounded by the dim-mCherry SYP background / variable exposure.
+    pc = partition_coefficient(syp, granule_mask, shell, spacing)
     coloc_rows.append({
         "sc_operand": "shell_voxel", "region": shell_region_name, "region_dilation_um": dilation_um,
         "region_voxels": sv["shell_voxels"], "region_volume_um3": sv["shell_volume_um3"],
         "pearson_r": sv["shell_pearson"], "manders_m1": sv["shell_manders_m1"],
         "manders_m2": sv["shell_manders_m2"],
+        "partition_coef": pc["partition_coef"], "partition_coef_rot": pc["partition_coef_rot"],
+        "pc_gran_voxels": pc["pc_gran_voxels"],
     })
 
     coloc_df = pd.DataFrame(coloc_rows, columns=list(schema.COLOC))
@@ -502,6 +520,9 @@ def _coloc_summary(coloc_df, granules):
         "shell_pearson": _get("shell_voxel", "pearson_r"),
         "shell_manders_m1": _get("shell_voxel", "manders_m1"),
         "shell_manders_m2": _get("shell_voxel", "manders_m2"),
+        # HEADLINE: SYP-3 partition coefficient in the p-granules (exposure-independent, blur-robust)
+        "partition_coef": _get("shell_voxel", "partition_coef"),
+        "partition_coef_rot": _get("shell_voxel", "partition_coef_rot"),
         # secondary object metrics (threshold-fragile — see docs)
         "manders_m1_syp_aggregate": _get("syp_aggregate", "manders_m1"),
         "manders_m2_syp_aggregate": _get("syp_aggregate", "manders_m2"),

@@ -57,6 +57,7 @@ COLOC = [
     "sc_mask_voxels", "granule_mask_voxels",
     "n_random", "overlap_pvalue", "overlap_zscore",
     "costes_threshold_syp", "costes_threshold_pgl",
+    "partition_coef", "partition_coef_rot", "pc_gran_voxels",   # condensate PC (exposure-independent)
 ]
 
 # one row per image (QC summary). The coloc HEADLINE is the shell voxel coloc (SYP<->PGL-1 in the
@@ -67,6 +68,7 @@ IMAGE_SUMMARY = [
     "total_germline_length_um", "qc_pass", "qc_flags",
     "n_granules",
     "shell_pearson", "shell_manders_m1", "shell_manders_m2",
+    "partition_coef", "partition_coef_rot",   # HEADLINE: SYP-3 enrichment in p-granules (exposure-independent)
     "manders_m1_syp_aggregate", "manders_m2_syp_aggregate",
     "frac_granules_overlapping_syp_aggregate", "overlap_pvalue_syp_aggregate",
     "frac_granules_overlapping_sc_ribbon",

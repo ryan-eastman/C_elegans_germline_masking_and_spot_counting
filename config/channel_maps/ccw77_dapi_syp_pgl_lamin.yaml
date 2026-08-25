@@ -1,5 +1,9 @@
-# Channel map for Hallie Febvre's ccw77 IF: DAPI / SYP-3 / PGL-1 / lamin (4-colour immunofluorescence).
-# Colours reported by the microscopist: SYP = green, PGL-1 = red, lamin = purple (far-red), DAPI = blue.
+# Channel map for Hallie Febvre's ccw77 IF: DAPI / PGL-1 / SYP-3 / lamin (4-colour immunofluorescence).
+# CONFIRMED CHANNEL IDENTITY (2026-07-14, by morphology vs Madeleine's SYP + the sibling filenames
+# "488pgl1_555syp3"): 477(488,green)=PGL-1, 545(555,red)=SYP-3, 640=lamin. NOTE: the wavelength->marker
+# map is EXPERIMENT-SPECIFIC (in N2 SYP/HTP experiments 488=SYP-1) — always confirm per experiment by
+# morphology (SYP = intranuclear SC tracks; PGL-1 = perinuclear puncta). The original map had SYP/PGL
+# SWAPPED; this is the corrected version.
 # There is NO RAD-51 channel in this panel, so the `foci`/SpotMAX spot stage simply doesn't run
 # (it gates on the `foci` role being present). Instead the 4th channel is `lamin` = the nuclear
 # envelope, which the coloc stage can use to define the true perinuclear region.
@@ -15,14 +19,14 @@ roles:
     index: 0
     required: true
     marker: DAPI
-  central_element:          # SYP-3 (green, 477) -> germline isolation + the SC operand for coloc
-    names: ["477", "488", "525", "GFP", "AF488", "Alexa 488", "SYP-3", "SYP3", "SYP"]
-    index: 1
+  central_element:          # SYP-3 (RED, 545/555) -> germline isolation + the SC operand for coloc
+    names: ["545", "555", "561", "568", "594", "TRITC", "AF568", "SYP-3", "SYP3", "SYP-1", "SYP1", "SYP"]
+    index: 2
     required: true
     marker: SYP-3
-  granule:                  # PGL-1 (red, 545) -> p-granule surfacing + SYP<->PGL-1 colocalization
-    names: ["545", "555", "561", "568", "594", "TRITC", "RFP", "AF568", "PGL-1", "PGL1"]
-    index: 2
+  granule:                  # PGL-1 (GREEN, 477/488) -> p-granule surfacing + SYP<->PGL-1 colocalization
+    names: ["477", "488", "525", "GFP", "AF488", "Alexa 488", "PGL-1", "PGL1"]
+    index: 1
     required: false
     marker: PGL-1
   lamin:                    # lamin / LMN-1 (purple/far-red, 640) -> nuclear envelope; defines the true

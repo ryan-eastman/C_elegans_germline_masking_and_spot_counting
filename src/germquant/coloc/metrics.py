@@ -127,6 +127,30 @@ def shell_voxel_coloc(syp_img, pgl_img, shell_mask, spacing) -> dict:
     }
 
 
+def partition_coefficient(prot_img, granule_mask, cyto_mask, spacing) -> dict:
+    """Enrichment of `prot_img` (e.g. SYP-3) INSIDE the p-granules vs the surrounding cytoplasm — the
+    condensate "partition coefficient". PC = (mean_in - bg)/(mean_out - bg): a RATIO, so it is
+    EXPOSURE-INDEPENDENT, and background-robust (PC~1 when there is no enrichment). A rotation null
+    (granule mask rotated 180deg within the cytoplasm -> same size + distance-from-nucleus, different
+    location) subtracts distance-dependent OUT-OF-FOCUS BLUR: real enrichment gives PC > PC_rot. This is
+    the defensible coloc readout when one channel (dim mCherry-SYP) is background-heavy and exposure
+    varies across gonads — where the perinuclear-shell voxel Pearson/Manders are confounded. `granule_mask`
+    is the p-granules segmented from the CLEAN PGL channel; `cyto_mask` is the perinuclear cytoplasm."""
+    prot = np.asarray(prot_img, dtype=np.float64)
+    cyto = np.asarray(cyto_mask, dtype=bool)
+    gran = np.asarray(granule_mask, dtype=bool) & cyto
+    outside = cyto & ~gran
+    nan = float("nan")
+    if int(gran.sum()) < 50 or int(outside.sum()) < 200:
+        return {"partition_coef": nan, "partition_coef_rot": nan, "pc_gran_voxels": int(gran.sum())}
+    bg = float(np.percentile(prot, 3))          # camera/background floor from the whole image
+    denom = float(prot[outside].mean()) - bg
+    pc = (float(prot[gran].mean()) - bg) / denom if denom > 0 else nan
+    granr = np.rot90(gran, 2, axes=(1, 2)) & cyto
+    pcr = (float(prot[granr].mean()) - bg) / denom if int(granr.sum()) > 50 and denom > 0 else nan
+    return {"partition_coef": pc, "partition_coef_rot": pcr, "pc_gran_voxels": int(gran.sum())}
+
+
 def _manders(intensity: np.ndarray, other_mask: np.ndarray, region: np.ndarray) -> float:
     """Fraction of `intensity` (within `region`) that falls inside `other_mask`. Non-negative
     intensities assumed (fluorescence); a zero floor guards a rare negative background."""

@@ -1,0 +1,6 @@
+{
+ "note": "Gonads excluded from the partition-coefficient analysis after the 2026-08-22 per-gonad visual audit (fused somatic/carcass nuclei, spermatid fields, or a second germline limb inside the germline mask). Single source of truth: figures, review grid and robustness checks all read this file.",
+ "excluded_short_ids": ["HS_herm_14", "HS_herm_16", "HS_male_07", "HS_male_11", "HS_male_13", "HS_male_15",
+                        "noHS_herm_01", "noHS_herm_02", "noHS_male_05"],
+ "excluded_batch": "20260622"
+}
