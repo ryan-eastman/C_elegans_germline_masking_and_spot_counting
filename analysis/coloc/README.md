@@ -56,8 +56,8 @@ non-germline object inside the whole-gonad nucleus set:
   germline in 9 of 13 gonads; a lamin test cannot separate these, and the territory filter only removes
   blocks physically disconnected from the tube (3 males).
 
-The stage-resolved results (hand-traced zones) are unaffected: 4 no-envelope objects received a zone
-across all 13 gonads. The whole-gonad tables are the exposed ones. Sensitivity (male, noHS n = 4 v HS
+The stage-resolved results (hand-traced zones) are unaffected: 1 no-envelope object received a zone
+across all 13 gonads (4 with the pre-retrace traces). The whole-gonad tables are the exposed ones. Sensitivity (male, noHS n = 4 v HS
 n = 5, granule-specific PC): all labels 1.158 v 1.333 (P = 0.032); no-envelope removed 1.152 v 1.336
 (P = 0.032); plus off-trace territories removed 1.141 v 1.337 (P = 0.032); pooled hand-traced pachytene
 region 1.088 v 1.300 (P = 0.016). Hermaphrodites (n = 2 v 2) move by +0.18 to +0.22 in every version
