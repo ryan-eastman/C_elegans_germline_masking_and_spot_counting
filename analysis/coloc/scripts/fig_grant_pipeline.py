@@ -52,8 +52,12 @@ def text(x, y, s, size=T_CAP, weight="normal", anchor="start", fill="#111", styl
 
 
 def lines(x, y, rows, size=T_CAP, dy=None, anchor="start", fill="#222"):
+    """One <text> object per caption block, one <tspan> per line (the form Illustrator itself exports
+    multi-line point text in), so the block imports as ONE editable text object, never one per line."""
     dy = dy or size * 1.28
-    return "\n".join(text(x, y + i * dy, r, size, anchor=anchor, fill=fill) for i, r in enumerate(rows))
+    spans = "".join(f'<tspan x="0" y="{i * dy:.2f}">{r}</tspan>' for i, r in enumerate(rows))
+    return (f'<text transform="matrix(1 0 0 1 {x:.2f} {y:.2f})" font-family="{FONT}" font-size="{size}" '
+            f'text-anchor="{anchor}" fill="{fill}">{spans}</text>')
 
 
 def chevron(x, y, w=5.0, h=5.0, fill=ARROW, gid=""):
@@ -88,8 +92,8 @@ P('</g>')
 # ---- steps ----------------------------------------------------------------------------------------
 mm_per_um = IMG / 24.0
 steps = [
-    ("step1_input", "1  Confocal z-stack", "merge_24um.png",
-     ["DAPI, PGL-1::GFP, SYP-3::mCherry,", "LMN-1; spinning disk, 0.2 µm z-steps", "ccw77 male and hermaphrodite,", "no HS vs heat shock"]),
+    ("step1_input", "1  Confocal z-stack", "stack_slices.png",
+     ["single planes, 0.2 µm z-steps", "DAPI, PGL-1::GFP,", "SYP-3::mCherry, LMN-1", "ccw77 male and hermaphrodite,", "no HS vs heat shock"]),
     ("step2_nuclei", "2  Nuclear masks", "lamin_masks_24um.png",
      ["Cellpose on DAPI, then watershed", "to the LMN-1 envelope (red)", "nuclear interior excluded", "from all measurements"]),
     ("step3_staging", "3  Pachytene staging", "gonad_zones.png",
@@ -104,17 +108,16 @@ for i, (gid, title, png, cap) in enumerate(steps):
     if png == "gonad_zones.png":
         im, w, h = image(png, x, Y_IMG, IMG, gid + "_img", max_w=BOXW)
         P(im)
-        # zone legend swatches under the image
-        lx = x
+        P(lines(x, Y_CAP, cap))                          # one text block, then the zone legend under it
+        ly = Y_CAP + T_CAP * 1.28 * (len(cap) - 1) + 1.6
         for k, (zn, col) in enumerate(ZONE.items()):
-            P(f'<rect x="{lx + k * 9.6:.2f}" y="{Y_CAP + 3.6:.2f}" width="2" height="2" fill="{col}"/>')
-            P(text(lx + k * 9.6 + 2.6, Y_CAP + 5.35, zn, T_SMALL))
-        P(lines(x, Y_CAP, cap[:2]))
-        P(text(x, Y_CAP + 8.4, cap[2]))
+            P(f'<rect x="{x + k * 9.6:.2f}" y="{ly:.2f}" width="2" height="2" fill="{col}"/>')
+            P(text(x + k * 9.6 + 2.6, ly + 1.75, zn, T_SMALL))
     else:
         im, w, h = image(png, x, Y_IMG, IMG, gid + "_img")
         P(im)
-        P(scalebar(x + 1.2, Y_IMG + IMG - 1.4, 5, mm_per_um))
+        if png != "stack_slices.png":                      # the stack is a schematic of offset planes: no bar
+            P(scalebar(x + 1.2, Y_IMG + IMG - 1.4, 5, mm_per_um))
         P(lines(x, Y_CAP, cap))
     P('</g>')
     P(chevron(x + BOXW + 0.4, Y_IMG + IMG / 2, w=GAP - 0.8, gid=f"arrow_{i + 1}"))
@@ -140,10 +143,9 @@ for ang, rr in [(45, 6.6), (110, 7.9), (170, 6.9), (225, 8.0), (275, 6.5), (330,
 P(text(x + 0.6, Y_IMG + IMG - 0.9, "2.5 µm shell, 0.25 µm bins", T_SMALL, fill="#19D3E6"))
 # formula and controls
 P(text(x, Y_CAP, "PC =", T_CAP, "bold"))
-P(text(x + 5.2, Y_CAP - 1.05, "granule SYP-3 - bkg", 1.6))
+P(lines(x + 5.2, Y_CAP - 1.05, ["granule SYP-3 - bkg", "matched cytoplasm SYP-3 - bkg"], 1.6, dy=2.4, fill="#111"))
 P(f'<line x1="{x + 5.2:.2f}" y1="{Y_CAP - 0.35:.2f}" x2="{x + 27.5:.2f}" y2="{Y_CAP - 0.35:.2f}" stroke="#111" stroke-width="0.2"/>')
-P(text(x + 5.2, Y_CAP + 1.35, "matched cytoplasm SYP-3 - bkg", 1.6))
-P(lines(x, Y_CAP + 4.2, ["yellow: granule; open: cytoplasm at", "the same distance from the envelope", "controls: rotation null, z-shift floor", "output: PC per gonad and per zone"]))
+P(lines(x, Y_CAP + 4.2, ["yellow: granule; open: cytoplasm", "at the same envelope distance", "controls: rotation null, z-shift floor", "output: PC per gonad and per zone"]))
 P('</g>')
 
 # ---- spares (outside the artboard) ------------------------------------------------------------------
@@ -214,9 +216,8 @@ P('</g>')
 # formula spare (large)
 P('<g id="spare_formula">')
 P(text(2, 112, "PC =", 3.0, "bold"))
-P(text(9.5, 110.4, "SYP-3 in granule - background", T_CAP))
+P(lines(9.5, 110.4, ["SYP-3 in granule - background", "SYP-3 in cytoplasm at the same distance from the envelope - background"], T_CAP, dy=3.8, fill="#111"))
 P('<line x1="9.5" y1="111.3" x2="60" y2="111.3" stroke="#111" stroke-width="0.25"/>')
-P(text(9.5, 114.2, "SYP-3 in cytoplasm at the same distance from the envelope - background", T_CAP))
 P(text(2, 119, "granule-specific enrichment = PC / PC of the same masks shifted 1.2 µm in z (no granule under the mask)", T_SMALL))
 P('</g>')
 P('</g>')   # spares
