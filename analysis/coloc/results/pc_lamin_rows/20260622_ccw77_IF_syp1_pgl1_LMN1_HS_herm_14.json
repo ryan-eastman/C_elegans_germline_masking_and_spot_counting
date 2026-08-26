@@ -1,0 +1,23 @@
+{
+ "image_id": "20260622_ccw77_IF_syp1_pgl1_LMN1_HS_herm_14",
+ "sex": "herm",
+ "treat": "HS",
+ "batch": "20260622",
+ "n_nuclei": 809,
+ "lamin_fallback_n": 12,
+ "lam_vol_ratio": 1.087,
+ "lamin": {
+  "n_gran": 3481,
+  "PC_dm": 1.1393,
+  "rot": 0.9418,
+  "zsh": 0.9702,
+  "PC_specific": 1.1743
+ },
+ "dapi": {
+  "n_gran": 3611,
+  "PC_dm": 1.1501,
+  "rot": 0.9186,
+  "zsh": 0.9822,
+  "PC_specific": 1.1709
+ }
+}

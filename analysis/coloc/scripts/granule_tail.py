@@ -5,7 +5,7 @@ The eye counts granules that are much brighter than their local surroundings. Pe
              envelope, 0.25 um bins)         ... removes the distance-dependent nuclear blur
     excess_n = excess / (nuclear SYP - bg)   ... in units of the nuclear level, exposure-free
 Per gonad we report the distribution: fraction of granules with excess_n > 0.25 and > 0.5, and the
-90th percentile of excess_n. Output: granule_tail_v3.csv (per gonad) + granule_tail_pergranule_v3.parquet
+90th percentile of excess_n. Output: granule_tail_v4.csv (per gonad) + granule_tail_pergranule_v4.parquet
 (per granule, with distance to the envelope and PGL brightness for the radius and bleed-through checks).
 v4 (2026-08-24): labels with no lamin envelope (sperm / debris, nucleus_filter.no_ring_ids) are dropped from
 the envelope set before the shell is built; v3 files are kept for the record."""

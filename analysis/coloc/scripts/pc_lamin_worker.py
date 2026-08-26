@@ -9,7 +9,7 @@ distance-matched PC are all anchored to the lamin surface instead of the chromat
 Per-nucleus safety gate: a lamin region must be 1.0-3.0x its DAPI volume, else that nucleus falls back
 to its DAPI mask (count reported). Outputs one JSON row to coloc_analysis/pc_lamin_rows/<iid>.json with
 BOTH metrics (lamin-masked and DAPI-masked) + rotation/z-shift controls for each.
-QC: for the calibration gonad (HS_male_008) also writes a mask-boundary overlay PNG."""
+QC: use scripts/qc_mask_audit.py (all-depth overlay + per-label envelope test) on any gonad."""
 import glob
 import json
 import os
@@ -36,7 +36,6 @@ DZ = 6
 DBINS = np.arange(0.0, CYTO_UM + 1e-6, 0.25)
 PAD = 30
 OUTDIR = r"C:/Users/ryane/coloc_analysis/pc_lamin_rows"
-QC_IID = "20260708_ccw77_IF_pgl1_syp3_lmn1_HS_male_008"
 os.makedirs(OUTDIR, exist_ok=True)
 
 
@@ -149,23 +148,6 @@ def main(iid):
     with open(os.path.join(OUTDIR, iid + ".json"), "w") as f:
         json.dump(res, f, indent=1)
     print(json.dumps(res))
-    if iid == QC_IID:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        z = nuc_lam.shape[0] // 2
-        lam_n = np.clip((lamin[z] - np.percentile(lamin[z], 40)) /
-                        (np.percentile(lamin[z], 99.5) - np.percentile(lamin[z], 40) + 1e-9), 0, 1)
-        rgb = np.stack([lam_n, lam_n, lam_n], -1)
-        for mask, chan in [(nuc_dapi[z], 2), (nuc_lam[z], 0)]:  # DAPI edge blue, lamin edge red
-            edge = mask ^ ndi.binary_erosion(mask)
-            rgb[edge] = 0; rgb[edge, chan] = 1
-        plt.figure(figsize=(10, 10), facecolor="black")
-        plt.imshow(rgb); plt.axis("off")
-        plt.title("lamin channel (gray) + mask edges: DAPI blue, lamin-watershed red", color="w", fontsize=11)
-        plt.tight_layout()
-        plt.savefig(r"C:/Users/ryane/coloc_analysis/qc_lamin_mask_male008.png", dpi=150, facecolor="black")
-        print("QC overlay written")
 
 
 if __name__ == "__main__":

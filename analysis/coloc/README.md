@@ -13,27 +13,30 @@ shock, built on top of the germquant pipeline outputs (Cellpose nuclei + germlin
 | `scripts/trace_pachytene.py` | pop-up tool to draw the pachytene region per gonad (scroll = z-planes, m = max projection); writes `staging/zones` |
 | `scripts/rezone_all.py` | re-derive zones from saved traces after any change to the zoning rule |
 | `scripts/pc_zone_worker.py` | early / mid / late pachytene partition coefficients from the traced zones |
-| `scripts/granule_tail.py`, `scripts/tail_by_distance.py` | per-granule SYP-3 excess: fraction of granules that "light up", by distance from the envelope, with GFP bleed-through calibration |
+| `scripts/granule_tail.py`, `scripts/tail_by_distance.py` | per-granule SYP-3 excess: fraction of granules that "light up", by distance from the envelope, with GFP bleed-through calibration (v4 drops no-envelope labels first) |
 | `scripts/amount_metrics.py`, `denominator_check.py`, `exposure_sim.py` | method robustness: absolute-amount metrics, cytoplasm-denominator and background variants, synthetic re-exposure |
 | `scripts/pubstyle.py`, `scripts/fig_pub_*.py` | publication figures (Arial, 180 mm, Okabe-Ito, PDF + 600 dpi PNG) |
 | `scripts/qc_mask_audit.py`, `qc_mask_zoom.py` | per-gonad nucleus-mask audit: all-depth overlay, lamin-only nucleus detection (missed rings), no-envelope test for every label; zoom with flagged ids |
 | `scripts/nucleus_filter.py`, `pc_filter_compare.py`, `build_filter_compare.py` | per-nucleus filters (no lamin envelope; outside the traced territory) and the three-way whole-gonad sensitivity table `results/pc_filter_compare.csv` (staged rows untouched) |
 | `scripts/fig_pub_pachytene_pooled.py`, `fig_pub_partition.py` | figure 1 (primary): partition coefficient within the pooled hand-traced pachytene region (`pach_*` columns of `pc_zone_all.csv`); figure 1S: the whole-gonad version (all `in_germline` labels, supplementary) |
 | `scripts/fig_grant_assets.py`, `fig_grant_pipeline.py` | grant pipeline figure: real crops + editable SVG (`figures/grant/pipeline_figure.svg`, 180 x 48 mm artboard, spare parts outside it) |
+| `scripts/build_pachytene_pooled.py` | `results/pc_pachytene_pooled.csv`: pooled pachytene PC per clean-13 gonad next to the whole-gonad lamin PC (read by `build_filter_compare.py`) |
+| `scripts/rerun_after_retrace.sh` | after re-tracing: rezone, zone worker on the clean 13, tables, figures 1 and 2, grant panel (log in `staging/`) |
+| `scripts/grant_granule_candidates.py` | contact sheet of candidate windows x planes for the grant figure's P-granule panel |
 | `scripts/make_staged_review.py` | builds the pre-commit review page from the staged diff |
-| `scripts/crescent_axis.py`, `axis_v2.py` | automated staging attempt (validated NOT accurate enough: ~5 rows error; superseded by hand tracing, kept for the record) |
-| `scripts/superseded/` | earlier figure/recovery scripts, no longer on the analysis path |
+| `scripts/crescent_axis.py` | shared data-location and crop-cache helpers (`find_run`, `find_nd2`, `load_crops`, `lamin_labels`) used by every worker; the rest of the file is the automated staging attempt, validated not accurate enough (~5 rows error) and superseded by hand tracing |
 | `results/` | per-gonad tables (acquisition metadata, PC tables, zone rows, robustness checks) |
 | `staging/` | hand traces (`pachytene_traces.json`), per-nucleus zones, human-verified landmarks |
-| `figures/` | publication figures (`figpub1` pooled pachytene, `figpub1S` whole gonad, `figpub2..6`), the grant pipeline figure (`grant/`) and QC images |
+| `figures/` | publication figures (`figpub1` pooled pachytene, `figpub1S` whole gonad, `figpub2..6`), the grant pipeline figure (`grant/`), and the segmentation-validation and robustness figures (`fig71`, `fig72`) |
 
 ## Key results (clean 13 gonads, lamin masking)
 
 * Heat shock raises the granule-specific SYP-3 partition coefficient in males (pooled hand-traced
-  pachytene region 1.085 v 1.311, P = 0.016, figure 1; early pachytene P = 0.016, figure 2; whole gonad
+  pachytene region 1.088 v 1.300, P = 0.016, figure 1; early and mid pachytene P = 0.016, late P = 0.19, figure 2; whole gonad
   P = 0.032, figure 1S); hermaphrodites are underpowered (n = 2 v 2, floor P = 0.333), not null.
 * The metric that matches the images is the fraction of P granules holding SYP-3 above half the nuclear
-  level: ~25% in HS males, ~8% in unshocked males, <1% in unshocked hermaphrodites.
+  level (no-envelope objects removed, `granule_tail_v4.csv`): 22% in HS males, 6% in unshocked males
+  (P = 0.032), 14% v 1% in hermaphrodites (n = 2 v 2).
 * Imaging session is the dominant covariate (the 8-Jul session amplified the HS response in both sexes);
   exposure, background choice, cytoplasm-denominator choice and GFP bleed-through were each tested and
   ruled out as drivers.
@@ -53,16 +56,30 @@ non-germline object inside the whole-gonad nucleus set:
   germline in 9 of 13 gonads; a lamin test cannot separate these, and the territory filter only removes
   blocks physically disconnected from the tube (3 males).
 
-The stage-resolved results (hand-traced zones) are unaffected: 4 no-envelope objects received a zone
-across all 13 gonads. The whole-gonad tables are the exposed ones. Sensitivity (male, noHS n = 4 v HS
+The stage-resolved results (hand-traced zones) are unaffected: 1 no-envelope object received a zone
+across all 13 gonads (4 with the pre-retrace traces). The whole-gonad tables are the exposed ones. Sensitivity (male, noHS n = 4 v HS
 n = 5, granule-specific PC): all labels 1.158 v 1.333 (P = 0.032); no-envelope removed 1.152 v 1.336
 (P = 0.032); plus off-trace territories removed 1.141 v 1.337 (P = 0.032); pooled hand-traced pachytene
-region 1.085 v 1.311 (P = 0.016). Hermaphrodites (n = 2 v 2) move by +0.18 to +0.22 in every version
+region 1.088 v 1.300 (P = 0.016). Hermaphrodites (n = 2 v 2) move by +0.18 to +0.22 in every version
 (P floor 0.333). The pooled pachytene region (`pach_*` columns) is therefore figure 1, and the whole-gonad version is
 figure 1S. Figures 3 to 5 (imaging-session covariate) stay on the whole-gonad values because they
-also show the untraced, excluded gonads for context. The per-granule lit-fraction table
-(`granule_tail_v3.csv`, figure 6) uses the unfiltered label set; a no-envelope-filtered rerun
-(`granule_tail_v4.csv`) follows in a separate commit.
+also show the untraced, excluded gonads for context. The per-granule lit-fraction table and figure 6 now use
+the no-envelope-filtered envelope set (`granule_tail_v4.csv`; unfiltered it was male noHS 8.2% v HS
+24.7%, filtered 5.8% v 21.9%, P = 0.032 both).
+
+## Re-tracing (2026-08-25)
+
+All 22 ccw77 gonads were re-traced by hand on 2026-08-25 (the first pass had staged several of them
+wrongly). The new polylines are in `staging/pachytene_traces.json` and the zone assignments in
+`staging/zones/`; the zone worker was rerun on the clean 13 (`scripts/rerun_after_retrace.sh`) and
+tables and figures 1 and 2 were rebuilt from the result. Most pachytene regions got shorter (for
+example HS_male_010 109 to 56 um, HS_male_008 172 to 125 um) and the early / mid / late thirds moved
+with them, so the stage-resolved values in `pc_zone_all.csv` differ from the pre-retrace ones in every
+gonad. The pooled pachytene result was stable (male granule-specific PC 1.085 v 1.311 before, 1.088 v
+1.300 after, P = 0.016 both); the stage figure lost its mid-pachytene gap (mid P = 0.016 after, late
+P = 0.19). The pre-retrace traces, zones and zone rows are kept locally (not in the repo) as
+`staging/pachytene_traces_v1_20260823.json`, `staging/zones_v1_20260823/` and
+`pc_zone_rows_v3_pre_retrace/`.
 
 ## Caveats
 

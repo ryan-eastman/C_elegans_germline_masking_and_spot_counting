@@ -16,7 +16,7 @@ ps.apply()
 import matplotlib.pyplot as plt
 
 CA = r"C:/Users/ryane/coloc_analysis"
-d = pd.read_csv(f"{CA}/granule_tail_v3.csv")   # v3 = current per-granule pass (adds distance + PGL columns)
+d = pd.read_csv(f"{CA}/granule_tail_v4.csv")   # v4 = per-granule pass with no-envelope labels removed (adds distance + PGL columns)
 POS = {("male", "noHS"): 0.0, ("male", "HS"): 0.75, ("herm", "noHS"): 2.0, ("herm", "HS"): 2.75}
 
 fig, axes = plt.subplots(1, 2, figsize=(7.09, 2.5))

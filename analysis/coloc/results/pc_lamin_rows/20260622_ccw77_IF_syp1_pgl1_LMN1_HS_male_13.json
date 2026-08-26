@@ -1,0 +1,23 @@
+{
+ "image_id": "20260622_ccw77_IF_syp1_pgl1_LMN1_HS_male_13",
+ "sex": "male",
+ "treat": "HS",
+ "batch": "20260622",
+ "n_nuclei": 661,
+ "lamin_fallback_n": 4,
+ "lam_vol_ratio": 1.04,
+ "lamin": {
+  "n_gran": 4590,
+  "PC_dm": 1.5625,
+  "rot": 1.1987,
+  "zsh": 1.2738,
+  "PC_specific": 1.2266
+ },
+ "dapi": {
+  "n_gran": 4573,
+  "PC_dm": 1.5529,
+  "rot": 1.213,
+  "zsh": 1.263,
+  "PC_specific": 1.2295
+ }
+}

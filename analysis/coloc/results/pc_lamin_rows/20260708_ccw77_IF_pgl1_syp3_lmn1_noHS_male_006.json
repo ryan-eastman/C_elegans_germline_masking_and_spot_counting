@@ -1,0 +1,23 @@
+{
+ "image_id": "20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_006",
+ "sex": "male",
+ "treat": "noHS",
+ "batch": "20260708",
+ "n_nuclei": 887,
+ "lamin_fallback_n": 43,
+ "lam_vol_ratio": 1.065,
+ "lamin": {
+  "n_gran": 2701,
+  "PC_dm": 1.4742,
+  "rot": 0.9082,
+  "zsh": 1.2753,
+  "PC_specific": 1.156
+ },
+ "dapi": {
+  "n_gran": 2703,
+  "PC_dm": 1.4872,
+  "rot": 0.9055,
+  "zsh": 1.2883,
+  "PC_specific": 1.1544
+ }
+}

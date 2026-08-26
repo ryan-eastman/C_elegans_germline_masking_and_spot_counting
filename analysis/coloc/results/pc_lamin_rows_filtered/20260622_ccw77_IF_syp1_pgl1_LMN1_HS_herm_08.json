@@ -1,0 +1,37 @@
+{
+ "image_id": "20260622_ccw77_IF_syp1_pgl1_LMN1_HS_herm_08",
+ "sex": "herm",
+ "treat": "HS",
+ "batch": "20260622",
+ "n_all": 808,
+ "n_no_ring": 7,
+ "n_ring": 801,
+ "n_territories": 1,
+ "n_ring_terr": 801,
+ "territory_note": "",
+ "ring_thr": 171.4,
+ "all": {
+  "n_gran": 4477,
+  "PC_dm": 1.4453,
+  "rot": 0.9267,
+  "zsh": 1.168,
+  "PC_specific": 1.2374
+ },
+ "all_fallback_n": 16,
+ "ring": {
+  "n_gran": 4489,
+  "PC_dm": 1.4533,
+  "rot": 0.9238,
+  "zsh": 1.1756,
+  "PC_specific": 1.2362
+ },
+ "ring_fallback_n": 15,
+ "ring_terr": {
+  "n_gran": 4489,
+  "PC_dm": 1.4533,
+  "rot": 0.9238,
+  "zsh": 1.1756,
+  "PC_specific": 1.2362
+ },
+ "ring_terr_fallback_n": 15
+}

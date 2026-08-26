@@ -1,0 +1,37 @@
+{
+ "image_id": "20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_002",
+ "sex": "male",
+ "treat": "noHS",
+ "batch": "20260708",
+ "n_all": 560,
+ "n_no_ring": 96,
+ "n_ring": 464,
+ "n_territories": 4,
+ "n_ring_terr": 436,
+ "territory_note": "",
+ "ring_thr": 142.0,
+ "all": {
+  "n_gran": 3852,
+  "PC_dm": 1.2953,
+  "rot": 0.7198,
+  "zsh": 1.166,
+  "PC_specific": 1.1109
+ },
+ "all_fallback_n": 78,
+ "ring": {
+  "n_gran": 3733,
+  "PC_dm": 1.2378,
+  "rot": 0.8094,
+  "zsh": 1.1073,
+  "PC_specific": 1.1179
+ },
+ "ring_fallback_n": 2,
+ "ring_terr": {
+  "n_gran": 3681,
+  "PC_dm": 1.2022,
+  "rot": 0.8555,
+  "zsh": 1.0745,
+  "PC_specific": 1.1188
+ },
+ "ring_terr_fallback_n": 1
+}

@@ -1,0 +1,14 @@
+iid,short,n_labels,n_territories_ge10,sizes
+20260622_ccw77_IF_syp1_pgl1_LMN1_HS_herm_08,HS_herm_08,808,1,808
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_herm_011,HS_herm_011,527,1,527
+20260622_ccw77_IF_syp1_pgl1_LMN1_noHS_herm_03,noHS_herm_03,478,1,478
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_herm_004,noHS_herm_004,960,1,960
+20260622_ccw77_IF_syp1_pgl1_LMN1_HS_male_10,HS_male_10,522,1,522
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_male_008,HS_male_008,564,1,564
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_male_009,HS_male_009,785,2,"429, 355, 1"
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_male_010,HS_male_010,634,1,634
+20260708_ccw77_IF_pgl1_syp3_lmn1_HS_male_013,HS_male_013,291,1,291
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_001,noHS_male_001,424,1,424
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_002,noHS_male_002,560,1,560
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_003,noHS_male_003,903,2,"539, 361, 3"
+20260708_ccw77_IF_pgl1_syp3_lmn1_noHS_male_006,noHS_male_006,887,2,"672, 215"
