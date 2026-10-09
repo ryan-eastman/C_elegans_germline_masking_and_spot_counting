@@ -48,6 +48,7 @@ from .detect import _cap_candidates, _empty, _finish_tables, _merge_z_columns
 log = logging.getLogger(__name__)
 
 DETECTOR = "log"
+PRE_GATE_SIGMAS = 3.0   # candidate pre-gate: LoG response above this many robust SDs of the in-nucleus response
 
 # spots.log.* keys and their code defaults (None = derived from the diameter, see _resolve)
 LOG_DEFAULTS: dict = {
@@ -211,7 +212,13 @@ def _candidates(img, lab, sigma_vox, footprint, pad) -> pd.DataFrame:
             continue
         crop = np.asarray(img[win], dtype=np.float32)
         resp = -ndi.gaussian_laplace(crop, sigma=sigma_vox, mode="nearest")
-        peaks = (resp >= ndi.maximum_filter(resp, footprint=footprint, mode="nearest")) & (resp > 0) & inside
+        # pre-gate: a local maximum must clear a noise-scaled floor (PRE_GATE_SIGMAS robust standard
+        # deviations of the response inside the nucleus) before it can count as a candidate, so that on a
+        # noisy or empty nucleus the flood cap is never filled with noise maxima that crowd out real foci.
+        vals = resp[inside]
+        noise = 1.4826 * float(np.median(np.abs(vals - np.median(vals)))) if vals.size else 0.0
+        floor = PRE_GATE_SIGMAS * noise
+        peaks = (resp >= ndi.maximum_filter(resp, footprint=footprint, mode="nearest")) & (resp > floor) & inside
         idx = np.argwhere(peaks)
         if len(idx) == 0:
             continue

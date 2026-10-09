@@ -106,7 +106,8 @@ enough to matter. That rehearsal also found that `load_config` used to read the 
 channel-map files with the machine's locale codec, so the `config_hash` (and the golden sentinel)
 came out differently in UTF-8 mode, on Linux and on macOS than on the workstation (cp1252). The
 codec is now pinned to the workstation's (`fsutil.CONFIG_TEXT_ENCODING`), and the golden tests pass
-with and without `PYTHONUTF8=1`.
+with and without `PYTHONUTF8=1`. Outputs made before the pin on a Mac, on Linux or in UTF-8 mode carry the
+other hash for the same file (config.yaml: d20d4321faad instead of 84bdda5a5230); treat them as a different config version.
 
 What CI does and does not prove: it shows that a clean machine can install the pinned environment
 and that the numbers are reproduced exactly on it. The references were made on the workstation, so

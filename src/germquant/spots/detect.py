@@ -27,6 +27,11 @@ SPOTMAX_KEYS = (
     "spot_radius_um", "gauss_sigma_um", "thresholding_method", "effect_size_metric", "effect_size_min",
     "merge_z_columns", "z_merge_gap_um", "z_merge_valley_frac", "max_spot_candidates",
 )
+# the SpotMAX defaults detect_spots falls back to when neither the caller nor the config section names a value
+SPOTMAX_DEFAULTS = dict(
+    spot_radius_um=0.3, gauss_sigma_um=0.08, thresholding_method="threshold_otsu", effect_size_metric=_EFFECT,
+    effect_size_min=0.0, merge_z_columns=True, z_merge_gap_um=0.8, z_merge_valley_frac=0.8, max_spot_candidates=30000,
+)
 
 
 def detect_spots(
@@ -35,15 +40,15 @@ def detect_spots(
     spacing: tuple[float, float, float],
     *,
     marker: str = "RAD-51",
-    spot_radius_um: float = 0.3,
-    gauss_sigma_um: float = 0.08,
-    thresholding_method: str = "threshold_otsu",
-    effect_size_metric: str = _EFFECT,
-    effect_size_min: float = 0.0,
-    merge_z_columns: bool = True,
-    z_merge_gap_um: float = 0.8,
-    z_merge_valley_frac: float = 0.8,
-    max_spot_candidates: int = 30000,
+    spot_radius_um: float | None = None,
+    gauss_sigma_um: float | None = None,
+    thresholding_method: str | None = None,
+    effect_size_metric: str | None = None,
+    effect_size_min: float | None = None,
+    merge_z_columns: bool | None = None,
+    z_merge_gap_um: float | None = None,
+    z_merge_valley_frac: float | None = None,
+    max_spot_candidates: int | None = None,
     backend: str = DEFAULT_BACKEND,
     cfg_section: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -52,17 +57,24 @@ def detect_spots(
     these arguments (spots/backends.py lists the others; docs/BACKENDS.md documents them).
 
     The keyword arguments are the SpotMAX parameters. ``cfg_section`` is the raw ``spots:`` config
-    mapping; the backend receives a copy of it with these resolved parameters overlaid (the explicit
-    arguments win), so a backend finds its own keys (``log.diameter_um``) next to the shared ones
+    mapping; the backend receives a copy of it with these parameters resolved (an explicit argument wins,
+    then the section's own value, then the SpotMAX default), so a backend finds its own keys (``log.diameter_um``) next to the shared ones
     (``max_spot_candidates``). Both tables always have the columns PER_SPOT_COLS / PER_NUC_COLS and
     the ``detector`` column carries the backend name; an unknown name raises ValueError."""
+    # precedence: an explicit keyword (not None) wins; else the section's own value; else the SpotMAX default.
+    # A caller that passes the shared keys only in cfg_section is therefore not silently overridden.
     section = dict(cfg_section or {})
-    section.update(
+    explicit = dict(
         spot_radius_um=spot_radius_um, gauss_sigma_um=gauss_sigma_um, thresholding_method=thresholding_method,
         effect_size_metric=effect_size_metric, effect_size_min=effect_size_min, merge_z_columns=merge_z_columns,
         z_merge_gap_um=z_merge_gap_um, z_merge_valley_frac=z_merge_valley_frac,
         max_spot_candidates=max_spot_candidates,
     )
+    for key, default in SPOTMAX_DEFAULTS.items():
+        if explicit[key] is not None:
+            section[key] = explicit[key]
+        elif key not in section:
+            section[key] = default
     fn = get_backend(backend)
     return conform_result(backend, fn(spot_img, labels, spacing, cfg_section=section, marker=marker))
 

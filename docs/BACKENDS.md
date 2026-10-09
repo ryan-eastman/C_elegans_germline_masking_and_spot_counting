@@ -42,7 +42,7 @@ fallback.
 
 ### What the output says
 
-`segmentation_method` in every table carries the name of the backend that produced the labels
+`segmentation_method` in `<image_id>__image_summary.csv` (the only table that carries it) names the backend that produced the labels
 (`cellpose`, `classical`, or the plugin's name), or `classical` after a fallback; it still says
 `cellpose` for every validated run. The segment stage's sub-hash in `run_manifest.json` covers the
 whole `segmentation` section, so a run with a different backend or different backend keys gets a

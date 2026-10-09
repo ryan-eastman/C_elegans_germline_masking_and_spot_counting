@@ -116,8 +116,13 @@ def test_fake_backend_is_dispatched_and_named():
         assert (ps["detector"] == "fake_test").all() and (pn["detector"] == "fake_test").all()
         assert list(ps.columns) == PER_SPOT_COLS and list(pn.columns) == PER_NUC_COLS
         assert seen["marker"] == "COSA-1" and seen["shape"] == (4, 8, 8) and seen["spacing"] == SP
-        # the backend sees the raw section plus the RESOLVED SpotMAX parameters (explicit arguments win)
-        assert seen["section"]["spot_radius_um"] == 0.3 and seen["section"]["effect_size_min"] == 0.0
+        # the backend sees the raw section plus the RESOLVED SpotMAX parameters: a value the section names is
+        # kept when the caller passes none (9.9 here), a key neither names gets the SpotMAX default
+        assert seen["section"]["spot_radius_um"] == 9.9 and seen["section"]["effect_size_min"] == 0.0
+        # and an explicit keyword wins over the section
+        detect_spots(img, labels, SP, marker="COSA-1", backend="fake_test", spot_radius_um=0.25,
+                     cfg_section={"log": {"diameter_um": 0.4}, "custom": 1, "spot_radius_um": 9.9})
+        assert seen["section"]["spot_radius_um"] == 0.25
         assert seen["section"]["custom"] == 1 and seen["section"]["log"] == {"diameter_um": 0.4}
     finally:
         backends._REGISTRY.pop("fake_test", None)

@@ -12,6 +12,7 @@ picks it; the ``segmentation_method`` column reports the one that produced the l
 """
 from __future__ import annotations
 
+import copy
 import logging
 
 import numpy as np
@@ -50,7 +51,7 @@ def segment_nuclei(
         name = (str(backend).strip() if backend is not None else "") or DEFAULT_BACKEND
         run = get_backend(name)          # a misspelt backend is a config error: raise, never fall back
         what = "Cellpose" if name == DEFAULT_BACKEND else f"segmentation backend {name!r}"
-        section = dict(cfg_section or {})   # a copy, so a backend cannot alter the config it was given
+        section = copy.deepcopy(cfg_section) if cfg_section else {}   # a deep copy: a backend cannot alter the config it was given
         try:
             labels = run(dna, spacing, model=cellpose_model, diameter_um=diameter_um, device=device,
                          cfg_section=section)

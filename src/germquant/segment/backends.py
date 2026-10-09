@@ -76,6 +76,7 @@ def classical_backend(dna, spacing, *, model, diameter_um, device, cfg_section) 
 _BUILTINS: dict[str, Backend] = {"cellpose": cellpose_backend, "classical": classical_backend}
 _REGISTRY: dict[str, Backend] = dict(_BUILTINS)
 _SOURCES: dict[str, str] = {name: "built-in" for name in _BUILTINS}
+_FAILED: dict[str, str] = {}      # entry points that could not be loaded, name -> reason (for error messages)
 _STATE: dict[str, bool] = {"discovered": False}      # entry points are scanned once per process
 
 
@@ -171,9 +172,11 @@ def discover_entry_points(*, force: bool = False) -> dict[str, str]:
         except Exception as e:  # noqa: BLE001 - never fatal: logged, and that backend is unavailable
             log.warning("segmentation backend %r (%s) failed to load and is unavailable: %s: %s",
                         name, ep.value, type(e).__name__, e)
+            _FAILED[name] = f"{ep.value}: {type(e).__name__}: {e}"
             continue
         if not callable(fn):
             log.warning("segmentation backend %r (%s) is not callable and is unavailable", name, ep.value)
+            _FAILED[name] = f"{ep.value}: not callable"
             continue
         _REGISTRY[name] = fn
         _SOURCES[name] = origin
@@ -194,7 +197,11 @@ def _normalise(name) -> str:
 
 
 def _unknown_message(name) -> str:
-    return (f"unknown nucleus segmentation backend {name!r}; available: {', '.join(sorted(_REGISTRY))}. "
+    failed = ""
+    if _FAILED:
+        failed = (" Installed backends that failed to load: "
+                  + "; ".join(f"{k} ({v})" for k, v in sorted(_FAILED.items())) + ".")
+    return (f"unknown nucleus segmentation backend {name!r}; available: {', '.join(sorted(_REGISTRY))}.{failed} "
             f"Check the spelling of segmentation.nuclei.backend; a third-party backend must be installed "
             f"in this Python environment and declare an entry point in the group {ENTRY_POINT_GROUP!r} "
             f"(docs/BACKENDS.md).")

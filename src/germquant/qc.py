@@ -17,5 +17,5 @@ def qc_flags(*, n_nuclei: int, channel_flags: list[str], axis_flags: list[str],
     elif not spots_found:
         flags.append("qc:no_spots_detected")
 
-    hard_fail = any("MISSING_REQUIRED" in f or "NO_NUCLEI" in f for f in flags)
+    hard_fail = any("MISSING_REQUIRED" in f or "NO_NUCLEI" in f or "role_collision" in f for f in flags)
     return (not hard_fail), flags
