@@ -9,5 +9,17 @@
   {"tag": "s4_n2dryice_noHS_male_001", "nd2": "C:/Users/ryane/n2_dryice_local/20260625_N2_IF_dryice_pgl_syp3_lmn_noHS_male_001.nd2", "config": "config/config_n2dryice.yaml", "xy_stride": 4},
   {"tag": "s4_n2dryice_HS_herm_013", "nd2": "C:/Users/ryane/n2_dryice_local/20260625_N2_IF_dryice_pgl_syp3_lmn_HS_herm_013.nd2", "config": "config/config_n2dryice.yaml", "xy_stride": 4},
   {"tag": "s4_n2dryice_noHS_male_001_nocoloc", "nd2": "C:/Users/ryane/n2_dryice_local/20260625_N2_IF_dryice_pgl_syp3_lmn_noHS_male_001.nd2", "config": "config/config_n2dryice.yaml", "xy_stride": 4, "flags": ["--no-coloc"]},
-  {"tag": "s4_n2dryice_noHS_male_001_nospots", "nd2": "C:/Users/ryane/n2_dryice_local/20260625_N2_IF_dryice_pgl_syp3_lmn_noHS_male_001.nd2", "config": "config/config_n2dryice.yaml", "xy_stride": 4, "flags": ["--no-spots"]}
+  {"tag": "s4_n2dryice_noHS_male_001_nospots", "nd2": "C:/Users/ryane/n2_dryice_local/20260625_N2_IF_dryice_pgl_syp3_lmn_noHS_male_001.nd2", "config": "config/config_n2dryice.yaml", "xy_stride": 4, "flags": ["--no-spots"]},
+  {"tag": "n2rad51_noHS_herm_000", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_HERM _.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_noHS_herm_001", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_HERM _001.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_noHS_herm_002", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_HERM _002.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_noHS_male_000", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_MALE _.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_noHS_male_001", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_MALE _001.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_noHS_male_002", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_MALE _002.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_HS_herm_000", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_HERM _.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_HS_herm_001", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_HERM _001.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_HS_herm_002", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_HERM _002.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_HS_male_000", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_MALE _.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_HS_male_001", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_MALE _001.nd2", "config": "config/config.yaml", "xy_stride": 1},
+  {"tag": "n2rad51_HS_male_002", "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_MALE _002.nd2", "config": "config/config.yaml", "xy_stride": 1}
 ]
