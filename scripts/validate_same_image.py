@@ -71,7 +71,7 @@ if "n_spots" in germ.columns:
     print(f"  ours (all germline)    : mean={ns.mean():.2f} median={ns.median():.0f} (>=1: {(ns > 0).mean():.0%})")
 print(f"  Imaris .ims (centroid) : mean={im_counts.mean():.2f} median={np.median(im_counts):.0f} "
       f"(>=1: {(im_counts > 0).mean():.0%})")
-print(f"  Imaris coloc (canonical lab method): this gonad HERM_1 = 5.81/nuc; N2 pooled = 5.84/nuc")
+print("  Imaris coloc (canonical lab method): this gonad HERM_1 = 5.81/nuc; N2 pooled = 5.84/nuc")
 
 if n_match >= 3:
     a = np.array([p[0] for p in pairs], float)  # imaris

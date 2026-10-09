@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use germquant in your work, please cite it using the metadata in this file."
+type: software
+title: germquant
+abstract: >-
+  Reproducible 3D quantification of the C. elegans meiotic germline from confocal .nd2 z-stacks:
+  nucleus segmentation (Cellpose), germline isolation, gonad-axis linearization, RAD-51 focus
+  counting (SpotMAX) and SYP / PGL-1 colocalization, with tidy per-nucleus tables and provenance.
+authors:
+  - family-names: Eastman
+    given-names: Ryan
+    affiliation: "Colorado State University, Cahoon Lab"
+version: 0.1.0
+date-released: "2026-10-09"
+repository-code: "https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting"
+license: MIT
+keywords:
+  - C. elegans
+  - germline
+  - meiosis
+  - RAD-51
+  - nucleus segmentation
+  - spot counting
+  - Cellpose
+  - SpotMAX
+  - confocal microscopy

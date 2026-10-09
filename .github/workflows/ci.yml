@@ -1,0 +1,91 @@
+# Continuous integration: lint and the CPU test suite on Linux and Windows.
+#
+# What runs: `ruff check src tests scripts`, then `pytest -m "not model"`, which is the whole unit
+# suite including the synthetic golden tests (tests/test_golden.py). Those process two synthetic
+# gonads with the classical nucleus segmenter and SpotMAX and compare every output table cell for
+# cell with the references checked in under tests/golden/. tests/test_gpu.py skips itself without an
+# accelerator, and tests marked "model" (large model weights) are deselected here, so nothing in this
+# workflow downloads the 1.2 GB nucleus model. The markers are described in tests/README.md.
+#
+# Environment: Python 3.11 (the version the pinned environments target), installed with uv against
+# constraints/ci-cpu-2026-10.txt, which is the validated workstation set minus the CUDA-only packages,
+# with torch and torchvision as CPU wheels from the PyTorch CPU index. astral-sh/setup-uv saves the uv
+# cache directory between runs (enable-cache), keyed on pyproject.toml and the constraints file.
+#
+# Budget: the whole workflow should stay under about 15 minutes per job. A rehearsal of these exact
+# commands in a fresh environment on the workstation is recorded in tests/README.md. If the SpotMAX
+# and Cell-ACDC install ever pushes windows-latest past the budget, trim the Windows job to the core
+# tests (see the note on the Test step) and say so here.
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Cell-ACDC and SpotMAX are Qt applications. Offscreen keeps any Qt import that does happen away
+  # from a display on the headless runners; set for the whole job so collection sees it too.
+  QT_QPA_PLATFORM: offscreen
+  # No runner has a GPU. The value -1 (not an empty string, which Windows drops from the
+  # environment) hides any CUDA device from torch, so tests/test_gpu.py skips and nothing can touch
+  # a card by accident.
+  CUDA_VISIBLE_DEVICES: "-1"
+
+jobs:
+  test:
+    name: ${{ matrix.os }}, Python 3.11
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install uv (the uv cache directory is saved between runs)
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            constraints/ci-cpu-2026-10.txt
+
+      - name: Install torch and torchvision (CPU wheels from the PyTorch index)
+        # Installed first and on their own, as the Dockerfile does, so no resolver can swap in the
+        # default PyPI build (on Linux that is the CUDA wheel). "torch==2.11.0" matches the index's
+        # 2.11.0+cpu build, and the next step sees its torch pin as already satisfied.
+        run: uv pip install --system --index-url https://download.pytorch.org/whl/cpu "torch==2.11.0" "torchvision==0.26.0"
+
+      - name: Install germquant with the Cellpose, SpotMAX, SC-tracer and test extras
+        # numba is named explicitly because SpotMAX imports it at load time without declaring it (it
+        # would otherwise arrive only as a dependency of skan). Everything resolves against the pins.
+        run: uv pip install --system -c constraints/ci-cpu-2026-10.txt -e ".[gpu,spots,sc,dev]" numba
+
+      - name: Record the resolved environment
+        run: |
+          uv pip freeze --system
+          python -c "import germquant, torch; print('germquant', germquant.__version__, 'torch', torch.__version__, 'cuda', torch.cuda.is_available())"
+
+      - name: Lint
+        run: ruff check src tests scripts
+
+      - name: Test
+        # The full suite minus the "model" marker; the synthetic golden tests are part of it. If the
+        # Windows job ever runs past the budget, give Windows the core tests only, for example
+        # `pytest -q -m "not model" --ignore=tests/test_golden.py`, and record that here. The
+        # workstation rehearsal (tests/README.md) fits the budget with everything in.
+        run: pytest -q -rs -m "not model" --strict-markers

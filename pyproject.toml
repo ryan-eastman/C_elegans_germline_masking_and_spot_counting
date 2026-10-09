@@ -45,6 +45,23 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]   # the unit suite; scripts/ holds runnable dev/validation tools, not tests
+# Markers (see tests/README.md). CI runs `pytest -m "not model"`; the gpu test skips itself.
+markers = [
+  "gpu: needs a CUDA or Apple Metal accelerator (the test skips itself when none is present)",
+  "model: needs large model weights (the 1.2 GB nucleus model or the Cellpose-SAM weights); deselected in CI",
+]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# The classic default rule set, written out so a ruff release cannot move the CI gate: ruff 0.17
+# widened its defaults (111 findings on this tree where 0.12's defaults gave 80). E702 (several
+# statements on one line) is a deliberate compact style in the tests, the fixture builders and the
+# tracer, so it is not enforced.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E702"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_gpu.py" = ["E402"]   # imports after pytest.importorskip, the pattern pytest documents
+"scripts/*.py" = ["E402"]        # the scripts put the repository on sys.path before importing germquant

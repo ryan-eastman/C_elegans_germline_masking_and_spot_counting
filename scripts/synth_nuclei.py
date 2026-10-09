@@ -253,7 +253,6 @@ if __name__ == "__main__":
     # real crop for side-by-side (local full-res control gonad)
     real = None
     try:
-        import glob, pandas as pd
         import germquant.io.nd2_reader as R
         st = R.read_stack(r"data/raw_examples/madeleline images/20251105_N2_noHS/20251105_N2_nohs_HERM _001.nd2")
         d = st.data[0]
