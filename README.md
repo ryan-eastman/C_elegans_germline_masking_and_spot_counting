@@ -581,7 +581,8 @@ Documents: `docs/ARCHITECTURE.md` (design), `docs/RUNBOOK.md` (full-resolution G
 calibration), `docs/SPOTMAX_VALIDATION.md` (how the spot counts were validated against Imaris and
 what is still unvalidated), `docs/COLOCALIZATION.md` (the coloc stage), `docs/SC_TRACING.md` (the SC
 tracer), `docs/MAC_METAL.md` (Apple Silicon), `docs/ANNOTATION.md` (annotating nuclei and
-fine-tuning the Cellpose model), `docs/HPC_ALPINE.md` (cluster runs), `analysis/coloc/README.md`
+fine-tuning the Cellpose model), `docs/BACKENDS.md` (plugging in another nucleus segmenter through
+`segmentation.nuclei.backend`), `docs/HPC_ALPINE.md` (cluster runs), `analysis/coloc/README.md`
 (the SYP-3 / PGL-1 analysis layer).
 
 Configuration: `config/config.yaml` holds every tunable value with a comment saying why it is set

@@ -178,6 +178,11 @@ def process_image(
             method=seg.get("method", "auto"), cellpose_model=str(model_file) if model_file else "cpsam",
             diameter_um=float(seg.get("diameter_um", 3.0)), min_volume_um3=float(seg.get("min_volume_um3", 4.0)),
             device=seg.get("device"),          # cuda | mps | cpu | auto; $GERMQUANT_DEVICE overrides
+            # the segmenter: built-in cellpose / classical or an installed plugin (docs/BACKENDS.md), read
+            # with a code default so the config files stay untouched; the section goes along for the
+            # backend's own keys
+            backend=cfg.get("segmentation.nuclei.backend", "cellpose"),
+            cfg_section=cfg.get("segmentation.nuclei", {}),
         )
 
     labels, seg_method = run_stage("segment", _segment, flags=flags, outcomes=outcomes, fatal=True)
