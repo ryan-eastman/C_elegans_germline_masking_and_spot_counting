@@ -34,7 +34,8 @@ from . import provenance, qc, schema
 from .axis import linearize_germline
 from .config import Config
 from .fsutil import long_path
-from .io import parse_sample, read_nd2_metadata, read_stack
+from .io import parse_sample, read_image, read_image_metadata, read_nd2_metadata, read_stack
+from .io.formats import image_format
 from .measure import measure_objects
 from .render import make_montage
 from .segment import segment_nuclei
@@ -95,6 +96,18 @@ def resolve_model_path(cfg):
     return model_path
 
 
+def _read_input(path: Path, *, xy_stride: int, z_range):
+    """Header and pixels of the input image: ``(metadata dict, Stack)``.
+
+    An ``.nd2`` goes through this module's ``read_nd2_metadata`` and ``read_stack`` names: the functions
+    every golden was made with, and the seam the synthetic-stack test fixtures patch. Every other format
+    goes through io.read_image_metadata / io.read_image (bioio, optional ``readers`` extra), which return
+    the same Stack and honour xy_stride and z_range the same way."""
+    if image_format(path) == "nd2":
+        return read_nd2_metadata(path), read_stack(path, xy_stride=xy_stride, z_range=z_range)
+    return read_image_metadata(path), read_image(path, xy_stride=xy_stride, z_range=z_range)
+
+
 def process_image(
     nd2_path: str | Path,
     cfg: Config,
@@ -104,6 +117,10 @@ def process_image(
     z_range: tuple[int, int] | None = None,
     prov: dict | None = None,
 ) -> dict:
+    """Run every enabled stage on one image and write its results folder. ``nd2_path`` (the name is kept
+    for compatibility) is any supported image: an ``.nd2``, or a TIFF / OME-TIFF, CZI, LIF or OME-Zarr
+    file when the ``readers`` extra is installed (io/read.py). Returns image_id, n_nuclei, qc_pass,
+    qc_flags, out_dir, the tables (DataFrames by name) and the per-stage record."""
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
     os.makedirs(long_path(out_dir), exist_ok=True)
@@ -112,10 +129,9 @@ def process_image(
 
     # ---- read + resolve channels ----
     t_read = time.perf_counter()
-    meta = read_nd2_metadata(nd2_path)
+    meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range)
     role_to_idx, ch_flags = cfg.channel_map.resolve(meta["channel_names"])
     flags += ch_flags
-    stack = read_stack(nd2_path, xy_stride=xy_stride, z_range=z_range)
     spacing = stack.spacing
     if not stack.spacing_ok:
         # voxel size unreadable -> spacing is a 1 µm isotropic guess; every physical
@@ -161,8 +177,9 @@ def process_image(
         return acquisition_fields(nd2_path, list(meta["channel_names"]), role_to_idx)
 
     acq_on = stage_enabled(cfg, "acquisition")
-    acq_res = run_stage("acquisition", _acquisition, flags=flags, outcomes=outcomes, enabled=acq_on,
-                        skip_reason="disabled")
+    is_nd2 = image_format(nd2_path) == "nd2"      # the description text lives in the .nd2 header only
+    acq_res = run_stage("acquisition", _acquisition, flags=flags, outcomes=outcomes, enabled=acq_on and is_nd2,
+                        skip_reason="disabled" if not acq_on else "not an .nd2 (no acquisition description)")
     if acq_res is not None:
         acq_fields = acq_res
 

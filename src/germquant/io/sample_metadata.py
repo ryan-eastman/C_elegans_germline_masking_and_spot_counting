@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .formats import image_stem
+
 # herm = oocytes (6 SCs), male = spermatocytes (5 SCs — X is a univalent)
 _SEX_CANON = {"h": "herm", "herm": "herm", "m": "male", "male": "male"}  # filenames use H/M or HERM/MALE
 _SEX_TO_GERMCELL = {"herm": "oocyte", "male": "spermatocyte"}
@@ -16,7 +18,8 @@ _TREATMENT_CANON = {"hs": "heat", "nohs": "control"}
 
 def parse_sample(path: str | Path, regex: str, defaults: dict | None = None) -> dict:
     defaults = dict(defaults or {})
-    stem = Path(path).stem.strip()
+    # Path.stem for an .nd2 (image ids unchanged); the OME double suffix stripped for x.ome.tif / x.ome.zarr
+    stem = image_stem(Path(path)).strip()
     fields = {
         "image_id": stem,
         "genotype": defaults.get("genotype", "unknown"),

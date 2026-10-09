@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -194,3 +195,42 @@ def load_config(path: str | Path, _seen: frozenset[Path] = frozenset()) -> Confi
 
     return Config(data, base_dir=base_dir, channel_map=channel_map, raw_text=hash_text,
                   channel_map_text=cm_text)
+
+
+def config_roots() -> list[Path]:
+    """Where a ``config/`` folder is looked for, in order: the germquant checkout, the working directory,
+    then ``$GERMQUANT_CONFIG_ROOT`` (containers and non-editable installs)."""
+    from .provenance import _repo_root
+
+    roots: list[Path | None] = [_repo_root(), Path.cwd()]
+    env = os.environ.get("GERMQUANT_CONFIG_ROOT")
+    if env:
+        roots.append(Path(env))
+    return [r for r in roots if r is not None]
+
+
+def find_profile(name: str) -> Path:
+    """``config/profiles/<name>.yaml`` under the first config root that has it. FileNotFoundError naming
+    the places tried and the profiles available (the message ``germquant --profile`` prints)."""
+    tried = []
+    for root in config_roots():
+        p = root / "config" / "profiles" / f"{name}.yaml"
+        tried.append(p)
+        if p.is_file():
+            return p
+    have = sorted({x.stem for r in config_roots() for x in (r / "config" / "profiles").glob("*.yaml")})
+    raise FileNotFoundError(f"no profile {name!r}; looked in {[str(t) for t in tried]}; available: {have} "
+                            f"(set GERMQUANT_CONFIG_ROOT to the checkout that holds config/profiles)")
+
+
+def default_config_path() -> Path:
+    """``config/config.yaml`` under the first config root that has it: the config the drag-and-drop
+    scripts and the README use when nothing else is named."""
+    tried = []
+    for root in config_roots():
+        p = root / "config" / "config.yaml"
+        tried.append(p)
+        if p.is_file():
+            return p
+    raise FileNotFoundError(f"no config/config.yaml found; looked in {[str(t) for t in tried]} "
+                            f"(pass a config path or set GERMQUANT_CONFIG_ROOT)")
