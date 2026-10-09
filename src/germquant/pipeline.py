@@ -249,6 +249,11 @@ def process_image(
                          skip_reason="disabled" if not stage_enabled(cfg, "germline") else "no nuclei")
     if germ_res is not None:
         excluded, nuclei = germ_res
+    elif not stage_enabled(cfg, "germline") and not nuclei.empty:
+        # germline isolation switched off (config/profiles/generic.yaml, --no-germline): every segmented
+        # nucleus is the analysis set, so in_germline is a real True on every row rather than the NA an
+        # unrun stage would leave (schema.py). The default path (germline on) is untouched.
+        nuclei = nuclei.assign(in_germline=True)
     n_germline_nuclei = int(len(nuclei))
 
     # ---- lamin envelope masks (seeded watershed on LMN-1), ring test, territories ----

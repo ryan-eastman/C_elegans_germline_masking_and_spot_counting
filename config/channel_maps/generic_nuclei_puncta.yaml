@@ -1,0 +1,38 @@
+# Generic channel map: a nuclear stain plus optional puncta and granule channels, for samples that
+# are not a C. elegans germline (cultured cells, yeast, tissue sections, any nuclei-plus-puncta
+# image). It defines NO `central_element` (SYP) role, so every stage that needs the germline marker
+# (germline isolation, SC tracing, granule and coloc, partition, lit fraction) skips itself; the
+# `generic` profile (config/profiles/generic.yaml) switches the remaining worm-specific stages off.
+# How it is used: docs/GENERIC_PROFILE.md.
+#
+# Name match is a case-insensitive substring test of each token against the .nd2 channel name
+# (`germquant info FILE.nd2` prints the names), then the index fallback. The tokens below are generic
+# words, not laser lines, because which wavelength carries the puncta is experiment-specific. When
+# your channels are named by laser line (405 / 488 / 561 / 640) the fallback resolves them by position
+# (dna = first, foci = second, granule = third) and raises a `channel:<role>:name_unmatched_used_index_N`
+# QC flag. To silence it, copy this file, add your channel names to `names` (and your protein to
+# `marker`), and point `io.channel_map` of your study profile at the copy. Do not edit the shipped
+# maps: their text is part of the config hash of every run made with them.
+match_by: name
+roles:
+  dna:                      # nuclear stain -> nucleus segmentation (stock Cellpose-SAM) and the
+                            #   per-nucleus intensity columns (dna_mean_intensity, ...)
+    names: ["DAPI", "Hoechst", "405", "DNA", "SYTOX", "DRAQ5", "TO-PRO", "nuclei", "nuclear", "H2B"]
+    index: 0
+    required: true
+    marker: DNA
+  foci:                     # puncta counted per nucleus by the SpotMAX `spots` stage (gamma-H2AX,
+                            #   RAD51, PML bodies, FISH spots, ...). `marker` is the label written
+                            #   to the spots table: rename it to the protein in your copy of the map
+    names: ["foci", "puncta", "spot"]
+    index: 1
+    required: false
+    marker: foci
+  granule:                  # an optional third channel (condensates, granules, a second puncta
+                            #   marker). Without a central_element role the worm granule and coloc
+                            #   stages skip; the channel still gets per-nucleus intensity columns and
+                            #   a montage panel, and `spots.instances` can count its puncta as well
+    names: ["granule", "condensate"]
+    index: 2
+    required: false
+    marker: granule
