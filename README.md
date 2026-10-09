@@ -233,6 +233,7 @@ Instead of `--config config/config.yaml` you can name a profile with `--profile`
 | `segmentation_only` | nuclei, germline and gonad axis only, no spots or colocalization (for Imaris surfaces) |
 | `n2_sc` | adds the SC tracer for fragmentation (see `docs/SC_TRACING.md`) |
 | `ccw77_partition` | the SYP-3 / PGL-1 partition analysis: lamin envelopes, hand-traced staging, the Imaris-calibrated granule recipe, on top of `config/config_ccw77.yaml` |
+| `generic` | samples that are not a worm germline (cultured cells, yeast, sections): nuclei with the stock Cellpose model and puncta per nucleus, every worm stage off (see `docs/GENERIC_PROFILE.md`) |
 
 Windows:
 ```
@@ -249,6 +250,17 @@ config. Every optional stage can also be switched off on the command line with `
 `--no-staging`, `--no-partition`, and so on). The staging stage has to run before the partition
 zones or a late-pachytene spot mean can exist. The `alpine` and `slurm` folders in
 `config/profiles/` are cluster job settings, not names for `--profile`.
+
+### Samples that are not a worm germline
+
+`--profile generic` runs the nucleus segmentation (stock Cellpose-SAM), the per-nucleus
+measurements and the SpotMAX puncta count on any 3D stack with a nuclear stain and an optional
+puncta channel, with every *C. elegans* stage (germline isolation, gonad axis, staging, envelope,
+SC tracing, partitioning) switched off; `in_germline` then reads True for every nucleus. Its channel
+map, `config/channel_maps/generic_nuclei_puncta.yaml`, resolves channels by descriptive name or by
+position. `docs/GENERIC_PROFILE.md` says what each output column means outside the worm, how to
+adapt the recipe in a study profile (your channel names, spot radius, filename pattern), and why
+single-plane (2D) images are not supported yet.
 
 ### Segmentation only (no spot counting)
 
@@ -581,7 +593,8 @@ Documents: `docs/ARCHITECTURE.md` (design), `docs/RUNBOOK.md` (full-resolution G
 calibration), `docs/SPOTMAX_VALIDATION.md` (how the spot counts were validated against Imaris and
 what is still unvalidated), `docs/COLOCALIZATION.md` (the coloc stage), `docs/SC_TRACING.md` (the SC
 tracer), `docs/MAC_METAL.md` (Apple Silicon), `docs/ANNOTATION.md` (annotating nuclei and
-fine-tuning the Cellpose model), `docs/HPC_ALPINE.md` (cluster runs), `analysis/coloc/README.md`
+fine-tuning the Cellpose model), `docs/HPC_ALPINE.md` (cluster runs), `docs/GENERIC_PROFILE.md`
+(the generic profile for samples that are not a worm germline), `analysis/coloc/README.md`
 (the SYP-3 / PGL-1 analysis layer).
 
 Configuration: `config/config.yaml` holds every tunable value with a comment saying why it is set

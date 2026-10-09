@@ -22,6 +22,12 @@ SHARED_META = [
 NUCLEI = [
     "nucleus_id", "volume_um3", "n_voxels",
     "centroid_z_um", "centroid_y_um", "centroid_x_um",
+    # in_germline: the germline stage's verdict (True = in the gonad; False = gut / debris / off-gonad,
+    # kept in the table so nothing is hidden). When that stage is switched off (config/profiles/
+    # generic.yaml, --no-germline) every segmented nucleus is the analysis set and the column is True on
+    # every row, never NA, so downstream filters on in_germline keep working. axis_position_norm /
+    # axis_position_um are NA on off-gonad rows and on every row when the axis stage is off. Whether a
+    # stage ran is recorded in <image_id>__stages.json, not inferred from missing values.
     "in_germline", "axis_position_norm", "axis_position_um",
     "n_spots",
     # p-granule (PGL-1) load assigned to the nearest germline nucleus (perinuclear granules)
@@ -115,6 +121,8 @@ COLOC = [
 # one row per image (QC summary). The coloc HEADLINE is the shell voxel coloc (SYP<->PGL-1 in the
 # lamin-defined perinuclear cytoplasmic shell, SC ribbon excluded) — it separates male>herm on real
 # data. The syp_aggregate object metrics are secondary (threshold-fragile).
+# n_germline_nuclei equals n_nuclei when the germline stage is off (every nucleus is the analysis
+# set); total_germline_length_um is NaN when the axis stage is off; mean_spots is over the analysis set.
 IMAGE_SUMMARY = [
     "n_nuclei", "n_germline_nuclei", "mean_spots",
     "total_germline_length_um", "qc_pass", "qc_flags",

@@ -1,0 +1,47 @@
+# Profile: samples that are not a worm germline (cultured cells, yeast, tissue sections): nuclei plus
+# optional puncta. Overlays config/config.yaml with the generic channel map and switches the
+# C. elegans stages off, so a two-channel stack (nuclear stain + puncta) runs
+# read -> segment -> measure -> spots -> qc -> write -> render. docs/GENERIC_PROFILE.md explains
+# the outputs and how to adapt the recipe; select it with `germquant run X.nd2 --profile generic`.
+#
+# What stays off and why: germline (needs the SYP marker; with it off every nucleus is the analysis
+# set and in_germline reads True on every row), axis (a gonad is a tube, a dish is not), staging,
+# envelope and audit (hand-traced pachytene zones, the lamin envelope), sc_trace (synaptonemal
+# complex), partition and granule_tail (SYP-3 / PGL-1 biology). granule and coloc are NOT switched
+# off here: they gate on the `granule` and `central_element` channel roles, which the generic map does
+# not define, so they skip themselves (recorded in <image_id>__stages.json); a study that wants them
+# adds a central_element role to a copy of the map.
+#
+# Settings inherited from the base that were calibrated on the worm and need checking on a new sample:
+# spots.spot_radius_um (0.3 um, a RAD-51 focus), spots.effect_size_min (3.0, cross-validated against
+# Imaris RAD-51 counts), segmentation.nuclei.min_volume_um3 (4 um3 debris gate sized for germline
+# nuclei), metadata.filename_regex (the worm naming convention; a filename it does not match yields
+# the `metadata.defaults`, so genotype / sex / treatment read "unknown" until you supply a regex).
+extends: config.yaml
+
+io:
+  channel_map: config/channel_maps/generic_nuclei_puncta.yaml
+  exclude_patterns: []          # the base list skips the worm 10x overview scans; nothing to skip here
+
+segmentation:
+  nuclei:
+    cellpose_model: cpsam       # the stock Cellpose-SAM model (downloaded by Cellpose on first use);
+                                #   the shipped fine-tuned model is a worm germline nucleus model
+
+germline:
+  enabled: false
+axis:
+  enabled: false
+staging:
+  enabled: false
+envelope:
+  enabled: false
+audit:
+  enabled: false
+sc:
+  trace:
+    enabled: false
+partition:
+  enabled: false
+granule_tail:
+  enabled: false
