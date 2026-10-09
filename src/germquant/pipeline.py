@@ -74,6 +74,17 @@ def spot_instances(cfg) -> list[dict]:
     return out
 
 
+def spot_backend_section(cfg, inst: dict | None = None) -> dict:
+    """The raw ``spots:`` mapping a spot detection backend receives (docs/BACKENDS.md), read with a code
+    default of an empty mapping, with a spot instance's own keys overlaid; a mapping the instance carries
+    (``log:``) merges one level deep over the shared one, so an instance can change one key of it."""
+    section = dict(cfg.get("spots", {}) or {})
+    for k, v in (inst or {}).items():
+        base = section.get(k)
+        section[k] = {**base, **v} if isinstance(v, dict) and isinstance(base, dict) else v
+    return section
+
+
 def resolve_model_path(cfg):
     """The Cellpose model the config names, resolved against the config's base_dir when it is a relative
     path to an existing file (so a profile outside the repo still finds models/...), or against
@@ -325,9 +336,10 @@ def process_image(
         why = next((f for f in flags if f.startswith(("staging:no_trace", "staging:trace_status_"))), "no trace")
         outcomes["staging"] = Outcome("skipped", reason=why.replace("staging:", "").replace("_", " "))
 
-    # ---- spots (SpotMAX) — RAD-51 (or other) foci per nucleus.
-    # Detects peaks ABOVE local background inside each nucleus mask, merges z-axis spot-splits, and
-    # tags every spot with its effect size. Detection params are cross-validated vs Imaris (config). ----
+    # ---- spots: RAD-51 (or other) foci per nucleus, through the spot detection backend that
+    # spots.backend names (code default spotmax, the validated SpotMAX chain; docs/BACKENDS.md).
+    # SpotMAX detects peaks ABOVE local background inside each nucleus mask, merges z-axis spot-splits,
+    # and tags every spot with its effect size. Detection params are cross-validated vs Imaris (config). ----
     spots = pd.DataFrame(columns=schema.SPOTS)
     per_nuc_spots = None  # kept so off-gonad (excluded) nuclei also get n_spots at re-attach
     spots_idx = role_to_idx.get("foci")
@@ -335,6 +347,7 @@ def process_image(
     def _spots():
         from .spots import detect_spots
 
+        backend = cfg.get("spots.backend", "spotmax")
         per_spot, per_nuc = detect_spots(
             stack.data[spots_idx], labels, spacing,
             marker=cfg.channel_map.marker("foci"),
@@ -347,12 +360,15 @@ def process_image(
             z_merge_gap_um=float(cfg.get("spots.z_merge_gap_um", 0.8)),
             z_merge_valley_frac=float(cfg.get("spots.z_merge_valley_frac", 0.8)),
             max_spot_candidates=int(cfg.get("spots.max_spot_candidates", 30000)),
+            backend=backend, cfg_section=spot_backend_section(cfg),
         )
         df = nuclei
         if not df.empty and not per_nuc.empty:
             df = df.merge(per_nuc[["nucleus_id", "n_spots"]], on="nucleus_id", how="left")
             df["n_spots"] = df["n_spots"].fillna(0).astype(int)
-        flags.append(f"spots:spotmax_n={len(per_spot)}")
+        flags.append(f"spots:{backend}_n={len(per_spot)}")          # the default run still writes spots:spotmax_n=
+        if backend != "spotmax":
+            flags.append(f"spots:unvalidated_backend={backend}")  # only spotmax is cross-validated vs Imaris
         return per_spot, per_nuc, df
 
     spots_on = stage_enabled(cfg, "spots")
@@ -388,6 +404,7 @@ def process_image(
             def p(key, default):
                 return inst.get(key, cfg.get(f"spots.{key}", default))
 
+            backend = p("backend", "spotmax")
             per_spot, per_nuc = detect_spots(
                 stack.data[r_idx], labels, spacing, marker=cfg.channel_map.marker(role),
                 spot_radius_um=float(p("spot_radius_um", 0.3)), gauss_sigma_um=float(p("gauss_sigma_um", 0.08)),
@@ -396,6 +413,7 @@ def process_image(
                 effect_size_min=float(p("effect_size_min", 3.0)), merge_z_columns=bool(p("merge_z_columns", True)),
                 z_merge_gap_um=float(p("z_merge_gap_um", 0.8)), z_merge_valley_frac=float(p("z_merge_valley_frac", 0.8)),
                 max_spot_candidates=int(p("max_spot_candidates", 30000)),
+                backend=backend, cfg_section=spot_backend_section(cfg, inst),
             )
             df = nuclei
             if not df.empty:
@@ -411,7 +429,9 @@ def process_image(
             if inst.get("expected_from_germ_cell", True):
                 summ[f"{name}_expected_per_nucleus"] = expected_sc_count(sample["germ_cell"]) or float("nan")
             nuclei = df
-            flags.append(f"spots_{name}:spotmax_n={len(per_spot)}")
+            flags.append(f"spots_{name}:{backend}_n={len(per_spot)}")
+            if backend != "spotmax":
+                flags.append(f"spots_{name}:unvalidated_backend={backend}")
             return per_spot, per_nuc, summ
 
         on_i = spots_on and r_idx is not None and n_nuclei > 0
