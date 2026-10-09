@@ -281,6 +281,21 @@ Mac:
 prints the channel names and the voxel size without loading the pixels. Use it whenever you are not
 sure which config to pick (next section).
 
+### Other file formats
+
+The pipeline was built and validated on Nikon `.nd2` stacks, and those need nothing extra. It can
+also read TIFF and OME-TIFF (`.tif`, `.tiff`, `.ome.tif`), Zeiss `.czi`, Leica `.lif` and OME-Zarr
+(`.zarr`, `.ome.zarr`) through the bioio readers, which are an optional install: with the environment
+active as in the setup sections below, run `uv pip install -e ".[readers]"` from the repository folder
+(or install just `bioio` plus the plugin for your format, for example `uv pip install bioio
+bioio-ome-tiff`; the error message names the one you need). Every format comes out as the
+same stack (channel, z, y, x) with the voxel size in microns and the channel names as the file reports
+them, so the channel map matches by those names, and a file without a readable voxel size is flagged
+`voxel:UNREADABLE_assumed_isotropic_1um` exactly as an `.nd2` would be. One image per file for now: a
+time-lapse (more than one time point) or a file with several scenes or positions stops with a message
+asking for a single scene (time-lapse support is planned). `germquant info` and `germquant run` take
+these files; `germquant batch` still expects a folder of `.nd2` files.
+
 ### Checking the graphics chip is being used
 
 Windows:
@@ -576,6 +591,12 @@ the code is a Python package under `src/germquant/` (`cli.py`, `pipeline.py`, `d
 `axis`, `staging`, `spots`, `sc`, `granule`, `coloc`, `partition`, `measure`, `qc`, `render`,
 `validate`); `schema.py` declares every output column (append-only). The roadmap that produced this
 layout is `docs/ROADMAP_modular_pipeline.md`.
+
+Driving it from code: `germquant.api` is the stable surface for GUIs, notebooks and other packages
+(`api.run(image, config=..., profile=..., out=..., overrides=...)` is the function `germquant run`
+itself calls, so both write the same files; the module docstring states the stability promise).
+Readers: `io/read.py` dispatches on the file name, `.nd2` to the reader the pipeline always used and
+every other format to `io/bioio_reader.py` (bioio, the `readers` extra); both return the same `Stack`.
 
 Documents: `docs/ARCHITECTURE.md` (design), `docs/RUNBOOK.md` (full-resolution GPU run and spot
 calibration), `docs/SPOTMAX_VALIDATION.md` (how the spot counts were validated against Imaris and

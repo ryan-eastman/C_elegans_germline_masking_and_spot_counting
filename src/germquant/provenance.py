@@ -14,7 +14,7 @@ from pathlib import Path
 from .fsutil import long_path
 
 _TOOLS = ["germquant", "nd2", "numpy", "scipy", "scikit-image", "pandas", "cellpose", "spotmax", "torch",
-          "cellacdc", "cupy", "skan", "tifffile", "snakemake"]
+          "cellacdc", "cupy", "skan", "tifffile", "snakemake", "bioio"]
 
 _FILE_SHA_CACHE: dict[tuple[str, float, int], str] = {}
 
