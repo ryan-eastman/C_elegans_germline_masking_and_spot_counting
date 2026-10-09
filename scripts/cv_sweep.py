@@ -6,7 +6,6 @@ Also reports each gonad's effect-size distribution (to see noise-flooded vs unde
 import json
 
 import numpy as np
-import pandas as pd
 
 from germquant.validate.imaris_ims import read_imaris_ims
 from germquant.validate.imaris_xlsx import per_nucleus_rad51

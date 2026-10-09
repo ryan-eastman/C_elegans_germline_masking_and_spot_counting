@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from .fsutil import read_config_text
 from .io.channel_map import ChannelMap
 
 
@@ -160,11 +161,13 @@ def load_config(path: str | Path, _seen: frozenset[Path] = frozenset()) -> Confi
     profile inherits from the base (channel map, Cellpose model, exclusions file) keep resolving against
     the base's directory, so a profile can live anywhere. Hash rule: a file WITHOUT ``extends`` hashes
     exactly as it always has (its raw text plus the channel-map text plus runtime overrides), so existing
-    runs keep reproducing; a profile hashes the base text plus its own text plus the channel-map text."""
+    runs keep reproducing; a profile hashes the base text plus its own text plus the channel-map text.
+    The text is decoded with ``fsutil.CONFIG_TEXT_ENCODING`` on every platform (see the note there), so
+    the hash does not depend on the machine's locale."""
     path = Path(path)
     if path.resolve() in _seen:
         raise ValueError(f"{path}: extends cycle")
-    raw_text = path.read_text()
+    raw_text = read_config_text(path)
     data = yaml.safe_load(raw_text) or {}
     base_dir = _base_dir_for(path)
     hash_text = raw_text
@@ -187,7 +190,7 @@ def load_config(path: str | Path, _seen: frozenset[Path] = frozenset()) -> Confi
         raise ValueError("config.io.channel_map is required")
     cm_path = (base_dir / cm_rel) if not Path(cm_rel).is_absolute() else Path(cm_rel)
     channel_map = ChannelMap.from_yaml(cm_path)
-    cm_text = cm_path.read_text() if cm_path.exists() else ""
+    cm_text = read_config_text(cm_path) if cm_path.exists() else ""
 
     return Config(data, base_dir=base_dir, channel_map=channel_map, raw_text=hash_text,
                   channel_map_text=cm_text)

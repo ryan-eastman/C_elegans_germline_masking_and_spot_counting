@@ -1,5 +1,7 @@
 # germquant: nucleus segmentation and RAD-51 spot counting in C. elegans germlines
 
+[![CI](https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting/actions/workflows/ci.yml/badge.svg)](https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting/actions/workflows/ci.yml)
+
 This program takes a confocal image of a worm germline (a `.nd2` file), finds every nucleus in 3D,
 decides which nuclei belong to the gonad, and counts the RAD-51 spots inside each one. The answers
 come out as spreadsheet files (`.csv`) that open in Excel, plus a picture you can glance at to
@@ -596,11 +598,47 @@ release and a new entry there.
 Validation and cross-validation tools are in `scripts/` (`cv_*.py`, `validate_*.py`,
 `calibrate_spots.py`, `regression_diff.py`, `make_goldens.py`) with the Imaris readers in
 `germquant.validate`. Unit tests: `pytest` from the repository root; they run on CPU and need no GPU
-or data, and `tests/test_golden.py` guards the numbers against the frozen references. Pinned
-environments: `constraints/desktop-2026-09.txt` (workstation), `constraints/mac-arm64-2026-09.txt`
-(Apple Silicon).
+or data, and `tests/test_golden.py` guards the numbers against the frozen references
+(`tests/README.md` explains the markers, the opt-in real-data comparison and how the same suite runs
+on GitHub Actions, `.github/workflows/ci.yml`). Pinned environments:
+`constraints/desktop-2026-09.txt` (workstation), `constraints/mac-arm64-2026-09.txt` (Apple
+Silicon), `constraints/ci-cpu-2026-10.txt` (continuous integration, CPU).
 
 Other CLI commands: `validate` (compare a pipeline table or label image with hand-scored ground
 truth), `prep-training` (export DAPI slices for annotation), `finetune` (fine-tune the Cellpose
 model on a labelled folder), `check-gpu`, `get-model`, `collect`, `trace`, `restage`. Run the
 program with `--help` for the options.
+
+## Citing
+
+If germquant contributes to a publication, please cite it. The citation metadata lives in
+`CITATION.cff` at the repository root (GitHub shows it under "Cite this repository" and can export
+BibTeX or APA from it). In prose:
+
+> Eastman, R. (2026). germquant: nucleus segmentation and RAD-51 spot counting in C. elegans
+> germlines (version 0.1.0) [Computer software]. Colorado State University, Cahoon Lab.
+> https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting
+
+There is no archived release DOI yet; when a tagged release is deposited, the DOI goes into the
+`doi` field of `CITATION.cff` and here. Please also cite the tools that do the heavy lifting inside
+the pipeline, in the form each project asks for in its own documentation: Cellpose and Cellpose-SAM
+(nucleus segmentation), SpotMAX and Cell-ACDC (spot detection) and scikit-image.
+
+## License
+
+germquant is released under the MIT License (see `LICENSE`; copyright 2026 Ryan Eastman). That
+covers everything in this repository: the package, the scripts, the configs and the documentation.
+
+The tools it depends on are installed from PyPI, not bundled here, and keep their own licences:
+
+- Cellpose: BSD-3-Clause. The nucleus model distributed as a GitHub release asset
+  (`germquant get-model`) is a fine-tune of the Cellpose-SAM weights, and Cellpose's own training
+  data is distributed under a non-commercial (CC BY-NC) licence; a model card for the fine-tuned
+  model should say so, and commercial use of the model needs that question settled first.
+- SpotMAX: its package metadata declares BSD-3-Clause, but the LICENSE file shipped inside the
+  package is GPL-3.0. Until its authors clarify, treat SpotMAX as GPL-3.0. This matters only when
+  SpotMAX is bundled into an image that is redistributed (the `Dockerfile` and `apptainer.def`
+  install it), not for a pip install next to germquant.
+- Cell-ACDC: BSD-3-Clause.
+- numpy, scipy, scikit-image, pandas, tifffile and the rest of the scientific stack: BSD-style
+  licences.

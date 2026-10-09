@@ -11,6 +11,8 @@ from pathlib import Path
 
 import yaml
 
+from ..fsutil import read_config_text
+
 
 @dataclasses.dataclass
 class RoleSpec:
@@ -27,7 +29,7 @@ class ChannelMap:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "ChannelMap":
-        data = yaml.safe_load(Path(path).read_text())
+        data = yaml.safe_load(read_config_text(Path(path)))   # same codec as the config hash, every platform
         roles = {
             role: RoleSpec(
                 names=[str(n) for n in spec.get("names", [])],

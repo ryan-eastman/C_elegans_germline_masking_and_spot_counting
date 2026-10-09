@@ -1,0 +1,31 @@
+# CPU pins for continuous integration (.github/workflows/ci.yml: ubuntu-latest and windows-latest,
+# Python 3.11). This is the validated workstation set (desktop-2026-09.txt) minus the CUDA-only
+# packages (CuPy and the nvidia-* wheels), with torch and torchvision taken from the PyTorch CPU
+# index (https://download.pytorch.org/whl/cpu). "torch==2.11.0" also matches the 2.11.0+cpu build
+# that index serves, so the same pin covers the workstation, the Mac and CI. pytest and ruff are
+# pinned too, so the gate itself does not move when either tool publishes a release. The synthetic
+# golden tests (tests/test_golden.py) compare every table cell for cell, so bump a pin here only
+# together with the golden check. Install with
+#   uv pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.11.0" "torchvision==0.26.0"
+#   uv pip install -c constraints/ci-cpu-2026-10.txt -e ".[gpu,spots,sc,dev]"
+cellacdc==1.7.1
+cellpose==4.2.1.1
+dask==2026.6.0
+matplotlib==3.11.0
+nd2==0.11.3
+numba==0.65.1
+numpy==2.4.6
+opencv-python-headless==4.13.0.92
+pandas==3.0.3
+pyarrow==24.0.0
+pytest==9.1.0
+PyYAML==6.0.3
+ruff==0.17.0
+scikit-image==0.26.0
+scikit-learn==1.9.0
+scipy==1.17.1
+skan==0.13.1
+spotmax==1.3.1
+tifffile==2026.3.3
+torch==2.11.0
+torchvision==0.26.0
