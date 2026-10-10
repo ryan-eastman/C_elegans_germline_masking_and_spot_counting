@@ -373,7 +373,7 @@ Keys under `spots.net3d`, all read with code defaults:
 
 | key | code default | meaning |
 |---|---|---|
-| `model` | none (required) | the model file `germquant train-spots` wrote (`MODELDIR/model.pt`) |
+| `model` | none (required) | the model file `germquant train-spots` wrote (`MODELDIR/model.pt`); an absolute path, or one relative to the working directory |
 | `threshold` | the model's own | peak probability threshold; by default the value chosen on the val gonads and stored in the model file |
 | `device` | `auto` | `auto` (CUDA when available, honours `GERMQUANT_DEVICE`), `cpu` or `cuda` |
 | `tile_zyx` | [96, 384, 384] | inference tile in voxels |

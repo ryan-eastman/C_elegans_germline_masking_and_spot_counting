@@ -525,6 +525,151 @@ What this does and does not say:
   spirit to a Laplacian of Gaussian, so a LoG detector may agree with it partly by construction;
   agreement with this truth is not yet agreement with a person (protocol section 9).
 
+## net3d
+
+`germquant.spots.net3d` is an EXPERIMENTAL learned RAD-51 foci detector: a compact residual 3D U-Net
+that turns the RAD-51 and DAPI channels into a per-voxel heatmap of focus centres, trained on the lab's
+Imaris spots. It is the spot backend `net3d` (never the default; `docs/BACKENDS.md` has its keys and the
+two optional attributes it added to the backend contract), it is trained with `germquant train-spots`,
+and it is scored with the detector bench harness above. Everything here is development on the train and
+val gonads of `docs/BENCHMARK_PROTOCOL.md`. The training code never opens a test gonad (every gonad it
+loads passes the test guard first) and no test gonad has been scored.
+
+### What it learns from
+
+* Train: the four train gonads with usable spot truth, n2rad51_HS_herm_000, n2rad51_noHS_herm_000,
+  n2rad51_noHS_male_000 and n2rad51_noHS_male_001. The other two train gonads, the heat-shock males 000
+  and 002, were exported with Imaris region growing and are left out (their spot truth is unusable).
+  Training therefore sees one heat-shocked gonad, a hermaphrodite, and no heat-shocked male.
+* Val (early stopping, model selection and the peak threshold): n2rad51_HS_herm_001 and
+  n2rad51_noHS_herm_001, both hermaphrodites.
+* No heat-shock male is in train or val. The heat-shock undercount of the deployed SpotMAX recipe, the
+  in-house detector's main target, cannot be seen during development (see "First runs" above: on the
+  two heat-shock hermaphrodites SpotMAX over-counts); it needs the re-exported heat-shock male spot sets.
+* The roles come from the split file (`--split-file tests/golden/rad51_split.json`); a split file that
+  moves a pre-registered gonad, or that disagrees with the manifest, is refused.
+
+Inputs come from the bench cache (`foci.npy`, `dna.npy`, the golden run's `labels.npy` and germline ids)
+and the truth files the manifest names. Each channel is normalised per gonad to
+`(raw - p1) / (p99.9 - p1)`, with the percentiles of the whole volume on every fourth voxel in y and x,
+so the input never depends on a segmentation. On these stacks p1 is 87 to 89 in both channels and p99.9
+of the RAD-51 channel is 208 to 343 on the train gonads, 149 (HS_herm_001) and 223 (noHS_herm_001) on val.
+
+### Targets, loss region and weights (`net3d/data.py`)
+
+* Target: a Gaussian of peak 1 at every Class A spot (sigma 0.25 um in z and 0.12 um in xy, about 1.25
+  and 1.1 voxels, the size of the confocal image of a focus; overlapping Gaussians take their maximum),
+  centred on the Imaris position converted to the image grid (`(coordinate - ExtMin) / imaris_voxel -
+  0.5`, whose rounding is the truth files' `zi, yi, xi`).
+* Loss region: the golden run's germline nucleus labels dilated by 0.3 um (exact ellipsoidal dilation).
+  The truth spots were detected over the whole field, but the per-gonad Quality threshold was set while
+  looking at the nuclei, and the counts that matter are per nucleus; outside this region the weight is 0
+  and the network is unconstrained there (it does put low probabilities on background, which the
+  nucleus assignment drops; see the peak finding below).
+* Inside it: weight 1 within the traced truth coverage (the protocol's region C: the truth masks dilated
+  by 1.0 um in xy and one plane in z) and 0.5 elsewhere in the germline, where the same automatic
+  detection holds but nobody looked nucleus by nucleus. The traced coverage is about 0.5 to 0.65 percent of a
+  stack's voxels, the rest of the germline region 1.2 to 4.5 percent.
+* Class B spots (Imaris's "isolated" class, not false positives) get weight 0 inside an ellipsoid of
+  0.5 um in z and 0.3 um in xy, so the network is neither taught to find nor to reject them.
+* Every weight is multiplied by `1 + 9 * target`, which spends the gradient near the foci without moving
+  any voxel's optimum (each voxel's weighted cross-entropy is still minimised by its own target). The
+  loss is the weighted binary cross-entropy of the logits, divided by the batch's summed weight.
+* Patches of 32 x 128 x 128 voxels (6.4 x 13.9 x 13.9 um), eight per step: a gonad drawn uniformly,
+  then half the time a Class A spot inside the loss region plus up to a third of a patch of offset,
+  otherwise a germline nucleus centroid plus up to half a patch; a patch may hang over the stack's edge
+  by a quarter (zero input, zero weight there). Augmentation: y and x flips, a y/x transpose and a
+  log-uniform gain per channel (RAD-51 0.75 to 1.33, DAPI 0.8 to 1.25). Each sample draws from its own
+  generator seeded with (seed, epoch, index).
+
+### The network (`net3d/model.py`)
+
+Four levels of one residual block each (two 3 x 3 x 3 convolutions, batch normalisation, SiLU; 16, 32,
+64 and 128 channels), an xy-only first pooling (1 x 2 x 2, which makes the next level roughly
+isotropic at 0.2 x 0.217 x 0.217 um) and 2 x 2 x 2 after it, transposed-convolution upsampling, a 1 x 1 x 1
+head whose bias starts at -4; 1,421,889 parameters. Pooling is a reshape and a max and upsampling a
+transposed convolution with kernel equal to stride, so the CUDA backward pass is deterministic. Batch
+normalisation (an affine map in eval mode) keeps a voxel's output independent of how the volume is
+tiled. The receptive radius is at most 30 voxels in z and 58 in y and x (`receptive_radius`), and a test
+checks that a perturbed voxel never reaches farther.
+
+### Training and model selection (`net3d/train.py`)
+
+AdamW (learning rate 1e-3, weight decay 1e-4), 200 warm-up steps then a cosine decay to 5 percent over
+the maximum of 40 epochs of 200 steps, bf16 autocast on CUDA, seeds for python, numpy and torch,
+`torch.use_deterministic_algorithms(True)` with cuDNN benchmarking off and `CUBLAS_WORKSPACE_CONFIG`
+set. Two launches with the same seed gave bit-identical losses and validation numbers.
+
+After every epoch the val gonads go through the backend's own path (tiled float32 inference, peak
+finding, nucleus assignment in the cached labels) and are scored with the bench harness's functions:
+expert spots mapped into our labels, Lin's CCC of the per-nucleus counts over the traced subset
+(Class A+B, the protocol's primary partition as the harness computes it: our nuclei more than half
+inside a truth mask) and over all germline nuclei, and the Hungarian spot matching in the 0.3 um by
+0.4 um cylinder for F1. The expensive parts (the traced-subset overlap, the expert spots' labels) are
+computed once per gonad; at the first validation the numbers are compared with
+`germquant.benchmark.detector.score` itself and training stops if they differ (the difference was 0 in
+every run). The two val gonads are pooled (nuclei concatenated, spot counts summed) at each of 18
+thresholds, 0.05 to 0.90.
+
+Selection (`select_config`): every scored (epoch, threshold) whose pooled traced CCC is within 0.01 of
+the best one so far is eligible, and the eligible configuration with the best pooled F1 wins (then the
+higher CCC, the earlier epoch, the lower threshold). 0.01 is the protocol's scale for a change of the
+primary metric that counts (section 10). The first launches used a strict CCC maximum with F1 only for
+exact ties; it jumped between thresholds 0.05 and 0.60 on differences of 0.001 (it picked epoch 5 at
+threshold 0.05, germline CCC 0.959, F1 0.608, over epoch 4 at 0.45 with traced CCC 0.979 and F1 0.627),
+so the rule was changed before the run reported below; this was decided on val, never on test. Early
+stopping: 8 validations in a row without a change of the selected configuration. Every epoch's weights
+are kept (`checkpoints/epoch_NNN.pt`, sha256 in the log), and `model.pt` holds the selected epoch's
+weights with the selected threshold, which the backend uses unless `spots.net3d.threshold` says otherwise.
+
+### Peak finding and assignment (`net3d/peaks.py`, `net3d/infer.py`)
+
+Inference runs in float32 on tiles whose origins are multiples of the network's size divisor and whose
+overlap is the receptive radius, each tile contributing only its core: tiled and untiled heatmaps agree
+to float rounding (tested), tiles without a nucleus are skipped. Peaks are the voxels above the
+threshold that are the maximum over an ellipsoid of 0.6 um in z and 0.3 um in xy, settled by a greedy
+ellipsoidal suppression (for these local maxima only exact ties are left to settle), refined to
+sub-voxel positions by the parabola through the log probabilities on each axis, and assigned to the label
+at the refined position or, failing that, to the nearest label within 0.3 um (`contested` when two labels
+are that close). Peaks with no label within reach are dropped.
+
+The network's output outside the loss region is unconstrained, and on the heat-shock val gonad at epoch 3
+of a training run, 47.6 million voxels (10 percent of the stack) were above 0.05, with 1.93 million
+local maxima, of which 1269 were assigned at that threshold. The peak finder handles this exactly: a
+3 x 3 x 3 maximum filter prefilters dense blocks (28 s instead of 49 s for the identical candidate
+set), suppression only loops over candidates that have a partner, and a coarse grid of blocks within
+reach of a label drops the far peaks before refinement and assignment (3210 instead of 240015 peaks to
+assign, the identical 1269 assigned). On the same run the validation numbers of four epochs were
+recomputed with the old and the new peak finder: identical at every threshold, pooled and per gonad.
+At a working threshold (0.3) the whole chain takes about 3 s per gonad.
+
+Timing on the RTX 5090 (shared with other jobs): 39 to 44 s per training epoch, about 4.3 GB of
+allocated GPU memory in training and about 12.5 GB reserved during the validation inference; inference
+of one val gonad takes 10 to 25 s. On the CPU (4 threads, competing with other jobs) the inference of
+one heat-shock stack took 566 s.
+
+### Running it
+
+```powershell
+$env:PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"
+germquant train-spots --cache C:/Users/ryane/germquant_golden/bench_cache `
+    --split-file tests/golden/rad51_split.json --out C:/Users/ryane/germquant_golden/models/net3d_20261010 `
+    --epochs 40 --seed 0 --device cuda --min-free-gb 12 --prep-dir C:/Users/ryane/germquant_golden/models/net3d_prep
+python scripts/bench_detector.py --backend net3d --params net3d_val_params.json --split val --out <dir>
+```
+
+where `net3d_val_params.json` holds `{"net3d": {"model": ".../model.pt", "device": "cuda"}}`. Other
+options: `--patch Z,Y,X` (multiples of 4, 8, 8), `--batch-size`, `--steps-per-epoch`, `--lr`,
+`--patience`, `--val-every`, `--no-dna` (the RAD-51-only ablation), `--thresholds`, `--tile`,
+`--select-tolerance`, `--base-channels`, `--levels`, `--manifest`, `--wait-minutes`. `--min-free-gb`
+waits (polling every 60 s) until nvidia-smi reports that much free memory; on Windows,
+`torch.cuda.mem_get_info` reports the whole card as free while other processes hold most of it, so it is
+not used for this. The loss-region maps (one uint8 volume per train gonad, 0.45 GB each) are computed
+once into `--prep-dir` and reused by later runs. Outputs in MODELDIR: `model.pt`, `training_log.json`
+(settings, gonads, every epoch's loss, timing, memory, checkpoint sha256 and the full validation sweep,
+the selection), `model_card.json` (training, val and excluded gonads, truth classes, epochs, the
+selection, the val metrics, sha256, git sha, limitations) and `checkpoints/`.
+
 ## Tests
 
 `tests/test_benchmark.py`: synthetic label volumes and spot sets with known answers for every metric

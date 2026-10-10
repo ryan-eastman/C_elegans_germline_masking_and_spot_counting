@@ -6,7 +6,7 @@ the development scores in docs/BENCHMARK.md. Keys under ``spots.net3d``, every o
 
 | key | code default | meaning |
 |---|---|---|
-| ``model`` | none (required) | the model file ``germquant train-spots`` wrote (``model.pt``) |
+| ``model`` | none (required) | the model file ``germquant train-spots`` wrote (``model.pt``), absolute or relative to the working directory |
 | ``threshold`` | the model's own | peak probability threshold; by default the one chosen on the validation gonads and stored in the model file (0.5 when the file has none) |
 | ``device`` | ``auto`` | ``auto`` (germquant.device.select_device, honours ``GERMQUANT_DEVICE``), ``cpu`` or ``cuda`` |
 | ``tile_zyx`` | [96, 384, 384] | inference tile; the overlap is the network's receptive radius, so the result does not depend on it beyond float rounding |
