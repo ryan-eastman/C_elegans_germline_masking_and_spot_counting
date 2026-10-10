@@ -178,6 +178,11 @@ IMAGE_SUMMARY = [
     "acquisition_json",
     # signal_qc stage (per channel role, in SIGNAL_QC_ROLES x SIGNAL_QC_METRICS order; see above)
     *SIGNAL_QC,
+    # partition measurability (partition stage, docs/PARTITION_QC.md): the SYP signal-to-noise the signal_qc
+    # stage measured (sig_central_element_snr; NaN when that stage did not run) and whether it clears
+    # partition.min_syp_snr (True when the gate is off, the code default). Both NA when the partition stage
+    # did not run. An image below the gate is flagged partition:low_syp_snr; its numbers are still written.
+    "partition_syp_snr", "partition_measurable",
 ]
 
 TABLES = {

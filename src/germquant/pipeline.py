@@ -702,6 +702,29 @@ def process_image(
     if tail_res is not None:
         tail_table, tail_summary = tail_res["table"], dict(tail_res["summary"])
 
+    # ---- per-image summary fields ----
+    # Every stage's image_summary contribution, spread in the order the row has always used (declared
+    # columns are reordered to the schema on write; the per-instance extras keep this order). A stage that
+    # needs another stage's number reads it here: the partition measurability check below reads the
+    # signal_qc stage's SYP signal-to-noise (sig_central_element_snr) from this dict.
+    summary_fields: dict = {**coloc_summary_fields, **sc_summary_fields, **env_summary_fields, **audit_summary_fields,
+                            **acq_fields, **staging_summary_fields, **partition_summary, **tail_summary,
+                            **spot_instance_summary, **signal_summary_fields}
+
+    # ---- partition measurability (partition_syp_snr, partition_measurable; docs/PARTITION_QC.md) ----
+    # A SYP channel with no live fluorophore, or recorded through the wrong emission filter, yields a
+    # partition coefficient floor above 1 that no rotation null removes. When a profile sets
+    # partition.min_syp_snr (code default 0.0: off) an image below it is flagged partition:low_syp_snr;
+    # every partition number is still written, the flag is the signal.
+    if part_res is not None:
+        from .partition import partition_measurability
+
+        meas_fields, meas_flags = partition_measurability(summary_fields,
+                                                          min_syp_snr=cfg.get("partition.min_syp_snr", 0.0))
+        summary_fields.update(meas_fields)
+        flags.extend(meas_flags)
+        outcomes["partition"].flags.extend(meas_flags)
+
     # ---- QC ----
     t_qc = time.perf_counter()
     qc_pass, qc_all = qc.qc_flags(
@@ -722,9 +745,7 @@ def process_image(
         if "axis_position_um" in nuclei and not nuclei.empty else float("nan"),
         "qc_pass": qc_pass, "qc_flags": ";".join(qc_all),
         "segmentation_method": seg_method, "axis_confidence": axis_conf,
-        **coloc_summary_fields, **sc_summary_fields, **env_summary_fields, **audit_summary_fields,
-        **acq_fields, **staging_summary_fields, **partition_summary, **tail_summary, **spot_instance_summary,
-        **signal_summary_fields,
+        **summary_fields,
     }])
 
     # ---- write outputs ----

@@ -18,8 +18,24 @@ envelope minus bkg, bkg here = 0.5th percentile far from the envelope); per gona
 granules with excess above 0.25 / 0.5 / 1.0 and percentiles. Version 4 of the analysis: nuclei with no
 lamin envelope are removed from the envelope set before the shell is built and the granules
 re-segmented inside it, exactly as granule_tail.py did.
+
+Measurability (measurable.py, docs/PARTITION_QC.md): after the stage has run, the pipeline reads the SYP
+signal-to-noise the signal_qc stage measured (image_summary field sig_central_element_snr) into
+partition_syp_snr and partition_measurable; with partition.min_syp_snr set in a profile (code default
+0.0, off) an image below it is flagged partition:low_syp_snr while every number is still written. A SYP
+channel with no live fluorophore gives a partition coefficient floor above 1 that no control removes.
 """
+from .measurable import (
+    LOW_SNR_FLAG,
+    MEASURABILITY_FIELDS,
+    MIN_SYP_SNR_DEFAULT,
+    SYP_SNR_FIELD,
+    partition_measurability,
+    syp_snr_from_summary,
+)
 from .pc import DBINS_UM, partition_metrics, pc_dm, run_partition, zone_voxel_map
 from .tail import run_granule_tail
 
-__all__ = ["DBINS_UM", "partition_metrics", "pc_dm", "run_partition", "zone_voxel_map", "run_granule_tail"]
+__all__ = ["DBINS_UM", "partition_metrics", "pc_dm", "run_partition", "zone_voxel_map", "run_granule_tail",
+           "LOW_SNR_FLAG", "MEASURABILITY_FIELDS", "MIN_SYP_SNR_DEFAULT", "SYP_SNR_FIELD",
+           "partition_measurability", "syp_snr_from_summary"]
