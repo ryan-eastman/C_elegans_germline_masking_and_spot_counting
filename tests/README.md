@@ -45,6 +45,11 @@ gonads are built inside the fixtures.
   real-data comparison (see the environment variables below). The goldens were produced on the
   workstation (Windows, the pinned `constraints/desktop-2026-09.txt` environment) and are checked
   with `check_exact=True`.
+- `test_peak_filter.py`: the exact replica of SpotMAX's minimum-distance peak filter
+  (`germquant.spots.peak_filter`, `docs/PERFORMANCE.md`) against the installed SpotMAX function on
+  random inputs with tied intensities, duplicate points and boundary distances, its fallback domain,
+  the context manager that installs it, the SpotMAX stage with and without it on a flooded synthetic
+  volume, and the flood guard's warning. The SpotMAX comparisons skip when SpotMAX is not installed.
 - `test_benchmark_split.py`: the pre-registered RAD-51 benchmark split (`golden/rad51_split.json`,
   `docs/BENCHMARK_PROTOCOL.md`): the 12 tags and their train/val/test roles, the sha256 helper, the
   Imaris creation-parameter reader on a synthetic HDF5 project, and the manifest builder

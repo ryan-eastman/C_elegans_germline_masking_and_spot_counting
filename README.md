@@ -431,9 +431,10 @@ On either machine:
   match the config. Run the `info` command on the file and compare with `config/channel_maps/`.
   Tell whoever maintains the tool.
 - The window closed instantly: run the command from the terminal so the error stays on screen.
-- The spot step runs for hours on one image: that image is probably flooded with signal or an
-  artefact. The run caps the number of candidate spots so it should still finish; if you only need
-  the segmentation, rerun with `--no-spots`.
+- The spot step takes much longer on one image than on the others, or the log says `FLOODED`: that
+  image is probably flooded with signal or an artefact. The run keeps only the brightest candidate
+  spots (`spots.max_spot_candidates`, 30000) so it still finishes, but the spot count of that image
+  is a floor, not a measurement. If you only need the segmentation, rerun with `--no-spots`.
 - Anything else: copy the red text and send it to whoever maintains the tool.
 
 Windows:

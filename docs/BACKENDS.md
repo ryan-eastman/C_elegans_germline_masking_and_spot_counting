@@ -264,7 +264,9 @@ effect size, the flood guard, the z-split merge and the effect-size filter. Its 
 `germquant.spots.detect.detect_spots_spotmax`; the registered backend is a thin wrapper that passes the
 resolved parameters through, and its outputs are byte-identical to the code before the registry
 existed (the synthetic goldens run this path for real). It is the only backend cross-validated against
-Imaris (`docs/SPOTMAX_VALIDATION.md`).
+Imaris (`docs/SPOTMAX_VALIDATION.md`). SpotMAX's minimum-distance peak filter runs as germquant's exact
+replica (`germquant.spots.peak_filter`: the same output, without the cost that grew with the square of
+the candidate count; `docs/PERFORMANCE.md`).
 
 Parameters, read from the top of the `spots:` section with the pipeline's code defaults:
 `spot_radius_um` 0.3, `gauss_sigma_um` 0.08, `thresholding_method` threshold_triangle,
