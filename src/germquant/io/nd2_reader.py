@@ -80,6 +80,8 @@ def check_timepoint(t, n_timepoints: int, path: str | Path) -> int:
     without a T axis). ValueError when ``t`` is not an integer, is out of range, or when the file has no T
     axis and ``t`` is not 0: a fixed image has exactly one timepoint, index 0, so ``t=0`` reads it as
     ``t=None`` does. Shared by the nd2 and the bioio reader so both refuse the same way."""
+    if isinstance(t, bool):
+        raise ValueError(f"{Path(path).name}: t must be an integer timepoint index, got {t!r}")
     try:
         ti = operator.index(t)
     except TypeError:

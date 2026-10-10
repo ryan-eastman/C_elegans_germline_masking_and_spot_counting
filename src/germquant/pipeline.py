@@ -108,6 +108,15 @@ def resolve_model_path(cfg):
     return model_path
 
 
+def read_input_metadata(path: str | Path) -> dict:
+    """The header of the input image through this module's reader names (``read_nd2_metadata`` for an
+    ``.nd2``, io.read_image_metadata otherwise): the seam the synthetic-stack test fixtures patch, so the
+    time-lapse loop (timelapse.series) learns the timepoint count from the same reader process_image uses."""
+    if image_format(path) == "nd2":
+        return read_nd2_metadata(path)
+    return read_image_metadata(path)
+
+
 def _read_input(path: Path, *, xy_stride: int, z_range, t=None):
     """Header and pixels of the input image: ``(metadata dict, Stack)``.
 
@@ -129,6 +138,18 @@ def _t_seconds_of(meta: dict, t: int) -> float | None:
     if stamps is None or not 0 <= int(t) < len(stamps):
         return None
     return float(stamps[int(t)])
+
+
+def t_seconds_of(meta: dict, t: int) -> float | None:
+    """The acquisition time (s) of timepoint ``t`` from the reader's ``t_seconds`` list, or None when the
+    header carries none (a fixed image, or a reader without the field). Public name of ``_t_seconds_of``
+    for the time-lapse loop; tolerant of a header that is not a dict."""
+    if not isinstance(meta, dict):
+        return None
+    try:
+        return _t_seconds_of(meta, t)
+    except (IndexError, TypeError, ValueError):
+        return None
 
 
 def process_image(
