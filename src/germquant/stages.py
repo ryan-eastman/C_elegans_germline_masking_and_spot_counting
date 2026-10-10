@@ -155,7 +155,7 @@ def run_stage(name: str, fn: Callable[[], Any], *, flags: list[str], outcomes: d
 
 
 def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str = "",
-                 spot_backend: dict | None = None) -> dict[str, str]:
+                 spot_backend: dict | None = None, segment_backend: dict | None = None) -> dict[str, str]:
     """Per-stage provenance sub-hash: sha256 (12 hex) of the stage's resolved config sections, the
     channel roles it consumes, the versions of the tools it depends on, and (segment) the Cellpose model
     file digest. Lets two runs with different whole-config hashes be recognised as identical for one stage
@@ -164,7 +164,8 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
 
     ``spot_backend`` is the provenance a non-default spot backend declares (net3d: its model file's
     sha256 and the extra channel roles it reads); it enters the spots payload only when not empty, so
-    the hashes of a default run are unchanged."""
+    the hashes of a default run are unchanged. ``segment_backend`` is the same for the segmentation
+    backend (nuclei3d: its model file's sha256), entering the segment payload only when not empty."""
     import hashlib
     import json
 
@@ -178,6 +179,8 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
         }
         if st.name == "segment":
             payload["model_sha256"] = model_sha
+        if st.name == "segment" and segment_backend:
+            payload["segment_backend"] = segment_backend
         if st.name == "spots" and spot_backend:
             payload["spot_backend"] = spot_backend
         out[st.name] = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:12]

@@ -22,6 +22,11 @@ the Imaris spots of the train gonads, selected on the val gonads, never on test:
 
   germquant train-spots --cache DIR --split-file tests/golden/rad51_split.json --out MODELDIR [--epochs N] [--patch Z,Y,X] [--seed S]
 
+The EXPERIMENTAL nuclei3d 3D nucleus model (docs/BENCHMARK.md, "nuclei3d"), trained on the bench cache against the
+recovered Imaris nucleus masks of the train gonads, selected on the val gonads, never on test:
+
+  germquant train-nuclei3d --cache DIR --split-file tests/golden/rad51_split.json --out MODELDIR [--epochs N] [--seed S]
+
 `register` estimates the drift of a finished series from the reference volumes that loop kept and writes the
 register_shifts table and a report next to the series record; nothing is resampled.
 
@@ -272,6 +277,56 @@ def main(argv: list[str] | None = None) -> int:
                      help="configurations whose val traced CCC is within this of the best count as tied and the "
                           "best F1 among them is selected (default 0.01, the protocol's meaningful change)")
 
+    ptn3 = sub.add_parser("train-nuclei3d",
+                          help="train the EXPERIMENTAL nuclei3d 3D nucleus model (a residual 3D U-Net with foreground, "
+                               "cell-distance and neighbour heads) on the bench cache against the recovered Imaris "
+                               "nucleus masks of the train gonads, with zero weight inside untraced Cellpose labels; "
+                               "early stopping on the val gonads by the protocol's F1 at IoU 0.5; never touches a test "
+                               "gonad. Writes MODELDIR/model.pt, training_log.json and model_card.json "
+                               "(docs/BENCHMARK.md, nuclei3d)")
+    ptn3.add_argument("--cache", required=True, help="the bench cache root (scripts/bench_cache.py writes it)")
+    ptn3.add_argument("--split-file", required=True,
+                      help="the pre-registered split record with the train / val / test roles "
+                           "(tests/golden/rad51_split.json)")
+    ptn3.add_argument("--out", required=True, metavar="MODELDIR", help="output folder (keep it outside the repository)")
+    ptn3.add_argument("--epochs", type=int, default=40, help="maximum epochs (default 40; early stopping may end sooner)")
+    ptn3.add_argument("--patch", default="48,160,160",
+                      help="training patch Z,Y,X in voxels, multiples of the network's size divisor (4,8,8 for 4 "
+                           "levels) with Y = X (default 48,160,160)")
+    ptn3.add_argument("--seed", type=int, default=0, help="seed of the patch draw, the initialisation and torch (default 0)")
+    ptn3.add_argument("--manifest", default=None,
+                      help="benchmark manifest naming the truth folders (default: "
+                           "germquant.benchmark.detector.DEFAULT_MANIFEST)")
+    ptn3.add_argument("--batch-size", type=int, default=4, help="patches per step (default 4)")
+    ptn3.add_argument("--steps-per-epoch", type=int, default=250, help="steps per epoch (default 250)")
+    ptn3.add_argument("--lr", type=float, default=1e-3, help="AdamW peak learning rate (default 1e-3)")
+    ptn3.add_argument("--warmup-steps", type=int, default=250, help="linear warm-up steps (default 250)")
+    ptn3.add_argument("--patience", type=int, default=8,
+                      help="stop after this many validations without a new best (default 8)")
+    ptn3.add_argument("--val-every", type=int, default=1, help="validate every N epochs (default 1)")
+    ptn3.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto",
+                      help="auto = CUDA when available (default)")
+    ptn3.add_argument("--min-free-gb", type=float, default=0.0,
+                      help="on CUDA, wait until the GPU has this many GB free, polling every 60 s (default 0: no wait)")
+    ptn3.add_argument("--wait-minutes", type=float, default=120.0, help="give up waiting for the GPU after this long")
+    ptn3.add_argument("--prep-dir", default=None,
+                      help="folder of the per-gonad target maps (default MODELDIR/prep); share it between runs")
+    ptn3.add_argument("--base-channels", type=int, default=16, help="width of the first level (default 16)")
+    ptn3.add_argument("--levels", type=int, default=4, help="U-Net levels (default 4)")
+    ptn3.add_argument("--tile", default="96,384,384", help="inference tile Z,Y,X for the validation (default 96,384,384)")
+    ptn3.add_argument("--w-traced-shell", type=float, default=1.0,
+                      help="loss weight of a traced nucleus's own Cellpose label outside its traced mask (background "
+                           "by the truth; default 1, 0 = unknown like an untraced label)")
+    ptn3.add_argument("--fg-threshold", type=float, default=0.5, help="foreground threshold of the validation (default 0.5)")
+    ptn3.add_argument("--h-um", type=float, default=0.4, help="h of the h-maxima seeds in um (default 0.4)")
+    ptn3.add_argument("--neighbour-weight", type=float, default=1.0,
+                      help="how far the neighbour closeness presses the distance map down (default 1)")
+    ptn3.add_argument("--post-grid", default=None,
+                      help="after training, score the selected epoch on val over a grid of the instance-step "
+                           "parameters and keep the best in model.pt, e.g. h_um=0.3,0.4,0.6;fg_threshold=0.4,0.5")
+    ptn3.add_argument("--min-volume-um3", type=float, default=4.0,
+                      help="the size filter of the validation (default 4.0, segmentation.nuclei.min_volume_um3)")
+
     prm = sub.add_parser("register-model",
                          help="add a locally trained model to the model registry (local_models.json next to the "
                               "release assets), so a profile can name it in segmentation.nuclei.cellpose_model and "
@@ -303,6 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         "export-training": lambda: _export_training(args),
         "train-nuclei": lambda: _train_nuclei(args),
         "train-spots": lambda: _train_spots(args),
+        "train-nuclei3d": lambda: _train_nuclei3d(args),
         "register-model": lambda: _register_model(args),
 
         "track-export": lambda: _track_export(args),
@@ -607,12 +663,14 @@ def _batch(args) -> int:
 
     # image-independent provenance, computed once per batch: the segment sub-hash lets --resume notice a
     # retrained model or a Cellpose upgrade (per-image geometry lives in <id>__stages.json / __done.json)
-    from .pipeline import resolve_model_path
+    from .pipeline import resolve_model_path, segment_backend_provenance
     from .stages import stage_hashes as stage_hashes_fn
 
     model_sha = (provenance.file_sha256(resolve_model_path(cfg))
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
-    segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha)["segment"]
+    # the segmentation backend's own provenance ({} on the default run), as process_image hashes it
+    segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
+                                   segment_backend=segment_backend_provenance(cfg))["segment"]
     prov = provenance.write_manifest(out_root, config_hash=cfg.hash, config=cfg.as_dict(),
                                      extra={"n_files": len(files), "input_root": str(root),
                                             "excluded": [str(f) for f, _ in dropped],
@@ -890,6 +948,33 @@ def _train_spots(args) -> int:
     print(f"  card  -> {res['card_path']}")
     print(f"  score it: python scripts/bench_detector.py --backend net3d --params "
           f"'{{\"net3d\": {{\"model\": \"{Path(res['model_path']).as_posix()}\"}}}}' --split val --out DIR")
+    return 0
+
+
+def _train_nuclei3d(args) -> int:
+    from .segment.nuclei3d.infer import parse_zyx
+    from .segment.nuclei3d.train import parse_grid, train_nuclei3d
+
+    res = train_nuclei3d(args.cache, args.split_file, args.out, manifest=args.manifest, epochs=args.epochs,
+                         patch=parse_zyx(args.patch), seed=args.seed, batch_size=args.batch_size,
+                         steps_per_epoch=args.steps_per_epoch, lr=args.lr, warmup_steps=args.warmup_steps,
+                         patience=args.patience, val_every=args.val_every, device=args.device,
+                         base_channels=args.base_channels, levels=args.levels, tile_zyx=parse_zyx(args.tile),
+                         data_cfg={"w_traced_shell": args.w_traced_shell},
+                         post={"fg_threshold": args.fg_threshold, "h_um": args.h_um,
+                               "neighbour_weight": args.neighbour_weight},
+                         grid=parse_grid(args.post_grid), min_volume_um3=args.min_volume_um3,
+                         prep_dir=args.prep_dir, min_free_gb=args.min_free_gb, wait_minutes=args.wait_minutes)
+    g = res["gonads"]
+    print(f"\nnuclei3d: trained on {[r['tag'] for r in g['train']]} ({res['device']}), validated on "
+          f"{[r['tag'] for r in g['val']]}; left out {[r['tag'] for r in g['excluded']]}; test gonads never opened")
+    vb = res.get("val_best") or {}
+    print(f"  selected epoch {res['best_epoch']} of {res['epochs_run']} ({res['stop_reason']}), post {res['post']}: "
+          f"val F1@0.5 {vb.get('f1_iou50')}, AP {vb.get('ap_iou50_95')}, recall {vb.get('recall_iou50')}")
+    print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
+    print(f"  card  -> {res['card_path']}")
+    print(f"  score it: python scripts/benchmark_nuclei3d.py --manifest MANIFEST --split val --coverage protocol "
+          f"--model \"{Path(res['model_path']).as_posix()}\" --out DIR")
     return 0
 
 
