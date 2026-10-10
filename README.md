@@ -616,7 +616,10 @@ every other format to `io/bioio_reader.py` (bioio, the `readers` extra); both re
 
 Documents: `docs/ARCHITECTURE.md` (design), `docs/RUNBOOK.md` (full-resolution GPU run and spot
 calibration), `docs/SPOTMAX_VALIDATION.md` (how the spot counts were validated against Imaris and
-what is still unvalidated), `docs/COLOCALIZATION.md` (the coloc stage), `docs/PARTITION_QC.md` (the
+what is still unvalidated), `docs/BENCHMARK_PROTOCOL.md` (the pre-registered RAD-51 benchmark: the
+train/val/test split of the 12 N2 gonads in `tests/golden/rad51_split.json`, what the Imaris truth is
+and is not, the metrics, the win conditions, the competitors and the stop rule),
+`docs/COLOCALIZATION.md` (the coloc stage), `docs/PARTITION_QC.md` (the
 partition measurability columns and flag), `docs/SC_TRACING.md` (the SC
 tracer), `docs/MAC_METAL.md` (Apple Silicon), `docs/ANNOTATION.md` (annotating nuclei and
 fine-tuning the Cellpose model), `docs/BACKENDS.md` (pluggable nucleus segmentation and spot detection

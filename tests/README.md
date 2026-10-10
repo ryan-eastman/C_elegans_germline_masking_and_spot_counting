@@ -23,6 +23,10 @@ gonads are built inside the fixtures.
   real-data comparison (see the environment variables below). The goldens were produced on the
   workstation (Windows, the pinned `constraints/desktop-2026-09.txt` environment) and are checked
   with `check_exact=True`.
+- `test_benchmark_split.py`: the pre-registered RAD-51 benchmark split (`golden/rad51_split.json`,
+  `docs/BENCHMARK_PROTOCOL.md`): the 12 tags and their train/val/test roles, the sha256 helper, the
+  Imaris creation-parameter reader on a synthetic HDF5 project, and the manifest builder
+  (`scripts/benchmark_manifest.py`) on a temporary tree.
 - `test_gpu.py`: the real Cellpose-SAM 3D path. See the markers.
 
 ## Markers
@@ -50,8 +54,10 @@ Opt-ins driven by environment variables rather than markers:
   certified; see the docstring of `test_golden.py` and `scripts/make_goldens.py`.
 
 Other automatic skips: the extended-path check in `test_fsutil.py` runs only on Windows, its
-POSIX twin only elsewhere, and `test_staging.py` skips its comparison with the August staging tables
-when they are not on the machine.
+POSIX twin only elsewhere, `test_staging.py` skips its comparison with the August staging tables
+when they are not on the machine, and `test_benchmark_split.py` skips the check that the 24
+registered `.nd2` and `.ims` files exist with their registered sizes when the N2 RAD-51 data is not
+on the machine.
 
 ## Running the suite locally
 
@@ -129,4 +135,7 @@ Two sets of real gonads are frozen under `C:/Users/ryane/germquant_golden/8666f0
 * `n2rad51_*` (12 gonads): the 3-channel N2 RAD-51 cross-validation set of 2025-11-05 (DAPI, SYP, RAD-51),
   no heat shock and heat shock, hermaphrodites and males, imaged with the standard preparation and paired
   with Imaris annotations. These are both regression inputs and the benchmark set for spot detection.
+  Their train/val/test split, with the size and sha256 of every `.nd2` and `.ims`, is
+  `tests/golden/rad51_split.json` (rebuilt by `scripts/make_rad51_split.py`); the benchmark protocol is
+  `docs/BENCHMARK_PROTOCOL.md`.
 
