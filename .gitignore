@@ -31,6 +31,8 @@ env/
 *.egg-info/
 build/
 dist/
+.ruff_cache/
+.pytest_cache/
 
 # ---- snakemake ----
 .snakemake/

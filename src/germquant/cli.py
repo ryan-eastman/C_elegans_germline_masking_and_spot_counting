@@ -3,6 +3,9 @@
   germquant info  STACK.nd2
   germquant run   STACK.nd2 --config config/config.yaml --out results/ [--xy-stride 4 --z-range 20 40]
   germquant batch /nas/folder --config config/config.yaml --out /nas/folder_results
+
+`info` and `run` also take TIFF / OME-TIFF, CZI, LIF and OME-Zarr files when the optional `readers`
+extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders.
 """
 from __future__ import annotations
 
@@ -26,19 +29,19 @@ import sys
 from pathlib import Path
 
 from . import provenance
-from .config import load_config
-from .io import read_nd2_metadata
+from .config import find_profile, load_config
+from .io import read_image_metadata
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="germquant", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    pi = sub.add_parser("info", help="print .nd2 channels + voxel size (no pixels loaded)")
-    pi.add_argument("nd2")
+    pi = sub.add_parser("info", help="print the channels + voxel size of an image (no pixels loaded)")
+    pi.add_argument("nd2", help="an .nd2 (or .tif / .ome.tif / .czi / .lif / .zarr with the readers extra)")
 
-    pr = sub.add_parser("run", help="process a single .nd2")
-    pr.add_argument("nd2")
+    pr = sub.add_parser("run", help="process a single image (.nd2; other formats with the readers extra)")
+    pr.add_argument("nd2", help="an .nd2 (or .tif / .ome.tif / .czi / .lif / .zarr with the readers extra)")
     _add_config_args(pr)
     pr.add_argument("--out", required=True)
     pr.add_argument("--xy-stride", type=int, default=1, help="downsample xy for a quick test")
@@ -138,20 +141,10 @@ def _add_config_args(parser) -> None:
 
 def _resolve_config_path(args) -> Path:
     if getattr(args, "profile", None):
-        import os
-
-        roots = [r for r in (provenance._repo_root(), Path.cwd(),
-                             Path(os.environ["GERMQUANT_CONFIG_ROOT"]) if os.environ.get("GERMQUANT_CONFIG_ROOT") else None)
-                 if r is not None]
-        tried = []
-        for root in roots:
-            p = root / "config" / "profiles" / f"{args.profile}.yaml"
-            tried.append(p)
-            if p.is_file():
-                return p
-        have = sorted({x.stem for r in roots for x in (r / "config" / "profiles").glob("*.yaml")})
-        raise SystemExit(f"no profile {args.profile!r}; looked in {[str(t) for t in tried]}; available: {have} "
-                         f"(set GERMQUANT_CONFIG_ROOT to the checkout that holds config/profiles)")
+        try:
+            return find_profile(args.profile)       # the same lookup germquant.api.run(profile=...) uses
+        except FileNotFoundError as e:
+            raise SystemExit(str(e)) from None
     return Path(args.config)
 
 
@@ -185,7 +178,7 @@ def _force_utf8_stdio() -> None:
 
 
 def _info(nd2: str) -> int:
-    m = read_nd2_metadata(nd2)
+    m = read_image_metadata(nd2)       # read_nd2_metadata for an .nd2, the bioio header for other formats
     print(f"file       : {nd2}")
     print(f"sizes      : {m['sizes']}")
     print(f"dtype      : {m['dtype']}   2D={m['is_2d']}")
@@ -196,14 +189,13 @@ def _info(nd2: str) -> int:
 
 
 def _run(args) -> int:
-    from .pipeline import process_image
+    from .api import run
 
     cfg = load_config(_resolve_config_path(args))
     _apply_switches(cfg, args)
-    out = Path(args.out)
-    z_range = tuple(args.z_range) if args.z_range else None
-    # process_image writes run_manifest.json itself (with the run geometry and per-stage hashes)
-    res = process_image(args.nd2, cfg, out, xy_stride=args.xy_stride, z_range=z_range, prov=None)
+    # germquant.api.run is the one path to a results folder: a GUI or a notebook calling it with the same
+    # settings writes the same files (process_image writes run_manifest.json itself)
+    res = run(args.nd2, config=cfg, out=args.out, xy_stride=args.xy_stride, z_range=args.z_range)
     mark = "✓" if res["qc_pass"] else "⚠"
     print(f"\n{mark} {res['image_id']}: {res['n_nuclei']} nuclei, qc_pass={res['qc_pass']}")
     if res["qc_flags"]:

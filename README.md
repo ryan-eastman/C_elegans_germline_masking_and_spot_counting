@@ -1,5 +1,7 @@
 # germquant: nucleus segmentation and RAD-51 spot counting in C. elegans germlines
 
+[![CI](https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting/actions/workflows/ci.yml/badge.svg)](https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting/actions/workflows/ci.yml)
+
 This program takes a confocal image of a worm germline (a `.nd2` file), finds every nucleus in 3D,
 decides which nuclei belong to the gonad, and counts the RAD-51 spots inside each one. The answers
 come out as spreadsheet files (`.csv`) that open in Excel, plus a picture you can glance at to
@@ -233,6 +235,7 @@ Instead of `--config config/config.yaml` you can name a profile with `--profile`
 | `segmentation_only` | nuclei, germline and gonad axis only, no spots or colocalization (for Imaris surfaces) |
 | `n2_sc` | adds the SC tracer for fragmentation (see `docs/SC_TRACING.md`) |
 | `ccw77_partition` | the SYP-3 / PGL-1 partition analysis: lamin envelopes, hand-traced staging, the Imaris-calibrated granule recipe, on top of `config/config_ccw77.yaml` |
+| `generic` | samples that are not a worm germline (cultured cells, yeast, sections): nuclei with the stock Cellpose model and puncta per nucleus, every worm stage off (see `docs/GENERIC_PROFILE.md`) |
 
 Windows:
 ```
@@ -249,6 +252,17 @@ config. Every optional stage can also be switched off on the command line with `
 `--no-staging`, `--no-partition`, and so on). The staging stage has to run before the partition
 zones or a late-pachytene spot mean can exist. The `alpine` and `slurm` folders in
 `config/profiles/` are cluster job settings, not names for `--profile`.
+
+### Samples that are not a worm germline
+
+`--profile generic` runs the nucleus segmentation (stock Cellpose-SAM), the per-nucleus
+measurements and the SpotMAX puncta count on any 3D stack with a nuclear stain and an optional
+puncta channel, with every *C. elegans* stage (germline isolation, gonad axis, staging, envelope,
+SC tracing, partitioning) switched off; `in_germline` then reads True for every nucleus. Its channel
+map, `config/channel_maps/generic_nuclei_puncta.yaml`, resolves channels by descriptive name or by
+position. `docs/GENERIC_PROFILE.md` says what each output column means outside the worm, how to
+adapt the recipe in a study profile (your channel names, spot radius, filename pattern), and why
+single-plane (2D) images are not supported yet.
 
 ### Segmentation only (no spot counting)
 
@@ -281,6 +295,21 @@ Mac:
 prints the channel names and the voxel size without loading the pixels. Use it whenever you are not
 sure which config to pick (next section).
 
+### Other file formats
+
+The pipeline was built and validated on Nikon `.nd2` stacks, and those need nothing extra. It can
+also read TIFF and OME-TIFF (`.tif`, `.tiff`, `.ome.tif`), Zeiss `.czi`, Leica `.lif` and OME-Zarr
+(`.zarr`, `.ome.zarr`) through the bioio readers, which are an optional install: with the environment
+active as in the setup sections below, run `uv pip install -e ".[readers]"` from the repository folder
+(or install just `bioio` plus the plugin for your format, for example `uv pip install bioio
+bioio-ome-tiff`; the error message names the one you need). Every format comes out as the
+same stack (channel, z, y, x) with the voxel size in microns and the channel names as the file reports
+them, so the channel map matches by those names, and a file without a readable voxel size is flagged
+`voxel:UNREADABLE_assumed_isotropic_1um` exactly as an `.nd2` would be. One image per file for now: a
+time-lapse (more than one time point) or a file with several scenes or positions stops with a message
+asking for a single scene (time-lapse support is planned). `germquant info` and `germquant run` take
+these files; `germquant batch` still expects a folder of `.nd2` files.
+
 ### Checking the graphics chip is being used
 
 Windows:
@@ -306,7 +335,7 @@ slashes here; on Windows `config/config.yaml` and `config\config.yaml` are the s
 |---|---|---|
 | `config/config.yaml` | N2-style DAPI / SYP / RAD-51, with or without a fourth PGL-1 channel | nuclei, germline isolation, RAD-51 spots; colocalization only if a PGL-1 channel is present |
 | `config/config_ccw77.yaml` | ccw77 four-colour IF: DAPI / PGL-1::GFP (477) / SYP-3::mCherry (545) / LMN-1 (640) | nuclei, germline isolation, SYP-3 / PGL-1 colocalization with the lamin envelope; there is no RAD-51 channel so spot counting skips itself |
-| `config/config_n2dryice.yaml` | the N2 dry-ice test set | as `config.yaml` |
+| `config/config_n2dryice.yaml` | the N2 dry-ice set (a fixation test, not the standard prep: regression use only) | as `config.yaml` |
 
 The channel assignments themselves are in `config/channel_maps/`. Channels are matched by name
 (the laser line, for example `405`, `477`, `545`, `640`) with a fixed-position fallback. If the
@@ -577,12 +606,20 @@ the code is a Python package under `src/germquant/` (`cli.py`, `pipeline.py`, `d
 `validate`); `schema.py` declares every output column (append-only). The roadmap that produced this
 layout is `docs/ROADMAP_modular_pipeline.md`.
 
+Driving it from code: `germquant.api` is the stable surface for GUIs, notebooks and other packages
+(`api.run(image, config=..., profile=..., out=..., overrides=...)` is the function `germquant run`
+itself calls, so both write the same files; the module docstring states the stability promise).
+Readers: `io/read.py` dispatches on the file name, `.nd2` to the reader the pipeline always used and
+every other format to `io/bioio_reader.py` (bioio, the `readers` extra); both return the same `Stack`.
+
 Documents: `docs/ARCHITECTURE.md` (design), `docs/RUNBOOK.md` (full-resolution GPU run and spot
 calibration), `docs/SPOTMAX_VALIDATION.md` (how the spot counts were validated against Imaris and
 what is still unvalidated), `docs/COLOCALIZATION.md` (the coloc stage), `docs/SC_TRACING.md` (the SC
 tracer), `docs/MAC_METAL.md` (Apple Silicon), `docs/ANNOTATION.md` (annotating nuclei and
-fine-tuning the Cellpose model), `docs/HPC_ALPINE.md` (cluster runs), `analysis/coloc/README.md`
-(the SYP-3 / PGL-1 analysis layer).
+fine-tuning the Cellpose model), `docs/BACKENDS.md` (pluggable nucleus segmentation and spot detection
+backends: the contracts, `segmentation.nuclei.backend` and `spots.backend`, the experimental `log`
+baseline), `docs/GENERIC_PROFILE.md` (the generic profile for samples that are not a worm germline),
+`docs/HPC_ALPINE.md` (cluster runs), `analysis/coloc/README.md` (the SYP-3 / PGL-1 analysis layer).
 
 Configuration: `config/config.yaml` holds every tunable value with a comment saying why it is set
 the way it is; the `spots` block holds the cross-validated detection parameters. Channel maps are in
@@ -596,11 +633,47 @@ release and a new entry there.
 Validation and cross-validation tools are in `scripts/` (`cv_*.py`, `validate_*.py`,
 `calibrate_spots.py`, `regression_diff.py`, `make_goldens.py`) with the Imaris readers in
 `germquant.validate`. Unit tests: `pytest` from the repository root; they run on CPU and need no GPU
-or data, and `tests/test_golden.py` guards the numbers against the frozen references. Pinned
-environments: `constraints/desktop-2026-09.txt` (workstation), `constraints/mac-arm64-2026-09.txt`
-(Apple Silicon).
+or data, and `tests/test_golden.py` guards the numbers against the frozen references
+(`tests/README.md` explains the markers, the opt-in real-data comparison and how the same suite runs
+on GitHub Actions, `.github/workflows/ci.yml`). Pinned environments:
+`constraints/desktop-2026-09.txt` (workstation), `constraints/mac-arm64-2026-09.txt` (Apple
+Silicon), `constraints/ci-cpu-2026-10.txt` (continuous integration, CPU).
 
 Other CLI commands: `validate` (compare a pipeline table or label image with hand-scored ground
 truth), `prep-training` (export DAPI slices for annotation), `finetune` (fine-tune the Cellpose
 model on a labelled folder), `check-gpu`, `get-model`, `collect`, `trace`, `restage`. Run the
 program with `--help` for the options.
+
+## Citing
+
+If germquant contributes to a publication, please cite it. The citation metadata lives in
+`CITATION.cff` at the repository root (GitHub shows it under "Cite this repository" and can export
+BibTeX or APA from it). In prose:
+
+> Eastman, R. (2026). germquant: nucleus segmentation and RAD-51 spot counting in C. elegans
+> germlines (version 0.1.0) [Computer software]. Colorado State University, Cahoon Lab.
+> https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting
+
+There is no archived release DOI yet; when a tagged release is deposited, the DOI goes into the
+`doi` field of `CITATION.cff` and here. Please also cite the tools that do the heavy lifting inside
+the pipeline, in the form each project asks for in its own documentation: Cellpose and Cellpose-SAM
+(nucleus segmentation), SpotMAX and Cell-ACDC (spot detection) and scikit-image.
+
+## License
+
+germquant is released under the MIT License (see `LICENSE`; copyright 2026 Ryan Eastman). That
+covers everything in this repository: the package, the scripts, the configs and the documentation.
+
+The tools it depends on are installed from PyPI, not bundled here, and keep their own licences:
+
+- Cellpose: BSD-3-Clause. The nucleus model distributed as a GitHub release asset
+  (`germquant get-model`) is a fine-tune of the Cellpose-SAM weights, and Cellpose's own training
+  data is distributed under a non-commercial (CC BY-NC) licence; a model card for the fine-tuned
+  model should say so, and commercial use of the model needs that question settled first.
+- SpotMAX: its package metadata declares BSD-3-Clause, but the LICENSE file shipped inside the
+  package is GPL-3.0. Until its authors clarify, treat SpotMAX as GPL-3.0. This matters only when
+  SpotMAX is bundled into an image that is redistributed (the `Dockerfile` and `apptainer.def`
+  install it), not for a pip install next to germquant.
+- Cell-ACDC: BSD-3-Clause.
+- numpy, scipy, scikit-image, pandas, tifffile and the rest of the scientific stack: BSD-style
+  licences.

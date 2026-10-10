@@ -1,11 +1,13 @@
-"""RAD-51 (or other) spot quantification via SpotMAX — replaces the v1 blob_log foci detector.
+"""RAD-51 (or other) spot quantification: ``detect_spots`` dispatches to a registered spot detection
+backend (spots/backends.py, docs/BACKENDS.md); the default, ``spotmax``, is the validated SpotMAX chain
+implemented here as ``detect_spots_spotmax`` (it replaced the v1 blob_log foci detector).
 
 Per nucleus, detect spots in the spot channel *inside the nucleus mask* using SpotMAX's validated
 chain: preprocess -> semantic segmentation (where spots can be) -> peak detection -> per-spot
 features incl. effect-size (spot vs background). Returns tidy per-spot and per-nucleus tables.
 
 SpotMAX runs HEADLESS here (no GUI, no interactive prompts). Detection/threshold/effect-size
-parameters live in germquant config (`spots:`) and are calibrated against Imaris counts — the GUI
+parameters live in germquant config (`spots:`) and are calibrated against Imaris counts; the GUI
 is for *viewing*, not counting. Validated chain: scripts/smoke_spotmax.py.
 """
 from __future__ import annotations
@@ -15,17 +17,69 @@ import logging
 import numpy as np
 import pandas as pd
 
+from .backends import DEFAULT_BACKEND, PER_NUC_COLS, PER_SPOT_COLS, conform_result, get_backend
+
 log = logging.getLogger(__name__)
 
-PER_SPOT_COLS = [
-    "spot_id", "nucleus_id", "marker", "z_um", "y_um", "x_um",
-    "effect_size", "spot_mean_intensity", "detector",
-]
-PER_NUC_COLS = ["nucleus_id", "marker", "n_spots", "mean_spot_intensity", "detector"]
 _EFFECT = "spot_vs_backgr_effect_size_glass"
+# the SpotMAX parameters detect_spots resolves and overlays on the section it hands to a backend
+SPOTMAX_KEYS = (
+    "spot_radius_um", "gauss_sigma_um", "thresholding_method", "effect_size_metric", "effect_size_min",
+    "merge_z_columns", "z_merge_gap_um", "z_merge_valley_frac", "max_spot_candidates",
+)
+# the SpotMAX defaults detect_spots falls back to when neither the caller nor the config section names a value
+SPOTMAX_DEFAULTS = dict(
+    spot_radius_um=0.3, gauss_sigma_um=0.08, thresholding_method="threshold_otsu", effect_size_metric=_EFFECT,
+    effect_size_min=0.0, merge_z_columns=True, z_merge_gap_um=0.8, z_merge_valley_frac=0.8, max_spot_candidates=30000,
+)
 
 
 def detect_spots(
+    spot_img: np.ndarray,
+    labels: np.ndarray,
+    spacing: tuple[float, float, float],
+    *,
+    marker: str = "RAD-51",
+    spot_radius_um: float | None = None,
+    gauss_sigma_um: float | None = None,
+    thresholding_method: str | None = None,
+    effect_size_metric: str | None = None,
+    effect_size_min: float | None = None,
+    merge_z_columns: bool | None = None,
+    z_merge_gap_um: float | None = None,
+    z_merge_valley_frac: float | None = None,
+    max_spot_candidates: int | None = None,
+    backend: str = DEFAULT_BACKEND,
+    cfg_section: dict | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return (per_spot_df, per_nucleus_df) from the spot detection backend ``backend``: by default
+    ``spotmax``, the validated SpotMAX chain of ``detect_spots_spotmax`` below, called with exactly
+    these arguments (spots/backends.py lists the others; docs/BACKENDS.md documents them).
+
+    The keyword arguments are the SpotMAX parameters. ``cfg_section`` is the raw ``spots:`` config
+    mapping; the backend receives a copy of it with these parameters resolved (an explicit argument wins,
+    then the section's own value, then the SpotMAX default), so a backend finds its own keys (``log.diameter_um``) next to the shared ones
+    (``max_spot_candidates``). Both tables always have the columns PER_SPOT_COLS / PER_NUC_COLS and
+    the ``detector`` column carries the backend name; an unknown name raises ValueError."""
+    # precedence: an explicit keyword (not None) wins; else the section's own value; else the SpotMAX default.
+    # A caller that passes the shared keys only in cfg_section is therefore not silently overridden.
+    section = dict(cfg_section or {})
+    explicit = dict(
+        spot_radius_um=spot_radius_um, gauss_sigma_um=gauss_sigma_um, thresholding_method=thresholding_method,
+        effect_size_metric=effect_size_metric, effect_size_min=effect_size_min, merge_z_columns=merge_z_columns,
+        z_merge_gap_um=z_merge_gap_um, z_merge_valley_frac=z_merge_valley_frac,
+        max_spot_candidates=max_spot_candidates,
+    )
+    for key, default in SPOTMAX_DEFAULTS.items():
+        if explicit[key] is not None:
+            section[key] = explicit[key]
+        elif key not in section:
+            section[key] = default
+    fn = get_backend(backend)
+    return conform_result(backend, fn(spot_img, labels, spacing, cfg_section=section, marker=marker))
+
+
+def detect_spots_spotmax(
     spot_img: np.ndarray,
     labels: np.ndarray,
     spacing: tuple[float, float, float],
@@ -41,7 +95,9 @@ def detect_spots(
     z_merge_valley_frac: float = 0.8,
     max_spot_candidates: int = 30000,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (per_spot_df, per_nucleus_df). Spots are assigned to the nucleus whose mask they fall
+    """The SpotMAX reference implementation, registered as the ``spotmax`` backend (``detect_spots``
+    dispatches here by default; the body is the one the stage always ran, so its outputs are unchanged).
+    Return (per_spot_df, per_nucleus_df). Spots are assigned to the nucleus whose mask they fall
     in; `effect_size_min` (>0) drops spots below that spot-vs-background effect size.
 
     `merge_z_columns` (default on) collapses the z-axis spot-splitting artifact: confocal axial PSF
@@ -68,7 +124,7 @@ def detect_spots(
                            lab=labels, return_df=True)
     df = det[0] if isinstance(det, tuple) else det
     if df is None or len(df) == 0:
-        return _empty(labels, marker)
+        return _empty(labels, marker, "spotmax")
 
     zi = np.clip(df["z"].astype(int), 0, labels.shape[0] - 1)
     yi = np.clip(df["y"].astype(int), 0, labels.shape[1] - 1)
@@ -122,30 +178,7 @@ def detect_spots(
             log.warning("effect_size_min=%.2f requested but effect sizes unavailable; NOT filtering.",
                         effect_size_min)
 
-    per_spot = pd.DataFrame({
-        "spot_id": np.arange(len(df)),
-        "nucleus_id": df["nucleus_id"].astype(int),
-        "marker": marker,
-        "z_um": df["z"].to_numpy() * sp[0],
-        "y_um": df["y"].to_numpy() * sp[1],
-        "x_um": df["x"].to_numpy() * sp[2],
-        "effect_size": df["effect_size"].to_numpy(),
-        "spot_mean_intensity": df["spot_mean_intensity"].to_numpy(),
-        "detector": "spotmax",
-    }, columns=PER_SPOT_COLS)
-
-    # one row per segmented nucleus (0 spots is a real zero, not a dropped row)
-    counts = per_spot.groupby("nucleus_id").size()
-    means = per_spot.groupby("nucleus_id")["spot_mean_intensity"].mean()
-    nuc_ids = [int(v) for v in np.unique(labels) if v != 0]
-    per_nuc = pd.DataFrame({
-        "nucleus_id": nuc_ids,
-        "marker": marker,
-        "n_spots": [int(counts.get(n, 0)) for n in nuc_ids],
-        "mean_spot_intensity": [float(means.get(n, np.nan)) for n in nuc_ids],
-        "detector": "spotmax",
-    }, columns=PER_NUC_COLS)
-    return per_spot, per_nuc
+    return _finish_tables(df, labels, sp, marker, "spotmax")
 
 
 def _cap_candidates(df: pd.DataFrame, image: np.ndarray, cap: int) -> pd.DataFrame:
@@ -203,10 +236,41 @@ def _merge_z_columns(df: pd.DataFrame, spacing: np.ndarray, gap_um: float,
     return df.loc[keep].reset_index(drop=True)
 
 
-def _empty(labels, marker):
+def _finish_tables(df: pd.DataFrame, labels, sp: np.ndarray, marker: str, detector: str):
+    """The two output tables from a frame of accepted spots with columns nucleus_id, z, y, x (voxel
+    coordinates, a fresh RangeIndex), effect_size and spot_mean_intensity. Shared by every built-in
+    backend; the construction is the one the SpotMAX path always used, with the detector name as the
+    only variable."""
+    per_spot = pd.DataFrame({
+        "spot_id": np.arange(len(df)),
+        "nucleus_id": df["nucleus_id"].astype(int),
+        "marker": marker,
+        "z_um": df["z"].to_numpy() * sp[0],
+        "y_um": df["y"].to_numpy() * sp[1],
+        "x_um": df["x"].to_numpy() * sp[2],
+        "effect_size": df["effect_size"].to_numpy(),
+        "spot_mean_intensity": df["spot_mean_intensity"].to_numpy(),
+        "detector": detector,
+    }, columns=PER_SPOT_COLS)
+
+    # one row per segmented nucleus (0 spots is a real zero, not a dropped row)
+    counts = per_spot.groupby("nucleus_id").size()
+    means = per_spot.groupby("nucleus_id")["spot_mean_intensity"].mean()
+    nuc_ids = [int(v) for v in np.unique(labels) if v != 0]
+    per_nuc = pd.DataFrame({
+        "nucleus_id": nuc_ids,
+        "marker": marker,
+        "n_spots": [int(counts.get(n, 0)) for n in nuc_ids],
+        "mean_spot_intensity": [float(means.get(n, np.nan)) for n in nuc_ids],
+        "detector": detector,
+    }, columns=PER_NUC_COLS)
+    return per_spot, per_nuc
+
+
+def _empty(labels, marker, detector: str = "spotmax"):
     nuc_ids = [int(v) for v in np.unique(labels) if v != 0]
     per_nuc = pd.DataFrame({
         "nucleus_id": nuc_ids, "marker": marker, "n_spots": 0,
-        "mean_spot_intensity": np.nan, "detector": "spotmax",
+        "mean_spot_intensity": np.nan, "detector": detector,
     }, columns=PER_NUC_COLS)
     return pd.DataFrame(columns=PER_SPOT_COLS), per_nuc

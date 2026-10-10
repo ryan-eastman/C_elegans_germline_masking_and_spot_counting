@@ -12,7 +12,7 @@ completion marker, hash-preserving profiles, batch resume / exclusions / collect
 as sc_trace, envelope + audit + acquisition stages, granule.method imaris_tophat, the staging stage with
 `germquant trace` / `restage` and the 25 migrated traces, partition + granule_tail stages and the
 ccw77_partition profile, spot instances for COSA-1, ImageJ voxel tags on every label TIF. Real goldens
-(7 N2 dry-ice gonads plus stride-4 variants) are generated from a worktree of 8666f07 under
+(7 N2 dry-ice gonads plus stride-4 variants; that set was a fixation test, not the lab's standard prep, so it is a regression input only, never biological reference data) are generated from a worktree of 8666f07 under
 C:/Users/ryane/germquant_golden/8666f07/; the RAD-51 cross-validation gonads join them once the NAS is
 reachable, and the ccw77 reconciliation of the partition stage needs the nd2 files on the E: drive.
 Real-data checks so far (2026-09-10 night): the current head run at full resolution on the dry-ice
@@ -165,3 +165,7 @@ Tranche C, calibration and HPC, about 3.5 days plus Ryan's tracing and Alpine ac
 6. Whether hand tracing with `germquant trace` becomes the lab's standard staging step (it is what
    makes pachytene SC means, the COSA-1 late-pachytene restriction and partition zones available).
 7. Where the golden outputs live (E: drive vs the lab NAS), and Alpine account/partition strings.
+
+**Tree-wide golden diff (2026-09-24):** all 11 real goldens (7 full-resolution N2 dry-ice gonads and 4 stride-4 variants, tests/golden/real_manifest.json) rerun with the current code (65709aa through 12a5f75, i.e. main after PR #3 plus PR #4) match the frozen 8666f07 goldens exactly: 0 failing comparisons, only the appended columns differ. The same gonad run under Python 3.14.5 with the same pins is also byte-identical (see the Python note below).
+
+**Python version (2026-09-24):** Python 3.14 validated but not yet adopted: every package in the environment has 3.14 wheels for Windows, Mac and Linux, the README recipe installs unchanged, the test suite is identical, and the golden gonad diff is clean. Switching means bumping 3.11 to 3.14 in the README, docs/MAC_METAL.md, the Dockerfile and both constraints files (pinning the full freeze), and regenerating or removing pixi.toml and environment.yml, which still describe an older environment.

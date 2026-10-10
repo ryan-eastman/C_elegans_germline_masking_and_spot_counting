@@ -31,6 +31,9 @@ gpu  = ["torch>=2.7", "cellpose>=3.1"]     # 3D nucleus segmentation on CUDA (sm
 spots = ["spotmax", "cellacdc"]            # SpotMAX spot detection (the RAD-51 counter)
 sc = ["skan>=0.11"]                         # OPTIONAL: SC ribbon length (skan). The ribbon MASK +
                                            #   all coloc metrics need only scikit-image (core dep).
+# Input formats beyond .nd2 (TIFF / OME-TIFF, Zeiss CZI, Leica LIF, OME-Zarr) through bioio and one
+# reader plugin per format (src/germquant/io/bioio_reader.py). The .nd2 path needs none of this.
+readers = ["bioio>=1.0", "bioio-tifffile", "bioio-ome-tiff", "bioio-czi", "bioio-lif", "bioio-ome-zarr"]
 viz = ["napari[all]>=0.4.19", "napari-animation>=0.0.8"]
 # Snakemake batch orchestration. `germquant batch` is a pure-python loop and needs none of
 # this; the NAS->mirrored-tree Snakemake workflow (workflow/Snakefile) does.
@@ -45,6 +48,27 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]   # the unit suite; scripts/ holds runnable dev/validation tools, not tests
+# Markers (see tests/README.md). CI runs `pytest -m "not model"`; the gpu test skips itself.
+markers = [
+  "gpu: needs a CUDA or Apple Metal accelerator (the test skips itself when none is present)",
+  "model: needs large model weights (the 1.2 GB nucleus model or the Cellpose-SAM weights); deselected in CI",
+]
+# zarr (a dependency of bioio-ome-zarr in the readers extra) registers a pytest plugin, zarr.testing, that
+# pytest loads automatically. It only serves zarr's own tests, and on the Windows workstation its imports
+# leave pyarrow unable to load, so pandas string columns crash the interpreter during collection. Block it.
+addopts = "-p no:zarr --strict-markers"
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# The classic default rule set, written out so a ruff release cannot move the CI gate: ruff 0.17
+# widened its defaults (111 findings on this tree where 0.12's defaults gave 80). E702 (several
+# statements on one line) is a deliberate compact style in the tests, the fixture builders and the
+# tracer, so it is not enforced.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E702"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_gpu.py" = ["E402"]   # imports after pytest.importorskip, the pattern pytest documents
+"scripts/*.py" = ["E402"]        # the scripts put the repository on sys.path before importing germquant

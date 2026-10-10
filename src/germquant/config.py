@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from .fsutil import read_config_text
 from .io.channel_map import ChannelMap
 
 
@@ -125,6 +127,14 @@ def _deep_merge(base: dict, overlay: dict, _path: str = "") -> dict:
 _PATH_KEYS = (("io", "channel_map"), ("segmentation", "nuclei", "cellpose_model"), ("qc", "exclusions_file"))
 
 
+def _is_path_like(value: str, base_dir: Path) -> bool:
+    """Whether an inherited relative value is a path to anchor. A bare name with no directory part that
+    exists nowhere next to the base (a built-in Cellpose model such as ``cpsam``, the generic profile's
+    model) is a name, not a path: anchoring it would turn it into ``<repo>/cpsam``, which Cellpose
+    cannot load (and ``method: auto`` would silently fall back to the classical watershed)."""
+    return len(Path(value).parts) > 1 or (base_dir / value).exists()
+
+
 def _get_in(d: dict, keys):
     for k in keys:
         if not isinstance(d, dict) or k not in d:
@@ -158,13 +168,16 @@ def load_config(path: str | Path, _seen: frozenset[Path] = frozenset()) -> Confi
     path, a path relative to the file, or a bare name looked up in the repo's config dir): the base is
     loaded first and the file's own sections are deep-merged over it (a "profile"). Relative paths the
     profile inherits from the base (channel map, Cellpose model, exclusions file) keep resolving against
-    the base's directory, so a profile can live anywhere. Hash rule: a file WITHOUT ``extends`` hashes
+    the base's directory, so a profile can live anywhere (a bare built-in model name such as ``cpsam``
+    is not a path and passes through unchanged). Hash rule: a file WITHOUT ``extends`` hashes
     exactly as it always has (its raw text plus the channel-map text plus runtime overrides), so existing
-    runs keep reproducing; a profile hashes the base text plus its own text plus the channel-map text."""
+    runs keep reproducing; a profile hashes the base text plus its own text plus the channel-map text.
+    The text is decoded with ``fsutil.CONFIG_TEXT_ENCODING`` on every platform (see the note there), so
+    the hash does not depend on the machine's locale."""
     path = Path(path)
     if path.resolve() in _seen:
         raise ValueError(f"{path}: extends cycle")
-    raw_text = path.read_text()
+    raw_text = read_config_text(path)
     data = yaml.safe_load(raw_text) or {}
     base_dir = _base_dir_for(path)
     hash_text = raw_text
@@ -177,7 +190,8 @@ def load_config(path: str | Path, _seen: frozenset[Path] = frozenset()) -> Confi
         if base.base_dir != base_dir:
             for keys in _PATH_KEYS:            # inherited relative paths stay anchored to the base
                 v = _get_in(base_data, keys)
-                if isinstance(v, str) and v and not Path(v).is_absolute() and _get_in(data, keys) is None:
+                if (isinstance(v, str) and v and not Path(v).is_absolute() and _get_in(data, keys) is None
+                        and _is_path_like(v, base.base_dir)):
                     _set_in(base_data, keys, str((base.base_dir / v).resolve()))
         data = _deep_merge(base_data, data)
         hash_text = base._raw_text + "\x00extends\x00" + raw_text
@@ -187,7 +201,46 @@ def load_config(path: str | Path, _seen: frozenset[Path] = frozenset()) -> Confi
         raise ValueError("config.io.channel_map is required")
     cm_path = (base_dir / cm_rel) if not Path(cm_rel).is_absolute() else Path(cm_rel)
     channel_map = ChannelMap.from_yaml(cm_path)
-    cm_text = cm_path.read_text() if cm_path.exists() else ""
+    cm_text = read_config_text(cm_path) if cm_path.exists() else ""
 
     return Config(data, base_dir=base_dir, channel_map=channel_map, raw_text=hash_text,
                   channel_map_text=cm_text)
+
+
+def config_roots() -> list[Path]:
+    """Where a ``config/`` folder is looked for, in order: the germquant checkout, the working directory,
+    then ``$GERMQUANT_CONFIG_ROOT`` (containers and non-editable installs)."""
+    from .provenance import _repo_root
+
+    roots: list[Path | None] = [_repo_root(), Path.cwd()]
+    env = os.environ.get("GERMQUANT_CONFIG_ROOT")
+    if env:
+        roots.append(Path(env))
+    return [r for r in roots if r is not None]
+
+
+def find_profile(name: str) -> Path:
+    """``config/profiles/<name>.yaml`` under the first config root that has it. FileNotFoundError naming
+    the places tried and the profiles available (the message ``germquant --profile`` prints)."""
+    tried = []
+    for root in config_roots():
+        p = root / "config" / "profiles" / f"{name}.yaml"
+        tried.append(p)
+        if p.is_file():
+            return p
+    have = sorted({x.stem for r in config_roots() for x in (r / "config" / "profiles").glob("*.yaml")})
+    raise FileNotFoundError(f"no profile {name!r}; looked in {[str(t) for t in tried]}; available: {have} "
+                            f"(set GERMQUANT_CONFIG_ROOT to the checkout that holds config/profiles)")
+
+
+def default_config_path() -> Path:
+    """``config/config.yaml`` under the first config root that has it: the config the drag-and-drop
+    scripts and the README use when nothing else is named."""
+    tried = []
+    for root in config_roots():
+        p = root / "config" / "config.yaml"
+        tried.append(p)
+        if p.is_file():
+            return p
+    raise FileNotFoundError(f"no config/config.yaml found; looked in {[str(t) for t in tried]} "
+                            f"(pass a config path or set GERMQUANT_CONFIG_ROOT)")

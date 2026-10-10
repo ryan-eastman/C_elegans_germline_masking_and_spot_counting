@@ -34,7 +34,8 @@ from . import provenance, qc, schema
 from .axis import linearize_germline
 from .config import Config
 from .fsutil import long_path
-from .io import parse_sample, read_nd2_metadata, read_stack
+from .io import parse_sample, read_image, read_image_metadata, read_nd2_metadata, read_stack
+from .io.formats import image_format
 from .measure import measure_objects
 from .render import make_montage
 from .segment import segment_nuclei
@@ -74,6 +75,17 @@ def spot_instances(cfg) -> list[dict]:
     return out
 
 
+def spot_backend_section(cfg, inst: dict | None = None) -> dict:
+    """The raw ``spots:`` mapping a spot detection backend receives (docs/BACKENDS.md), read with a code
+    default of an empty mapping, with a spot instance's own keys overlaid; a mapping the instance carries
+    (``log:``) merges one level deep over the shared one, so an instance can change one key of it."""
+    section = dict(cfg.get("spots", {}) or {})
+    for k, v in (inst or {}).items():
+        base = section.get(k)
+        section[k] = {**base, **v} if isinstance(v, dict) and isinstance(base, dict) else v
+    return section
+
+
 def resolve_model_path(cfg):
     """The Cellpose model the config names, resolved against the config's base_dir when it is a relative
     path to an existing file (so a profile outside the repo still finds models/...), or against
@@ -95,6 +107,18 @@ def resolve_model_path(cfg):
     return model_path
 
 
+def _read_input(path: Path, *, xy_stride: int, z_range):
+    """Header and pixels of the input image: ``(metadata dict, Stack)``.
+
+    An ``.nd2`` goes through this module's ``read_nd2_metadata`` and ``read_stack`` names: the functions
+    every golden was made with, and the seam the synthetic-stack test fixtures patch. Every other format
+    goes through io.read_image_metadata / io.read_image (bioio, optional ``readers`` extra), which return
+    the same Stack and honour xy_stride and z_range the same way."""
+    if image_format(path) == "nd2":
+        return read_nd2_metadata(path), read_stack(path, xy_stride=xy_stride, z_range=z_range)
+    return read_image_metadata(path), read_image(path, xy_stride=xy_stride, z_range=z_range)
+
+
 def process_image(
     nd2_path: str | Path,
     cfg: Config,
@@ -104,6 +128,10 @@ def process_image(
     z_range: tuple[int, int] | None = None,
     prov: dict | None = None,
 ) -> dict:
+    """Run every enabled stage on one image and write its results folder. ``nd2_path`` (the name is kept
+    for compatibility) is any supported image: an ``.nd2``, or a TIFF / OME-TIFF, CZI, LIF or OME-Zarr
+    file when the ``readers`` extra is installed (io/read.py). Returns image_id, n_nuclei, qc_pass,
+    qc_flags, out_dir, the tables (DataFrames by name) and the per-stage record."""
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
     os.makedirs(long_path(out_dir), exist_ok=True)
@@ -112,10 +140,9 @@ def process_image(
 
     # ---- read + resolve channels ----
     t_read = time.perf_counter()
-    meta = read_nd2_metadata(nd2_path)
+    meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range)
     role_to_idx, ch_flags = cfg.channel_map.resolve(meta["channel_names"])
     flags += ch_flags
-    stack = read_stack(nd2_path, xy_stride=xy_stride, z_range=z_range)
     spacing = stack.spacing
     if not stack.spacing_ok:
         # voxel size unreadable -> spacing is a 1 µm isotropic guess; every physical
@@ -161,8 +188,9 @@ def process_image(
         return acquisition_fields(nd2_path, list(meta["channel_names"]), role_to_idx)
 
     acq_on = stage_enabled(cfg, "acquisition")
-    acq_res = run_stage("acquisition", _acquisition, flags=flags, outcomes=outcomes, enabled=acq_on,
-                        skip_reason="disabled")
+    is_nd2 = image_format(nd2_path) == "nd2"      # the description text lives in the .nd2 header only
+    acq_res = run_stage("acquisition", _acquisition, flags=flags, outcomes=outcomes, enabled=acq_on and is_nd2,
+                        skip_reason="disabled" if not acq_on else "not an .nd2 (no acquisition description)")
     if acq_res is not None:
         acq_fields = acq_res
 
@@ -178,6 +206,11 @@ def process_image(
             method=seg.get("method", "auto"), cellpose_model=str(model_file) if model_file else "cpsam",
             diameter_um=float(seg.get("diameter_um", 3.0)), min_volume_um3=float(seg.get("min_volume_um3", 4.0)),
             device=seg.get("device"),          # cuda | mps | cpu | auto; $GERMQUANT_DEVICE overrides
+            # the segmenter: built-in cellpose / classical or an installed plugin (docs/BACKENDS.md), read
+            # with a code default so the config files stay untouched; the section goes along for the
+            # backend's own keys
+            backend=cfg.get("segmentation.nuclei.backend", "cellpose"),
+            cfg_section=cfg.get("segmentation.nuclei", {}),
         )
 
     labels, seg_method = run_stage("segment", _segment, flags=flags, outcomes=outcomes, fatal=True)
@@ -216,6 +249,11 @@ def process_image(
                          skip_reason="disabled" if not stage_enabled(cfg, "germline") else "no nuclei")
     if germ_res is not None:
         excluded, nuclei = germ_res
+    elif not stage_enabled(cfg, "germline") and not nuclei.empty:
+        # germline isolation switched off (config/profiles/generic.yaml, --no-germline): every segmented
+        # nucleus is the analysis set, so in_germline is a real True on every row rather than the NA an
+        # unrun stage would leave (schema.py). The default path (germline on) is untouched.
+        nuclei = nuclei.assign(in_germline=True)
     n_germline_nuclei = int(len(nuclei))
 
     # ---- lamin envelope masks (seeded watershed on LMN-1), ring test, territories ----
@@ -325,9 +363,10 @@ def process_image(
         why = next((f for f in flags if f.startswith(("staging:no_trace", "staging:trace_status_"))), "no trace")
         outcomes["staging"] = Outcome("skipped", reason=why.replace("staging:", "").replace("_", " "))
 
-    # ---- spots (SpotMAX) — RAD-51 (or other) foci per nucleus.
-    # Detects peaks ABOVE local background inside each nucleus mask, merges z-axis spot-splits, and
-    # tags every spot with its effect size. Detection params are cross-validated vs Imaris (config). ----
+    # ---- spots: RAD-51 (or other) foci per nucleus, through the spot detection backend that
+    # spots.backend names (code default spotmax, the validated SpotMAX chain; docs/BACKENDS.md).
+    # SpotMAX detects peaks ABOVE local background inside each nucleus mask, merges z-axis spot-splits,
+    # and tags every spot with its effect size. Detection params are cross-validated vs Imaris (config). ----
     spots = pd.DataFrame(columns=schema.SPOTS)
     per_nuc_spots = None  # kept so off-gonad (excluded) nuclei also get n_spots at re-attach
     spots_idx = role_to_idx.get("foci")
@@ -335,6 +374,7 @@ def process_image(
     def _spots():
         from .spots import detect_spots
 
+        backend = cfg.get("spots.backend", "spotmax")
         per_spot, per_nuc = detect_spots(
             stack.data[spots_idx], labels, spacing,
             marker=cfg.channel_map.marker("foci"),
@@ -347,12 +387,15 @@ def process_image(
             z_merge_gap_um=float(cfg.get("spots.z_merge_gap_um", 0.8)),
             z_merge_valley_frac=float(cfg.get("spots.z_merge_valley_frac", 0.8)),
             max_spot_candidates=int(cfg.get("spots.max_spot_candidates", 30000)),
+            backend=backend, cfg_section=spot_backend_section(cfg),
         )
         df = nuclei
         if not df.empty and not per_nuc.empty:
             df = df.merge(per_nuc[["nucleus_id", "n_spots"]], on="nucleus_id", how="left")
             df["n_spots"] = df["n_spots"].fillna(0).astype(int)
-        flags.append(f"spots:spotmax_n={len(per_spot)}")
+        flags.append(f"spots:{backend}_n={len(per_spot)}")          # the default run still writes spots:spotmax_n=
+        if backend != "spotmax":
+            flags.append(f"spots:unvalidated_backend={backend}")  # only spotmax is cross-validated vs Imaris
         return per_spot, per_nuc, df
 
     spots_on = stage_enabled(cfg, "spots")
@@ -388,6 +431,7 @@ def process_image(
             def p(key, default):
                 return inst.get(key, cfg.get(f"spots.{key}", default))
 
+            backend = p("backend", "spotmax")
             per_spot, per_nuc = detect_spots(
                 stack.data[r_idx], labels, spacing, marker=cfg.channel_map.marker(role),
                 spot_radius_um=float(p("spot_radius_um", 0.3)), gauss_sigma_um=float(p("gauss_sigma_um", 0.08)),
@@ -396,6 +440,7 @@ def process_image(
                 effect_size_min=float(p("effect_size_min", 3.0)), merge_z_columns=bool(p("merge_z_columns", True)),
                 z_merge_gap_um=float(p("z_merge_gap_um", 0.8)), z_merge_valley_frac=float(p("z_merge_valley_frac", 0.8)),
                 max_spot_candidates=int(p("max_spot_candidates", 30000)),
+                backend=backend, cfg_section=spot_backend_section(cfg, inst),
             )
             df = nuclei
             if not df.empty:
@@ -411,7 +456,9 @@ def process_image(
             if inst.get("expected_from_germ_cell", True):
                 summ[f"{name}_expected_per_nucleus"] = expected_sc_count(sample["germ_cell"]) or float("nan")
             nuclei = df
-            flags.append(f"spots_{name}:spotmax_n={len(per_spot)}")
+            flags.append(f"spots_{name}:{backend}_n={len(per_spot)}")
+            if backend != "spotmax":
+                flags.append(f"spots_{name}:unvalidated_backend={backend}")
             return per_spot, per_nuc, summ
 
         on_i = spots_on and r_idx is not None and n_nuclei > 0
