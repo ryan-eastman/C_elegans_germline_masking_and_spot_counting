@@ -60,3 +60,6 @@ scripts/_*.py
 # generated CV manifests + analysis outputs (rebuilt by scripts/build_cv_manifest.py / cv_analyze.py)
 cv_manifest*.json
 cv_results*/
+
+# benchmark manifests are rebuilt by scripts/benchmark_manifest.py (machine paths and exists flags)
+benchmarks/*/manifest.json
