@@ -41,8 +41,11 @@ from .provenance import read_done_marker
 from .segment import segment_nuclei
 from .spots import detect_spots
 from .stages import STAGES, apply_cli_switches, cli_switches, stage_enabled
+from .timelapse import parse_timepoints, process_series, register_series
 
-# one image (run, run_loaded, resolve_config, default_out_dir, process_image); configuration (Config,
+# one image (run, run_loaded, resolve_config, default_out_dir, process_image); a time-lapse (process_series,
+# parse_timepoints: the loop `germquant run --t` runs; register_series: `germquant register`, the drift of a
+# series as a shift table, docs/TIMELAPSE.md); configuration (Config,
 # load_config, find_profile, default_config_path); reading (Stack, SUPPORTED_SUFFIXES, UnsupportedImageError,
 # image_format, image_stem, read_image, read_image_metadata, read_nd2_metadata, read_stack); stages
 # (STAGES, stage_enabled, cli_switches, apply_cli_switches, spot_instances); the heavy building blocks
@@ -70,12 +73,15 @@ __all__ = [
     "is_done",
     "load_config",
     "load_exclusions",
+    "parse_timepoints",
     "process_image",
+    "process_series",
     "read_done_marker",
     "read_image",
     "read_image_metadata",
     "read_nd2_metadata",
     "read_stack",
+    "register_series",
     "resolve_config",
     "resolve_model_path",
     "run",
@@ -117,6 +123,7 @@ def run(
     xy_stride: int | None = None,
     z_range: tuple[int, int] | list[int] | None = None,
     overrides: dict | None = None,
+    t: int | None = None,
 ) -> dict:
     """Process one image exactly as ``germquant run`` does and return its result record.
 
@@ -128,7 +135,9 @@ def run(
     (None or 1 = full resolution) and ``z_range`` keeps planes ``(z0, z1)``. ``overrides`` maps dotted config
     keys to values, for example ``{"spots.enabled": False}``; each is applied with ``Config.set``, so it
     enters the config hash and the provenance manifest exactly like a ``--no-<stage>`` switch on the
-    command line (a Config passed in is modified in place).
+    command line (a Config passed in is modified in place). ``t`` processes one timepoint of a time series:
+    the stages run on that timepoint's stack and the image id becomes ``<stem>_t<NNN>`` (docs/TIMELAPSE.md);
+    None, the default, for a fixed image.
 
     Returns the dict process_image returns: ``image_id``, ``n_nuclei``, ``qc_pass``, ``qc_flags``,
     ``out_dir``, ``tables`` (one DataFrame per output table) and ``stages`` (the per-stage record). A QC
@@ -137,7 +146,7 @@ def run(
     cfg = resolve_config(config, profile)
     for key, value in (overrides or {}).items():
         cfg.set(str(key), value)
-    return run_loaded(image, cfg, out, xy_stride=xy_stride, z_range=z_range)
+    return run_loaded(image, cfg, out, xy_stride=xy_stride, z_range=z_range, t=t)
 
 
 def run_loaded(
@@ -147,11 +156,14 @@ def run_loaded(
     *,
     xy_stride: int | None = None,
     z_range: tuple[int, int] | list[int] | None = None,
+    t: int | None = None,
 ) -> dict:
     """``run`` once the config is resolved and every override applied: the single call that the command
     line and the API share, so there is one code path to a results folder."""
     out_dir = Path(out) if out is not None else default_out_dir(image)
     stride = int(xy_stride) if xy_stride else 1
     zr = (int(z_range[0]), int(z_range[1])) if z_range else None
-    # process_image writes run_manifest.json itself (run geometry and per-stage hashes), hence prov=None
-    return process_image(image, cfg, out_dir, xy_stride=stride, z_range=zr, prov=None)
+    # process_image writes run_manifest.json itself (run geometry and per-stage hashes), hence prov=None;
+    # t goes along only when given, so a fixed image is the call it has always been
+    kw = {} if t is None else {"t": t}
+    return process_image(image, cfg, out_dir, xy_stride=stride, z_range=zr, prov=None, **kw)

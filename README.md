@@ -236,6 +236,7 @@ Instead of `--config config/config.yaml` you can name a profile with `--profile`
 | `n2_sc` | adds the SC tracer for fragmentation (see `docs/SC_TRACING.md`) |
 | `ccw77_partition` | the SYP-3 / PGL-1 partition analysis: lamin envelopes, hand-traced staging, the Imaris-calibrated granule recipe, on top of `config/config_ccw77.yaml` |
 | `generic` | samples that are not a worm germline (cultured cells, yeast, sections): nuclei with the stock Cellpose model and puncta per nucleus, every worm stage off (see `docs/GENERIC_PROFILE.md`) |
+| `live_syp2` | live GFP::SYP-2 time-lapse series with no DNA stain: nuclei segmented on the GFP channel (`segmentation.nuclei.channel: central_element`), germline, axis and signal QC per timepoint, the fixed-image stains off; run with `--t all` (see `docs/TIMELAPSE.md`, which also has the training loop for a GFP nucleus model) |
 
 Windows:
 ```
@@ -402,7 +403,9 @@ region choice and the meaning of every column are in `docs/COLOCALIZATION.md`.
 
 The stage-resolved analysis of SYP-3 partitioning into P granules under heat shock (partition
 coefficient, hand-traced pachytene zones, controls, figures) lives in `analysis/coloc/`, and the
-same analysis now runs inside the pipeline as the `ccw77_partition` profile.
+same analysis now runs inside the pipeline as the `ccw77_partition` profile. Whether the SYP channel
+carried a live signal at all is recorded by the `partition_syp_snr` and `partition_measurable`
+columns of `..._image_summary.csv` (`docs/PARTITION_QC.md`).
 
 ## If something breaks
 
@@ -614,12 +617,25 @@ every other format to `io/bioio_reader.py` (bioio, the `readers` extra); both re
 
 Documents: `docs/ARCHITECTURE.md` (design), `docs/RUNBOOK.md` (full-resolution GPU run and spot
 calibration), `docs/SPOTMAX_VALIDATION.md` (how the spot counts were validated against Imaris and
-what is still unvalidated), `docs/COLOCALIZATION.md` (the coloc stage), `docs/SC_TRACING.md` (the SC
+what is still unvalidated), `docs/BENCHMARK_PROTOCOL.md` (the pre-registered RAD-51 benchmark: the
+train/val/test split of the 12 N2 gonads in `tests/golden/rad51_split.json`, what the Imaris truth is
+and is not, the metrics, the win conditions, the competitors and the stop rule),
+`docs/COLOCALIZATION.md` (the coloc stage), `docs/PARTITION_QC.md` (the
+partition measurability columns and flag), `docs/SC_TRACING.md` (the SC
 tracer), `docs/MAC_METAL.md` (Apple Silicon), `docs/ANNOTATION.md` (annotating nuclei and
 fine-tuning the Cellpose model), `docs/BACKENDS.md` (pluggable nucleus segmentation and spot detection
 backends: the contracts, `segmentation.nuclei.backend` and `spots.backend`, the experimental `log`
 baseline), `docs/GENERIC_PROFILE.md` (the generic profile for samples that are not a worm germline),
-`docs/HPC_ALPINE.md` (cluster runs), `analysis/coloc/README.md` (the SYP-3 / PGL-1 analysis layer).
+`docs/QC.md` (the per-channel acquisition record read from the .nd2 description, exposure, laser power,
+emission filter and camera mode, and the `acquisition.expected` check that flags a session imaged with
+the wrong settings), `docs/HPC_ALPINE.md` (cluster runs), `docs/BENCHMARK.md` (the benchmark harness:
+`germquant.benchmark`, `scripts/benchmark_spots.py` and `scripts/benchmark_nuclei3d.py`, scoring the spot
+detector and the 3D nucleus segmentation against the Imaris expert truth gonad by gonad),
+`docs/TIMELAPSE.md` (time series: reading one timepoint of an .nd2 or OME-TIFF series with `t=<index>`,
+what the header reports about the time axis, how a timepoint run is named and recorded, the `live_syp2`
+profile, the `segmentation.nuclei.channel` key, and the training loop for a nucleus model without DAPI:
+`export-training`, `train-nuclei`, `register-model`),
+`analysis/coloc/README.md` (the SYP-3 / PGL-1 analysis layer).
 
 Configuration: `config/config.yaml` holds every tunable value with a comment saying why it is set
 the way it is; the `spots` block holds the cross-validated detection parameters. Channel maps are in
@@ -640,9 +656,15 @@ on GitHub Actions, `.github/workflows/ci.yml`). Pinned environments:
 Silicon), `constraints/ci-cpu-2026-10.txt` (continuous integration, CPU).
 
 Other CLI commands: `validate` (compare a pipeline table or label image with hand-scored ground
-truth), `prep-training` (export DAPI slices for annotation), `finetune` (fine-tune the Cellpose
-model on a labelled folder), `check-gpu`, `get-model`, `collect`, `trace`, `restage`. Run the
-program with `--help` for the options.
+truth), `imaris-truth` (read the expert Spots, Surfaces and nucleus masks out of an Imaris `.ims`
+project into truth files in our frame, `docs/IMARIS_TRUTH.md`), `prep-training` (export DAPI slices
+for annotation), `finetune` (fine-tune the Cellpose model on a labelled folder), `export-training`
+(paired 2D slices and labels from a run's own segmentation, in xy, xz and yz, for correction),
+`train-nuclei` (train a Cellpose nucleus model on corrected pairs in process, split by image or series,
+with a model card and hold-out F1), `register-model` (add a trained model to the registry so a profile
+can name it in `segmentation.nuclei.cellpose_model`; `docs/TIMELAPSE.md`), `check-gpu`,
+`get-model` (release assets and registered local models), `collect`, `trace`, `restage`. Run the program
+with `--help` for the options.
 
 ## Citing
 

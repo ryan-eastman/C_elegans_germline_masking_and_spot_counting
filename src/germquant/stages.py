@@ -53,6 +53,10 @@ STAGES: tuple[Stage, ...] = (
     Stage("segment", None, True, (), False, "Cellpose 3D nucleus segmentation (falls back to classical)",
           config_sections=("segmentation",)),
     Stage("measure", None, True, (), False, "3D regionprops + per-role mean intensities per nucleus"),
+    Stage("signal_qc", "signal_qc.enabled", True, (), True,
+          "per-channel background, noise, SNR, saturation and exposure-normalized levels (image_summary sig_*) "
+          "and pairwise channel cross-talk in nuclei / perinuclear ring / cytoplasm (channel_crosstalk table); "
+          "its flags are off unless signal_qc.flags.enabled", config_sections=("signal_qc",)),
     Stage("germline", "germline.enabled", True, ("central_element",), True,
           "drop nuclei outside the gonad (SYP-seeded connected component)", config_sections=("germline",)),
     Stage("envelope", "envelope.enabled", False, ("lamin",), True,
@@ -174,7 +178,7 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
 
 
 _STAGE_TOOLS = {
-    "read": ("nd2",), "segment": ("cellpose", "torch"), "measure": ("scikit-image",),
+    "read": ("nd2",), "segment": ("cellpose", "torch"), "measure": ("scikit-image",), "signal_qc": ("scipy",),
     "spots": ("spotmax", "cellacdc", "cupy"), "sc_trace": ("skan", "scikit-image", "scipy"),
     "granule": ("scikit-image", "scipy"),
     "coloc": ("scikit-image", "scipy"), "partition": ("scipy",), "granule_tail": ("scipy",),

@@ -1,0 +1,565 @@
+{
+ "name": "n2rad51",
+ "registered_on": "2026-10-09",
+ "protocol": "docs/BENCHMARK_PROTOCOL.md",
+ "description": "The 12 N2 RAD-51 gonads of 2025-11-05 (DAPI, SYP, RAD-51; no heat shock and heat shock; hermaphrodites and males) with their Imaris annotations, split into train, val and test before any benchmark result was computed. Roles are fixed; re-running scripts/make_rad51_split.py only refreshes the file facts.",
+ "frame": {
+  "rule": "Imaris coordinates are voxel centres scaled by Imaris's rounded voxel size (0.108 um in xy; the .nd2 says 0.108333). Convert an Imaris coordinate to a voxel index with Imaris's own voxel size, floor((coord - ExtMin) / imaris_voxel), and place it in the pipeline frame as index times the .nd2 voxel size. Matching in raw micrometres drifts by almost a micrometre across the 2600-pixel field."
+ },
+ "roles": {
+  "train": [
+   "n2rad51_HS_herm_000",
+   "n2rad51_HS_male_000",
+   "n2rad51_HS_male_002",
+   "n2rad51_noHS_herm_000",
+   "n2rad51_noHS_male_000",
+   "n2rad51_noHS_male_001"
+  ],
+  "val": [
+   "n2rad51_HS_herm_001",
+   "n2rad51_noHS_herm_001"
+  ],
+  "test": [
+   "n2rad51_HS_herm_002",
+   "n2rad51_HS_male_001",
+   "n2rad51_noHS_herm_002",
+   "n2rad51_noHS_male_002"
+  ]
+ },
+ "gonads": [
+  {
+   "tag": "n2rad51_noHS_herm_000",
+   "role": "train",
+   "condition": "noHS",
+   "sex": "herm",
+   "replicate": "000",
+   "stem": "20251105_N2_nohs_HERM _",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_HERM _.nd2",
+    "size_bytes": 2880540672,
+    "sha256": "b450a1201bc376d7da585d35df59f5e0db020d9895214811e1d7115b7e9ccff5",
+    "sizes": {
+     "Z": 71,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_HERM _.ims",
+    "size_bytes": 1618177523,
+    "sha256": "2e788e9f7d5f3c794e9000fdb2f9385b0fc191f7f94178adab6bea69a22a6cd6",
+    "n_spots": 1845,
+    "n_surfaces": 107,
+    "region_growing": false,
+    "spot_quality_threshold": 42.535,
+    "shape_xyz": [
+     2600,
+     2600,
+     71
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_noHS_herm_001",
+   "role": "val",
+   "condition": "noHS",
+   "sex": "herm",
+   "replicate": "001",
+   "stem": "20251105_N2_nohs_HERM _001",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_HERM _001.nd2",
+    "size_bytes": 2880540672,
+    "sha256": "53f8b4a17d5d738202fddc2801d5871d3e2315fee538d3b23e8819b8118b0008",
+    "sizes": {
+     "Z": 71,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_HERM _001.ims",
+    "size_bytes": 1574746604,
+    "sha256": "ffaaa92707c3b380760c9d27430c90556e6419bc17f385ebc32a57157bf14bea",
+    "n_spots": 1222,
+    "n_surfaces": 146,
+    "region_growing": false,
+    "spot_quality_threshold": 42.0522,
+    "shape_xyz": [
+     2600,
+     2600,
+     71
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_noHS_herm_002",
+   "role": "test",
+   "condition": "noHS",
+   "sex": "herm",
+   "replicate": "002",
+   "stem": "20251105_N2_nohs_HERM _002",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_HERM _002.nd2",
+    "size_bytes": 2880540672,
+    "sha256": "f532794e35a31c89b16032a746e88beb239593a6261507c1638d0c863d68c715",
+    "sizes": {
+     "Z": 71,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_HERM _002.ims",
+    "size_bytes": 1615386961,
+    "sha256": "5f28ba1f059a65fe95780a255531e99fe1fe7c0acf8a86655591da6cbb1a9237",
+    "n_spots": 1300,
+    "n_surfaces": 93,
+    "region_growing": false,
+    "spot_quality_threshold": 60.5812,
+    "shape_xyz": [
+     2600,
+     2600,
+     71
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_noHS_male_000",
+   "role": "train",
+   "condition": "noHS",
+   "sex": "male",
+   "replicate": "000",
+   "stem": "20251105_N2_nohs_MALE _",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_MALE _.nd2",
+    "size_bytes": 2880540672,
+    "sha256": "bae93a6e51cfef5e3f337e69ffd3e37dbb574cb236dfc649dcbe309ad8936a3c",
+    "sizes": {
+     "Z": 71,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_MALE _.ims",
+    "size_bytes": 1539975139,
+    "sha256": "192647e5a3ca13690c797b471b9533df7af8d83529c7c87047c430c812839052",
+    "n_spots": 930,
+    "n_surfaces": 144,
+    "region_growing": false,
+    "spot_quality_threshold": 68.6696,
+    "shape_xyz": [
+     2600,
+     2600,
+     71
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_noHS_male_001",
+   "role": "train",
+   "condition": "noHS",
+   "sex": "male",
+   "replicate": "001",
+   "stem": "20251105_N2_nohs_MALE _001",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_MALE _001.nd2",
+    "size_bytes": 2880540672,
+    "sha256": "6e84e4765c78f1106e508ff3cd6e7eeeda8701394bb07ec15eb5bab2126a351d",
+    "sizes": {
+     "Z": 71,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_MALE _001.ims",
+    "size_bytes": 1552408402,
+    "sha256": "81775cd1d1ff88a9fc11bf132405489257b07e19ddaa4cd6a3c3ac60a1f66bca",
+    "n_spots": 1256,
+    "n_surfaces": 97,
+    "region_growing": false,
+    "spot_quality_threshold": 43.3003,
+    "shape_xyz": [
+     2600,
+     2600,
+     71
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_noHS_male_002",
+   "role": "test",
+   "condition": "noHS",
+   "sex": "male",
+   "replicate": "002",
+   "stem": "20251105_N2_nohs_MALE _002",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_MALE _002.nd2",
+    "size_bytes": 2880540672,
+    "sha256": "ea69a5e265b38648fe04ce546ac7e901f7db0f0f0d58056bfb628419131747ef",
+    "sizes": {
+     "Z": 71,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_MALE _002.ims",
+    "size_bytes": 1586678560,
+    "sha256": "2a1562ded114c843c95fae6607421c2f9593b1d4800063966a84771a93235e66",
+    "n_spots": 817,
+    "n_surfaces": 130,
+    "region_growing": false,
+    "spot_quality_threshold": 102.281,
+    "shape_xyz": [
+     2600,
+     2600,
+     71
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": [
+    "Floods the spot detector: SpotMAX with the deployed config returns far more candidates than the pipeline can process, so pipeline outputs are unavailable until a performance fix. The gonad is a legitimate test gonad on the truth side: it stays in the test set and is reported as missing, never dropped."
+   ]
+  },
+  {
+   "tag": "n2rad51_HS_herm_000",
+   "role": "train",
+   "condition": "HS",
+   "sex": "herm",
+   "replicate": "000",
+   "stem": "20251105_n2_hs_HERM _",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_HERM _.nd2",
+    "size_bytes": 2718273536,
+    "sha256": "7f2917851b68014caea2ad0a0ff1fb4fba8cce4a2dcac2187492e8fd99a0148f",
+    "sizes": {
+     "Z": 67,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_HERM _.ims",
+    "size_bytes": 1553653862,
+    "sha256": "0ee5f9d33d48d38cf52c4e543a47b5f087aae0c1a1754e19ccf4b807cadfd324",
+    "n_spots": 5152,
+    "n_surfaces": 88,
+    "region_growing": false,
+    "spot_quality_threshold": 24.2138,
+    "shape_xyz": [
+     2600,
+     2600,
+     67
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_HS_herm_001",
+   "role": "val",
+   "condition": "HS",
+   "sex": "herm",
+   "replicate": "001",
+   "stem": "20251105_n2_hs_HERM _001",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_HERM _001.nd2",
+    "size_bytes": 2718273536,
+    "sha256": "fe7067d0e84f2173bf447ad96e7c3a90a8055e2263ab41923a24ee441f8f0a96",
+    "sizes": {
+     "Z": 67,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_HERM _001.ims",
+    "size_bytes": 1535477337,
+    "sha256": "b250e02d05946f02ef0859fa0505b8f6ea52c0967a08b6f92bf66b5e54172dd7",
+    "n_spots": 2753,
+    "n_surfaces": 95,
+    "region_growing": false,
+    "spot_quality_threshold": 17.3591,
+    "shape_xyz": [
+     2600,
+     2600,
+     67
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_HS_herm_002",
+   "role": "test",
+   "condition": "HS",
+   "sex": "herm",
+   "replicate": "002",
+   "stem": "20251105_n2_hs_HERM _002",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_HERM _002.nd2",
+    "size_bytes": 2718273536,
+    "sha256": "85903d44db3da9ad1fe1747e7af3e706d28099091a938afaea0652daeb8a893c",
+    "sizes": {
+     "Z": 67,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_HERM _002.ims",
+    "size_bytes": 1479860242,
+    "sha256": "c34d18d50d29851e01b147c858358e65838df1cdc764758ea243d16b133570d9",
+    "n_spots": 2364,
+    "n_surfaces": 84,
+    "region_growing": false,
+    "spot_quality_threshold": 16.9493,
+    "shape_xyz": [
+     2600,
+     2600,
+     67
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_HS_male_000",
+   "role": "train",
+   "condition": "HS",
+   "sex": "male",
+   "replicate": "000",
+   "stem": "20251105_n2_hs_MALE _",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_MALE _.nd2",
+    "size_bytes": 2718273536,
+    "sha256": "f97ce6d8e7774e5cfe83ad2b2f577de37c9692427cb0687ac04b769e7acc0812",
+    "sizes": {
+     "Z": 67,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _.ims",
+    "size_bytes": 2766364995,
+    "sha256": "1f8df1b381f64e1a4c711de33b689681e1db9998882753f366836b035ec0f60e",
+    "n_spots": 772485,
+    "n_surfaces": 64,
+    "region_growing": true,
+    "spot_quality_threshold": 13.358,
+    "shape_xyz": [
+     2600,
+     2600,
+     67
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": [
+    "Spots exported with Imaris region growing on (mEnableRegionGrowing is true in the Spots creation parameters). The spot truth of this gonad is excluded from spot scoring until it is re-exported without region growing; the surfaces are unaffected and remain nucleus truth."
+   ]
+  },
+  {
+   "tag": "n2rad51_HS_male_001",
+   "role": "test",
+   "condition": "HS",
+   "sex": "male",
+   "replicate": "001",
+   "stem": "20251105_n2_hs_MALE _001",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_MALE _001.nd2",
+    "size_bytes": 2718273536,
+    "sha256": "eb0e8a0009a275de0935247782fa707376c1732db976e2a7aeaf8776d390622c",
+    "sizes": {
+     "Z": 67,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _001.ims",
+    "size_bytes": 1491036349,
+    "sha256": "457c8a0837cbdce0067c8c5e8b8bfed8c7daf821c58f0e811b85262e40d0d7c4",
+    "n_spots": 10411,
+    "n_surfaces": 68,
+    "region_growing": false,
+    "spot_quality_threshold": 8.09765,
+    "shape_xyz": [
+     2600,
+     2600,
+     67
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_HS_male_002",
+   "role": "train",
+   "condition": "HS",
+   "sex": "male",
+   "replicate": "002",
+   "stem": "20251105_n2_hs_MALE _002",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_MALE _002.nd2",
+    "size_bytes": 2718273536,
+    "sha256": "9129ffdba3b40f5cba33be26aa7669666e499aa359ce47ffc0c42dae41ee7897",
+    "sizes": {
+     "Z": 67,
+     "C": 3,
+     "Y": 2600,
+     "X": 2600
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ]
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _002.ims",
+    "size_bytes": 1514954684,
+    "sha256": "dc53183cf9b1d549f3d04128861ca4a9e26b2dcb34dadfebfd9fffd8ebb7d78e",
+    "n_spots": 13951,
+    "n_surfaces": 82,
+    "region_growing": true,
+    "spot_quality_threshold": 6.84666,
+    "shape_xyz": [
+     2600,
+     2600,
+     67
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.108,
+     0.2
+    ]
+   },
+   "notes": [
+    "Spots exported with Imaris region growing on (mEnableRegionGrowing is true in the Spots creation parameters). The spot truth of this gonad is excluded from spot scoring until it is re-exported without region growing; the surfaces are unaffected and remain nucleus truth."
+   ]
+  }
+ ]
+}

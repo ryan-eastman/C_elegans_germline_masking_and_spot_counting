@@ -118,6 +118,24 @@ COLOC = [
     "partition_coef", "partition_coef_rot", "pc_gran_voxels",   # condensate PC (exposure-independent)
 ]
 
+# signal_qc stage: one block of per-channel signal metrics per channel role, appended to image_summary as
+# sig_<role>_<metric> (NaN for a role the image does not carry; a role a custom channel map adds beyond
+# these five rides along as an extra column after the declared ones). offset = camera offset (0.5th
+# percentile), bg / noise = background median and robust sigma outside the tissue (bg_source says
+# "outside_tissue" or the "p5" fallback), p99 = 99th percentile inside the tissue, snr = (p99 - bg) / noise,
+# sat_frac = fraction of sampled voxels at the saturation level, and the exposure- and power-normalized
+# levels (NaN unless the acquisition stage supplied exposure and laser power). docs/QC.md.
+SIGNAL_QC_ROLES = ("dna", "central_element", "foci", "granule", "lamin")
+SIGNAL_QC_METRICS = ("offset", "bg", "bg_source", "noise", "p99", "snr", "sat_frac",
+                     "bg_per_ms", "p99_per_ms", "bg_per_ms_pct")
+SIGNAL_QC = [f"sig_{r}_{m}" for r in SIGNAL_QC_ROLES for m in SIGNAL_QC_METRICS]
+
+# signal_qc stage: one row per unordered pair of resolved channel roles and region (nuclei /
+# perinuclear_ring / cytoplasm) on the stage's xy sub-sample: Pearson r of the two channels over the
+# region and the least-squares slope of the offset-subtracted role_b on role_a. image_id and the rest of
+# the shared block are stamped on by the writer, as for every other table.
+CHANNEL_CROSSTALK = ["role_a", "role_b", "region", "n_voxels", "pearson_r", "slope"]
+
 # one row per image (QC summary). The coloc HEADLINE is the shell voxel coloc (SYP<->PGL-1 in the
 # lamin-defined perinuclear cytoplasmic shell, SC ribbon excluded) — it separates male>herm on real
 # data. The syp_aggregate object metrics are secondary (threshold-fragile).
@@ -150,6 +168,21 @@ IMAGE_SUMMARY = [
     "tail_n_granules", "tail_n_no_envelope_dropped", "tail_nuclear_syp", "tail_frac_excess_gt_0.25",
     "tail_frac_excess_gt_0.5", "tail_frac_excess_gt_1.0", "tail_excess_p50", "tail_excess_p90", "tail_excess_p99",
     "tail_n_granules_scored",
+    # acquisition stage (acquisition.read_exposures, off by default): the complete per-channel record from
+    # the .nd2 description as compact JSON, channel names as keys, each with exposure_ms, power, em_filter,
+    # ex_filter, dichroic, camera_mode, bit_depth, binning, conversion_gain, readout_speed and modality
+    # (null where the description has no such line). The per-role columns of the same stage, exp_ms_<role>
+    # and laser_pow_<role> (the original two) followed by em_filter_<role>, camera_mode_<role> and
+    # bit_depth_<role>, take their names from the channel map, so they are per-role extras written after
+    # the declared columns (docs/QC.md, "Acquisition record").
+    "acquisition_json",
+    # signal_qc stage (per channel role, in SIGNAL_QC_ROLES x SIGNAL_QC_METRICS order; see above)
+    *SIGNAL_QC,
+    # partition measurability (partition stage, docs/PARTITION_QC.md): the SYP signal-to-noise the signal_qc
+    # stage measured (sig_central_element_snr; NaN when that stage did not run) and whether it clears
+    # partition.min_syp_snr (True when the gate is off, the code default). Both NA when the partition stage
+    # did not run. An image below the gate is flagged partition:low_syp_snr; its numbers are still written.
+    "partition_syp_snr", "partition_measurable",
 ]
 
 TABLES = {
@@ -164,6 +197,7 @@ TABLES = {
     "zones": ZONES,
     "partition": PARTITION,
     "granule_tail": GRANULE_TAIL,
+    "channel_crosstalk": CHANNEL_CROSSTALK,
 }
 
 # which stage owns which table (nuclei and image_summary are shared: every stage may append columns).
@@ -177,4 +211,119 @@ STAGE_TABLES = {
     "staging": ["zones"],
     "partition": ["partition"],
     "granule_tail": ["granule_tail"],
+    "signal_qc": ["channel_crosstalk"],
+}
+
+
+# ---------------------------------------------------------------------------------------------------
+# Time-lapse series tables (docs/DESIGN_timelapse.md section 6, docs/TIMELAPSE.md). One file per SERIES,
+# written next to the per-timepoint folders as <stem>__<table>.csv (and .parquet), never per image, so they
+# live in SERIES_TABLES rather than TABLES: tests/test_stages.py forces every TABLES entry through
+# process_image, and a per-timepoint folder holds exactly the fixed-image file set under the suffixed id
+# <stem>_t<NNN>. The same append-only rule applies. Every row carries SERIES_META; the join to the
+# per-timepoint tables is image_id (= series_id + "_t" + three-digit t_index), and on to a nucleus with
+# (image_id, nucleus_id). The track id is time_track_id: track_id already means an SC fragment (SC_TRACKS).
+# ---------------------------------------------------------------------------------------------------
+
+# stamped onto every row of every series table (the series-level analogue of SHARED_META)
+SERIES_META = [
+    "series_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date",
+    "n_timepoints", "period_s",
+    "pipeline_version", "git_sha", "config_hash", "run_timestamp",
+]
+
+# series_summary (written by timelapse.series.process_series): one row per requested timepoint, from that
+# timepoint's image_summary; a timepoint whose run raised has qc_pass False, an EXCEPTION:<type>: <text>
+# qc_flags entry and NA counts. After the declared columns come sig_<role>_bg and sig_<role>_snr for the
+# channel roles the series resolves (the signal_qc stage's background and signal-to-noise), then SERIES_META.
+SERIES_SUMMARY = [
+    "t_index", "t_seconds", "image_id",
+    "n_nuclei", "n_germline_nuclei", "mean_spots",
+    "qc_pass", "qc_flags", "elapsed_s",
+]
+
+# register_shifts (written by the registration package, `germquant register`): one row per timepoint. The
+# step is this frame against the reference frame (the previous one), accumulated to t0 in the cum_ columns;
+# the bf_ columns are the brightfield cross-check, disagreement_flag its verdict, capped whether the step hit
+# the cap. nn_disp_* is the median nearest-neighbour displacement of the nucleus centroids before and after
+# the shift (the registration quality number). Microns in the raw frame.
+REGISTER_SHIFTS = [
+    "t_index", "t_seconds", "image_id", "reference_t_index", "channel_role",
+    "shift_z_um", "shift_y_um", "shift_x_um",
+    "cum_shift_z_um", "cum_shift_y_um", "cum_shift_x_um",
+    "bf_shift_z_um", "bf_shift_y_um", "bf_shift_x_um", "bf_disagreement_um", "disagreement_flag", "capped",
+    "nn_disp_before_um", "nn_disp_after_um",
+    "xy_stride", "upsample_factor", "method",
+    # appended by the registration package (timelapse.register; append-only): the names the tracking
+    # package reads. dz/dy/dx_um is the cumulative shift to t0 (the same number as cum_shift_*_um; positive =
+    # the sample moved by that much in the raw frame, and a registered coordinate is the raw centroid minus
+    # it), step_d*_um the per-frame step (= shift_*_um), error why a timepoint has no estimate ("" when it
+    # has one), quality_*_um the median nearest-neighbour displacement of the nucleus centroids before and
+    # after the step (= nn_disp_*_um), brightfield_d*_um the brightfield cumulative shift and
+    # brightfield_disagreement_um the per-step distance between the brightfield and the primary estimate
+    # (= bf_disagreement_um; NaN without a brightfield volume). xy_stride is the reference volumes' stride.
+    "dz_um", "dy_um", "dx_um",
+    "step_dz_um", "step_dy_um", "step_dx_um",
+    "error", "quality_before_um", "quality_after_um",
+    "brightfield_dz_um", "brightfield_dy_um", "brightfield_dx_um", "brightfield_disagreement_um",
+]
+
+# track_points (written by the tracking package after a tracker's result is imported): one row per object
+# per timepoint. Raw-frame centroid (the nuclei table's), the registered centroid, the step from the track's
+# previous point, is_gap for a point a gap-closing link interpolated, link_source naming the tracker or the
+# imported points table. Nucleus measurements are joined on (image_id, nucleus_id) from the per-timepoint
+# nuclei tables; a package that writes them into this table appends them after the declared columns.
+TRACK_POINTS = [
+    "time_track_id", "t_index", "t_seconds", "image_id", "nucleus_id",
+    "z_um", "y_um", "x_um",
+    "reg_z_um", "reg_y_um", "reg_x_um",
+    "step_um", "step_z_um", "step_y_um", "step_x_um",
+    "is_gap", "link_source",
+    # appended by the tracking package (germquant track-link / track-import): the registered centroid
+    # again under the shared-contract names (zr_um = reg_z_um, raw centroid minus the cumulative shift of
+    # the timepoint; nothing is resampled). The nucleus measurements (volume_um3, in_germline,
+    # axis_position_um, <role>_mean_intensity, the sc_* columns) follow as extras.
+    "zr_um", "yr_um", "xr_um",
+]
+
+# tracks (written by the tracking package): one row per track. Speeds per minute; axis velocity signed
+# after the t0 sign alignment of the axis; the intensity slopes are the central_element (SYP) mean per
+# nucleus against time, raw and median-normalised per timepoint; sc_length_change_um is the within-track
+# change of sc_total_length_um when the sc_trace stage ran.
+TRACKS = [
+    "time_track_id", "n_points", "n_gaps", "t_start", "t_end", "is_full_length",
+    "path_length_um", "net_displacement_um", "speed_um_per_min", "axis_velocity_um_per_min",
+    "intensity_slope_raw_per_min", "intensity_slope_norm_per_min", "sc_length_change_um",
+    "link_source",
+    # appended by the tracking package: the shared-contract names of columns above (t_first = t_start,
+    # t_last = t_end, intensity_slope_raw = intensity_slope_raw_per_min, intensity_slope_norm =
+    # intensity_slope_norm_per_min, both per minute) and the mean registered step between consecutive
+    # points of the track.
+    "t_first", "t_last", "mean_step_um", "intensity_slope_raw", "intensity_slope_norm",
+]
+
+# track_validation (written by `germquant track-validate`): one row per hand-followed point. The point is
+# the biologist's (raw-frame microns); nucleus_id is the label it lands in at that timepoint (NA = a
+# segmentation miss) and time_track_id that label's track; outcome is linked, segmentation_miss, switch or
+# edge_missing; validation_set is holdout or constraint.
+TRACK_VALIDATION = [
+    "hand_track_id", "validation_set", "zone", "t_index", "t_seconds", "image_id",
+    "z_um", "y_um", "x_um",
+    "nucleus_id", "time_track_id", "outcome",
+    # appended by `germquant track-validate`: the per-hand-track scores of the shared contract, repeated
+    # on every point of the hand track (drop_duplicates on hand_track_id gives the per-track table).
+    # n_in_label points landed inside a label; segmentation_recall = n_in_label / n_points;
+    # linking_recall = hand edges (consecutive in-label points) the pipeline kept in one track / hand
+    # edges; edge_precision = pipeline edges leaving a hand point that land on the hand nucleus /
+    # pipeline edges whose target timepoint has a hand point; switches = identity jumps to or from
+    # another nucleus; role = validation_set (holdout | constraint).
+    "n_points", "n_in_label", "segmentation_recall", "linking_recall", "edge_precision", "switches", "role",
+]
+
+SERIES_TABLES = {
+    "register_shifts": REGISTER_SHIFTS,
+    "track_points": TRACK_POINTS,
+    "tracks": TRACKS,
+    "track_validation": TRACK_VALIDATION,
+    "series_summary": SERIES_SUMMARY,
 }
