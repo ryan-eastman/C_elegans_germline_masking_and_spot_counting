@@ -643,7 +643,10 @@ reach of a label drops the far peaks before refinement and assignment (3210 inst
 assign, the identical 1269 assigned). Three launches of the same seeded run, with the original peak
 finder, with the pair-only suppression and a coarse grid, and with the final version, gave the same
 validation numbers at every threshold, pooled and per gonad: epochs 1 to 4 between the first two, and
-epochs 1 to 10 between the last two (8280 values, none different), with bit-identical losses. At a
+epochs 1 to 10 between the last two (8280 values, none different), with bit-identical losses. The
+interrupted launches' training logs are kept in
+`C:/Users/ryane/germquant_golden/models/net3d_20261010/earlier_launches/` (launch 1 stopped after one
+epoch to change the GPU cache handling, launches 2 and 3 for the peak finder and the selection rule). At a
 working threshold (0.3) the whole chain takes about 3 s per gonad.
 
 Timing on the RTX 5090 (shared with other jobs): 39 to 44 s per training epoch, about 4.3 GB of
