@@ -91,7 +91,9 @@ def test_parse_description_and_fields(tmp_path, monkeypatch):
     desc = ("Plane #1:\n Name: 405\n Exposure: 50 ms\n ExW:405; Power: 12.5\n"
             "Plane #2:\n Name: 640\n Exposure: 200 ms\n ExW:640; Power: 30\n")
     p = parse_description(desc)
-    assert p["405"] == {"exposure_ms": 50.0, "power": 12.5} and p["640"]["exposure_ms"] == 200.0
+    # the two original keys, unchanged; the camera / filter keys added later are None in a minimal block
+    assert p["405"]["exposure_ms"] == 50.0 and p["405"]["power"] == 12.5 and p["640"]["exposure_ms"] == 200.0
+    assert p["405"]["em_filter"] is None and p["405"]["camera_mode"] is None and p["405"]["bit_depth"] is None
     monkeypatch.setattr("germquant.io.acquisition.read_description", lambda path: desc)
     f = acquisition_fields("x.nd2", ["405", "477", "545", "640"], {"dna": 0, "granule": 1, "lamin": 3})
     assert f["exp_ms_dna"] == 50.0 and f["laser_pow_lamin"] == 30.0 and np.isnan(f["exp_ms_granule"])

@@ -619,7 +619,10 @@ tracer), `docs/MAC_METAL.md` (Apple Silicon), `docs/ANNOTATION.md` (annotating n
 fine-tuning the Cellpose model), `docs/BACKENDS.md` (pluggable nucleus segmentation and spot detection
 backends: the contracts, `segmentation.nuclei.backend` and `spots.backend`, the experimental `log`
 baseline), `docs/GENERIC_PROFILE.md` (the generic profile for samples that are not a worm germline),
-`docs/HPC_ALPINE.md` (cluster runs), `analysis/coloc/README.md` (the SYP-3 / PGL-1 analysis layer).
+`docs/QC.md` (the per-channel acquisition record read from the .nd2 description, exposure, laser power,
+emission filter and camera mode, and the `acquisition.expected` check that flags a session imaged with
+the wrong settings), `docs/HPC_ALPINE.md` (cluster runs), `analysis/coloc/README.md` (the SYP-3 / PGL-1
+analysis layer).
 
 Configuration: `config/config.yaml` holds every tunable value with a comment saying why it is set
 the way it is; the `spots` block holds the cross-validated detection parameters. Channel maps are in

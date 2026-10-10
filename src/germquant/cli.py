@@ -30,7 +30,7 @@ from pathlib import Path
 
 from . import provenance
 from .config import find_profile, load_config
-from .io import read_image_metadata
+from .io import image_format, read_image_metadata
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -185,7 +185,27 @@ def _info(nd2: str) -> int:
     dz, dy, dx = m["spacing"]
     print(f"voxel µm   : dz={dz:.4f} dy={dy:.4f} dx={dx:.4f}  (anisotropy z/xy={dz/dy:.2f})")
     print(f"channels   : {m['channel_names']}")
+    if image_format(nd2) == "nd2":
+        _print_acquisition(nd2)
     return 0
+
+
+def _print_acquisition(nd2: str) -> None:
+    """The per-channel acquisition table from the .nd2 description (exposure, laser power, emission filter,
+    camera mode): the record the acquisition stage writes and the one acquisition.expected is checked
+    against (docs/QC.md). Other formats carry no such description, so nothing is printed for them."""
+    from .io.acquisition import format_table, parse_description, read_description
+
+    try:
+        per_name = parse_description(read_description(nd2))
+    except Exception as e:  # noqa: BLE001 - the header fields above are already printed; say why this part is not
+        print(f"acquisition: description unreadable ({e})")
+        return
+    if not per_name:
+        print("acquisition: the description lists no per-channel planes")
+        return
+    print("acquisition (from the .nd2 description; the full record goes to image_summary.acquisition_json):")
+    print(format_table(per_name))
 
 
 def _run(args) -> int:
