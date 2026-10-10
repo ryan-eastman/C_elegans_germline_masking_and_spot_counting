@@ -114,6 +114,8 @@ def parse_args(argv=None):
     ap.add_argument("--truth", choices=["auto", "files", "ims"], default="auto",
                     help="truth files from truth_dir, the .ims fallback, or files first then the fallback")
     ap.add_argument("--write-matches", action="store_true", help="also write per_spot_matches.csv")
+    ap.add_argument("--include-unusable-truth", action="store_true",
+                    help="score gonads whose manifest entry says spot_truth_usable is false (region growing on)")
     return ap.parse_args(argv)
 
 
@@ -124,6 +126,12 @@ def main(argv=None) -> int:
         entries = [e for e in entries if e.split == args.split]
     rows, per_nuc, matches, skipped = [], [], [], []
     for e in entries:
+        # the pre-registered protocol: spots exported with Imaris region growing on are not spot truth
+        # (docs/BENCHMARK_PROTOCOL.md); the split builder records that as spot_truth_usable
+        if e.extra.get("spot_truth_usable") is False and not args.include_unusable_truth:
+            skipped.append({"tag": e.tag, "reason": "spot truth unusable (exported with region growing); pass --include-unusable-truth to score it anyway"})
+            print(f"  skip {e.tag}: spot truth unusable (region growing)")
+            continue
         t0 = time.time()
         try:
             outputs = find_pipeline_outputs(e.results_dir)
