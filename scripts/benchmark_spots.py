@@ -15,7 +15,8 @@ stay empty and the traced subset uses the centroid rule); per_gonad.csv says whi
 took in ``truth_source``.
 
 Outputs in --out: per_gonad.csv (one row per gonad), per_nucleus.csv (one row per germline nucleus
-with expert_n, ours_n and traced), pooled.json (pooled scores with cluster-bootstrap intervals by
+with expert_n, ours_n and traced), per_truth_nucleus.csv (one row per truth nucleus of the protocol's
+section 5.1 primary partition, when the truth label image exists), pooled.json (pooled scores with cluster-bootstrap intervals by
 gonad, overall and by split, plus the skipped gonads and the settings). --write-matches adds
 per_spot_matches.csv with every matched (our spot, expert spot) pair. docs/BENCHMARK.md explains
 every column and key. Exit code 0 when at least one gonad was scored, 1 otherwise.
@@ -124,7 +125,7 @@ def main(argv=None) -> int:
     entries = load_manifest(args.manifest)
     if args.split is not None:
         entries = [e for e in entries if e.split == args.split]
-    rows, per_nuc, matches, skipped = [], [], [], []
+    rows, per_nuc, matches, skipped, per_tm = [], [], [], [], []
     for e in entries:
         # the pre-registered protocol: spots exported with Imaris region growing on are not spot truth
         # (docs/BENCHMARK_PROTOCOL.md); the split builder records that as spot_truth_usable
@@ -160,16 +161,17 @@ def main(argv=None) -> int:
         voxel, vsrc = our_voxel_zyx(outputs, e, truth)
         labels = load_labels(outputs.labels_path)
         truth_labels = load_labels(truth.labels_path) if truth.has_labels else None
-        row, pn, mt = bs.benchmark_gonad(
+        row, pn, mt, tm = bs.benchmark_gonad(
             outputs, truth, labels, voxel, tag=e.tag, split=e.split, truth_labels=truth_labels,
             tol_xy_um=args.tol_xy, tol_z_um=args.tol_z, surface_tol_um=args.surface_tol,
             overlap_frac=args.overlap_frac, traced_rule=args.traced_rule,
-            max_candidates=args.max_candidates, max_dense_cells=args.max_dense_cells)
+            max_candidates=args.max_candidates, max_dense_cells=args.max_dense_cells, return_truth_masks=True)
         row["voxel_source"] = vsrc
         row["elapsed_s"] = round(time.time() - t0, 1)
         rows.append(row)
         per_nuc.append(pn)
         matches.append(mt)
+        per_tm.append(tm)
         print(f"  {e.tag} [{truth.source}]: nuclei all r={row['pearson_r_all']:.3f} ccc={row['ccc_all']:.3f} "
               f"bias={row['bias_all']:+.2f} (expert {row['mean_expert_all']:.2f} / ours {row['mean_ours_all']:.2f}) | "
               f"traced n={row['n_traced']} r={row['pearson_r_traced']:.3f} ccc={row['ccc_traced']:.3f} | "
@@ -183,12 +185,16 @@ def main(argv=None) -> int:
         return 1
     per_gonad = pd.DataFrame(rows)
     per_nucleus = pd.concat(per_nuc, ignore_index=True)
-    pooled = bs.pool(per_gonad, per_nucleus, n_boot=args.n_boot, seed=args.seed)
+    per_truth_nucleus = pd.concat(per_tm, ignore_index=True)
+    pooled = bs.pool(per_gonad, per_nucleus, n_boot=args.n_boot, seed=args.seed, per_truth_nucleus=per_truth_nucleus)
     pooled["skipped"] = skipped
     pooled["manifest"] = str(args.manifest)
     pooled["settings"].update({"max_candidates": args.max_candidates, "max_dense_cells": args.max_dense_cells,
-                               "traced_rule": args.traced_rule, "truth": args.truth})
-    extra = {"per_spot_matches": pd.concat(matches, ignore_index=True)} if args.write_matches else None
+                               "traced_rule": args.traced_rule, "truth": args.truth,
+                               "truth_mask_min_voxels": bs.TRUTH_MASK_MIN_VOXELS})
+    extra = {"per_truth_nucleus": per_truth_nucleus}
+    if args.write_matches:
+        extra["per_spot_matches"] = pd.concat(matches, ignore_index=True)
     paths = write_outputs(args.out, per_gonad, per_nucleus, pooled, extra)
     pa, pt, sa = pooled["per_nucleus_all"], pooled["per_nucleus_traced"], pooled["spots_all"]
     print(f"POOLED {len(rows)} gonads: per-nucleus all n={pa['n_nuclei']} ccc={pa['ccc']['point']:.3f} "
@@ -196,6 +202,11 @@ def main(argv=None) -> int:
           f"bias={pa['bias']['point']:+.2f}; traced n={pt['n_nuclei']} ccc={pt['ccc']['point']:.3f} "
           f"[{pt['ccc']['lo']:.3f}, {pt['ccc']['hi']:.3f}]; spots F1={sa['f1']['point']:.3f} "
           f"[{sa['f1']['lo']:.3f}, {sa['f1']['hi']:.3f}] P={sa['precision']['point']:.3f} R={sa['recall']['point']:.3f}")
+    tm = pooled.get("per_nucleus_truth_masks")
+    if tm:
+        print(f"  truth masks (protocol 5.1 primary partition): n={tm['n_nuclei']} ccc={tm['ccc']['point']:.3f} "
+              f"[{tm['ccc']['lo']:.3f}, {tm['ccc']['hi']:.3f}] bias={tm['bias']['point']:+.2f} "
+              f"mae={tm['mae']['point']:.2f}")
     print("outputs ->", paths["pooled"].parent)
     return 0
 

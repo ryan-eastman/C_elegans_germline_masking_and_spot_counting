@@ -1,7 +1,7 @@
 """Run a spot detection backend on the cached gonads of one split and score it against the Imaris truth.
 
     python scripts/bench_detector.py --backend NAME --params JSON_OR_FILE --split train|val
-        [--tags TAG ...] [--jobs N] --out DIR
+        [--tags TAG ...] [--jobs N] --out DIR [--detector-only]
         [--manifest PATH] [--cache-root DIR] [--trials-log PATH] [--n-boot 1000] [--seed 20251105]
         [--tol-xy 0.3] [--tol-z 0.4] [--no-trial-log] [--verbose]
         [--final --reason TEXT [--final-log PATH] [--allow-dirty]]
@@ -11,16 +11,22 @@ males exported with Imaris region growing are skipped and listed) is run from th
 (scripts/bench_cache.py) through germquant.benchmark.detector.run_backend, exactly as the pipeline's
 spots stage would call the backend, and scored with germquant.benchmark.detector.score: Hungarian
 matching in the 0.3 um (xy) by 0.4 um (z) cylinder, per-nucleus agreement of the expert spots in our
-labels with our counts over the germline nuclei and the traced subset, Class A+B and Class A only.
+labels with our counts over the germline nuclei and the harness's traced subset (our nuclei more than
+half inside a truth mask), Class A+B and Class A only, and the protocol's section 5.1 primary partition,
+in which the Imaris truth masks are the nuclei (Class A+B, A and B; per_truth_nucleus.csv). With
+--detector-only every gonad is run a second time with the truth masks in place of the pipeline's nuclei
+(the detector-only spots of protocol section 5), and that count per truth nucleus is reported next to the
+end-to-end one.
 
 --params is a JSON object or the path of a JSON (or YAML) file; its keys override the golden run's
 spots: section, so {} is the deployed configuration (a nested mapping such as "log" merges one level
 deep). --tags restricts the run to some gonads of the split. --jobs runs that many gonads at once in
 separate processes (each holds about 3 GB of arrays plus the detector's own memory).
 
-Outputs in --out: per_gonad.csv, per_nucleus.csv, per_spot_matches.csv, pooled.json (cluster-bootstrap
-intervals by gonad, 1000 resamples, seed 20251105 as the protocol fixes them; by condition under
-by_split) and detections/<tag>__spots.csv with the detector's own spots. One JSON line per run is
+Outputs in --out: per_gonad.csv, per_nucleus.csv, per_truth_nucleus.csv, per_spot_matches.csv, pooled.json
+(cluster-bootstrap intervals by gonad, 1000 resamples, seed 20251105 as the protocol fixes them; by
+condition under by_split) and detections/<tag>__spots.csv with the detector's own spots (with
+--detector-only also detections_detector_only/<tag>__spots.csv). One JSON line per run is
 appended to trials.jsonl next to the manifest (UTC time, git sha, backend, params and their sha256,
 split, tags, pooled metrics), the record the tuning budget of the protocol counts.
 
@@ -78,6 +84,9 @@ def parse_args(argv=None):
     ap.add_argument("--allow-dirty", action="store_true",
                     help="with --final, accept a code tree with uncommitted changes")
     ap.add_argument("--verbose", action="store_true", help="keep the detectors' progress bars")
+    ap.add_argument("--detector-only", action="store_true",
+                    help="also run the backend with the truth masks in place of the pipeline's nuclei and report "
+                         "that detector-only count per truth nucleus (protocol section 5)")
     return ap.parse_args(argv)
 
 
@@ -188,7 +197,7 @@ def main(argv=None) -> int:
     t0 = time.time()
     score_kw = {"tol_xy_um": args.tol_xy, "tol_z_um": args.tol_z}
     kwargs = dict(cache_root=args.cache_root, manifest=str(manifest_path), allow_test=bool(args.final),
-                  score_kwargs=score_kw)
+                  score_kwargs=score_kw, detector_only=bool(args.detector_only))
     results, failed = {}, []
     jobs = max(1, int(args.jobs))
     if jobs == 1 or len(run_tags) <= 1:
@@ -221,19 +230,26 @@ def main(argv=None) -> int:
     per_gonad = pd.DataFrame([results[t]["row"] for t in order])
     per_nucleus = pd.concat([results[t]["per_nucleus"] for t in order], ignore_index=True)
     matches = pd.concat([results[t]["matches"] for t in order], ignore_index=True)
-    pooled = bd.pool_scores(per_gonad, per_nucleus, n_boot=args.n_boot, seed=args.seed)
+    per_tm = pd.concat([results[t]["per_truth_nucleus"] for t in order], ignore_index=True)
+    pooled = bd.pool_scores(per_gonad, per_nucleus, n_boot=args.n_boot, seed=args.seed, per_truth_nucleus=per_tm)
     from germquant import provenance
 
     pooled.update({"backend": args.backend, "params": params, "params_sha256": bd.params_sha256(params),
                    "split": args.split, "skipped": skipped, "manifest": str(manifest_path),
                    "cache_root": str(args.cache_root), "git_sha": provenance.git_sha(),
-                   "final": bool(args.final)})
+                   "final": bool(args.final), "detector_only": bool(args.detector_only)})
     pooled["bootstrap"].update({"n_boot": int(args.n_boot), "seed": int(args.seed)})
-    paths = write_outputs(out, per_gonad, per_nucleus, pooled, {"per_spot_matches": matches})
+    paths = write_outputs(out, per_gonad, per_nucleus, pooled,
+                          {"per_spot_matches": matches, "per_truth_nucleus": per_tm})
     det_dir = out / "detections"
     det_dir.mkdir(parents=True, exist_ok=True)
     for t in order:
         results[t]["per_spot"].to_csv(det_dir / f"{t}__spots.csv", index=False)
+    if args.detector_only:
+        det_only_dir = out / "detections_detector_only"
+        det_only_dir.mkdir(parents=True, exist_ok=True)
+        for t in order:
+            results[t]["per_spot_detector_only"].to_csv(det_only_dir / f"{t}__spots.csv", index=False)
 
     elapsed = time.time() - t0
     if not args.no_trial_log:
@@ -249,8 +265,18 @@ def main(argv=None) -> int:
     pa, pt = pooled["per_nucleus_all"], pooled["per_nucleus_traced"]
     paa, pta = pooled.get("per_nucleus_all_class_a"), pooled.get("per_nucleus_traced_class_a")
     sa, snb, sdet = pooled["spots_all"], pooled["spots_without_class_b"], pooled["spots_detector_only"]
+    tm = pooled.get("per_nucleus_truth_masks")
+    tma, tmb = pooled.get("per_nucleus_truth_masks_class_a"), pooled.get("per_nucleus_truth_masks_class_b")
+    tmd = pooled.get("per_nucleus_truth_masks_detector_only")
     print(f"POOLED {args.backend} on {args.split} ({len(order)} gonads, {pa['n_nuclei']} germline nuclei, "
-          f"{pt['n_nuclei']} traced):")
+          f"{pt['n_nuclei']} traced, {tm['n_nuclei'] if tm else 0} truth masks):")
+    print(f"  per nucleus, truth masks (protocol 5.1 primary), A+B: CCC {_fmt(tm, 'ccc')}  r {_fmt(tm, 'pearson_r')}  "
+          f"bias {_fmt(tm, 'bias')}  MAE {_fmt(tm, 'mae')}")
+    print(f"  per nucleus, truth masks, A: CCC {_fmt(tma, 'ccc')}  bias {_fmt(tma, 'bias')}; "
+          f"B: CCC {_fmt(tmb, 'ccc')}  bias {_fmt(tmb, 'bias')}")
+    if tmd:
+        print(f"  per nucleus, truth masks, detector-only count, A+B: CCC {_fmt(tmd, 'ccc')}  bias {_fmt(tmd, 'bias')}  "
+              f"MAE {_fmt(tmd, 'mae')}")
     print(f"  per nucleus, germline, A+B: CCC {_fmt(pa, 'ccc')}  r {_fmt(pa, 'pearson_r')}  bias {_fmt(pa, 'bias')}")
     print(f"  per nucleus, traced,   A+B: CCC {_fmt(pt, 'ccc')}  r {_fmt(pt, 'pearson_r')}  bias {_fmt(pt, 'bias')}")
     print(f"  per nucleus, germline, A:   CCC {_fmt(paa, 'ccc')}  bias {_fmt(paa, 'bias')}")
@@ -263,10 +289,12 @@ def main(argv=None) -> int:
 
 
 def _report(row: dict) -> None:
+    tm = bd.finite_or_none(row.get("tm_ccc"))
     print(f"  {row['tag']} [{row.get('role')}, {row.get('split')}]: ours {row['n_our_spots']} spots, expert "
-          f"{row['n_expert_spots']} | germline CCC {row['ccc_all']:.3f} bias {row['bias_all']:+.2f} | traced CCC "
-          f"{row['ccc_traced']:.3f} | F1 {row['f1']:.3f} (P {row['precision']:.3f}, R {row['recall']:.3f}) | "
-          f"detect {row['detect_s']} s, score {row['score_s']} s", flush=True)
+          f"{row['n_expert_spots']} | truth masks CCC {'nan' if tm is None else f'{tm:.3f}'} | germline CCC "
+          f"{row['ccc_all']:.3f} bias {row['bias_all']:+.2f} | traced CCC {row['ccc_traced']:.3f} | F1 "
+          f"{row['f1']:.3f} (P {row['precision']:.3f}, R {row['recall']:.3f}) | detect {row['detect_s']} s, "
+          f"score {row['score_s']} s", flush=True)
 
 
 if __name__ == "__main__":

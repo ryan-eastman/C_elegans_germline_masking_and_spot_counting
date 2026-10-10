@@ -21,7 +21,8 @@ tasks than gonads keep more workers busy on a split with few gonads). SpotMAX se
 effect_size_min share one detection unless --no-shortcut (germquant.benchmark.tuning.filter_effect_size).
 
 Outputs: <out-root>/<name>/ for every set with the files of bench_detector.py (per_gonad.csv,
-per_nucleus.csv, per_spot_matches.csv, pooled.json, detections/<tag>__spots.csv); <out-root>/summary.csv
+per_nucleus.csv, per_spot_matches.csv, per_truth_nucleus.csv, pooled.json, detections/<tag>__spots.csv);
+<out-root>/summary.csv
 and summary.json with the headline numbers of every set, best first by the objective (pooled germline
 per-nucleus CCC rounded to 3 decimals, then pooled spot F1); <out-root>/configs.json with the sets as run.
 One trial record per set is appended to trials.jsonl next to the manifest (detector.trial_record plus a
@@ -260,7 +261,8 @@ def main(argv=None) -> int:
         per_gonad = pd.DataFrame([r["row"] for r in recs])
         per_nucleus = pd.concat([r["per_nucleus"] for r in recs], ignore_index=True)
         matches = pd.concat([r["matches"] for r in recs], ignore_index=True)
-        pooled = bd.pool_scores(per_gonad, per_nucleus, n_boot=args.n_boot, seed=args.seed)
+        per_tm = pd.concat([r["per_truth_nucleus"] for r in recs], ignore_index=True)
+        pooled = bd.pool_scores(per_gonad, per_nucleus, n_boot=args.n_boot, seed=args.seed, per_truth_nucleus=per_tm)
         shared = {r["tag"]: r["shared_detection"] for r in recs if r["shared_detection"] is not None}
         tuning = {"runner": "scripts/bench_tune.py", "search": args.search, "stage": args.stage, "name": name,
                   "objective": bt.OBJECTIVE_TEXT, "effect_size_shortcut": bool(shared),
@@ -271,7 +273,7 @@ def main(argv=None) -> int:
                        "cache_root": str(args.cache_root), "git_sha": git_sha, "final": False, "tuning": tuning})
         pooled["bootstrap"].update({"n_boot": int(args.n_boot), "seed": int(args.seed)})
         out = out_root / name
-        write_outputs(out, per_gonad, per_nucleus, pooled, {"per_spot_matches": matches})
+        write_outputs(out, per_gonad, per_nucleus, pooled, {"per_spot_matches": matches, "per_truth_nucleus": per_tm})
         det_dir = out / "detections"
         det_dir.mkdir(parents=True, exist_ok=True)
         for r in recs:
@@ -311,7 +313,8 @@ def main(argv=None) -> int:
 
     for row in rows[:15]:
         print(f"  {row.get('rank')} {row['name']}: germline CCC {f(row.get('ccc_all'))} bias "
-              f"{f(row.get('bias_all'), '+.2f')} | traced CCC {f(row.get('ccc_traced'))} | F1 {f(row.get('f1'))} "
+              f"{f(row.get('bias_all'), '+.2f')} | traced CCC {f(row.get('ccc_traced'))} | truth masks (5.1) CCC "
+              f"{f(row.get('tm_ccc'))} | F1 {f(row.get('f1'))} "
               f"(P {f(row.get('precision'))}, R {f(row.get('recall'))}) | ours {row.get('n_ours')} "
               f"expert {row.get('n_expert')}")
     print(f"outputs -> {out_root} ({wall:.0f} s)")
