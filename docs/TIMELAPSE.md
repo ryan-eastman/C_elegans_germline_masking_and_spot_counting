@@ -327,8 +327,10 @@ same timepoint, the bleaching-free quantity).
 **tracks** has one row per track: `n_points`, `n_gaps` (timepoints missing inside the span), `t_start` /
 `t_first`, `t_end` / `t_last`, `is_full_length` (a point at every timepoint on disk), `path_length_um`,
 `net_displacement_um`, `mean_step_um`, `speed_um_per_min` (path length over the recorded time span),
-`axis_velocity_um_per_min` (the least-squares slope of `axis_position_aligned_um` against minutes, signed:
-positive is towards the proximal end in t0's orientation), `intensity_slope_raw_per_min` /
+`axis_velocity_um_per_min` (the least-squares slope of `axis_position_fixed_um` against minutes, signed:
+positive is towards the proximal end in t0's orientation; see "One reference axis" below),
+`axis_velocity_refit_um_per_min` (the same slope on `axis_position_aligned_um`, the per-frame axis; kept
+for comparison), `intensity_slope_raw_per_min` /
 `intensity_slope_raw` (the slope of `central_element_mean_intensity`) and `intensity_slope_norm_per_min` /
 `intensity_slope_norm` (the slope of the median-normalised intensity; the control baseline for the
 heat-shock series), `sc_length_change_um` (last minus first `sc_total_length_um` within the track, NA
@@ -342,10 +344,22 @@ timepoint is computed: a negative correlation means the orientation is reversed,
 are flipped as `L - p`, with `L` the timepoint's `total_germline_length_um` from its image_summary (its
 largest axis position when that is missing). A timepoint with fewer than three nuclei linked to t0 inherits
 the previous timepoint's sign. The signs are in `<stem>__track_link.json` (`axis_sign_by_t`) and the command
-prints the flipped timepoints. The limit of the method: the axis origin is refit per timepoint, so a nucleus
-appearing or disappearing at the distal end moves every position of that frame by a little; the sign is
-exact, the per-frame offset is not corrected, and the velocity is a slope over the whole track, which
-averages that noise down. tests/test_timelapse_tracking.py plants a flipped frame and checks the velocity.
+prints the flipped timepoints. The sign is exact; the per-frame origin is not, which is why the velocity
+uses one reference axis instead.
+
+**One reference axis.** The axis stage refits the axis at every timepoint and puts its origin at that
+frame's most distal labelled nucleus, so `axis_position_um` of a fixed point in the worm moves from frame
+to frame. On the October series at stride 4 a fixed point at x = 100 um sat anywhere from 54 to 83 um
+along the per-frame axis, drifting by -0.05 to -0.09 um per minute, and the refitted-axis velocity read
+about half the true flow (0.087 against 0.174 um per minute on 135 full-length tracks). The noise does not
+average out. `axis_position_fixed_um` therefore applies the FIRST timepoint's axis to every frame: the
+position at a registered point is a local linear fit of the first timepoint's `axis_position_um` over
+its 16 nearest germline nuclei, evaluated at the point (exact where the axis is locally straight,
+extrapolated with the local gradient past the last first-timepoint nucleus). Without axis positions at
+the first timepoint, a centerline is fitted to its nuclei with the axis stage's curve fit instead.
+tests/test_timelapse_tracking.py plants a flipped frame and checks the velocity; tests/test_tranche3_fixes.py
+plants a curved gonad with a jittering per-frame origin and checks that the fixed-axis velocity recovers
+the true flow while the refitted one does not.
 
 ### Importing a tracker's result: `germquant track-import`
 

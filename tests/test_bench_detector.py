@@ -378,6 +378,10 @@ def test_guard_refuses_test_gonads(planted_bench, capsys):
                      *_bench_args(b)]) == 2
     assert mod.main(["--backend", "log", "--split", "test", "--final", "--out", str(out), *_bench_args(b)]) == 2
     assert "--reason" in capsys.readouterr().out
+    # --final can never skip the final log
+    assert mod.main(["--backend", "log", "--split", "test", "--final", "--reason", "x", "--allow-dirty",
+                     "--no-trial-log", "--out", str(out), *_bench_args(b)]) == 2
+    assert "--no-trial-log is not allowed with --final" in capsys.readouterr().out
     assert not out.exists() and not (b["root"] / "trials.jsonl").exists()
     # the library refuses as well, before it loads anything
     with pytest.raises(bd.TestSetGuardError):

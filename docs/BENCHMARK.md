@@ -614,8 +614,9 @@ thresholds, 0.05 to 0.90.
 
 Selection (`select_config`): every scored (epoch, threshold) whose pooled traced CCC is within 0.01 of
 the best one so far is eligible, and the eligible configuration with the best pooled F1 wins (then the
-higher CCC, the earlier epoch, the lower threshold). 0.01 is the protocol's scale for a change of the
-primary metric that counts (section 10). The first launches used a strict CCC maximum with F1 only for
+higher CCC, the earlier epoch, the lower threshold). This rule is a declared deviation from protocol
+section 6.4 (protocol changelog entry 3), adopted on val after the first launches; the 0.01 band
+borrows the scale of the section 10 stop rule and is not a tie band the protocol defines. The first launches used a strict CCC maximum with F1 only for
 exact ties; it jumped between thresholds 0.05 and 0.60 on differences of 0.001 (it picked epoch 5 at
 threshold 0.05, germline CCC 0.959, F1 0.608, over epoch 4 at 0.45 with traced CCC 0.979 and F1 0.627),
 so the rule was changed before the run reported below; this was decided on val, never on test. Early
@@ -985,7 +986,9 @@ on every pooled val number except recall (CCC 0.784 against 0.695, bias +0.60 ag
 against 0.428). It still overcounts on both val gonads (+0.30 and +0.75 per germline nucleus). By section 7
 of the protocol the SpotMAX reference is the better of the deployed and the re-tuned recipe chosen on val,
 which on these numbers is the re-tuned one (changelog entry 2 leaves open whether this search or the
-section 8 grid supplies the re-tuned competitor). On val the selected `log` set leads the selected
+section 8 grid supplies the re-tuned competitor). On traced-subset CCC, the closest proxy the harness
+computes for the primary metric, the val rule would pick smS2_tri_r0.35_g0.08_e4 instead (0.756
+against 0.717), so the reference must be chosen under the primary metric before test. On val the selected `log` set leads the selected
 SpotMAX set in CCC (0.874 against 0.784) and F1 (0.482 against 0.444); these are development numbers on
 two gonads, not a win condition.
 
@@ -1045,7 +1048,8 @@ flag `spots:unvalidated_backend=log`.
   gonad (1000 resamples, seed 20251105); with two val gonads they rest on one gonad per condition.
 * Nothing here is a win condition of the protocol, and the test split was not touched. The searches
   differ from the pre-registered design (the SpotMAX grid, val scores for finalists only, the germline
-  partition as the objective); protocol changelog entry 2 records the differences.
+  partition as the objective); protocol changelog entry 2 records the differences, and each of them is
+  post hoc (protocol rule 3).
 * The objective is the germline partition of the harness, not the traced-subset partition of protocol
   section 5.1, and the harness's traced subset is not that partition either.
 * No heat-shock male informed any choice, and val holds hermaphrodites only.

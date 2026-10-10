@@ -349,15 +349,18 @@ def _export_image(layout: SeriesLayout, vsh, box, stride, image, channel_name, s
 
 
 def _read_channel_from_file(layout: SeriesLayout, t: int, stride: int, role_idx: int | None) -> np.ndarray | None:
-    """One timepoint's central_element channel read from the series file at the given stride (a full frame
-    read: 25 s per timepoint over the lab network for the October series)."""
+    """One timepoint's central_element channel read from the series file at ``stride`` relative to the run's
+    label grid: the file is read at the run's own xy stride times ``stride`` (and on the run's z range), so the
+    volume sits on the grid label/stride exactly like a reference volume of stride ``stride``. A full frame read:
+    25 s per timepoint over the lab network for the October series."""
     if not layout.file_path or not Path(layout.file_path).exists():
         log.warning("%s: the series file %s is not reachable; no image written", layout.stem, layout.file_path)
         return None
     from ..io import read_image
 
     try:
-        st = read_image(layout.file_path, xy_stride=stride, t=int(t))
+        st = read_image(layout.file_path, xy_stride=int(stride) * layout.run_xy_stride(),
+                        z_range=layout.run_z_range(), t=int(t))
     except Exception as e:  # noqa: BLE001 - the labels are the product; the image is a convenience
         log.warning("%s: reading t%03d from %s failed (%s: %s); no image written", layout.stem, t, layout.file_path,
                     type(e).__name__, e)
@@ -620,6 +623,9 @@ def build_track_tables(layout: SeriesLayout, objects: pd.DataFrame, assign: dict
         s = pts["t_index"].map(signs).fillna(1.0)
         L = pts["t_index"].map(lengths)
         pts["axis_position_aligned_um"] = np.where(s < 0, L - p, p)
+    # one reference axis for every timepoint (the per-frame axis is refitted and its origin moves; see
+    # fixed_axis_positions), used for the axis velocity of the tracks
+    pts["axis_position_fixed_um"] = fixed_axis_positions(pts)
     syp = "central_element_mean_intensity"
     if syp in pts.columns:
         med = pts.groupby("t_index")[syp].transform("median")
@@ -685,6 +691,116 @@ def align_axis_sign(layout: SeriesLayout, pts: pd.DataFrame) -> tuple[dict[int, 
     return signs, lengths
 
 
+def fixed_axis_positions(pts: pd.DataFrame, k_neighbours: int = 16) -> pd.Series:
+    """The position of every track point along ONE reference axis: the first timepoint's axis, in microns.
+
+    The axis stage refits the gonad axis at every timepoint and puts its origin at that frame's most distal
+    labelled nucleus, so ``axis_position_um`` of a fixed point in the worm moves from frame to frame (on the
+    October series by 54 to 83 um at x = 100 um across 25 frames at stride 4) and its slope over time mixes
+    flow with that jitter. Here the first timepoint's axis is applied to every frame: the axis position at a
+    registered point is a local linear fit of the first timepoint's axis_position_um over its ``k_neighbours``
+    nearest germline nuclei (registered coordinates), evaluated at the point. Within the gonad this follows
+    the curved axis; a nucleus that moves past the last first-timepoint nucleus is extrapolated with the local
+    gradient instead of being clamped. When the first timepoint carries no axis positions, a centerline is
+    fitted to its nuclei with the axis stage's curve fit instead. NaN for every point when the first timepoint
+    has fewer than 5 usable nuclei."""
+    out = pd.Series(np.nan, index=pts.index, dtype=float)
+    if pts.empty or not {"zr_um", "yr_um", "xr_um", "t_index"} <= set(pts.columns):
+        return out
+    coords = pts[["zr_um", "yr_um", "xr_um"]].to_numpy(float)
+    ok = np.isfinite(coords).all(axis=1)
+    if not ok.any():
+        return out
+    t_idx = pd.to_numeric(pts["t_index"], errors="coerce").to_numpy(float)
+    t0 = float(np.nanmin(t_idx[ok]))
+    sel = ok & (t_idx == t0)
+    if "in_germline" in pts.columns:
+        germ = pts["in_germline"].astype("boolean").fillna(False).to_numpy(bool)
+        if int((sel & germ).sum()) >= 5:
+            sel = sel & germ
+    p0 = (pd.to_numeric(pts["axis_position_um"], errors="coerce").to_numpy(float)
+          if "axis_position_um" in pts.columns else np.full(len(pts), np.nan))
+    have_p = sel & np.isfinite(p0)
+    if int(have_p.sum()) >= 5:
+        ref, val = coords[have_p], p0[have_p]
+        out.loc[pts.index[ok]] = _local_linear_field(ref, val, coords[ok], k_neighbours)
+        return out
+    if int(sel.sum()) < 5:
+        return out
+    out.loc[pts.index[ok]] = _centerline_positions(coords[sel], coords[ok])
+    return out
+
+
+def _local_linear_field(ref: np.ndarray, val: np.ndarray, x: np.ndarray, k: int) -> np.ndarray:
+    """``val`` (a scalar field sampled at the points ``ref``) evaluated at ``x`` by a local linear least-squares
+    fit over the ``k`` nearest samples of each query point. The intercept of the fit centred on the query point
+    is the estimate, so a field that is linear in the neighbourhood is reproduced exactly; a tiny ridge on the
+    gradient keeps degenerate neighbourhoods (all samples in one plane) solvable without biasing the estimate."""
+    from scipy.spatial import cKDTree
+
+    k = int(min(max(k, 4), len(ref)))
+    tree = cKDTree(ref)
+    res = np.empty(len(x))
+    span = float(np.ptp(ref, axis=0).max()) or 1.0
+    for i in range(0, len(x), 8192):
+        xb = x[i:i + 8192]
+        _d, idx = tree.query(xb, k=k)
+        idx = np.atleast_2d(idx)
+        d = (ref[idx] - xb[:, None, :]) / span                     # (n, k, 3), centred on the query, scaled
+        A = np.concatenate([np.ones(d.shape[:2] + (1,)), d], axis=2)  # (n, k, 4)
+        AtA = np.einsum("nki,nkj->nij", A, A)
+        AtA[:, 1:, 1:] += 1e-9 * np.eye(3)[None]
+        Atb = np.einsum("nki,nk->ni", A, val[idx])
+        res[i:i + 8192] = np.linalg.solve(AtA, Atb[..., None])[:, 0, 0]
+    return res
+
+
+def _centerline_positions(ref: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """Arc length along a centerline fitted to ``ref`` (the axis stage's curve fit), for the points ``x``, with
+    a straight extension beyond both ends; a principal straight line when no curve can be fitted. Zeroed at
+    the most distal reference point; the orientation is arbitrary (no axis positions to orient it by)."""
+    from ..axis.linearize import _fit_principal_curve
+
+    center = ref.mean(axis=0)
+    scale = float(np.std(ref - center)) or 1.0
+    ref_s, x_s = (ref - center) / scale, (x - center) / scale
+    curve, _method = _fit_principal_curve(ref_s)
+    if curve is None or len(curve) < 2:
+        _u, _sv, vt = np.linalg.svd(ref_s, full_matrices=False)
+        arc_x, arc_ref = x_s @ vt[0], ref_s @ vt[0]
+    else:
+        seg = np.linalg.norm(np.diff(curve, axis=0), axis=1)
+        s_curve = np.concatenate([[0.0], np.cumsum(seg)])
+        t_start = (curve[1] - curve[0]) / (np.linalg.norm(curve[1] - curve[0]) or 1.0)
+        t_end = (curve[-1] - curve[-2]) / (np.linalg.norm(curve[-1] - curve[-2]) or 1.0)
+
+        def project(q: np.ndarray) -> np.ndarray:
+            res = np.empty(len(q))
+            for i in range(0, len(q), 4096):
+                qb = q[i:i + 4096]
+                kk = ((qb[:, None, :] - curve[None, :, :]) ** 2).sum(axis=2).argmin(axis=1)
+                a = s_curve[kk].copy()
+                first, last = kk == 0, kk == len(curve) - 1
+                a[first] = (qb[first] - curve[0]) @ t_start
+                a[last] = s_curve[-1] + (qb[last] - curve[-1]) @ t_end
+                res[i:i + 4096] = a
+            return res
+
+        arc_x, arc_ref = project(x_s), project(ref_s)
+    return (arc_x - float(np.min(arc_ref))) * scale
+
+
+def _axis_velocity(minutes: np.ndarray, g: pd.DataFrame) -> float:
+    """Velocity along the gonad in um per minute: the slope on the fixed reference axis (fixed_axis_positions)
+    when the track has it, else on the per-frame axis after sign alignment."""
+    for col in ("axis_position_fixed_um", "axis_position_aligned_um"):
+        if col in g.columns:
+            v = g[col].to_numpy(float)
+            if int(np.isfinite(v).sum()) >= 2:
+                return _slope_per_min(minutes, v)
+    return float("nan")
+
+
 def _slope_per_min(minutes: np.ndarray, values: np.ndarray) -> float:
     m = np.asarray(minutes, float)
     v = np.asarray(values, float)
@@ -717,7 +833,8 @@ def _tracks_from_points(pts: pd.DataFrame, layout: SeriesLayout, link_source: st
             "path_length_um": path, "net_displacement_um": net,
             "mean_step_um": float(np.nanmean(steps[1:])) if n > 1 else float("nan"),
             "speed_um_per_min": (path / dur) if dur > 0 else float("nan"),
-            "axis_velocity_um_per_min": _slope_per_min(minutes, g["axis_position_aligned_um"].to_numpy(float))
+            "axis_velocity_um_per_min": _axis_velocity(minutes, g),
+            "axis_velocity_refit_um_per_min": _slope_per_min(minutes, g["axis_position_aligned_um"].to_numpy(float))
             if "axis_position_aligned_um" in g.columns else float("nan"),
             "intensity_slope_raw_per_min": _slope_per_min(minutes, g["central_element_mean_intensity"].to_numpy(float))
             if "central_element_mean_intensity" in g.columns else float("nan"),

@@ -156,6 +156,8 @@ def main(argv=None) -> int:
                           "gonads are scored only with --final and a --reason (docs/BENCHMARK_PROTOCOL.md)")
     final_log = Path(args.final_log) if args.final_log else manifest_path.parent / "final_runs.jsonl"
     if args.final:
+        if args.no_trial_log:
+            return refuse("--final always appends to final_runs.jsonl; --no-trial-log is not allowed with --final")
         if not (args.reason and args.reason.strip()):
             return refuse("--final needs a --reason")
         from germquant import provenance

@@ -161,6 +161,15 @@ def resolve_model_path(cfg):
             raise FileNotFoundError(
                 f"model {model_path!r} is registered but its file is missing: fetch it with "
                 f"'germquant get-model {model_path}' (release assets), register it again, or set GERMQUANT_MODELS")
+        from .models_registry import CELLPOSE_BUILTIN_NAMES, local_registry_path
+
+        if str(model_path).lower() not in CELLPOSE_BUILTIN_NAMES:
+            # not a file, not registered in THIS environment's registry, not a Cellpose built-in: Cellpose would
+            # log "pretrained model not found, using default model" and segment with its stock weights
+            raise FileNotFoundError(
+                f"model {model_path!r} is not a file, not a model registered in {local_registry_path()} and not a "
+                f"Cellpose built-in {CELLPOSE_BUILTIN_NAMES}; give the model file's absolute path in "
+                f"segmentation.nuclei.cellpose_model, or register it in this environment")
     return model_path
 
 

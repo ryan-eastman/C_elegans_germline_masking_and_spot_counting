@@ -300,6 +300,10 @@ TRACKS = [
     # intensity_slope_norm_per_min, both per minute) and the mean registered step between consecutive
     # points of the track.
     "t_first", "t_last", "mean_step_um", "intensity_slope_raw", "intensity_slope_norm",
+    # appended 2026-10-10: axis_velocity_um_per_min is measured on one fixed reference axis (the first
+    # timepoint's centerline, track.fixed_axis_positions); this is the slope on the per-frame refitted axis,
+    # which reads low when the frame's axis origin moves (kept for comparison).
+    "axis_velocity_refit_um_per_min",
 ]
 
 # track_validation (written by `germquant track-validate`): one row per hand-followed point. The point is

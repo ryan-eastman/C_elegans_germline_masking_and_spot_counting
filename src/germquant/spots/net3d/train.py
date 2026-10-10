@@ -514,6 +514,8 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
     div = size_divisor(levels)
     if any(p % d for p, d in zip(patch, div)):
         raise ValueError(f"--patch {patch} must be a multiple of {div} (the network's size divisor)")
+    if patch[1] != patch[2]:
+        raise ValueError(f"--patch {patch}: Y and X must be equal (the y/x transpose augmentation swaps them)")
     dcfg = {**nd.DATA_DEFAULTS, **(data_cfg or {})}
     ncfg = {**NORM_DEFAULTS, **(norm or {})}
     thresholds = sorted(float(t) for t in thresholds)

@@ -3,7 +3,8 @@
 # config/config.yaml and changes only spots: keys; select it with
 # `germquant run X.nd2 --profile bench_log_tuned --out ...`.
 #
-# Status: a development result, not a validated recipe and not the default. It was chosen by the pooled
+# Status: a development result, not a validated recipe and not the default; its search design is post hoc
+# (protocol rule 3, changelog entry 2). It was chosen by the pooled
 # per-nucleus CCC against the Imaris truth on the 4 train gonads with usable spot truth (3 without heat
 # shock, 1 heat-shock hermaphrodite), then among the 5 best train sets on the 2 val hermaphrodites. It
 # was never run on a test gonad, and no heat-shock male took part in choosing it (both training ones

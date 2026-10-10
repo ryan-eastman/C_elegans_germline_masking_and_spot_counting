@@ -1,10 +1,12 @@
 # Profile: SpotMAX (the deployed detector) with the parameters selected when it was re-tuned on the RAD-51
-# benchmark's train and val gonads, as the competitor the benchmark protocol requires (package D3,
+# benchmark's train and val gonads, selected by the D3 germline objective (package D3,
 # 2026-10-10; docs/BENCHMARK.md, "Tuning on train and val"). Overlays config/config.yaml and changes only
 # spots: keys (here gauss_sigma_um 0.08 -> 0.12 and effect_size_min 3.0 -> 3.5; the other two are the
 # base values, written out); select it with `germquant run X.nd2 --profile bench_spotmax_tuned --out ...`.
 #
-# Status: a development result, not the deployed recipe. It was chosen by the pooled per-nucleus CCC
+# Status: a development result, not the deployed recipe; its search design is post hoc (protocol rule 3,
+# changelog entry 2), and whether it is the protocol's re-tuned competitor is open (on traced CCC the val
+# rule picks smS2_tri_r0.35_g0.08_e4). It was chosen by the pooled per-nucleus CCC
 # against the Imaris truth on the 4 train gonads with usable spot truth (3 without heat shock, 1
 # heat-shock hermaphrodite), then among the 3 best train sets on the 2 val hermaphrodites. It was never
 # run on a test gonad, and no heat-shock male took part in choosing it (both training ones have unusable
