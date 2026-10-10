@@ -646,9 +646,10 @@ on GitHub Actions, `.github/workflows/ci.yml`). Pinned environments:
 Silicon), `constraints/ci-cpu-2026-10.txt` (continuous integration, CPU).
 
 Other CLI commands: `validate` (compare a pipeline table or label image with hand-scored ground
-truth), `prep-training` (export DAPI slices for annotation), `finetune` (fine-tune the Cellpose
-model on a labelled folder), `check-gpu`, `get-model`, `collect`, `trace`, `restage`. Run the
-program with `--help` for the options.
+truth), `imaris-truth` (read the expert Spots, Surfaces and nucleus masks out of an Imaris `.ims`
+project into truth files in our frame, `docs/IMARIS_TRUTH.md`), `prep-training` (export DAPI slices
+for annotation), `finetune` (fine-tune the Cellpose model on a labelled folder), `check-gpu`,
+`get-model`, `collect`, `trace`, `restage`. Run the program with `--help` for the options.
 
 ## Citing
 

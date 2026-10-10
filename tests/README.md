@@ -11,6 +11,8 @@ gonads are built inside the fixtures.
   profile machinery (`test_profiles.py`), the stage registry (`test_stages.py`), batch bookkeeping
   (`test_batch.py`) and the model download command (`test_models_registry.py`, which fakes the
   network).
+- `test_imaris_truth.py`: the Imaris truth reader (`germquant imaris-truth`) on a tiny synthetic
+  HDF5 written in the `.ims` layout; skips itself when `h5py` is not installed.
 - `test_end_to_end.py`: the whole single-image pipeline on synthetic 3-channel and 4-channel gonads
   with the `.nd2` reader monkeypatched. Its fixtures (`patched_reader`, `patched_reader_4ch`) are
   imported by several other modules.

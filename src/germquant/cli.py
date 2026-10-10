@@ -113,6 +113,17 @@ def main(argv: list[str] | None = None) -> int:
     pm.add_argument("name", nargs="?", default="germline_nuclei_combined")
     pm.add_argument("--force", action="store_true", help="download even if a verified copy exists")
 
+    pit = sub.add_parser("imaris-truth", help="read the expert truth out of an Imaris .ims project (Spots, Surfaces, "
+                                              "the traced nucleus masks) into the truth files the benchmark compares "
+                                              "against (docs/IMARIS_TRUTH.md)")
+    pit.add_argument("ims", help="an Imaris .ims project (HDF5); read only")
+    pit.add_argument("--out", required=True, help="folder for <stem>__imaris_{spots,nuclei}.csv, "
+                                                  "<stem>__imaris_labels.tif and <stem>__imaris_params.json")
+    pit.add_argument("--nd2", help="the .nd2 the project was made from; its voxel size defines our frame "
+                                   "(default: a sibling <stem>.nd2, else Imaris's own voxel size)")
+    pit.add_argument("--no-masks", action="store_true",
+                     help="skip the mask channel (no label image; much faster, tables only)")
+
     args = p.parse_args(argv)
     _force_utf8_stdio()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -129,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         "finetune": lambda: _finetune(args),
         "check-gpu": lambda: _check_gpu(),
         "get-model": lambda: _get_model(args),
+        "imaris-truth": lambda: _imaris_truth(args),
     }[args.cmd]()
 
 
@@ -423,6 +435,28 @@ def _get_model(args) -> int:
     from .models_registry import main as get_model_main
 
     return get_model_main([args.name] + (["--force"] if args.force else []))
+
+
+def _imaris_truth(args) -> int:
+    from .validate.imaris_ims import export_imaris_truth
+
+    p = export_imaris_truth(args.ims, args.out, nd2=args.nd2, masks=not args.no_masks)
+    m = p["mask"]
+    line = f"{p['stem']}: {p['n_spots']} spots, {p['n_surfaces']} surfaces"
+    if m.get("labels_file"):
+        line += (f", {m['n_surfaces_with_mask']}/{p['n_surfaces']} surfaces with a mask from channel "
+                 f"{m['channel']} ('{m['channel_name']}'), labels {tuple(m['labels_shape_zyx'])}")
+    else:
+        line += f", no label image ({m.get('reason_no_labels')})"
+    print(line)
+    if m.get("labels_file"):
+        print(f"  centroid check: {m['n_centroid_inside_own_label']} inside own label, {m['n_centroid_in_cavity']} on a "
+              f"cavity (0), {m['n_centroid_in_other_label']} inside another label; "
+              f"{m['n_orphan_values']} unclaimed mask value(s) dropped")
+    for w in p["warnings"]:
+        print(f"  warning: {w}")
+    print(f"  -> {args.out}")
+    return 0
 
 
 def _check_gpu() -> int:
