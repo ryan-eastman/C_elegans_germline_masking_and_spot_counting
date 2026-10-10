@@ -54,6 +54,13 @@ gonads are built inside the fixtures.
   synthetic label volumes and spot sets with known answers for every metric (a split, a merge, an
   out-of-coverage prediction, the z-extent error, the chunked Hungarian against the dense result, the
   bootstrap intervals), plus both benchmark scripts run on a temporary manifest in a subprocess.
+- `test_bench_detector.py`: the detector bench harness (`germquant.benchmark.detector`,
+  `scripts/bench_cache.py`, `scripts/bench_detector.py`; `docs/BENCHMARK.md`, "Detector bench harness").
+  A real pipeline run on a synthetic uint16 gonad is cached and re-run: the cached label image is the one
+  the spots stage received, `run_backend` hands `detect_spots` exactly the pipeline's arguments and
+  reproduces its spots table (log backend always, SpotMAX when installed). Tiny planted-foci gonads with
+  truth files exercise the runner, the trial log, the test guard and the final-run log (on synthetic
+  test-role gonads and temporary logs only), and the process pool against the sequential run.
 
 ## Markers
 
