@@ -30,7 +30,7 @@ Both judges expect ties, and both "first benchmark" claims are pre-empted (SpotM
 
 **Integration.** backends.py registry, one additive branch after the legacy names, conditional stage_hashes payload, profile, models_registry entry, default sub-hash pinned. Never the default: it changes volumes and perinuclear shells downstream, documented per stage.
 
-**Effort: 16 weeks.** W1-2 reader, zarrs, harness, goldens scored, pre-registration. W3-5 model, training, Cellpose fine-tune, full-stack RAM and watershed timing. W6-8 val-only iteration, learning curve, ablations, crops. W9-10 wiring, tests, golden diff, docs. W11-13 StarDist-3D, EmbedSeg, public set, ccw77 and dry-ice readouts. W14-15 final evaluation, downstream rerun, figures. W16 slack.
+**Effort: 16 weeks.** W1-2 reader, zarrs, harness, goldens scored, pre-registration. W3-5 model, training, Cellpose fine-tune, full-stack RAM and watershed timing. W6-8 val-only iteration, learning curve, ablations, crops. W9-10 wiring, tests, golden diff, docs. W11-13 StarDist-3D, EmbedSeg, public set, ccw77 readouts (the N2 dry-ice set is a fixation test, not the lab's standard prep, and is not used for biological readouts). W14-15 final evaluation, downstream rerun, figures. W16 slack.
 
 **Risks.** Tie at 1.85x anisotropy; Imaris convention is not the envelope; per-gonad subset bias; pseudo-label gate inherits Cellpose misses; 582 training nuclei is marginal.
 

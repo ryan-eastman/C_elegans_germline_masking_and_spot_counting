@@ -116,3 +116,17 @@ is a finding, not noise: first check whether a pin moved, then decide whether th
 platform effect that deserves a documented tolerance. Until the first green run on `ubuntu-latest`,
 Linux is unrehearsed: the install was resolved for Linux with `uv pip compile`, but the suite itself
 has only been run on Windows.
+
+## The real golden image sets
+
+Two sets of real gonads are frozen under `C:/Users/ryane/germquant_golden/8666f07/` (tags in
+`tests/golden/real_manifest.json`):
+
+* `n2dryice_*` (7 gonads plus 4 stride-4 variants): the 4-channel N2 set of 2026-06-25 (DAPI, SYP-3, PGL-1,
+  lamin). That imaging session was a fixation test (dry-ice freeze-crack), not the lab's standard preparation.
+  It is a regression input only: it shows whether a code change moves the numbers on a fixed input. Do not use
+  it as biological reference data, as training or benchmark data, or as representative images in a paper.
+* `n2rad51_*` (12 gonads): the 3-channel N2 RAD-51 cross-validation set of 2025-11-05 (DAPI, SYP, RAD-51),
+  no heat shock and heat shock, hermaphrodites and males, imaged with the standard preparation and paired
+  with Imaris annotations. These are both regression inputs and the benchmark set for spot detection.
+

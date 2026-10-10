@@ -335,7 +335,7 @@ slashes here; on Windows `config/config.yaml` and `config\config.yaml` are the s
 |---|---|---|
 | `config/config.yaml` | N2-style DAPI / SYP / RAD-51, with or without a fourth PGL-1 channel | nuclei, germline isolation, RAD-51 spots; colocalization only if a PGL-1 channel is present |
 | `config/config_ccw77.yaml` | ccw77 four-colour IF: DAPI / PGL-1::GFP (477) / SYP-3::mCherry (545) / LMN-1 (640) | nuclei, germline isolation, SYP-3 / PGL-1 colocalization with the lamin envelope; there is no RAD-51 channel so spot counting skips itself |
-| `config/config_n2dryice.yaml` | the N2 dry-ice test set | as `config.yaml` |
+| `config/config_n2dryice.yaml` | the N2 dry-ice set (a fixation test, not the standard prep: regression use only) | as `config.yaml` |
 
 The channel assignments themselves are in `config/channel_maps/`. Channels are matched by name
 (the laser line, for example `405`, `477`, `545`, `640`) with a fixed-position fallback. If the

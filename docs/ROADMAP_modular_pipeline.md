@@ -12,7 +12,7 @@ completion marker, hash-preserving profiles, batch resume / exclusions / collect
 as sc_trace, envelope + audit + acquisition stages, granule.method imaris_tophat, the staging stage with
 `germquant trace` / `restage` and the 25 migrated traces, partition + granule_tail stages and the
 ccw77_partition profile, spot instances for COSA-1, ImageJ voxel tags on every label TIF. Real goldens
-(7 N2 dry-ice gonads plus stride-4 variants) are generated from a worktree of 8666f07 under
+(7 N2 dry-ice gonads plus stride-4 variants; that set was a fixation test, not the lab's standard prep, so it is a regression input only, never biological reference data) are generated from a worktree of 8666f07 under
 C:/Users/ryane/germquant_golden/8666f07/; the RAD-51 cross-validation gonads join them once the NAS is
 reachable, and the ccw77 reconciliation of the partition stage needs the nd2 files on the E: drive.
 Real-data checks so far (2026-09-10 night): the current head run at full resolution on the dry-ice
