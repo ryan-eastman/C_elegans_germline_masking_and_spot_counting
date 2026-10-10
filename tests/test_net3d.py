@@ -206,6 +206,27 @@ def test_suppress_equals_the_plain_greedy():
     assert pk.suppress(lone, SP)["prob"].tolist() == [0.9, 0.2]               # no pair: all kept, in order
 
 
+def test_candidate_scan_equals_the_plain_definition():
+    """The 3 x 3 x 3 prefilter (dense blocks) and the plain offset check (sparse blocks) give the set the
+    definition gives: every voxel above the threshold with no larger value inside its ellipsoid."""
+    from scipy import ndimage as ndi
+
+    rng = np.random.default_rng(9)
+    heat = ndi.gaussian_filter(rng.random((19, 70, 66)), (0.8, 1.2, 1.2)).astype(np.float32)
+    heat = (heat - heat.min()) / (heat.max() - heat.min())
+    heat[3, 10, 10:13] = 1.0                                         # a plateau of exact ties
+    off = pk.ellipsoid_offsets(pk.DEFAULT_SEPARATION_UM, SP, include_center=False)
+    for t in (0.05, 0.5, 0.8):
+        zz, yy, xx = np.nonzero(heat >= t)
+        ok = np.ones(len(zz), bool)
+        for dz, dy, dx in off:
+            ok &= ~(pk._gather(heat, zz + dz, yy + dy, xx + dx, -np.inf) > heat[zz, yy, xx])
+        ref = set(zip(zz[ok].tolist(), yy[ok].tolist(), xx[ok].tolist()))
+        got = pk.candidate_peaks(heat, t, SP, slab=4)
+        assert set(zip(got["z"], got["y"], got["x"])) == ref, t
+    assert (heat >= 0.05).mean() > 1 / 64 and (heat >= 0.8).mean() < 1 / 64      # both paths ran
+
+
 def test_reach_grid_drops_only_unassignable_peaks():
     rng = np.random.default_rng(8)
     from scipy import ndimage as ndi
@@ -227,7 +248,7 @@ def test_reach_grid_drops_only_unassignable_peaks():
     b = found[found["nucleus_id"] > 0][["z", "y", "x", "prob", "nucleus_id"]].reset_index(drop=True)
     pd.testing.assert_frame_equal(a, b)
     grid, block = pk.label_reach_grid(labels, SP)
-    assert block == (4, 16, 16) and grid.shape == (5, 6, 6) and grid.any() and not grid.all()
+    assert block == (2, 4, 4) and grid.shape == (10, 24, 24) and grid.any() and not grid.all()
 
 
 def test_ellipsoid_offsets_and_suppression_radius():

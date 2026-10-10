@@ -55,29 +55,52 @@ def _gather(heat: np.ndarray, z, y, x, fill: float) -> np.ndarray:
     return out
 
 
+_BOX26 = frozenset((dz, dy, dx) for dz in (-1, 0, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1)
+                   if (dz, dy, dx) != (0, 0, 0))
+
+
 def candidate_peaks(heat: np.ndarray, threshold: float, spacing, *,
-                    separation_um=DEFAULT_SEPARATION_UM, region=None) -> pd.DataFrame:
+                    separation_um=DEFAULT_SEPARATION_UM, slab: int = 8) -> pd.DataFrame:
     """Voxels with ``heat >= threshold`` that are the maximum over the separation ellipsoid (plateaus
-    keep every tied voxel; ``suppress`` settles them). ``region`` is an optional tuple of slices: only
-    voxels inside it can be candidates (the neighbourhood test still reads the whole array). Returns
-    z, y, x (int) and prob."""
+    keep every tied voxel; ``suppress`` settles them; outside the volume counts as minus infinity).
+    Returns z, y, x (int) and prob.
+
+    Speed only, never the result: when the ellipsoid holds the 26 neighbours of a voxel (it does for
+    the default radii on the lab's grid) and more than 1/64 of a ``slab``-plane block passes the
+    threshold, a 3 x 3 x 3 maximum filter removes that block's voxels with a larger neighbour first;
+    every remaining offset of the ellipsoid is then checked voxel by voxel. The set is the one the
+    plain check of every offset on every voxel above the threshold gives (a test compares the two)."""
     heat = np.asarray(heat)
-    sub = heat if region is None else heat[region]
-    zz, yy, xx = np.nonzero(sub >= threshold)
-    if region is not None and len(zz):
-        zz = zz + (region[0].start or 0)
-        yy = yy + (region[1].start or 0)
-        xx = xx + (region[2].start or 0)
-    if len(zz) == 0:
+    offs = [tuple(int(v) for v in o) for o in ellipsoid_offsets(separation_um, spacing, include_center=False)]
+    box = _BOX26 <= set(offs)
+    Z = heat.shape[0]
+    step = max(1, int(slab))
+    found = []
+    for z0 in range(0, Z, step):
+        z1 = min(Z, z0 + step)
+        sel = heat[z0:z1] >= threshold
+        n_sel = int(np.count_nonzero(sel))
+        if n_sel == 0:
+            continue
+        boxed = box and n_sel * 64 > sel.size
+        if boxed:
+            lo, hi = max(0, z0 - 1), min(Z, z1 + 1)
+            mx = ndi.maximum_filter(np.asarray(heat[lo:hi]), size=3, mode="constant", cval=-np.inf)
+            sel &= heat[z0:z1] >= mx[z0 - lo:z0 - lo + (z1 - z0)]
+        z, y, x = np.nonzero(sel)
+        found.append((z + z0, y, x, np.full(len(z), boxed)))
+    if not found:
         return pd.DataFrame({"z": np.zeros(0, int), "y": np.zeros(0, int), "x": np.zeros(0, int),
                              "prob": np.zeros(0, float)})
+    zz, yy, xx, done = (np.concatenate([f[k] for f in found]) for k in range(4))
     vals = heat[zz, yy, xx].astype(np.float64)
     keep = np.ones(len(zz), bool)
-    for dz, dy, dx in ellipsoid_offsets(separation_um, spacing, include_center=False):
-        idx = np.flatnonzero(keep)
+    for off in offs:
+        todo = keep & ~done if off in _BOX26 else keep      # the filter already checked these neighbours
+        idx = np.flatnonzero(todo)
         if idx.size == 0:
-            break
-        nb = _gather(heat, zz[idx] + dz, yy[idx] + dy, xx[idx] + dx, -np.inf)
+            continue
+        nb = _gather(heat, zz[idx] + off[0], yy[idx] + off[1], xx[idx] + off[2], -np.inf)
         keep[idx[nb > vals[idx]]] = False
     return pd.DataFrame({"z": zz[keep].astype(int), "y": yy[keep].astype(int), "x": xx[keep].astype(int),
                          "prob": vals[keep]})
@@ -121,7 +144,7 @@ def suppress(cand: pd.DataFrame, spacing, separation_um=DEFAULT_SEPARATION_UM) -
 
 
 def label_reach_grid(labels: np.ndarray, spacing, assign_max_um: float = DEFAULT_ASSIGN_MAX_UM,
-                     block=(4, 16, 16)) -> tuple[np.ndarray, tuple[int, int, int]]:
+                     block=(2, 4, 4)) -> tuple[np.ndarray, tuple[int, int, int]]:
     """A coarse map of where a spot can still be assigned: blocks of ``block`` voxels that hold a label
     voxel or lie within the assignment reach of one (the occupied blocks dilated by enough blocks to
     cover the reach). A peak in a False block has no label within ``assign_max_um`` of any position
