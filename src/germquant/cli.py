@@ -19,6 +19,13 @@ The nucleus training loop (docs/TIMELAPSE.md, "Segmenting without DAPI: the trai
 
 `register` estimates the drift of a finished series from the reference volumes that loop kept and writes the
 register_shifts table and a report next to the series record; nothing is resampled.
+
+Tracking a finished series (docs/TIMELAPSE.md, "Tracking" and "Validating the linking"):
+  germquant track-export   SERIES_DIR --out DIR [--crop germline|all] [--stride 2]   (a Cell-ACDC position folder)
+  germquant track-link     SERIES_DIR --backend overlap|overlap_inhouse|laptrack|none [--gap 2] [--max-dist-um 3.0]
+  germquant track-import   SERIES_DIR --from trackmate|imaris|cellacdc FILE
+  germquant track-strips   SERIES_DIR --out DIR [--size-um 8]
+  germquant track-validate SERIES_DIR --points hand.csv
 """
 from __future__ import annotations
 
@@ -226,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
     prm.add_argument("--card", help="its model card JSON (<name>.card.json next to the model file)")
     prm.add_argument("--name", help="registry name (default: the card's name, else the file name)")
 
+    _add_track_parsers(sub)
+
     args = p.parse_args(argv)
     _force_utf8_stdio()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -247,7 +256,161 @@ def main(argv: list[str] | None = None) -> int:
         "export-training": lambda: _export_training(args),
         "train-nuclei": lambda: _train_nuclei(args),
         "register-model": lambda: _register_model(args),
+
+        "track-export": lambda: _track_export(args),
+        "track-link": lambda: _track_link(args),
+        "track-import": lambda: _track_import(args),
+        "track-strips": lambda: _track_strips(args),
+        "track-validate": lambda: _track_validate(args),
     }[args.cmd]()
+
+
+def _add_track_parsers(sub) -> None:
+    """The tracking exchange of a time-lapse series (germquant.timelapse.track / track_validate). Every command
+    takes the series folder `germquant run --t` wrote; --config / --profile are optional here: without them the
+    timelapse.* keys are read from the series' run_manifest.json, and every key has a code default."""
+    def common(parser, stem_help="the series stem when the folder holds several (default: the one <stem>__series.json)"):
+        parser.add_argument("series_dir", help="the results folder of `germquant run SERIES.nd2 --t ...` (t<NNN>/ folders inside)")
+        parser.add_argument("--stem", default=None, help=stem_help)
+        g = parser.add_mutually_exclusive_group(required=False)
+        g.add_argument("--config", help="config yaml for the timelapse.* keys (default: the series' run_manifest.json)")
+        g.add_argument("--profile", help="profile name instead of --config")
+
+    pe = sub.add_parser("track-export", help="write the germline nucleus labels (registered, cropped, strided) and the "
+                                             "central_element channel as a Cell-ACDC Position_1/Images folder + export.json")
+    common(pe)
+    pe.add_argument("--out", required=True, help="folder to create Position_1/Images in")
+    pe.add_argument("--crop", choices=["germline", "all"], default=None,
+                    help="germline: in_germline labels cropped to their union bounding box (default); all: every label, whole field")
+    pe.add_argument("--stride", type=int, default=None, help="xy sub-sampling of the export (default 2)")
+    pe.add_argument("--image", choices=["ref", "file", "none"], default="ref",
+                    help="image stack source: the reference volumes the loop kept (ref, default), the series file at the "
+                         "export stride (file; one full frame read per timepoint), or no image (none)")
+    pe.add_argument("--channel-name", default="central_element", help="Cell-ACDC channel name of the image file")
+
+    pl = sub.add_parser("track-link", help="link the nuclei across timepoints and write <stem>__track_points.csv and "
+                                           "<stem>__tracks.csv next to the timepoint folders")
+    common(pl)
+    pl.add_argument("--backend", choices=["overlap", "overlap_inhouse", "laptrack", "none"], default="overlap",
+                    help="overlap: Cell-ACDC's overlap tracker run headless (falls back to overlap_inhouse, the same rule in "
+                         "NumPy, when it cannot be imported); laptrack: LAP linking of the registered centroids with gap "
+                         "closing; none: the points table only (measurements per timepoint, no tracks)")
+    pl.add_argument("--gap", type=int, default=None, help="laptrack: bridge a track end at t to a start at t + d for 1 <= d <= GAP "
+                                                          "(default 2 = one missing timepoint; 0 = off)")
+    pl.add_argument("--max-dist-um", type=float, default=None, help="laptrack: largest registered displacement linked (default 3.0)")
+    pl.add_argument("--min-overlap", type=float, default=None,
+                    help="overlap backends: least intersection over the previous nucleus' volume (default 0.4, Cell-ACDC's)")
+    pl.add_argument("--stride", type=int, default=None, help="overlap backends: xy stride of the label grid (default 2)")
+    pl.add_argument("--all-nuclei", action="store_true", help="link every label, not only in_germline nuclei")
+
+    pi = sub.add_parser("track-import", help="turn a tracker's result (TrackMate CSV / XML, an Imaris points table, a "
+                                             "Cell-ACDC tracked segm.npz) into the same two tables, link_source imported:<tool>")
+    common(pi)
+    pi.add_argument("--from", dest="source", required=True, choices=["trackmate", "imaris", "cellacdc"])
+    pi.add_argument("file", help="the tracker's file")
+    pi.add_argument("--space", choices=["raw", "export"], default="raw",
+                    help="raw: coordinates in raw-frame microns (default); export: measured on the exported stack")
+    pi.add_argument("--export-json", default=None, help="the export.json of the exported stack (default: found next to FILE)")
+    pi.add_argument("--time-base", type=int, default=0, help="index of the first timepoint in the file (Imaris: 1)")
+    pi.add_argument("--snap-um", type=float, default=0.0,
+                    help="a point just outside every label takes the nearest nucleus within this distance (default 0 = off)")
+    pi.add_argument("--all-nuclei", action="store_true", help="keep every label in the points table, not only in_germline nuclei")
+
+    ps = sub.add_parser("track-strips", help="one PNG per track with a tile per timepoint around the tracked nucleus: the "
+                                             "non-programmer's check that an identity did not jump")
+    common(ps)
+    ps.add_argument("--out", required=True)
+    ps.add_argument("--size-um", type=float, default=None, help="tile width in microns (default 8)")
+    ps.add_argument("--planes", type=int, default=None, help="planes max-projected around the centroid (default 3)")
+    ps.add_argument("--image", choices=["ref", "file"], default="ref", help="reference volumes (default) or the series file")
+    ps.add_argument("--stride", type=int, default=None, help="with --image file: xy stride of the read (default 2)")
+    ps.add_argument("--max-tracks", type=int, default=None, help="only the first N tracks")
+
+    pv = sub.add_parser("track-validate", help="score the linking against hand-followed nuclei (scripts/pick_validation_nuclei.py "
+                                               "picks them; the biologist completes the worksheet in Imaris)")
+    common(pv)
+    pv.add_argument("--points", required=True, help="the completed worksheet: hand_track_id, t_index, z_um, y_um, x_um (raw-frame microns)")
+    pv.add_argument("--snap-um", type=float, default=0.0,
+                    help="a hand point just outside every label takes the nearest nucleus within this distance (default 0 = off)")
+
+
+def _track_cfg(args):
+    """The config the timelapse.* keys are read from: --config / --profile when given, else the series' own
+    run_manifest.json config (a plain dict), else None (every key falls back to its code default)."""
+    import json
+
+    if getattr(args, "config", None) or getattr(args, "profile", None):
+        return load_config(_resolve_config_path(args))
+    man = Path(args.series_dir) / "run_manifest.json"
+    try:
+        with open(man, encoding="utf-8") as fh:
+            return json.load(fh).get("config") or None
+    except (OSError, ValueError):
+        return None
+
+
+def _track_export(args) -> int:
+    from .timelapse.track import export_cellacdc
+
+    rec = export_cellacdc(args.series_dir, args.out, crop=args.crop, stride=args.stride, image=args.image,
+                          channel_name=args.channel_name, stem=args.stem, cfg=_track_cfg(args))
+    shape = "x".join(str(v) for v in rec["shape"])
+    print(f"{rec['series_id']}: {len(rec['timepoints'])} timepoint(s) exported as (T, Z, Y, X) = {shape}, stride {rec['stride']}, "
+          f"crop {rec['crop']}, shifts from {rec['shift_source']}")
+    print(f"  labels -> {rec['files']['segm']}" + (f"; image -> {rec['files']['image']}" if rec["files"]["image"] else "; no image written"))
+    print(f"  -> {Path(args.out) / 'export.json'}")
+    return 0
+
+
+def _track_link(args) -> int:
+    from .timelapse.track import link_series
+
+    res = link_series(args.series_dir, backend=args.backend, gap=args.gap, max_dist_um=args.max_dist_um,
+                      min_overlap=args.min_overlap, stride=args.stride, germline_only=not args.all_nuclei,
+                      stem=args.stem, cfg=_track_cfg(args))
+    rec = res["record"]
+    print(f"{rec['series_id']}: backend {rec['backend']} ({rec['link_source']}): {rec['n_objects']} nucleus-timepoints over "
+          f"{len(rec['timepoints'])} timepoint(s) -> {rec['n_tracks']} track(s), {rec['n_full_length']} full length; "
+          f"shifts from {rec['shift_source']}")
+    if rec.get("note"):
+        print(f"  note: {rec['note']}")
+    flipped = [t for t, s in rec.get("axis_sign_by_t", {}).items() if int(s) < 0]
+    if flipped:
+        print(f"  axis orientation flipped relative to t0 at timepoint(s) {', '.join(flipped)} (aligned)")
+    print(f"  -> {res['paths'].get('track_points')}\n  -> {res['paths'].get('tracks')}")
+    return 0
+
+
+def _track_import(args) -> int:
+    from .timelapse.track import import_tracks
+
+    res = import_tracks(args.series_dir, args.source, args.file, space=args.space, time_base=args.time_base,
+                        export_json=args.export_json, snap_um=args.snap_um, germline_only=not args.all_nuclei, stem=args.stem)
+    rec = res["record"]
+    info = rec.get("backend_info", {})
+    print(f"{rec['series_id']}: imported {args.source} from {Path(args.file).name}: {rec['n_tracks']} track(s), "
+          f"{rec['n_objects_unlinked']} of {rec['n_objects']} nucleus-timepoints without a track")
+    print("  " + ", ".join(f"{k} {v}" for k, v in info.items()))
+    print(f"  -> {res['paths'].get('track_points')}\n  -> {res['paths'].get('tracks')}")
+    return 0
+
+
+def _track_strips(args) -> int:
+    from .timelapse.track import track_strips
+
+    written = track_strips(args.series_dir, args.out, size_um=args.size_um, planes=args.planes, image=args.image,
+                           stride=args.stride, max_tracks=args.max_tracks, stem=args.stem, cfg=_track_cfg(args))
+    print(f"{len(written)} strip(s) -> {args.out}")
+    return 0
+
+
+def _track_validate(args) -> int:
+    from .timelapse.track_validate import format_verdict, validate_tracks
+
+    res = validate_tracks(args.series_dir, args.points, stem=args.stem, cfg=_track_cfg(args), snap_um=args.snap_um)
+    print(format_verdict(res))
+    print(f"  -> {res['paths'].get('track_validation')}")
+    return 0 if res["verdict"]["pass"] else 2
 
 
 def _add_config_args(parser) -> None:
