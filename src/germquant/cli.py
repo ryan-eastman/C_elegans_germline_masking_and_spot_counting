@@ -268,6 +268,9 @@ def main(argv: list[str] | None = None) -> int:
     pts.add_argument("--thresholds", default=None,
                      help="comma-separated validation threshold grid (default 0.05 to 0.90 in steps of 0.05)")
     pts.add_argument("--tile", default="96,384,384", help="inference tile Z,Y,X for the validation (default 96,384,384)")
+    pts.add_argument("--select-tolerance", type=float, default=0.01,
+                     help="configurations whose val traced CCC is within this of the best count as tied and the "
+                          "best F1 among them is selected (default 0.01, the protocol's meaningful change)")
 
     prm = sub.add_parser("register-model",
                          help="add a locally trained model to the model registry (local_models.json next to the "
@@ -875,12 +878,12 @@ def _train_spots(args) -> int:
                       val_every=args.val_every, use_dna=not args.no_dna, device=args.device,
                       base_channels=args.base_channels, levels=args.levels, thresholds=thresholds,
                       tile_zyx=parse_patch(args.tile), prep_dir=args.prep_dir, min_free_gb=args.min_free_gb,
-                      wait_minutes=args.wait_minutes)
+                      wait_minutes=args.wait_minutes, select_tolerance=args.select_tolerance)
     g = res["gonads"]
     print(f"\nnet3d: trained on {[r['tag'] for r in g['train']]} ({res['device']}), validated on "
           f"{[r['tag'] for r in g['val']]}; left out {[r['tag'] for r in g['excluded']]}; test gonads never opened")
     vb = res.get("val_best") or {}
-    print(f"  best epoch {res['best_epoch']} of {res['epochs_run']} ({res['stop_reason']}), threshold "
+    print(f"  selected epoch {res['best_epoch']} of {res['epochs_run']} ({res['stop_reason']}), threshold "
           f"{res['best_threshold']}: val traced CCC {vb.get('ccc_traced')}, germline CCC {vb.get('ccc_all')}, "
           f"F1 {vb.get('f1')}")
     print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")

@@ -251,6 +251,22 @@ def test_reach_grid_drops_only_unassignable_peaks():
     assert block == (2, 4, 4) and grid.shape == (10, 24, 24) and grid.any() and not grid.all()
 
 
+def test_selection_rule_ccc_first_within_a_tolerance_then_f1():
+    from germquant.spots.net3d.train import select_config
+
+    e = [{"epoch": 1, "threshold": 0.05, "ccc_traced": 0.980, "f1": 0.60},
+         {"epoch": 1, "threshold": 0.45, "ccc_traced": 0.975, "f1": 0.63},
+         {"epoch": 2, "threshold": 0.50, "ccc_traced": 0.960, "f1": 0.70},       # F1 best, CCC 0.02 below
+         {"epoch": 2, "threshold": 0.40, "ccc_traced": float("nan"), "f1": 0.90}]  # no CCC: never eligible
+    chosen, eligible = select_config(e, 0.01)
+    assert (chosen["epoch"], chosen["threshold"]) == (1, 0.45) and len(eligible) == 2
+    assert select_config(e, 0.0)[0]["threshold"] == 0.05                          # a strict maximum
+    assert select_config(e, 0.03)[0]["threshold"] == 0.50
+    tie = [{"epoch": 3, "threshold": 0.3, "ccc_traced": 0.9, "f1": 0.5},
+           {"epoch": 2, "threshold": 0.4, "ccc_traced": 0.9, "f1": 0.5}]
+    assert select_config(tie)[0]["epoch"] == 2                                     # then the earlier epoch
+
+
 def test_ellipsoid_offsets_and_suppression_radius():
     off = pk.ellipsoid_offsets((0.6, 0.3), SP)
     assert {tuple(o) for o in off} >= {(0, 0, 0), (3, 0, 0), (-3, 0, 0), (0, 2, 0), (0, 0, -2)}
@@ -590,14 +606,16 @@ def test_train_spots_cli_one_epoch_on_a_tiny_cache(tiny_bench, monkeypatch, caps
     assert rc == 0, text
     assert "synth_test_d" not in opened and "synth_rg_e" not in opened
     assert set(opened) == {"synth_noHS_a", "synth_HS_b", "synth_val_c"}
-    for f in ("model.pt", "training_log.json", "model_card.json", "checkpoints/best.pt", "checkpoints/last.pt"):
+    for f in ("model.pt", "training_log.json", "model_card.json", "checkpoints/epoch_001.pt"):
         assert (out / f).is_file(), f
     logd = json.loads((out / "training_log.json").read_text(encoding="utf-8"))
     card = json.loads((out / "model_card.json").read_text(encoding="utf-8"))
     assert logd["status"] == "finished" and logd["best_epoch"] == 1 and len(logd["epochs"]) == 1
     assert logd["model_sha256"] == card["model_sha256"] == file_sha256(out / "model.pt")
-    assert logd["checkpoints"][0]["sha256"] == file_sha256(out / "checkpoints" / "best.pt")
-    assert logd["epochs"][0]["last_sha256"] == file_sha256(out / "checkpoints" / "last.pt")
+    assert logd["checkpoints"][0]["sha256"] == file_sha256(out / "checkpoints" / "epoch_001.pt")
+    assert logd["epochs"][0]["checkpoint_sha256"] == logd["checkpoints"][0]["sha256"]
+    assert logd["selection"]["epoch"] == 1 and logd["selection"]["tolerance"] == 0.01
+    assert logd["selection"]["n_configurations"] == 3
     assert all(c["max_abs_diff"] <= 1e-9 for c in logd["harness_check"])
     assert [g["tag"] for g in card["training_gonads"]] == ["synth_noHS_a", "synth_HS_b"]
     assert [g["tag"] for g in card["val_gonads"]] == ["synth_val_c"]
@@ -644,4 +662,5 @@ def test_train_spots_cli_one_epoch_on_a_tiny_cache(tiny_bench, monkeypatch, caps
         moved = b["root"] / "moved.json"
         moved.write_text(json.dumps({"roles": {"train": ["n2rad51_HS_male_001"]}}), encoding="utf-8")
         resolve_gonads(moved, b["manifest"])
-    assert math.isfinite(float(card["val_metrics_at_best_epoch"]["n_expert"]))
+    assert math.isfinite(float(card["val_metrics_at_selection"]["n_expert"]))
+    assert card["selection"]["threshold"] == card["threshold"] and card["epochs"]["selected"] == 1

@@ -68,7 +68,7 @@ TRAIN_DEFAULTS = {
     "min_lr_frac": 0.05,
     "patience": 8,
     "val_every": 1,
-    "min_delta": 1e-4,
+    "select_tolerance": 0.01,
     "base_channels": 16,
     "levels": 4,
     "use_dna": True,
@@ -360,10 +360,30 @@ def _xyz_um(found: pd.DataFrame, spacing) -> np.ndarray:
                      found["zr"].to_numpy(float) * dz], axis=1) if len(found) else np.zeros((0, 3))
 
 
+def select_config(entries: list[dict], tolerance: float = TRAIN_DEFAULTS["select_tolerance"]):
+    """The model selection rule, CCC first and F1 second: every scored configuration (an epoch and a
+    threshold) whose pooled per-nucleus CCC over the traced subset is within ``tolerance`` of the best
+    one is eligible, and the eligible configuration with the best pooled spot F1 wins (then the higher
+    CCC, the earlier epoch, the lower threshold). The tolerance, 0.01 by default, is the protocol's scale
+    for a change of the primary metric that counts (docs/BENCHMARK_PROTOCOL.md, section 10); smaller
+    differences between two hundred traced nuclei are noise, and a strict maximum chased them across the
+    whole threshold grid. Returns (chosen entry, eligible entries)."""
+    good = [e for e in entries if _finite(e.get("ccc_traced")) is not None]
+    if not good:
+        return (entries[0] if entries else None), []
+    cmax = max(float(e["ccc_traced"]) for e in good)
+    eligible = [e for e in good if float(e["ccc_traced"]) >= cmax - float(tolerance) - 1e-12]
+    chosen = max(eligible, key=lambda e: (_num(e.get("f1")), float(e["ccc_traced"]), -int(e.get("epoch") or 0),
+                                          -float(e["threshold"])))
+    return chosen, eligible
+
+
 def evaluate(model, vals: list[ValGonad], *, thresholds=DEFAULT_THRESHOLDS, device: str = "cpu",
              tile_zyx=DEFAULT_TILE_ZYX, separation_um=pk.DEFAULT_SEPARATION_UM,
-             assign_max_um: float = pk.DEFAULT_ASSIGN_MAX_UM) -> dict:
-    """Score the model on the val gonads at every threshold of the grid (module docstring)."""
+             assign_max_um: float = pk.DEFAULT_ASSIGN_MAX_UM,
+             tolerance: float = TRAIN_DEFAULTS["select_tolerance"]) -> dict:
+    """Score the model on the val gonads at every threshold of the grid (module docstring); ``best`` is
+    the epoch's own choice by ``select_config``."""
     thresholds = sorted(float(t) for t in thresholds)
     found, timing = {}, {}
     for vg in vals:
@@ -387,12 +407,7 @@ def evaluate(model, vals: list[ValGonad], *, thresholds=DEFAULT_THRESHOLDS, devi
         sweep.append({"threshold": t, **pooled,
                       "per_gonad": {k: {s: r[s] for s in SUMMARY_KEYS} for k, r in rows.items()}})
 
-    def key(s):
-        c = _finite(s["ccc_traced"])
-        f1 = _finite(s["f1"])
-        return (-math.inf if c is None else round(c, 6), -math.inf if f1 is None else f1)
-
-    best = max(sweep, key=key)
+    best, _eligible = select_config(sweep, tolerance)
     return {"best_threshold": best["threshold"], "best": best, "sweep": sweep, "found": found, "timing": timing}
 
 
@@ -450,11 +465,12 @@ def _strip(ev: dict) -> dict:
 
 
 def train_spots(cache_root, split_file, out_dir, **kwargs) -> dict:
-    """Train net3d on the bench cache (module docstring) into ``out_dir``: ``model.pt`` (the best
-    epoch's weights with the threshold chosen on val), ``checkpoints/best.pt`` and ``last.pt``,
-    ``training_log.json`` and ``model_card.json``. Returns the paths and the best validation. The
-    keyword arguments are those of ``_train``. torch's deterministic-algorithm and cuDNN settings are
-    restored afterwards, so a caller in the same process gets its own back."""
+    """Train net3d on the bench cache (module docstring) into ``out_dir``: ``model.pt`` (the weights of
+    the epoch and the threshold ``select_config`` chooses on val), ``checkpoints/epoch_NNN.pt`` (every
+    epoch, with its sha256 in the log), ``training_log.json`` and ``model_card.json``. Returns the paths
+    and the selected validation. The keyword arguments are those of ``_train``. torch's
+    deterministic-algorithm and cuDNN settings are restored afterwards, so a caller in the same process
+    gets its own back."""
     import torch
 
     saved = (torch.are_deterministic_algorithms_enabled(), torch.backends.cudnn.deterministic,
@@ -478,7 +494,8 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
            norm: dict | None = None, separation_um=pk.DEFAULT_SEPARATION_UM,
            assign_max_um: float = pk.DEFAULT_ASSIGN_MAX_UM, prep_dir=None, min_free_gb: float = 0.0,
            wait_minutes: float = 120.0, name: str | None = None, check_harness: bool = True,
-           tol_xy_um: float = 0.3, tol_z_um: float = 0.4) -> dict:
+           tol_xy_um: float = 0.3, tol_z_um: float = 0.4,
+           select_tolerance: float = TRAIN_DEFAULTS["select_tolerance"]) -> dict:
     import torch
     import torch.nn.functional as F
 
@@ -536,7 +553,7 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
     settings = {"epochs": int(epochs), "patch": list(patch), "seed": int(seed), "batch_size": int(batch_size),
                 "steps_per_epoch": int(steps_per_epoch), "lr": float(lr), "weight_decay": float(weight_decay),
                 "warmup_steps": int(warmup_steps), "min_lr_frac": TRAIN_DEFAULTS["min_lr_frac"],
-                "patience": int(patience), "val_every": int(val_every), "min_delta": TRAIN_DEFAULTS["min_delta"],
+                "patience": int(patience), "val_every": int(val_every), "select_tolerance": float(select_tolerance),
                 "device": dev, "amp": "bf16 autocast" if dev == "cuda" else "float32",
                 "deterministic": True, "thresholds": thresholds, "tile_zyx": list(tile_zyx),
                 "data": {k: (list(v) if isinstance(v, tuple) else v) for k, v in dcfg.items()}, "norm": ncfg,
@@ -553,9 +570,9 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
                  "peaks": {"threshold": 0.5, "separation_um": list(separation_um), "assign_max_um": float(assign_max_um)},
                  "target": {"sigma_um": list(dcfg["sigma_um"]), "classes": ["Class A"]}}
 
-    epochs_log, checkpoints = [], []
-    best = {"epoch": None, "score": (-math.inf, -math.inf), "threshold": None, "eval": None, "sha256": None}
-    since_best = 0
+    epochs_log, checkpoints, entries = [], [], []
+    sel = None                       # the configuration select_config currently chooses
+    since_change = 0
     stop_reason = "max epochs reached"
     harness_check = None
     step = 0
@@ -588,9 +605,10 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
         if dev == "cuda":
             rec["gpu_peak_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
             rec["gpu_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
-        last_path = out / "checkpoints" / "last.pt"
-        sha_last = save_model_file(last_path, model, {**meta_base, "epoch": epoch + 1, "git_sha": git_sha})
-        rec["last_sha256"] = sha_last
+        ckpt = out / "checkpoints" / f"epoch_{epoch + 1:03d}.pt"
+        sha_ep = save_model_file(ckpt, model, {**meta_base, "epoch": epoch + 1, "git_sha": git_sha})
+        rec["checkpoint"], rec["checkpoint_sha256"] = f"checkpoints/{ckpt.name}", sha_ep
+        checkpoints.append({"epoch": epoch + 1, "file": f"checkpoints/{ckpt.name}", "sha256": sha_ep})
         if (epoch + 1) % max(1, int(val_every)) == 0 or epoch + 1 == int(epochs):
             t_v = time.time()
             if dev == "cuda":
@@ -599,7 +617,7 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
                 # sum of both working sets (about 16 GB measured) instead of the larger one
                 torch.cuda.empty_cache()
             ev = evaluate(model, val_g, thresholds=thresholds, device=dev, tile_zyx=tile_zyx,
-                          separation_um=separation_um, assign_max_um=assign_max_um)
+                          separation_um=separation_um, assign_max_um=assign_max_um, tolerance=select_tolerance)
             if dev == "cuda":
                 rec["gpu_val_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
                 torch.cuda.empty_cache()
@@ -614,74 +632,75 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
                 log.info("validation scorer agrees with germquant.benchmark.detector.score (max diff %.2e)", worst)
             rec["val"] = _strip(ev)
             rec["val_s"] = round(time.time() - t_v, 1)
+            entries += [{"epoch": epoch + 1, **s} for s in rec["val"]["sweep"]]
+            chosen, eligible = select_config(entries, select_tolerance)
+            key = (chosen["epoch"], chosen["threshold"])
+            since_change = 0 if (sel is None or key != (sel["epoch"], sel["threshold"])) else since_change + 1
+            sel = {"epoch": chosen["epoch"], "threshold": chosen["threshold"], "entry": chosen,
+                   "n_eligible": len(eligible)}
+            rec["selection"] = {"epoch": sel["epoch"], "threshold": sel["threshold"],
+                                "ccc_traced": chosen["ccc_traced"], "f1": chosen["f1"], "ccc_all": chosen["ccc_all"],
+                                "n_eligible": len(eligible), "evaluations_unchanged": since_change}
             b = ev["best"]
-            score = (round(_num(b["ccc_traced"]), 6), _num(b["f1"]))
-            improved = (score[0] > best["score"][0] + TRAIN_DEFAULTS["min_delta"]) or (
-                abs(score[0] - best["score"][0]) <= TRAIN_DEFAULTS["min_delta"] and score[1] > best["score"][1])
-            if best["epoch"] is None or improved:
-                sha_best = save_model_file(out / "checkpoints" / "best.pt", model,
-                                           {**meta_base, "epoch": epoch + 1, "git_sha": git_sha,
-                                            "peaks": {**meta_base["peaks"], "threshold": ev["best_threshold"]}})
-                best = {"epoch": epoch + 1, "score": score, "threshold": ev["best_threshold"], "eval": rec["val"],
-                        "sha256": sha_best}
-                since_best = 0
-                rec["best_sha256"] = sha_best
-                checkpoints.append({"epoch": epoch + 1, "file": "checkpoints/best.pt", "sha256": sha_best})
-            else:
-                since_best += 1
             log.info("epoch %d: loss %.4f | val traced CCC %.3f F1 %.3f at threshold %.2f (germline CCC %.3f) | "
-                     "best epoch %s | %.0f s train, %.0f s val", epoch + 1, rec["train_loss"],
-                     _num(b["ccc_traced"], math.nan), _num(b["f1"], math.nan),
-                     ev["best_threshold"], _num(b["ccc_all"], math.nan), best["epoch"], rec["train_s"],
-                     rec["val_s"])
+                     "selected epoch %s at %.2f (traced CCC %.3f, F1 %.3f) | %.0f s train, %.0f s val", epoch + 1,
+                     rec["train_loss"], _num(b["ccc_traced"], math.nan), _num(b["f1"], math.nan), ev["best_threshold"],
+                     _num(b["ccc_all"], math.nan), sel["epoch"], sel["threshold"],
+                     _num(chosen["ccc_traced"], math.nan), _num(chosen["f1"], math.nan), rec["train_s"], rec["val_s"])
         else:
             log.info("epoch %d: loss %.4f (%.0f s)", epoch + 1, rec["train_loss"], rec["train_s"])
         epochs_log.append(rec)
         _write_json(out / "training_log.json", {"status": "running", "settings": settings, "gonads": gonad_rec,
-                                                 "epochs": epochs_log, "best_epoch": best["epoch"],
+                                                 "epochs": epochs_log, "best_epoch": sel["epoch"] if sel else None,
                                                  "harness_check": harness_check, "git_sha": git_sha})
-        if best["epoch"] is not None and since_best >= int(patience):
-            stop_reason = f"early stop: no val improvement in {since_best} evaluations"
+        if sel is not None and since_change >= int(patience):
+            stop_reason = f"early stop: the selection did not change in {since_change} evaluations"
             break
 
-    # the final model: the best epoch's weights and threshold, with its record
-    final_meta = {**meta_base, "peaks": {**meta_base["peaks"], "threshold": best["threshold"]},
-                  "epoch": best["epoch"], "git_sha": git_sha,
+    # the final model: the selected epoch's weights with the selected threshold, and its record
+    chosen = sel["entry"]
+    val_sel = {k: chosen.get(k) for k in SUMMARY_KEYS}
+    selection = {"rule": "pooled traced per-nucleus CCC (Class A+B) within the tolerance of the best, then the best "
+                         "pooled spot F1, then the higher CCC, the earlier epoch, the lower threshold",
+                 "tolerance": float(select_tolerance), "epoch": sel["epoch"], "threshold": sel["threshold"],
+                 "n_eligible": sel["n_eligible"], "n_configurations": len(entries),
+                 "val_metrics": val_sel, "val_metrics_per_gonad": chosen.get("per_gonad")}
+    final_meta = {**meta_base, "peaks": {**meta_base["peaks"], "threshold": sel["threshold"]},
+                  "epoch": sel["epoch"], "git_sha": git_sha,
                   "training": {"train_gonads": [g.tag for g in train_g], "val_gonads": [v.tag for v in val_g],
                                "truth_classes": "Class A spots as targets; Class B ignored (zero weight in a ball)",
-                               "best_epoch": best["epoch"], "epochs_run": len(epochs_log),
-                               "val_best": best["eval"]["best"] if best["eval"] else None,
+                               "selected_epoch": sel["epoch"], "epochs_run": len(epochs_log),
+                               "val_selected": val_sel, "selection_tolerance": float(select_tolerance),
                                "created": _utc()}}
     best_model = build_model(model.arch())
-    best_model.load_state_dict(read_model_file(out / "checkpoints" / "best.pt")["state_dict"])
+    best_model.load_state_dict(read_model_file(out / "checkpoints" / f"epoch_{sel['epoch']:03d}.pt")["state_dict"])
     model_sha = save_model_file(out / "model.pt", best_model, final_meta)
     finished = _utc()
     elapsed = time.time() - t_start
     versions = _versions()
     log_doc = {"status": "finished", "name": name or out.name, "started": started, "finished": finished,
                "elapsed_s": round(elapsed, 1), "prep_s": round(prep_s, 1), "settings": settings,
-               "gonads": gonad_rec, "epochs": epochs_log, "best_epoch": best["epoch"],
-               "best_threshold": best["threshold"], "stop_reason": stop_reason, "harness_check": harness_check,
-               "checkpoints": checkpoints, "last_sha256": epochs_log[-1].get("last_sha256") if epochs_log else None,
+               "gonads": gonad_rec, "epochs": epochs_log, "best_epoch": sel["epoch"],
+               "best_threshold": sel["threshold"], "selection": selection, "stop_reason": stop_reason,
+               "harness_check": harness_check, "checkpoints": checkpoints,
                "model_file": str(out / "model.pt"), "model_sha256": model_sha, "git_sha": git_sha,
                "versions": versions, "split_file": str(split_file), "manifest": str(manifest),
                "cache_root": str(cache_root)}
     _write_json(out / "training_log.json", log_doc)
-    card = model_card(name or out.name, out, model_sha, settings, gonad_rec, best, stop_reason, len(epochs_log),
+    card = model_card(name or out.name, out, model_sha, settings, gonad_rec, selection, stop_reason, len(epochs_log),
                       git_sha, versions, split_file, manifest, cache_root, finished)
     _write_json(out / "model_card.json", card)
     shutil.copyfile(out / "model_card.json", out / "checkpoints" / "model_card.json")
-    log.info("net3d trained in %.0f s: best epoch %s, threshold %s, model %s (sha256 %s...)", elapsed,
-             best["epoch"], best["threshold"], out / "model.pt", model_sha[:12])
+    log.info("net3d trained in %.0f s: selected epoch %s, threshold %s, model %s (sha256 %s...)", elapsed,
+             sel["epoch"], sel["threshold"], out / "model.pt", model_sha[:12])
     return {"model_path": str(out / "model.pt"), "model_sha256": model_sha, "card_path": str(out / "model_card.json"),
-            "log_path": str(out / "training_log.json"), "best_epoch": best["epoch"],
-            "best_threshold": best["threshold"], "val_best": best["eval"]["best"] if best["eval"] else None,
+            "log_path": str(out / "training_log.json"), "best_epoch": sel["epoch"],
+            "best_threshold": sel["threshold"], "val_best": val_sel, "selection": selection,
             "device": dev, "epochs_run": len(epochs_log), "stop_reason": stop_reason, "gonads": gonad_rec}
 
 
-def model_card(name, out, model_sha, settings, gonad_rec, best, stop_reason, epochs_run, git_sha, versions,
+def model_card(name, out, model_sha, settings, gonad_rec, selection, stop_reason, epochs_run, git_sha, versions,
                split_file, manifest, cache_root, finished) -> dict:
-    vb = best["eval"]["best"] if best["eval"] else {}
     return {
         "name": name,
         "kind": "net3d RAD-51 foci heatmap detector (germquant spots backend 'net3d', EXPERIMENTAL)",
@@ -689,7 +708,7 @@ def model_card(name, out, model_sha, settings, gonad_rec, best, stop_reason, epo
                  "heatmap targets at the Class A spots of the train gonads with usable spot truth, Class B "
                  "ignored, loss restricted to the germline (dilated 0.3 um) and down-weighted outside the "
                  "traced truth coverage; epoch and peak threshold chosen on the val gonads with the bench "
-                 "harness (per-nucleus CCC over the traced subset first, spot F1 second)."),
+                 "harness (per-nucleus CCC over the traced subset first, within a tolerance; spot F1 second)."),
         "model_file": str(Path(out) / "model.pt"), "model_sha256": model_sha,
         "model_size": (Path(out) / "model.pt").stat().st_size,
         "date": finished, "git_sha": git_sha, "versions": versions,
@@ -699,12 +718,13 @@ def model_card(name, out, model_sha, settings, gonad_rec, best, stop_reason, epo
         "truth_classes_used": {"targets": ["Class A"], "ignored": ["Class B"],
                                "note": "Class B (Imaris's isolated-spot class) gets zero weight inside a "
                                        "0.5 um (z) by 0.3 um (xy) ellipsoid; it is neither taught nor penalised."},
-        "epochs": {"max": settings["epochs"], "run": epochs_run, "best": best["epoch"], "stop_reason": stop_reason,
-                   "steps_per_epoch": settings["steps_per_epoch"], "batch_size": settings["batch_size"],
-                   "patch_zyx": settings["patch"]},
-        "threshold": best["threshold"],
-        "val_metrics_at_best_epoch": {k: vb.get(k) for k in SUMMARY_KEYS} if vb else None,
-        "val_metrics_per_gonad": best["eval"]["best_per_gonad"] if best["eval"] else None,
+        "epochs": {"max": settings["epochs"], "run": epochs_run, "selected": selection["epoch"],
+                   "stop_reason": stop_reason, "steps_per_epoch": settings["steps_per_epoch"],
+                   "batch_size": settings["batch_size"], "patch_zyx": settings["patch"]},
+        "threshold": selection["threshold"],
+        "selection": {k: v for k, v in selection.items() if k not in ("val_metrics", "val_metrics_per_gonad")},
+        "val_metrics_at_selection": selection["val_metrics"],
+        "val_metrics_per_gonad": selection["val_metrics_per_gonad"],
         "settings": settings,
         "limitations": [
             "Trained on four N2 gonads of one imaging session (2025-11-05): three without heat shock "
@@ -712,7 +732,8 @@ def model_card(name, out, model_sha, settings, gonad_rec, best, stop_reason, epo
             "No heat-shock male is in train or val: both train heat-shock males were exported with Imaris "
             "region growing and are excluded, so the heat-shock undercount of the deployed recipe is not "
             "represented in training or model selection.",
-            "Val holds two hermaphrodites only; the epoch and threshold were selected without a male.",
+            "Val holds two hermaphrodites only; the epoch and threshold were selected without a male, from "
+            "every epoch's full threshold grid, so the val numbers are optimistic.",
             "The truth is threshold-curated automatic Imaris Spots, not hand-placed points.",
             "Development numbers only: no test gonad has been scored (docs/BENCHMARK_PROTOCOL.md).",
         ],
