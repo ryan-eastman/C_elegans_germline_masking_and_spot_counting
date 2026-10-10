@@ -79,6 +79,13 @@ def _opt_path(v) -> Path | None:
     return Path(str(v)) if v not in (None, "") else None
 
 
+def _path_of(v):
+    """A plain path, or the ``path`` of a record dict such as the split builder writes."""
+    if isinstance(v, dict):
+        return v.get("path")
+    return v
+
+
 def load_manifest(path: str | Path) -> list[Entry]:
     """Read a benchmark manifest (a list, or an object with ``entries``/``gonads``)."""
     with open(path, encoding="utf-8") as fh:
@@ -91,6 +98,7 @@ def load_manifest(path: str | Path) -> list[Entry]:
         items = doc
     if not isinstance(items, list):
         raise ValueError(f"{path}: the manifest must be a list of entries")
+    top_truth = doc.get("truth_root") if isinstance(doc, dict) else None   # the split builder's manifest
     known = {"tag", "split", "results_dir", "truth_dir", "nd2", "ims", "stem"}
     entries = []
     for i, it in enumerate(items):
@@ -98,8 +106,9 @@ def load_manifest(path: str | Path) -> list[Entry]:
             raise ValueError(f"{path}: entry {i} needs at least 'tag' and 'results_dir'")
         entries.append(Entry(
             tag=str(it["tag"]), results_dir=Path(str(it["results_dir"])),
-            split=str(it.get("split") or ""), truth_dir=_opt_path(it.get("truth_dir")),
-            nd2=_opt_path(it.get("nd2")), ims=_opt_path(it.get("ims")),
+            split=str(it.get("split") or it.get("role") or ""),
+            truth_dir=_opt_path(it.get("truth_dir") if it.get("truth_dir") else top_truth),
+            nd2=_opt_path(_path_of(it.get("nd2"))), ims=_opt_path(_path_of(it.get("ims"))),
             stem=(str(it["stem"]) if it.get("stem") else None),
             extra={k: v for k, v in it.items() if k not in known}))
     return entries

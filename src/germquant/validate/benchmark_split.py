@@ -69,13 +69,13 @@ REQUIRED_OUTPUTS = ("nuclei", "nuclei_labels", "spots")
 # name shape <stem>__imaris_<kind>.<ext>; the kinds and extensions below are the expected ones and can
 # be overridden (build_manifest(truth_files=...), or --truth-file on the command line). Whatever else
 # matches <stem>__imaris_* is listed under "found" so nothing the export wrote goes unnoticed.
-TRUTH_FILES = {
+TRUTH_FILES = {   # exactly what `germquant imaris-truth` writes (src/germquant/validate/imaris_ims.py TRUTH_SUFFIXES)
     "spots": "{stem}__imaris_spots.csv",
-    "surfaces": "{stem}__imaris_surfaces.csv",
-    "masks": "{stem}__imaris_masks.tif",
-    "meta": "{stem}__imaris_meta.json",
+    "nuclei": "{stem}__imaris_nuclei.csv",
+    "labels": "{stem}__imaris_labels.tif",
+    "params": "{stem}__imaris_params.json",
 }
-REQUIRED_TRUTH = ("spots", "surfaces", "masks")
+REQUIRED_TRUTH = ("spots", "nuclei", "labels")
 
 NOTES = {
     "n2rad51_noHS_male_002": [
@@ -388,20 +388,25 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
     unknown) and the split's notes. Nothing is computed from the data."""
     patterns = dict(TRUTH_FILES, **(truth_files or {}))
     results_root, truth_root = Path(results_root), Path(truth_root)
-    truth_names = sorted(p.name for p in truth_root.iterdir()) if truth_root.is_dir() else []
     entries = []
     for g in split["gonads"]:
         stem, tag = g["stem"], g["tag"]
         rdir = results_root / tag
         outputs = {k: _exists_record(rdir / pat.format(stem=stem)) for k, pat in OUTPUT_FILES.items()}
-        truth = {k: _exists_record(truth_root / pat.format(stem=stem)) for k, pat in patterns.items()}
-        found = [n for n in truth_names if n.startswith(f"{stem}__imaris_")]
+        tdir = truth_root / tag if (truth_root / tag).is_dir() else truth_root
+        truth = {k: _exists_record(tdir / pat.format(stem=stem)) for k, pat in patterns.items()}
+        found = sorted(p.name for p in tdir.iterdir() if p.name.startswith(f"{stem}__imaris_")) if tdir.is_dir() else []
         rg = g["ims"].get("region_growing")
         entries.append({
-            "tag": tag, "role": g["role"], "condition": g["condition"], "sex": g["sex"], "stem": stem,
-            "nd2": _exists_record(g["nd2"]["path"], g["nd2"].get("size_bytes")),
-            "ims": {**_exists_record(g["ims"]["path"], g["ims"].get("size_bytes")), "region_growing": rg},
+            "tag": tag, "role": g["role"], "split": g["role"], "condition": g["condition"], "sex": g["sex"],
+            "stem": stem,
+            # plain paths under the keys germquant.benchmark.manifest.load_manifest reads; the detailed
+            # records (exists, size, checksum match, region growing) sit next to them
+            "nd2": posix(g["nd2"]["path"]), "ims": posix(g["ims"]["path"]),
+            "nd2_record": _exists_record(g["nd2"]["path"], g["nd2"].get("size_bytes")),
+            "ims_record": {**_exists_record(g["ims"]["path"], g["ims"].get("size_bytes")), "region_growing": rg},
             "results_dir": posix(rdir),
+            "truth_dir": posix(truth_root / tag) if (truth_root / tag).is_dir() else posix(truth_root),
             "outputs": outputs,
             "outputs_complete": all(outputs[k]["exists"] for k in REQUIRED_OUTPUTS),
             "truth": {**truth, "found": found},

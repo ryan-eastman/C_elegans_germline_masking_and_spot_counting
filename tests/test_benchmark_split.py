@@ -234,8 +234,8 @@ def test_manifest_builder_on_a_temp_tree(tmp_path):
         (results / "n2rad51_noHS_herm_000" / f"{stem_a}{suffix}").write_text("x", encoding="utf-8")
     truth = tmp_path / "truth"
     truth.mkdir()
-    truth_names = sorted(f"{stem_b}{s}" for s in ("__imaris_spots.csv", "__imaris_surfaces.csv",
-                                                  "__imaris_masks.tif", "__imaris_extra.json"))
+    truth_names = sorted(f"{stem_b}{s}" for s in ("__imaris_spots.csv", "__imaris_nuclei.csv",
+                                                  "__imaris_labels.tif", "__imaris_extra.json"))
     for name in truth_names:
         (truth / name).write_text("y", encoding="utf-8")
     (truth / f"{stem_a}_imaris_spots.csv").write_text("z", encoding="utf-8")   # one underscore: not ours
@@ -248,10 +248,11 @@ def test_manifest_builder_on_a_temp_tree(tmp_path):
     assert a["outputs"]["nuclei"]["path"] == (results / "n2rad51_noHS_herm_000" / f"{stem_a}__nuclei.csv").as_posix()
     assert a["truth_complete"] is False and a["truth"]["found"] == []
     assert b["truth_complete"] is True and b["truth"]["found"] == truth_names
-    assert b["truth"]["meta"]["exists"] is False
+    assert b["truth"]["params"]["exists"] is False
     assert a["spot_truth_usable"] is True and b["spot_truth_usable"] is False
     assert b["notes"] == [bs.REGION_GROWING_NOTE]
-    assert a["nd2"]["exists"] and a["nd2"]["size_matches"] and a["ims"]["region_growing"] is False
+    assert a["nd2_record"]["exists"] and a["nd2_record"]["size_matches"] and a["ims_record"]["region_growing"] is False
+    assert a["nd2"] == a["nd2_record"]["path"] and a["split"] == "train" and a["truth_dir"] == truth.as_posix()
     assert m["summary"] == {"n_gonads": 2, "outputs_complete": ["n2rad51_noHS_herm_000"],
                             "truth_complete": ["n2rad51_HS_male_001"], "spot_truth_usable": ["n2rad51_noHS_herm_000"]}
     assert m["roles"] == {"train": ["n2rad51_noHS_herm_000"], "val": [], "test": ["n2rad51_HS_male_001"]}

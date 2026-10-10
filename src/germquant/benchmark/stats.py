@@ -98,7 +98,7 @@ def cluster_bootstrap(groups: Sequence, statistic: Callable, *, n_boot: int = 10
     """
     groups = list(groups)
     n = len(groups)
-    point = statistic(groups) if n else float("nan")
+    point = statistic(groups)
     scalar = not isinstance(point, dict)
     point_d = {"value": point} if scalar else dict(point)
     names = list(point_d)
