@@ -458,11 +458,72 @@ unusable spot truth unless `include_unusable=True`.
 
 `scripts/bench_reproduce_golden.py --tags n2rad51_noHS_herm_000 n2rad51_HS_herm_000` ran SpotMAX with
 each golden run's own `spots:` section from the cache and compared the result with the golden
-`<image>__spots.parquet` (exact binary floats) column by column in row order (spot_id, nucleus_id,
-marker, z_um, y_um, x_um, effect_size, spot_mean_intensity, detector) and the per-nucleus counts with the
-golden nuclei table. Both gonads are identical bit for bit: 1934 of 1934 spots (1274 nuclei) and 1552
-of 1552 spots (662 nuclei), every column, every count, in 85 s and 97 s. The two ran one after the
-other in one process, so nothing carries over between gonads either.
+`<image>__spots.parquet` (exact binary floats) and `<image>__spots.csv` (parsed with round-trip
+precision) column by column in row order (spot_id, nucleus_id, marker, z_um, y_um, x_um, effect_size,
+spot_mean_intensity, detector) and the per-nucleus counts with the golden nuclei table. Both gonads are
+identical bit for bit, against both files: 1934 of 1934 spots (1274 nuclei) and 1552 of 1552 spots (662
+nuclei), every column, every count, 85 to 97 s per gonad (on the uncommitted tree and again at commit
+957e307). The two ran one after the other in one process, so nothing carries over between gonads.
+
+Two wider checks came with the first runs below. The SpotMAX detections that `bench_detector.py` wrote
+for all six train and val gonads (`detections/<tag>__spots.csv`) equal the golden spot tables column for
+column. And the 50 columns that the bench `per_gonad.csv` shares with the earlier
+`benchmark_spots.py` output (`C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/spots/per_gonad.csv`,
+read for these six gonads only) are equal with zero tolerance, so a score from the harness is the
+baseline's score. A second SpotMAX run of both splits gave the same numbers to the last digit.
+
+### First runs (2026-10-10, commit 957e307)
+
+Four runs, logged as lines 3 to 6 of `trials.jsonl` (lines 1 and 2 are the same SpotMAX runs made
+before the code was committed, with the same numbers, logged with git sha `3923789...-dirty`). Outputs
+under `C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/detector_bench/<backend>_<config>_<split>_957e307/`.
+SpotMAX with `params {}` is the deployed configuration; `log` with `params {}` is the experimental
+Laplacian-of-Gaussian backend with its code defaults (diameter 0.5 um, min SNR 2.0), never tuned on
+these gonads. Train holds the four gonads with usable spot truth (noHS_herm_000, noHS_male_000,
+noHS_male_001, HS_herm_000), val its two hermaphrodites (noHS_herm_001, HS_herm_001); the two
+region-growing heat-shock males were skipped. Intervals: cluster bootstrap by gonad, 1000 resamples,
+seed 20251105; with four and two gonads they are wide, and a per-condition number below rests on a
+single heat-shock gonad.
+
+| | SpotMAX, train | log, train | SpotMAX, val | log, val |
+|---|---|---|---|---|
+| germline nuclei / traced | 2805 / 425 | 2805 / 425 | 1762 / 208 | 1762 / 208 |
+| per nucleus, germline, A+B: CCC | 0.783 [0.740, 0.831] | 0.861 [0.785, 0.926] | 0.695 [0.643, 0.783] | 0.926 [0.880, 0.957] |
+| per nucleus, germline, A+B: bias | +0.87 [+0.58, +1.42] | +0.60 [+0.30, +1.11] | +1.25 [+1.07, +1.34] | +0.16 [-0.14, +0.73] |
+| per nucleus, traced, A+B: CCC | 0.636 [0.548, 0.751] | 0.732 [0.547, 0.924] | 0.590 [0.436, 0.703] | 0.872 [0.821, 0.932] |
+| per nucleus, traced, A+B: bias | +2.48 [+1.64, +3.12] | +1.73 [+0.80, +2.72] | +2.88 [+2.30, +3.76] | +0.72 [-0.17, +1.30] |
+| per nucleus, germline, Class A: CCC | 0.783 [0.740, 0.831] | 0.858 [0.784, 0.920] | 0.676 [0.613, 0.783] | 0.922 [0.879, 0.949] |
+| per nucleus, traced, Class A: CCC | 0.642 [0.549, 0.758] | 0.733 [0.546, 0.917] | 0.574 [0.411, 0.703] | 0.869 [0.821, 0.905] |
+| spots A+B: F1 | 0.409 [0.295, 0.558] | 0.493 [0.388, 0.625] | 0.428 [0.317, 0.636] | 0.558 [0.427, 0.734] |
+| spots A+B: precision / recall | 0.495 / 0.348 | 0.644 / 0.400 | 0.414 / 0.443 | 0.766 / 0.439 |
+| matched / ours / expert | 3193 / 6445 / 9183 | 3672 / 5701 / 9183 | 1762 / 4253 / 3975 | 1747 / 2282 / 3975 |
+| spots without Class B: F1 | 0.436 | 0.526 | 0.494 | 0.711 |
+| spots detector-only (traced nuclei): F1 | 0.621 | 0.767 | 0.597 | 0.824 |
+| detection time per gonad | 68 to 106 s | 14 to 29 s | 77 to 127 s | 18 to 33 s |
+
+Per condition (`by_split` in pooled.json), germline CCC and bias, SpotMAX against log: train noHS
+(three gonads) 0.752, +1.02 against 0.828, +0.77; train HS (HS_herm_000) 0.864, +0.32 against 0.938,
+-0.03; val noHS 0.783, +1.07 against 0.880, +0.73; val HS (HS_herm_001) 0.643, +1.34 against 0.957,
+-0.14. Spot F1 in the heat-shock gonads stays low for both (0.260 and 0.357 on HS_herm_000, 0.317 and
+0.427 on HS_herm_001) because most heat-shock expert spots lie outside our germline nuclei (1334 of
+5152 and 969 of 2753 fall in them); inside the traced nuclei the detector-only F1 is 0.636 against 0.916
+and 0.432 against 0.830.
+
+What this does and does not say:
+
+* The untuned `log` defaults agree with the Imaris truth better than the deployed SpotMAX recipe on
+  every pooled train and val number above, mostly by counting fewer spots per nucleus (smaller
+  positive bias) at a higher precision. These are development numbers on six gonads; no test gonad was
+  scored, and nothing here is a win condition of the protocol.
+* There is no usable heat-shock male in train or val (both training ones were exported with region
+  growing). On the two heat-shock hermaphrodites the deployed SpotMAX recipe OVER-counts per germline
+  nucleus (+0.32 and +1.34) and `log` is close to zero (-0.03 and -0.14). The heat-shock undercount of
+  the deployed recipe, the in-house detector's main target, is therefore not visible in train or val as
+  they stand; seeing it during development needs the re-exported heat-shock male spot sets.
+* Val holds hermaphrodites only, so anything selected on val is selected without a male.
+* Imaris Spots detects blobs of a set diameter after a Gaussian background subtraction, which is close in
+  spirit to a Laplacian of Gaussian, so a LoG detector may agree with it partly by construction;
+  agreement with this truth is not yet agreement with a person (protocol section 9).
 
 ## Tests
 
@@ -473,3 +534,14 @@ case where greedy matching loses a pair), the greedy fallbacks and their flags, 
 that contain the point estimate and repeat for the same seed, the manifest and truth loaders, the
 frame conversion, both scripts run on a temporary manifest in a subprocess, and the .ims fallback
 adapter with a stubbed reader.
+
+`tests/test_bench_detector.py`: the detector bench harness. A real pipeline run on a synthetic uint16
+gonad is cached and re-run: the cached label image equals the one the spots stage received,
+`run_backend` hands `detect_spots` exactly the pipeline's arguments (image, labels, spacing, the nine
+keyword arguments, marker, backend, `cfg_section`) and reproduces its spots table (log backend always,
+SpotMAX when installed); the keyword arguments follow the stage for non-default values too; the
+params merge equals `pipeline.spot_backend_section`. Tiny planted-foci gonads with truth files run the
+runner end to end with the log backend (scores, Class A columns, conditions under `by_split`), the
+trial log (one line per run, the params sha256), the test guard in the script and in the library, the
+final-run log and its limit of two (on synthetic test-role gonads and temporary logs only), and the
+process pool against the sequential run.
