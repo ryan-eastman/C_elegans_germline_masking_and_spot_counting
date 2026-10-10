@@ -141,12 +141,14 @@ def detect_spots_spotmax(
     df = df[df["nucleus_id"] > 0].reset_index(drop=True)
 
     # FLOOD GUARD: a high-signal or artefact image can propose hundreds of thousands of candidate
-    # peaks (docs/PERFORMANCE.md), and the per-spot feature step below is CPU-bound and costs time per
-    # spot (on one syp-2 mutant gonad the stage ran for 8 h without finishing). Keep the brightest
-    # `max_spot_candidates` before the features so the stage always finishes. A real RAD-51 count is
-    # far below this, so hitting the cap means the image is flooded (artefact, bleed-through or
-    # over-bright) and its count is a floor, not a measurement: _cap_candidates logs a warning with
-    # the candidate count. It is a log line only; the default path adds no flag or column for it.
+    # peaks (n2rad51_noHS_male_002 with its June labels: 479,901 into SpotMAX's minimum-distance
+    # filter, 54,487 inside nuclei after it; docs/PERFORMANCE.md), and the per-spot feature step below
+    # costs about 5 ms per spot on one core (on one syp-2 mutant gonad the stage once ran for 8 h
+    # without finishing). Keep the brightest `max_spot_candidates` before the features so the stage
+    # always finishes. A real RAD-51 count is far below this, so hitting the cap means the image is
+    # flooded (artefact, bleed-through or over-bright) and its count is a floor, not a measurement:
+    # _cap_candidates logs a warning with the candidate count. It is a log line only; the default
+    # path adds no flag or column for it.
     df = _cap_candidates(df, img, max_spot_candidates)
 
     # Per-spot features (effect size + intensity). SpotMAX needs the FULL detection frame

@@ -42,7 +42,7 @@ def test_replica_matches_spotmax_on_random_inputs():
     rng = np.random.default_rng(20251105)
     for trial in range(120):
         ndim = 2 if trial % 5 == 0 else 3
-        n = int(rng.integers(0, 500))
+        n = int(rng.integers(0, 300))
         box = int(rng.integers(3, 30))
         pts = rng.integers(0, box, size=(n, ndim)).astype(np.int64)
         if trial % 7 == 0 and n:

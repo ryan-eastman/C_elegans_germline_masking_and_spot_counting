@@ -6,10 +6,10 @@ Why this exists. SpotMAX (1.3.1, the pinned version) finds spot candidates with
 them in that order, keep a peak unless an earlier kept peak lies inside its ellipsoid
 (``sum(((p_j - p_i) / min_distance) ** 2) < 1``) and drop the later peaks inside the ellipsoid of every
 kept one. SpotMAX does this with a masked numpy array and a full pass over ALL peaks for every kept
-peak, so the cost grows with the square of the number of peaks. A normal RAD-51 gonad has tens of
-thousands of peaks and the pass takes seconds to minutes; a flooded one (n2rad51_noHS_male_002:
-479,901 peaks) needs hours, before the candidate cap of the spot stage is ever reached.
-docs/PERFORMANCE.md has the profile.
+peak, so the cost grows with the square of the number of peaks. On three N2 RAD-51 gonads (7,806 to
+53,883 peaks) the pass took from seconds to about 3 minutes; on a flooded one
+(n2rad51_noHS_male_002 with its June labels: 479,901 peaks) it needs 2 to 3 hours, before the
+candidate cap of the spot stage is ever reached. docs/PERFORMANCE.md has the profile.
 
 What this module does. ``filter_valid_points_min_distance`` below returns exactly what SpotMAX's
 function returns (same rows, same order, same dtype): the same intensity sort call (so ties are
