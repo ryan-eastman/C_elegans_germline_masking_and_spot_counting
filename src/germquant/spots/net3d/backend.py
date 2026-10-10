@@ -171,13 +171,15 @@ def detect_spots_net3d(spot_img, labels, spacing, *, marker: str = "RAD-51", cha
     heat = predict_heatmap(net, inputs, ranges, device=dev, tile_zyx=tile, labels=lab)
     found = pk.find_spots(heat, lab, sp, thr, separation_um=sep, assign_max_um=reach)
     del heat
+    n_near = len(found)
+    found = found[found["nucleus_id"] > 0].reset_index(drop=True)
     n_cap = int(max_spot_candidates)
     if len(found) > n_cap:
-        log.warning("FLOODED: %d net3d peaks exceed cap %d; keeping the %d most probable, the count is a FLOOR "
+        log.warning("FLOODED: %d net3d spots exceed cap %d; keeping the %d most probable, the count is a FLOOR "
                     "not a measurement.", len(found), n_cap, n_cap)
         found = found.iloc[:n_cap]                    # find_spots returns the most probable first
-    log.info("net3d: model %s (sha256 %s...), device %s, threshold %.3f: %d peaks, %d assigned",
-             model, sha[:12], dev, thr, len(found), int((found["nucleus_id"] > 0).sum()))
+    log.info("net3d: model %s (sha256 %s...), device %s, threshold %.3f: %d peaks near a nucleus, %d assigned",
+             model, sha[:12], dev, thr, n_near, len(found))
     return spots_from_peaks(found, img, lab, sp, marker)
 
 

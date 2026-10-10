@@ -329,12 +329,13 @@ class ValGonad:
     occ: tuple
     scorer: ValScorer
     marker: str
+    reach: tuple = None
     condition: str = ""
     sex: str = ""
 
 
 def load_val_gonad(tag: str, entry, cache_root, *, use_dna: bool, norm: dict, tol_xy_um: float,
-                   tol_z_um: float) -> ValGonad:
+                   tol_z_um: float, assign_max_um: float = pk.DEFAULT_ASSIGN_MAX_UM) -> ValGonad:
     from germquant.benchmark import detector as bd
     from germquant.benchmark.manifest import load_labels, load_truth
 
@@ -349,6 +350,7 @@ def load_val_gonad(tag: str, entry, cache_root, *, use_dna: bool, norm: dict, to
     channels = [cache.foci] + ([cache.dna] if use_dna else [])
     return ValGonad(tag=tag, cache=cache, channels=channels, ranges=channel_ranges(channels, norm),
                     occ=occupancy(cache.labels), scorer=scorer, marker=cache.marker,
+                    reach=pk.label_reach_grid(cache.labels, cache.spacing, assign_max_um),
                     **_gonad_facts(entry, cache.meta))
 
 
@@ -369,11 +371,11 @@ def evaluate(model, vals: list[ValGonad], *, thresholds=DEFAULT_THRESHOLDS, devi
         heat = predict_heatmap(model, vg.channels, vg.ranges, device=device, tile_zyx=tile_zyx, occ=vg.occ)
         t1 = time.time()
         f = pk.find_spots(heat, vg.cache.labels, vg.cache.spacing, thresholds[0], separation_um=separation_um,
-                          assign_max_um=assign_max_um)
+                          assign_max_um=assign_max_um, reach_grid=vg.reach)
         del heat
         found[vg.tag] = f[f["nucleus_id"] > 0].reset_index(drop=True)
         timing[vg.tag] = {"infer_s": round(t1 - t0, 1), "peaks_s": round(time.time() - t1, 1),
-                          "n_peaks_at_floor": int(len(f))}
+                          "n_peaks_near_nuclei_at_floor": int(len(f))}
     sweep = []
     for t in thresholds:
         rows = {}
@@ -521,7 +523,7 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
     train_g = [load_train_gonad(t, gon["entries"][t], cache_root, prep, use_dna=use_dna, data_cfg=dcfg, norm=ncfg)
                for t in gon["train"]]
     val_g = [load_val_gonad(t, gon["entries"][t], cache_root, use_dna=use_dna, norm=ncfg, tol_xy_um=tol_xy_um,
-                            tol_z_um=tol_z_um) for t in gon["val"]]
+                            tol_z_um=tol_z_um, assign_max_um=assign_max_um) for t in gon["val"]]
     prep_s = time.time() - t0
     log.info("data ready in %.0f s", prep_s)
 

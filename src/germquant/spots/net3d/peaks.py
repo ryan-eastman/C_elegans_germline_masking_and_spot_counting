@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy import ndimage as ndi
 from scipy.spatial import cKDTree
 
 DEFAULT_SEPARATION_UM = (0.6, 0.3)     # (z, xy) radii of the suppression ellipsoid
@@ -84,8 +85,16 @@ def candidate_peaks(heat: np.ndarray, threshold: float, spacing, *,
 
 def suppress(cand: pd.DataFrame, spacing, separation_um=DEFAULT_SEPARATION_UM) -> pd.DataFrame:
     """Greedy ellipsoidal non-maximum suppression in physical coordinates (module docstring, step 2).
-    Returns the kept rows in visiting order (most probable first)."""
-    if len(cand) == 0:
+    Returns the kept rows in visiting order (most probable first).
+
+    The greedy pass is run only over the candidates that have another one strictly inside their
+    ellipsoid (all such pairs come from one KD-tree query); a candidate without such a partner can
+    neither be suppressed nor suppress, so it is kept as it is. The result is the plain greedy result
+    for any candidate set; for the local maxima of ``candidate_peaks`` a pair can only be a tie (a
+    strictly larger value inside the ellipsoid would have removed the smaller one already), so the
+    loop is short even when a heatmap has millions of candidates."""
+    n = len(cand)
+    if n == 0:
         return cand.reset_index(drop=True)
     r = np.asarray(separation_um, float)
     if r.shape == (2,):
@@ -93,16 +102,48 @@ def suppress(cand: pd.DataFrame, spacing, separation_um=DEFAULT_SEPARATION_UM) -
     pts = cand[["z", "y", "x"]].to_numpy(float) * np.asarray(spacing, float) / r
     order = np.lexsort((cand["x"].to_numpy(), cand["y"].to_numpy(), cand["z"].to_numpy(),
                         -cand["prob"].to_numpy()))
-    tree = cKDTree(pts)
-    alive = np.ones(len(cand), bool)
-    kept = []
-    for i in order:
-        if not alive[i]:
-            continue
-        kept.append(i)
-        for j in tree.query_ball_point(pts[i], 1.0 - 1e-9):   # strictly inside the ellipsoid
-            alive[j] = False
+    pairs = cKDTree(pts).query_pairs(1.0 - 1e-9, output_type="ndarray")   # strictly inside the ellipsoid
+    alive = np.ones(n, bool)
+    if len(pairs):
+        a = np.concatenate([pairs[:, 0], pairs[:, 1]])
+        b = np.concatenate([pairs[:, 1], pairs[:, 0]])
+        srt = np.argsort(a, kind="stable")
+        a, b = a[srt], b[srt]
+        start = np.searchsorted(a, np.arange(n + 1))
+        rank = np.empty(n, np.int64)
+        rank[order] = np.arange(n)
+        involved = np.unique(a)
+        for i in involved[np.argsort(rank[involved], kind="stable")]:
+            if alive[i]:
+                alive[b[start[i]:start[i + 1]]] = False
+    kept = order[alive[order]]
     return cand.iloc[kept].reset_index(drop=True)
+
+
+def label_reach_grid(labels: np.ndarray, spacing, assign_max_um: float = DEFAULT_ASSIGN_MAX_UM,
+                     block=(4, 16, 16)) -> tuple[np.ndarray, tuple[int, int, int]]:
+    """A coarse map of where a spot can still be assigned: blocks of ``block`` voxels that hold a label
+    voxel or lie within the assignment reach of one (the occupied blocks dilated by enough blocks to
+    cover the reach). A peak in a False block has no label within ``assign_max_um`` of any position
+    inside its voxel, so ``find_spots`` drops it before the refinement and assignment without changing
+    any assignment. Returns (grid, block)."""
+    lab = np.asarray(labels)
+    Z, Y, X = lab.shape
+    bz, by, bx = (int(b) for b in block)
+    nz, ny, nx = -(-Z // bz), -(-Y // by), -(-X // bx)
+    occ = np.zeros((nz, ny, nx), bool)
+    pad = np.zeros((ny * by, nx * bx), bool)
+    for z in range(Z):
+        m = lab[z] > 0
+        if not m.any():
+            continue
+        pad[:Y, :X] = m
+        occ[z // bz] |= pad.reshape(ny, by, nx, bx).any(axis=(1, 3))
+    reach = np.ceil(assign_max_um / np.asarray(spacing, float) + 0.5).astype(int)
+    k = [max(1, int(-(-int(rv) // b))) for rv, b in zip(reach, (bz, by, bx))]
+    if occ.any():
+        occ = ndi.binary_dilation(occ, structure=np.ones((2 * k[0] + 1, 2 * k[1] + 1, 2 * k[2] + 1), bool))
+    return occ, (bz, by, bx)
 
 
 def refine_subvoxel(heat: np.ndarray, cand: pd.DataFrame) -> np.ndarray:
@@ -178,16 +219,18 @@ def assign_nuclei(pos_vox: np.ndarray, labels: np.ndarray, spacing, *,
 
 def find_spots(heat: np.ndarray, labels: np.ndarray, spacing, threshold: float, *,
                separation_um=DEFAULT_SEPARATION_UM, assign_max_um: float = DEFAULT_ASSIGN_MAX_UM,
-               max_candidates: int | None = None) -> pd.DataFrame:
-    """The whole chain at one threshold: candidates, suppression, refinement, assignment. Returns one
-    row per kept peak (assigned or not): z, y, x (int peak voxel), zr, yr, xr (refined, voxel units),
-    prob, nucleus_id (0 = unassigned), rule, contested, in suppression order."""
+               reach_grid=None) -> pd.DataFrame:
+    """The whole chain at one threshold: candidates, suppression, refinement, assignment. Returns z, y,
+    x (int peak voxel), zr, yr, xr (refined, voxel units), prob, nucleus_id (0 = unassigned), rule and
+    contested for every kept peak that lies in the assignment reach of a label (``label_reach_grid``,
+    or the precomputed ``reach_grid``); kept peaks farther away could only be unassigned and are left
+    out. Rows are in suppression order (most probable first)."""
     cand = candidate_peaks(heat, threshold, spacing, separation_um=separation_um)
-    if max_candidates is not None and len(cand) > int(max_candidates):
-        order = np.lexsort((cand["x"].to_numpy(), cand["y"].to_numpy(), cand["z"].to_numpy(),
-                            -cand["prob"].to_numpy()))
-        cand = cand.iloc[np.sort(order[:int(max_candidates)])].reset_index(drop=True)
     kept = suppress(cand, spacing, separation_um)
+    grid, block = reach_grid if reach_grid is not None else label_reach_grid(labels, spacing, assign_max_um)
+    if len(kept):
+        bi = [kept[c].to_numpy(np.int64) // b for c, b in zip(("z", "y", "x"), block)]
+        kept = kept[grid[bi[0], bi[1], bi[2]]].reset_index(drop=True)
     pos = refine_subvoxel(heat, kept)
     nucleus, rule, contested = assign_nuclei(pos, labels, spacing, assign_max_um=assign_max_um)
     return kept.assign(zr=pos[:, 0], yr=pos[:, 1], xr=pos[:, 2], nucleus_id=nucleus, rule=rule,

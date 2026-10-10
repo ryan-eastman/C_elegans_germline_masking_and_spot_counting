@@ -176,6 +176,60 @@ def test_peaks_refine_suppress_and_threshold_property():
     assert pk.find_spots(np.zeros(shape, np.float32), labels, SP, 0.1).empty
 
 
+def _greedy_reference(cand, spacing, sep):
+    """The plain greedy suppression, one ball query per visited candidate (the definition)."""
+    from scipy.spatial import cKDTree
+
+    r = np.array([sep[0], sep[1], sep[1]], float)
+    pts = cand[["z", "y", "x"]].to_numpy(float) * np.asarray(spacing) / r
+    order = np.lexsort((cand["x"].to_numpy(), cand["y"].to_numpy(), cand["z"].to_numpy(), -cand["prob"].to_numpy()))
+    tree = cKDTree(pts)
+    alive = np.ones(len(cand), bool)
+    kept = []
+    for i in order:
+        if alive[i]:
+            kept.append(i)
+            for j in tree.query_ball_point(pts[i], 1.0 - 1e-9):
+                alive[j] = False
+    return cand.iloc[kept].reset_index(drop=True)
+
+
+def test_suppress_equals_the_plain_greedy():
+    rng = np.random.default_rng(7)
+    for _ in range(6):
+        n = 500
+        cand = pd.DataFrame({"z": rng.integers(0, 8, n), "y": rng.integers(0, 24, n), "x": rng.integers(0, 24, n),
+                             "prob": np.round(rng.random(n), 1)})            # many ties and close pairs
+        cand = cand.drop_duplicates(["z", "y", "x"]).reset_index(drop=True)
+        pd.testing.assert_frame_equal(pk.suppress(cand, SP, (0.6, 0.3)), _greedy_reference(cand, SP, (0.6, 0.3)))
+    lone = pd.DataFrame({"z": [1, 5], "y": [1, 20], "x": [1, 20], "prob": [0.2, 0.9]})
+    assert pk.suppress(lone, SP)["prob"].tolist() == [0.9, 0.2]               # no pair: all kept, in order
+
+
+def test_reach_grid_drops_only_unassignable_peaks():
+    rng = np.random.default_rng(8)
+    from scipy import ndimage as ndi
+
+    heat = ndi.gaussian_filter(rng.random((20, 96, 96)), (1.0, 1.5, 1.5)).astype(np.float32)
+    heat = (heat - heat.min()) / (heat.max() - heat.min())
+    labels = np.zeros(heat.shape, np.int32)
+    labels[5:15, 10:30, 10:30] = 1
+    labels[5:15, 60:80, 55:75] = 2
+    t = 0.3
+    cand = pk.candidate_peaks(heat, t, SP)
+    kept = pk.suppress(cand, SP)
+    pos = pk.refine_subvoxel(heat, kept)
+    nid, _rule, _con = pk.assign_nuclei(pos, labels, SP)
+    full = kept.assign(nucleus_id=nid)
+    found = pk.find_spots(heat, labels, SP, t)
+    assert len(found) < len(full)                                            # far peaks were dropped early
+    a = full[full["nucleus_id"] > 0][["z", "y", "x", "prob", "nucleus_id"]].reset_index(drop=True)
+    b = found[found["nucleus_id"] > 0][["z", "y", "x", "prob", "nucleus_id"]].reset_index(drop=True)
+    pd.testing.assert_frame_equal(a, b)
+    grid, block = pk.label_reach_grid(labels, SP)
+    assert block == (4, 16, 16) and grid.shape == (5, 6, 6) and grid.any() and not grid.all()
+
+
 def test_ellipsoid_offsets_and_suppression_radius():
     off = pk.ellipsoid_offsets((0.6, 0.3), SP)
     assert {tuple(o) for o in off} >= {(0, 0, 0), (3, 0, 0), (-3, 0, 0), (0, 2, 0), (0, 0, -2)}
