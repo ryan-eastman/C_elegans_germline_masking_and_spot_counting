@@ -267,6 +267,11 @@ TRACK_POINTS = [
     "reg_z_um", "reg_y_um", "reg_x_um",
     "step_um", "step_z_um", "step_y_um", "step_x_um",
     "is_gap", "link_source",
+    # appended by the tracking package (germquant track-link / track-import): the registered centroid
+    # again under the shared-contract names (zr_um = reg_z_um, raw centroid minus the cumulative shift of
+    # the timepoint; nothing is resampled). The nucleus measurements (volume_um3, in_germline,
+    # axis_position_um, <role>_mean_intensity, the sc_* columns) follow as extras.
+    "zr_um", "yr_um", "xr_um",
 ]
 
 # tracks (written by the tracking package): one row per track. Speeds per minute; axis velocity signed
@@ -278,6 +283,11 @@ TRACKS = [
     "path_length_um", "net_displacement_um", "speed_um_per_min", "axis_velocity_um_per_min",
     "intensity_slope_raw_per_min", "intensity_slope_norm_per_min", "sc_length_change_um",
     "link_source",
+    # appended by the tracking package: the shared-contract names of columns above (t_first = t_start,
+    # t_last = t_end, intensity_slope_raw = intensity_slope_raw_per_min, intensity_slope_norm =
+    # intensity_slope_norm_per_min, both per minute) and the mean registered step between consecutive
+    # points of the track.
+    "t_first", "t_last", "mean_step_um", "intensity_slope_raw", "intensity_slope_norm",
 ]
 
 # track_validation (written by `germquant track-validate`): one row per hand-followed point. The point is
@@ -288,6 +298,14 @@ TRACK_VALIDATION = [
     "hand_track_id", "validation_set", "zone", "t_index", "t_seconds", "image_id",
     "z_um", "y_um", "x_um",
     "nucleus_id", "time_track_id", "outcome",
+    # appended by `germquant track-validate`: the per-hand-track scores of the shared contract, repeated
+    # on every point of the hand track (drop_duplicates on hand_track_id gives the per-track table).
+    # n_in_label points landed inside a label; segmentation_recall = n_in_label / n_points;
+    # linking_recall = hand edges (consecutive in-label points) the pipeline kept in one track / hand
+    # edges; edge_precision = pipeline edges leaving a hand point that land on the hand nucleus /
+    # pipeline edges whose target timepoint has a hand point; switches = identity jumps to or from
+    # another nucleus; role = validation_set (holdout | constraint).
+    "n_points", "n_in_label", "segmentation_recall", "linking_recall", "edge_precision", "switches", "role",
 ]
 
 SERIES_TABLES = {

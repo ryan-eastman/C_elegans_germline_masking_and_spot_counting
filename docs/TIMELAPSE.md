@@ -1,10 +1,10 @@
 # Time-lapse quantification
 
-Status: the reader side is implemented (this page, "Reading one timepoint"); the loop over a series, its
-resume logic and the command line switch are the next package and are described in
-[DESIGN_timelapse.md](DESIGN_timelapse.md). Nothing on this page changes a fixed image: its id, its
-tables, its stage record and its completion marker are byte for byte what they were, and
-tests/test_golden.py still gates that.
+Status: the reader ("Reading one timepoint"), the series loop ("Running a series"), the tracking exchange
+("Tracking") and the biologist validation ("Validating the linking") are implemented; the registration
+package writes the shift table the tracking reads. The design is [DESIGN_timelapse.md](DESIGN_timelapse.md).
+Nothing on this page changes a fixed image: its id, its tables, its stage record and its completion marker
+are byte for byte what they were, and tests/test_golden.py still gates that.
 
 The first dataset is the October 2026 GFP::SYP-2 series on the lab NAS: 25 timepoints 300 s apart, 76 (or
 66 in the second worm) planes at 0.2 um, two channels (Brightfield, EGFP), 2720 x 2720 pixels at 0.108 um,
@@ -209,9 +209,284 @@ is `time_track_id`; `track_id` already means an SC fragment in `sc_tracks`.
 |---|---|---|---|
 | `series_summary` | this package (`process_series`) | requested timepoint | `t_index`, `t_seconds`, `image_id`, `n_nuclei`, `n_germline_nuclei`, `mean_spots`, `qc_pass`, `qc_flags`, `elapsed_s`, then `sig_<role>_bg` and `sig_<role>_snr` for each channel role the series resolves (the signal_qc stage's background and signal-to-noise), then `SERIES_META` |
 | `register_shifts` | registration package (`germquant register`) | timepoint | the step against the reference frame and the accumulated shift to t0 in microns, the brightfield cross-check and its disagreement flag, whether the step was capped, the median nearest-neighbour displacement before and after, stride, upsample factor, method |
-| `track_points` | tracking package | object per timepoint | `time_track_id`, `t_index`, `t_seconds`, `image_id`, `nucleus_id`, raw and registered centroids, the step from the previous point, `is_gap`, `link_source`; nucleus measurements are joined on `(image_id, nucleus_id)` |
-| `tracks` | tracking package | track | `n_points`, `n_gaps`, `t_start`, `t_end`, `is_full_length`, path length, net displacement, speed, signed axis velocity after the t0 sign alignment, SYP intensity slopes raw and median-normalised, SC length change, `link_source` |
-| `track_validation` | `germquant track-validate` | hand-followed point | the biologist's point in raw-frame microns, the label it lands in and its track, the outcome (linked, segmentation_miss, switch, edge_missing), the validation set (holdout or constraint) and zone |
+| `track_points` | `germquant track-link` / `track-import` | nucleus per timepoint | `time_track_id`, `t_index`, `t_seconds`, `image_id`, `nucleus_id`, the raw centroid (`z_um`, `y_um`, `x_um`), the registered centroid (`reg_z_um`, `reg_y_um`, `reg_x_um` and, appended, the shared-contract names `zr_um`, `yr_um`, `xr_um`), the step from the track's previous point (`step_um` and its components), `is_gap`, `link_source`; then the nucleus measurements joined on `(image_id, nucleus_id)` as extras (`volume_um3`, `in_germline`, `axis_position_um`, `axis_position_aligned_um`, the `dna` / `central_element` mean intensities, `central_element_mean_intensity_norm`, the `sc_*` columns when the sc_trace stage ran) |
+| `tracks` | `germquant track-link` / `track-import` | track | `n_points`, `n_gaps`, `t_start`, `t_end`, `is_full_length`, `path_length_um`, `net_displacement_um`, `speed_um_per_min`, `axis_velocity_um_per_min` (signed, after the t0 sign alignment), `intensity_slope_raw_per_min`, `intensity_slope_norm_per_min`, `sc_length_change_um`, `link_source`; appended: `t_first`, `t_last`, `mean_step_um`, `intensity_slope_raw`, `intensity_slope_norm` (the contract names of the same numbers) |
+| `track_validation` | `germquant track-validate` | hand-followed point | the biologist's point in raw-frame microns, the label it lands in (`nucleus_id`, NA = segmentation miss) and that label's `time_track_id`, the `outcome` (linked, segmentation_miss, switch, edge_missing, unlinked), the `validation_set` and `zone`; appended, repeated on every point of the hand track: `n_points`, `n_in_label`, `segmentation_recall`, `linking_recall`, `edge_precision`, `switches`, `role` (`drop_duplicates("hand_track_id")` is the per-track table) |
+
+## Tracking
+
+Linking the nuclei of a series across its timepoints is a file exchange, never a change to the per-timepoint
+results (design section 5): the tracking commands read a finished series folder and write only series-level
+files next to the `t<NNN>/` folders. A tracker change never reruns segmentation, and nothing is ever
+resampled: every per-timepoint table and label image stays in its own raw frame, and the registration enters
+as coordinates only. The shared contract between the time-lapse packages:
+
+* the registration package writes `<stem>__register_shifts.csv` with the cumulative shift of every timepoint
+  to t0 (`t_index`, `dz_um`, `dy_um`, `dx_um`; a positive shift means the sample moved by that much). A
+  **registered coordinate is the raw centroid minus the cumulative shift of its timepoint**. Without the
+  table the series is treated as already aligned (zero shifts) and every record says so (`shift_source`
+  `none`). Label images are placed on the registered grid by the whole-voxel rounding of the shift;
+* the loop keeps a downsampled copy of the segmentation channel per timepoint,
+  `t<NNN>/<id>__ref_stride<k>.npy` (uint16, Z x Y/k x X/k, `timelapse.reference_stride`, code default 8,
+  written when `timelapse.keep_reference_volume` is true, which is the default for a series run and never
+  for a fixed image). The export and the strips use it as their image; without it they say so (the export
+  writes no image, the strips need `--image file`).
+
+What a command reads from the series folder: `<stem>__series.json` (the timepoints listed as done, their
+`t_seconds`, `period_s`, the file path), `t<NNN>/<id>__nuclei.csv` (centroids, `in_germline`,
+`axis_position_um`, the mean intensities, the `sc_*` columns, the voxel size and the channel map),
+`t<NNN>/<id>__nuclei_labels.tif`, `t<NNN>/<id>__image_summary.csv` (`total_germline_length_um`, used when a
+timepoint's axis is reversed) and the shift table. A timepoint that failed or was not run is a gap in the
+series, not a frame of zeros. Every command takes `--stem` when a folder holds several series, and
+`--config` / `--profile` for the `timelapse.*` keys; without them the keys are read from the series'
+`run_manifest.json`, and every key has a code default (table below), so no config file needs editing.
+
+### Export: `germquant track-export`
+
+```
+germquant track-export results/SERIES --out exchange/SERIES [--crop germline|all] [--stride 2] [--image ref|file|none]
+```
+
+writes a Cell-ACDC position folder, `exchange/SERIES/Position_1/Images/`, with
+
+* `<stem>_segm.npz`: a `(T, Z, Y, X)` integer array (uint16 while the largest nucleus id fits) of the
+  germline nucleus labels (`in_germline` True; `--crop all` keeps every label) of every timepoint on disk,
+  placed on the registered grid, cropped to the union bounding box of the germline across the timepoints
+  (`--crop all`: the whole, shifted field) and sub-sampled by `--stride` in y and x (z is kept whole). The
+  label values are the `nucleus_id`s of each timepoint, so the array is an untracked segmentation in
+  Cell-ACDC's sense: frame-local ids, the tracker's job is to make them consistent;
+* `<stem>_<channel>.tif`: the `central_element` channel on the same grid (`--channel-name`, default
+  `central_element`), uint16, for display. `--image ref` (default) builds it from the reference volumes with
+  a nearest-neighbour resample onto the export grid (coarse: the reference stride is 8, so a nucleus is a few
+  pixels), `--image file` reads each timepoint of the series file at the export stride (a full frame per
+  timepoint, 25 s each over the lab network for the October series), `--image none` writes no image;
+* `<stem>_metadata.csv`: SizeT, SizeZ, SizeY, SizeX, TimeIncrement (`period_s`), the physical voxel size of
+  the export grid, `basename` and `channel_0_name`, in Cell-ACDC's `Description,values` form;
+* `exchange/SERIES/export.json`: the crop box in registered voxels of the t0 grid, the stride, the exported
+  shape and dtype, the shifts applied per timepoint (microns and the rounded voxels), the shift source, the
+  frame index of every `t_index`, the label id map of every timepoint (exported value to `nucleus_id`,
+  identity but explicit) and the files written.
+
+The germline box is found in a first pass over the label images (each read once, nothing kept), the labels
+are placed in a second pass; the exported array is the only large object in memory. An estimate above
+`timelapse.track.export_max_gb` (2 GB) is warned about; raise the stride. On the October series the
+germline crop at stride 2 is about 45 MB per timepoint before compression.
+
+### Linking: `germquant track-link`
+
+```
+germquant track-link results/SERIES --backend overlap|overlap_inhouse|laptrack|none [--gap 2] [--max-dist-um 3.0] [--min-overlap 0.4] [--stride 2] [--all-nuclei]
+```
+
+links the germline nuclei (`--all-nuclei`: every label) across the timepoints on disk and writes
+`<stem>__track_points.csv` and `<stem>__tracks.csv` (and `.parquet`) next to the timepoint folders, plus
+`<stem>__track_link.json` with the backend, its parameters, the shift source, the counts and the axis sign
+per timepoint. The backends:
+
+* `overlap` (default): Cell-ACDC's own overlap tracker, run headless. `cellacdc.trackers.CellACDC.
+  CellACDC_tracker.track_frame`, the function Cell-ACDC's tracker loop calls, is called frame by frame on the
+  registered label grid (stride `--stride`, default 2), so only two frames are in memory; it imports without
+  a Qt binding in the numeric venv. The rule: a nucleus takes the previous nucleus it covers most, measured
+  as intersection over the previous nucleus' volume, when that is at least `--min-overlap` (0.4, Cell-ACDC's
+  `IoA_thresh`) and no other nucleus covers that previous nucleus better; every other nucleus starts a new
+  track. The first timepoint's track ids are its nucleus ids. When Cell-ACDC cannot be imported the command
+  falls back to `overlap_inhouse` and says so in the record (`note`) and on the console;
+* `overlap_inhouse`: the same rule in NumPy (`track.overlap_assign`), kept for environments without the
+  `spots` extra; the test suite checks both give the same tracks on the synthetic series;
+* `laptrack`: LAP linking (laptrack, BSD; `pip install laptrack`) of the registered centroids with the
+  squared Euclidean cost, cutoff `--max-dist-um` squared (3.0 um), gap closing over `--gap` frames and
+  splitting and merging off. `--gap N` is laptrack's `gap_closing_max_frame_count`: a track ending at t may
+  join one starting at t + d when 1 <= d <= N, so the default 2 bridges one missing timepoint (a nucleus the
+  segmentation lost for a frame, or a whole timepoint that failed); 0 turns gap closing off. This is what
+  closes the single-frame gaps the overlap tracker cannot;
+* `none`: no linking; the points table is written with `time_track_id` empty and `link_source` `none`, so
+  every measurement can be plotted per timepoint without tracks.
+
+The nearest-neighbour spacing of the packed rows is 3.3 to 4.7 um median and 1.2 um at the 10th percentile
+(design section 10): keep `--max-dist-um` below the spacing, and look at the strips before trusting a
+larger value.
+
+**track_points** has one row per nucleus per timepoint: `time_track_id`, `t_index`, `t_seconds`, `image_id`,
+`nucleus_id`, the raw centroid, the registered centroid (`reg_*_um` and the contract names `zr_um`, `yr_um`,
+`xr_um`), `step_um` and its components (the registered displacement from the track's previous point, empty
+on a track's first point), `is_gap` (True on a point that follows one or more missing timepoints in its
+track), `link_source` (the backend, `imported:<tool>`, or `none` for a nucleus without a track), then the
+nucleus measurements joined on `(image_id, nucleus_id)`: `volume_um3`, `n_voxels`, `in_germline`,
+`axis_position_norm`, `axis_position_um`, `zone`, `n_spots`, the `sc_*` columns, `dna_mean_intensity` and
+`central_element_mean_intensity` when the nuclei table has them, plus two derived columns:
+`axis_position_aligned_um` (the axis position after the sign alignment below) and
+`central_element_mean_intensity_norm` (the SYP mean divided by the median over the germline nuclei of the
+same timepoint, the bleaching-free quantity).
+
+**tracks** has one row per track: `n_points`, `n_gaps` (timepoints missing inside the span), `t_start` /
+`t_first`, `t_end` / `t_last`, `is_full_length` (a point at every timepoint on disk), `path_length_um`,
+`net_displacement_um`, `mean_step_um`, `speed_um_per_min` (path length over the recorded time span),
+`axis_velocity_um_per_min` (the least-squares slope of `axis_position_aligned_um` against minutes, signed:
+positive is towards the proximal end in t0's orientation), `intensity_slope_raw_per_min` /
+`intensity_slope_raw` (the slope of `central_element_mean_intensity`) and `intensity_slope_norm_per_min` /
+`intensity_slope_norm` (the slope of the median-normalised intensity; the control baseline for the
+heat-shock series), `sc_length_change_um` (last minus first `sc_total_length_um` within the track, NA
+without the sc_trace stage), `link_source`. Minutes come from the recorded `t_seconds`, else `t * period_s`,
+else the timepoint index.
+
+**Axis sign alignment.** The axis stage orients each timepoint on its own, with a heuristic (the small,
+dense nuclei are distal), and that orientation can flip between frames. For every timepoint the nuclei
+linked to t0 are taken and the Spearman rank correlation of their `axis_position_um` at t0 and at that
+timepoint is computed: a negative correlation means the orientation is reversed, and the frame's positions
+are flipped as `L - p`, with `L` the timepoint's `total_germline_length_um` from its image_summary (its
+largest axis position when that is missing). A timepoint with fewer than three nuclei linked to t0 inherits
+the previous timepoint's sign. The signs are in `<stem>__track_link.json` (`axis_sign_by_t`) and the command
+prints the flipped timepoints. The limit of the method: the axis origin is refit per timepoint, so a nucleus
+appearing or disappearing at the distal end moves every position of that frame by a little; the sign is
+exact, the per-frame offset is not corrected, and the velocity is a slope over the whole track, which
+averages that noise down. tests/test_timelapse_tracking.py plants a flipped frame and checks the velocity.
+
+### Importing a tracker's result: `germquant track-import`
+
+```
+germquant track-import results/SERIES --from trackmate spots.csv            (or the TrackMate model .xml)
+germquant track-import results/SERIES --from imaris points.csv --time-base 1
+germquant track-import results/SERIES --from cellacdc exchange/SERIES/Position_1/Images/<stem>_segm.npz
+```
+
+Every importer produces the same two tables with `link_source` `imported:<tool>`; a nucleus the import does
+not cover keeps its row with an empty `time_track_id` and `link_source` `none`.
+
+* TrackMate: the spots CSV (`ID`, `TRACK_ID`, `POSITION_X/Y/Z`, `FRAME`; the description and unit rows
+  TrackMate writes under the header are skipped; spots without a track are dropped and counted), or the
+  model XML (spots from `AllSpots`, tracks from the `AllTracks` edges, `FilteredTracks` honoured when
+  present). Positions are physical units (microns).
+* Imaris: a points table with `id, t, z, y, x` (aliases accepted: `track_id` / `TrackID`, `t_index` /
+  `frame` / `time`, `z_um`...), in raw-frame microns. `--time-base 1` for Imaris's 1-based time index.
+* Cell-ACDC: the tracked `segm.npz` (Cell-ACDC overwrites the exported file in place). The export's grid is
+  rebuilt from `export.json` (found next to the file or given with `--export-json`) and every exported label
+  takes the tracked value covering most of its voxels. A label whose majority is 0 was deleted in the GUI
+  (no track); a tracked value claimed by two of our labels in one frame is a merge (the larger overlap keeps
+  it, the other gets no track); a label split between tracked values is logged as a split. Objects the
+  biologist added have no counterpart in our labels and are counted, not measured. The counts are in the
+  record (`backend_info`) and on the console.
+
+Points are mapped to our nuclei by looking the voxel up in that timepoint's label image; `--snap-um D` lets
+a point just outside every label take the nearest nucleus centroid within D. Two imported tracks landing
+in the same nucleus at one timepoint are a conflict: the first keeps it, the count is logged. `--space
+export` says the coordinates were measured on the exported stack (TrackMate or Imaris opened the
+exported tif): they are converted back through `export.json` (registered = box origin + coordinate, raw =
+registered + the timepoint's shift).
+
+### Strips: `germquant track-strips`
+
+```
+germquant track-strips results/SERIES --out strips/SERIES [--size-um 8] [--planes 3] [--image ref|file] [--max-tracks N]
+```
+
+writes one PNG per track, `<stem>__track<NNNNN>_strip.png`, with one tile per timepoint of the series: the
+`central_element` channel around the nucleus the track names at that timepoint (its raw centroid in that
+frame, so the tracked nucleus is always centred), `--size-um` wide, max-projected over `--planes` planes
+around the centroid, intensity scaled per track (bleaching shows as dimming along the strip), the timepoint
+index under each tile and a dash where the track has no point. An identity swap shows as a jump in texture
+and neighbours between two tiles. `--image ref` (default) uses the reference volumes (stride 8: coarse but
+honest about what was tracked), `--image file` reads the series file at `--stride` (default 2) for full
+texture, one frame per timepoint.
+
+### Keys and code defaults
+
+| key | code default | read by |
+|---|---|---|
+| `timelapse.track.export_stride` | 2 | track-export (`--stride`), track-strips with `--image file` |
+| `timelapse.track.export_crop` | `germline` | track-export (`--crop`) |
+| `timelapse.track.export_max_gb` | 2.0 | track-export (a warning) |
+| `timelapse.track.max_dist_um` | 3.0 | track-link laptrack (`--max-dist-um`) |
+| `timelapse.track.gap_frames` | 2 | track-link laptrack (`--gap`) |
+| `timelapse.track.min_overlap` | 0.4 | track-link overlap backends (`--min-overlap`) |
+| `timelapse.track.link_stride` | 2 | track-link overlap backends (`--stride`) |
+| `timelapse.track.strip_size_um` | 8.0 | track-strips (`--size-um`) |
+| `timelapse.track.strip_planes` | 3 | track-strips (`--planes`) |
+| `timelapse.track.strip_tile_px` | 64 | track-strips (tile side in output pixels) |
+
+A command line flag wins over the key; the key wins over the code default. No shipped config file names
+any of them, so every config hash is unchanged.
+
+From code: `germquant.timelapse.export_cellacdc`, `link_series`, `import_tracks`, `track_strips`, and
+`find_series` / `load_shifts` / `object_table` in `germquant.timelapse.layout` for reading a series folder
+and its registered coordinates.
+
+## Validating the linking
+
+Build the hand set before tuning anything, or it stops being blind (design section 10).
+
+### 1. Pick the nuclei: `scripts/pick_validation_nuclei.py`
+
+```
+python scripts/pick_validation_nuclei.py results/SERIES [--seed 0] [--n 16 --tz 6 --pach 7 --edge 3] [--out picks.csv]
+```
+
+chooses, at the first timepoint of the series, 16 germline nuclei (`timelapse.validate.n_nuclei`): 6 in
+the transition zone (`n_transition`), 7 in pachytene (`n_pachytene`) and 3 at the edge of the field
+(`n_edge`), with a seeded generator (`seed`, 0), so the same call picks the same nuclei. Zones come from the
+staging stage's `zone` column when it ran (`pre` is the transition zone, `early` / `mid` / `late` pachytene);
+without a trace they come from `axis_position_um` quantiles (transition zone up to the 0.35 quantile,
+`tz_quantile`; pachytene up to 0.90, `pach_quantile`; `centroid_x_um` orders the nuclei when there is no
+axis). Edge nuclei lie within `edge_um` (5 um) of the xy border of the field; the most proximal nuclei
+stand in when there are too few. The picks alternate `holdout` and `constraint`: tune the linking on the
+constraint nuclei, judge it on the holdout ones, which nobody looks at until the verdict.
+
+The worksheet `<stem>__validation_picks.csv` is written into the series folder (`--out` elsewhere): a
+comment line, then one row per pick with `hand_track_id`, `role`, `zone`, `t_index` (0), `z_um`, `y_um`,
+`x_um` (raw-frame microns), `nucleus_id`, `image_id`, `axis_position_um`. The biologist opens the series in
+Imaris, finds each nucleus at t0 from its coordinates (check one known nucleus first: Imaris positions are
+microns from the dataset origin, which Bio-Formats puts at 0 for an .nd2), follows it through the series
+and appends one row per later timepoint with `hand_track_id`, `t_index`, `z_um`, `y_um`, `x_um`; the
+other columns stay empty. A nucleus that leaves the field or cannot be followed simply stops. The file may
+also be an Imaris points export renamed to those five columns.
+
+### 2. Score the linking: `germquant track-validate`
+
+```
+germquant track-validate results/SERIES --points <stem>__validation_picks.csv [--snap-um 0.3]
+```
+
+Every hand point is looked up in that timepoint's label image. A point outside every label is a
+**segmentation miss**, not a linking error (the segmentation lost the nucleus, or the biologist's point
+missed it; `--snap-um` lets a point just outside take the nearest nucleus within that distance). The
+in-label points of a hand track are mapped to `time_track_id` through `<stem>__track_points.csv` (so the
+verdict is about the last `track-link` or `track-import`), and consecutive in-label points form the hand
+edges. Per hand track:
+
+* `n_points`, `n_in_label`, `segmentation_recall` = n_in_label / n_points;
+* `linking_recall` = hand edges the pipeline kept in one track / hand edges. Because the edges join
+  consecutive in-label points, a dropout the pipeline bridged counts as kept, and a track that fragmented at
+  a dropout counts against it;
+* `edge_precision` = pipeline edges leaving a hand point that land on the hand nucleus at the next
+  timepoint the track has / pipeline edges whose target timepoint has a hand point in a label;
+* `switches` = hand edges where the pipeline's identity jumped: the track at the earlier point continues on
+  a different nucleus, or the track at the later point came from a different nucleus (an identity swap);
+  `edges_missing` = hand edges the pipeline broke without another nucleus involved (a fragmented or
+  unlinked track). Both lower the linking recall; only switches are the identity errors the acceptance is
+  about;
+* `role` (holdout | constraint) and `zone`, from the worksheet, else the picks file in the series folder,
+  else holdout.
+
+Per point, `outcome` is `linked`, `segmentation_miss`, `switch`, `edge_missing` or `unlinked` (in a label
+that no track covers). The verdict, printed and written to `<stem>__track_validation.json`:
+
+| criterion | threshold (key, code default) | judged on |
+|---|---|---|
+| switches | `timelapse.validate.max_switches_holdout`, 0 | the holdout tracks |
+| linking recall | `timelapse.validate.min_linking_recall`, 0.95 | pooled over the holdout tracks (all tracks when none is marked holdout) |
+| segmentation recall | `timelapse.validate.min_segmentation_recall`, 0.85 | the pachytene zone when the hand set has zones, else all points |
+
+The exit code is 0 on PASS and 2 on FAIL (an error is 1). `<stem>__track_validation.csv` holds one row per
+hand point (schema `track_validation`: the point, the label it landed in and its track, the outcome, the
+validation set and zone) with the per-track scores repeated on every row of the track;
+`drop_duplicates("hand_track_id")` gives the per-track table, which the JSON also carries. The design's
+acceptance for tuning: zero switches on the holdout nuclei, linking recall at or above 0.95, pachytene
+segmentation recall at or above 0.85; when the overlap backend fails only on dropouts, `laptrack` with gap
+closing is the next thing to try, and the strips show what happened at any flagged point.
+
+tests/test_timelapse_tracking.py scores a perfect hand set (every metric 1, PASS), a set where two hand
+tracks exchange nuclei half way (one switch each, recall 3/4, FAIL) and a set with a point in the background
+(a segmentation miss that leaves the linking recall at 1), and checks that a fragmented track is a missing
+edge, not a switch.
 
 ## What stays unchanged
 
