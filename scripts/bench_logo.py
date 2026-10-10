@@ -7,6 +7,8 @@ docs/BENCHMARK.md, "Leave-one-gonad-out"). Train and val gonads only; a test gon
         --out-root DIR [--tags TAG ...]
     python scripts/bench_logo.py net3d-fold --held-out TAG --recipe-from MODELDIR --models-root DIR
         --out-root DIR [--device cuda] [--prep-dir DIR] [--min-free-gb 8]
+    python scripts/bench_logo.py net3d-folds --recipe-from MODELDIR --models-root DIR --out-root DIR
+        --log-dir DIR [--gpu-lock LOCK.py] [--tags TAG ...] (the same options as net3d-fold)
     python scripts/bench_logo.py report --heldout NAME=DIR ... --out DIR [--tags TAG ...]
 
 folds        the six folds of section 6.2 (germquant.benchmark.logo.logo_folds) as JSON.
@@ -22,6 +24,8 @@ net3d-fold   trains net3d on the fold's five gonads by the frozen recipe of a se
              train-spots --recipe-from: its settings, seed, schedule, epoch count and threshold, no
              validation) into <models-root>/fold_<held-out>/, then scores the held-out gonad as `heldout`
              does. Run it under the workstation's GPU lock.
+net3d-folds  runs net3d-fold for every fold (or --tags) in turn, each in its own process and, with
+             --gpu-lock, each under that lock script; logs in --log-dir.
 report       pools the held-out gonads of every detector (cluster bootstrap by gonad, 1000 resamples, seed
              20251105) and compares every pair of detectors on the same resamples; writes logo_report.json,
              logo_per_gonad.csv, logo_pooled.csv and logo_paired.csv. With --tags it pools those gonads from
@@ -177,6 +181,36 @@ def cmd_net3d_fold(args) -> int:
                           "recipe_from": recipe["from_model_dir"], "recipe_model_sha256": recipe["from_model_sha256"]})
 
 
+def cmd_net3d_folds(args) -> int:
+    """Every fold's ``net3d-fold`` in turn, each in its own process; with --gpu-lock each one runs under
+    that lock script (``LOCK run --name NAME -- COMMAND``), so other jobs can take the GPU between folds."""
+    import subprocess
+
+    folds = _folds(args)
+    tags = list(args.tags) if args.tags else [f["held_out"] for f in folds]
+    for t in tags:
+        _fold_of(folds, t)
+    log_dir = Path(args.log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    common = ["--manifest", str(args.manifest), "--cache-root", str(args.cache_root), "--n-boot", str(args.n_boot),
+              "--seed", str(args.seed)] + (["--trials-log", str(args.trials_log)] if args.trials_log else [])
+    rc = 0
+    for t in tags:
+        cmd = [sys.executable, str(Path(__file__).resolve()), *common, "net3d-fold", "--held-out", t,
+               "--recipe-from", str(args.recipe_from), "--models-root", str(args.models_root), "--out-root",
+               str(args.out_root), "--split-file", str(args.split_file), "--device", args.device,
+               "--min-free-gb", str(args.min_free_gb)] + (["--prep-dir", str(args.prep_dir)] if args.prep_dir else []) \
+            + (["--retrain"] if args.retrain else [])
+        if args.gpu_lock:
+            cmd = [sys.executable, str(args.gpu_lock), "run", "--name", f"net3d LOGO fold held-out {t}", "--", *cmd]
+        with open(log_dir / f"net3d_fold_{t}.out.log", "w", encoding="utf-8") as fo, \
+                open(log_dir / f"net3d_fold_{t}.err.log", "w", encoding="utf-8") as fe:
+            code = subprocess.run(cmd, stdout=fo, stderr=fe).returncode
+        print(f"fold {t}: exit {code}", flush=True)
+        rc = max(rc, code)
+    return rc
+
+
 def cmd_report(args) -> int:
     if args.tags:
         folds, tags = [], list(args.tags)
@@ -272,6 +306,18 @@ def parse_args(argv=None):
     n.add_argument("--prep-dir", default=None)
     n.add_argument("--min-free-gb", type=float, default=0.0)
     n.add_argument("--retrain", action="store_true")
+    na = sub.add_parser("net3d-folds")
+    na.add_argument("--recipe-from", required=True)
+    na.add_argument("--models-root", required=True)
+    na.add_argument("--out-root", required=True)
+    na.add_argument("--log-dir", required=True)
+    na.add_argument("--tags", nargs="*", default=None, help="only these held-out gonads (default: every fold)")
+    na.add_argument("--gpu-lock", default=None, help="a lock script run as LOCK run --name NAME -- COMMAND")
+    na.add_argument("--split-file", default=str(DEFAULT_SPLIT_FILE))
+    na.add_argument("--device", default="cuda", choices=["cuda", "cpu", "auto"])
+    na.add_argument("--prep-dir", default=None)
+    na.add_argument("--min-free-gb", type=float, default=0.0)
+    na.add_argument("--retrain", action="store_true")
     r = sub.add_parser("report")
     r.add_argument("--heldout", nargs="+", required=True,
                    help="NAME=DIR, DIR holding <tag>/ held-out folders or one bench_detector.py output folder")
@@ -285,7 +331,7 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     os.environ.setdefault("TQDM_DISABLE", "1")
     return {"folds": cmd_folds, "select": cmd_select, "heldout": cmd_heldout, "net3d-fold": cmd_net3d_fold,
-            "report": cmd_report}[args.cmd](args)
+            "net3d-folds": cmd_net3d_folds, "report": cmd_report}[args.cmd](args)
 
 
 if __name__ == "__main__":

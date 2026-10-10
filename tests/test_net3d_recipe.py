@@ -7,7 +7,9 @@ torch."""
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
+import pandas as pd
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -82,6 +84,46 @@ def test_recipe_reproduces_the_selected_checkpoint(tiny_bench, monkeypatch, caps
     tcard = json.loads((tv / "model_card.json").read_text(encoding="utf-8"))
     assert tcard["training_gonad_tags"] == ["synth_noHS_a", "synth_HS_b", "synth_val_c"]
     assert tcard["test_gonads_never_opened"] == ["synth_test_d"] and tcard["threshold"] == thr
+
+
+def test_bench_logo_net3d_folds(tiny_bench, capsys):  # noqa: F811
+    """scripts/bench_logo.py net3d-folds on the tiny cache: a fold trains on the recipe's other gonads (in
+    the recipe's order: its train gonads, then its val gonads) and its held-out gonad is scored with the
+    detector-only count, one trial record per fold with the fold in its note."""
+    import importlib.util
+
+    from germquant import cli
+    from germquant.benchmark import detector as bd
+    from germquant.spots.net3d.infer import file_sha256, read_model_file
+
+    b = tiny_bench
+    sel_dir = b["root"] / "selected"
+    assert cli.main([*_base(b, sel_dir), "--epochs", "2", *TRAIN_ARGS, "--thresholds", "0.02,0.3"]) == 0
+    capsys.readouterr()
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("bench_logo", root / "scripts" / "bench_logo.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    common = ["--manifest", str(b["manifest"]), "--cache-root", str(b["root"] / "cache"), "--trials-log",
+              str(b["root"] / "trials.jsonl"), "--n-boot", "20"]
+    rc = mod.main([*common, "net3d-folds", "--tags", "synth_val_c", "synth_HS_b", "--recipe-from", str(sel_dir),
+                   "--models-root", str(b["root"] / "folds"), "--out-root", str(b["root"] / "heldout"),
+                   "--log-dir", str(b["root"] / "logs"), "--split-file", str(b["split"]), "--device", "cpu",
+                   "--prep-dir", str(b["root"] / "prep")])
+    logs = "".join(p.read_text(encoding="utf-8") for p in sorted((b["root"] / "logs").glob("*.log")))
+    assert rc == 0, logs
+    for held, trained in (("synth_val_c", ["synth_noHS_a", "synth_HS_b"]), ("synth_HS_b", ["synth_noHS_a", "synth_val_c"])):
+        card = json.loads((b["root"] / "folds" / f"fold_{held}" / "model_card.json").read_text(encoding="utf-8"))
+        assert card["training_gonad_tags"] == trained and card["val_gonads"] == []
+        assert card["recipe"]["from_model_sha256"] == file_sha256(sel_dir / "model.pt")
+        pg = pd.read_csv(b["root"] / "heldout" / held / "per_gonad.csv")
+        assert pg["tag"].tolist() == [held] and pg["backend"].tolist() == ["net3d"] and "tm_det_ccc" in pg.columns
+    doc = read_model_file(b["root"] / "folds" / "fold_synth_val_c" / "model.pt")
+    assert doc["peaks"]["threshold"] == json.loads((sel_dir / "training_log.json").read_text(encoding="utf-8"))["best_threshold"]
+    recs = bd.read_jsonl(b["root"] / "trials.jsonl")
+    assert [r["note"]["logo"]["held_out"] for r in recs] == ["synth_val_c", "synth_HS_b"]
+    assert recs[0]["note"]["logo"]["trained_on"] == ["synth_noHS_a", "synth_HS_b"]
+    assert recs[0]["note"]["logo"]["model_sha256"] == file_sha256(b["root"] / "folds" / "fold_synth_val_c" / "model.pt")
 
 
 def test_recipe_refusals(tiny_bench, capsys):  # noqa: F811
