@@ -94,14 +94,12 @@ def _exposure_ms(block: str) -> float | None:
 
 
 def _power(block: str, name: str) -> float | None:
-    """The power of the laser line named like the channel (``ExW:545; Power: 96.0``); when no line
-    carries the channel's name and the block lists exactly one line, that line's power."""
+    """The power of the laser line named like the channel (``ExW:545; Power: 96.0``); None when no line
+    carries the channel's name (NaN in laser_pow_<role> is the signal that the line and channel names
+    disagree, the semantics every existing table was written with)."""
     m = re.search(rf"ExW:{re.escape(name)}; Power:\s*([\d.]+)", block)
     if m:
         return float(m.group(1))
-    lines = _LASER_LINE.findall(block)
-    if len(lines) == 1:
-        return float(lines[0][1])
     return None
 
 

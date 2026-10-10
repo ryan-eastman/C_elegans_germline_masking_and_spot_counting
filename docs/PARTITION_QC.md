@@ -35,10 +35,11 @@ extends it, inside the repository or anywhere else, is a new recipe with its own
 # config/profiles/ccw77_partition_gated.yaml
 extends: ccw77_partition.yaml
 partition:
-  # min_syp_snr: 3.0    # flag partition:low_syp_snr when the SYP signal-to-noise is below 3
+  min_syp_snr: 3.0    # flag partition:low_syp_snr when the SYP signal-to-noise is below 3
 ```
 
-Uncomment the line to turn the gate on. 3.0 is a starting point, not a validated threshold: set it
+The key is live in this new file (a commented-only block would load as an empty section). 3.0 is a
+starting point, not a validated threshold: set it
 from the distribution of `partition_syp_snr` across sessions whose fluorophore is known to be live
 and the session known to be dead, and keep the value in the profile so it enters the hash.
 

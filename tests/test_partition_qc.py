@@ -90,13 +90,20 @@ def _study(tmp_path, name, *, acquisition=False, **partition_keys) -> Path:
 
 @pytest.fixture
 def fake_syp_snr(monkeypatch):
-    """Stands in for the signal_qc stage until it lands: the acquisition stage's summary fields carry
-    sig_central_element_snr, so it reaches the per-image summary dict the partition check reads. Once the
-    signal_qc stage exists, inject the value through that stage instead."""
-    from germquant.io import acquisition
+    """Injects the SYP signal-to-noise through the signal_qc stage: the real stage runs, then the
+    sig_central_element_snr value in its summary is replaced by the test's value, so the partition check
+    reads it from the same per-image summary dict as in production."""
+    import germquant.signal_qc as sq
 
     holder = {"snr": 1.2}
-    monkeypatch.setattr(acquisition, "acquisition_fields", lambda *a, **k: {SYP_SNR_FIELD: holder["snr"]})
+    real = sq.run_signal_qc
+
+    def wrapped(*a, **k):
+        res = real(*a, **k)
+        res["summary"][SYP_SNR_FIELD] = holder["snr"]
+        return res
+
+    monkeypatch.setattr(sq, "run_signal_qc", wrapped)
     return holder
 
 

@@ -141,6 +141,7 @@ def process_image(
 
     # ---- read + resolve channels ----
     t_read = time.perf_counter()
+    acq_expected = expected_settings(cfg)   # a bad acquisition.expected section fails here, before any pixel is read ({} when absent)
     meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range)
     role_to_idx, ch_flags = cfg.channel_map.resolve(meta["channel_names"])
     flags += ch_flags
@@ -157,7 +158,6 @@ def process_image(
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
     # the stage record, never table columns, so no CSV header changes.
     spot_instances(cfg)                    # a bad spots.instances declaration fails here, before any pixel is read
-    acq_expected = expected_settings(cfg)  # likewise a bad acquisition.expected section ({} when absent)
     model_file = resolve_model_path(cfg)
     model_sha = (provenance.file_sha256(model_file)
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")

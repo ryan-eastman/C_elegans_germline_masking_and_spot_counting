@@ -104,8 +104,9 @@ def test_parse_description_minimal_and_odd_blocks():
     per = parse_description(desc)
     assert per["405"]["exposure_ms"] == 50.0 and per["405"]["power"] == 12.5
     assert all(per["405"][k] is None for k in PLANE_FIELDS if k not in ("exposure_ms", "power"))
-    # a channel name with a space, an exposure in seconds, the power of the single laser line listed
-    assert per["DAPI 405"]["exposure_ms"] == 1500.0 and per["DAPI 405"]["power"] == 30.0
+    # a channel name with a space, an exposure in seconds; a laser line not named like the channel gives
+    # no power (NaN downstream is the signal that the names disagree, the semantics the goldens carry)
+    assert per["DAPI 405"]["exposure_ms"] == 1500.0 and per["DAPI 405"]["power"] is None
     assert len(per) == 2                                           # a block without a name is skipped
     assert parse_description("") == {} and parse_description(None) == {}
 
