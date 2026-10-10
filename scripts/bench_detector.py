@@ -1,7 +1,7 @@
 """Run a spot detection backend on the cached gonads of one split and score it against the Imaris truth.
 
     python scripts/bench_detector.py --backend NAME --params JSON_OR_FILE --split train|val
-        [--tags TAG ...] [--jobs N] --out DIR [--detector-only]
+        [--tags TAG ...] [--jobs N] --out DIR [--detector-only] [--note JSON]
         [--manifest PATH] [--cache-root DIR] [--trials-log PATH] [--n-boot 1000] [--seed 20251105]
         [--tol-xy 0.3] [--tol-z 0.4] [--no-trial-log] [--verbose]
         [--final --reason TEXT [--final-log PATH] [--allow-dirty]]
@@ -87,6 +87,9 @@ def parse_args(argv=None):
     ap.add_argument("--detector-only", action="store_true",
                     help="also run the backend with the truth masks in place of the pipeline's nuclei and report "
                          "that detector-only count per truth nucleus (protocol section 5)")
+    ap.add_argument("--note", default=None,
+                    help="a JSON value (or plain text) stored as 'note' in the trial record and pooled.json, for "
+                         "example the leave-one-gonad-out fold the run belongs to")
     return ap.parse_args(argv)
 
 
@@ -137,6 +140,12 @@ def main(argv=None) -> int:
             raise ValueError("pass the backend with --backend, not inside --params")
     except (ValueError, json.JSONDecodeError) as e:
         return refuse(f"bad --params: {e}")
+    note = None
+    if args.note is not None:
+        try:
+            note = json.loads(args.note)
+        except json.JSONDecodeError:
+            note = args.note
     manifest_path = Path(args.manifest)
     entries = load_manifest(manifest_path)
     try:
@@ -238,6 +247,8 @@ def main(argv=None) -> int:
                    "split": args.split, "skipped": skipped, "manifest": str(manifest_path),
                    "cache_root": str(args.cache_root), "git_sha": provenance.git_sha(),
                    "final": bool(args.final), "detector_only": bool(args.detector_only)})
+    if note is not None:
+        pooled["note"] = note
     pooled["bootstrap"].update({"n_boot": int(args.n_boot), "seed": int(args.seed)})
     paths = write_outputs(out, per_gonad, per_nucleus, pooled,
                           {"per_spot_matches": matches, "per_truth_nucleus": per_tm})
@@ -256,7 +267,7 @@ def main(argv=None) -> int:
         rec = bd.trial_record(backend=args.backend, params=params, split=args.split, tags=order, pooled=pooled,
                               per_gonad=per_gonad, skipped=skipped, out_dir=out, manifest=manifest_path,
                               cache_root=args.cache_root, n_boot=args.n_boot, seed=args.seed,
-                              elapsed_s=elapsed, final=bool(args.final), reason=args.reason)
+                              elapsed_s=elapsed, final=bool(args.final), reason=args.reason, note=note)
         log_path = final_log if args.final else (
             Path(args.trials_log) if args.trials_log else manifest_path.parent / "trials.jsonl")
         bd.append_jsonl(log_path, rec)

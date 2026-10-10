@@ -835,9 +835,11 @@ PER_GONAD_KEYS = ("n_our_spots", "n_expert_spots", "ccc_all", "bias_all", "ccc_t
 
 def trial_record(*, backend: str, params: dict, split: str, tags: list[str], pooled: dict,
                  per_gonad: pd.DataFrame, skipped: list, out_dir, manifest, cache_root, n_boot: int,
-                 seed: int, elapsed_s: float, final: bool = False, reason: str | None = None) -> dict:
+                 seed: int, elapsed_s: float, final: bool = False, reason: str | None = None,
+                 note=None) -> dict:
     """One line of trials.jsonl (or final_runs.jsonl): when, which code, which detector and parameters,
-    which gonads, and the pooled metrics with their intervals."""
+    which gonads, and the pooled metrics with their intervals. ``note`` (any JSON value, for example the
+    leave-one-gonad-out fold a run belongs to) is stored as ``note`` when given."""
     from germquant import provenance
 
     versions = provenance.tool_versions()
@@ -866,6 +868,8 @@ def trial_record(*, backend: str, params: dict, split: str, tags: list[str], poo
     }
     if reason is not None:
         rec["reason"] = reason
+    if note is not None:
+        rec["note"] = note
     return rec
 
 

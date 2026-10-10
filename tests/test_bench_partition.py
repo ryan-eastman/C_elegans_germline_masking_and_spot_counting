@@ -213,7 +213,8 @@ def test_bench_detector_reports_the_partition(planted_bench, capsys):  # noqa: F
     out = b["root"] / "tm_train"
     args = ["--manifest", str(b["manifest"]), "--cache-root", str(b["root"] / "cache"), "--trials-log",
             str(b["root"] / "trials.jsonl"), "--n-boot", "50"]
-    rc = mod.main(["--backend", "log", "--split", "train", "--detector-only", "--out", str(out), *args])
+    rc = mod.main(["--backend", "log", "--split", "train", "--detector-only", "--out", str(out),
+                   "--note", json.dumps({"logo": {"fold": 1}}), *args])
     text = capsys.readouterr().out
     assert rc == 0, text
     assert "truth masks (protocol 5.1 primary)" in text and "detector-only count" in text
@@ -245,6 +246,7 @@ def test_bench_detector_reports_the_partition(planted_bench, capsys):  # noqa: F
     rec = bd.read_jsonl(b["root"] / "trials.jsonl")[-1]
     assert "per_nucleus_truth_masks" in rec["pooled"] and "per_nucleus_truth_masks_detector_only" in rec["pooled"]
     assert "tm_ccc" in rec["per_gonad"]["synth_HS_b"]
+    assert rec["note"] == {"logo": {"fold": 1}} and pooled["note"] == {"logo": {"fold": 1}}
     # without --detector-only: no second run, no detector-only block
     out2 = b["root"] / "tm_val"
     assert mod.main(["--backend", "log", "--split", "val", "--no-trial-log", "--out", str(out2), *args]) == 0
