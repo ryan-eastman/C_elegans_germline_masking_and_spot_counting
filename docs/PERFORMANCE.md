@@ -74,6 +74,9 @@ afterwards (nested and concurrent calls are reference counted). Nothing else in 
 2. Real candidates: random subsets of 5,000 and 20,000 of the 479,901 `n2rad51_noHS_male_002`
    candidates, plus 400 further random inputs, all on the replica's fast path: identical rows in
    identical order (on the committed code, SpotMAX 2.4 s and 29.1 s, replica 0.003 s and 0.016 s).
+   On all 479,901 candidates, an independent exact reference that shares no neighbour search with
+   the replica (a dictionary of integer coordinates and the 47 integer offsets that pass the SpotMAX
+   ellipsoid test, with the same sort and walk) keeps the same 207,340 rows in the same order.
 3. Three gonads end to end, old code (commit 3923789) against new code, each on the golden label
    image that the pipeline handed to the spots stage (`<stem>__nuclei_labels.tif`; its label set
    equals the `nucleus_id` set of `<stem>__nuclei.csv`) and the `.nd2` foci channel, with the golden
