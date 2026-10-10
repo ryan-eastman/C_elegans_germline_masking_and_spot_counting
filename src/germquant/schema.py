@@ -254,6 +254,18 @@ REGISTER_SHIFTS = [
     "bf_shift_z_um", "bf_shift_y_um", "bf_shift_x_um", "bf_disagreement_um", "disagreement_flag", "capped",
     "nn_disp_before_um", "nn_disp_after_um",
     "xy_stride", "upsample_factor", "method",
+    # appended by the registration package (timelapse.register; append-only): the names the tracking
+    # package reads. dz/dy/dx_um is the cumulative shift to t0 (the same number as cum_shift_*_um; positive =
+    # the sample moved by that much in the raw frame, and a registered coordinate is the raw centroid minus
+    # it), step_d*_um the per-frame step (= shift_*_um), error why a timepoint has no estimate ("" when it
+    # has one), quality_*_um the median nearest-neighbour displacement of the nucleus centroids before and
+    # after the step (= nn_disp_*_um), brightfield_d*_um the brightfield cumulative shift and
+    # brightfield_disagreement_um the per-step distance between the brightfield and the primary estimate
+    # (= bf_disagreement_um; NaN without a brightfield volume). xy_stride is the reference volumes' stride.
+    "dz_um", "dy_um", "dx_um",
+    "step_dz_um", "step_dy_um", "step_dx_um",
+    "error", "quality_before_um", "quality_after_um",
+    "brightfield_dz_um", "brightfield_dy_um", "brightfield_dx_um", "brightfield_disagreement_um",
 ]
 
 # track_points (written by the tracking package after a tracker's result is imported): one row per object

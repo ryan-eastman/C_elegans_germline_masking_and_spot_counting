@@ -172,6 +172,7 @@ def process_image(
     z_range: tuple[int, int] | None = None,
     prov: dict | None = None,
     t: int | None = None,
+    on_stack=None,
 ) -> dict:
     """Run every enabled stage on one image and write its results folder. ``nd2_path`` (the name is kept
     for compatibility) is any supported image: an ``.nd2``, or a TIFF / OME-TIFF, CZI, LIF or OME-Zarr
@@ -182,7 +183,12 @@ def process_image(
     stack, every stage runs on it unchanged, the image id (and with it every per-image file name) becomes
     ``<stem>_t<NNN>``, and ``t_index`` / ``t_seconds`` are recorded in the run geometry (run_manifest.json,
     ``__stages.json``) and the completion marker. With ``t=None``, the default, nothing changes: a fixed
-    image's id, tables, stage record and marker are exactly what they were."""
+    image's id, tables, stage record and marker are exactly what they were.
+
+    ``on_stack`` (None by default) is called once, right after the read stage, with a dict holding the
+    ``stack`` as read, the header ``meta``, the resolved ``role_to_idx``, the ``image_id``, ``out_dir``,
+    ``spacing`` and ``t``: the time-lapse loop keeps a downsampled reference volume for registration with it
+    (timelapse.series, docs/TIMELAPSE.md). It changes no stage and no output; a fixed image passes nothing."""
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
     os.makedirs(long_path(out_dir), exist_ok=True)
@@ -238,6 +244,11 @@ def process_image(
         "config_hash": cfg.hash, "run_timestamp": prov["run_timestamp"],
     }
     outcomes["read"] = Outcome("ran", elapsed_s=time.perf_counter() - t_read, flags=list(flags))
+    if on_stack is not None:
+        # the caller's look at the stack as read (the series loop's reference volumes for registration); an
+        # exception here fails the image the way a failed read does
+        on_stack({"stack": stack, "meta": meta, "role_to_idx": role_to_idx, "image_id": sample["image_id"],
+                  "out_dir": out_dir, "spacing": spacing, "t": t})
 
     # ---- acquisition metadata (exposure / laser power / filters / camera per role, from the nd2 description) ----
     # With acquisition.expected set (docs/QC.md), the record is also checked against the study's expected

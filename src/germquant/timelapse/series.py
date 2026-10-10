@@ -14,6 +14,14 @@ the image id ``<stem>_t<NNN>`` (process_image with ``t``). Next to them it keeps
 
 A timepoint whose run raises is recorded (an ``EXCEPTION:<type>: <text>`` flag, no completion marker) and
 the loop goes on, as a batch does. Nothing here changes a per-image table or the fixed-image path.
+
+For the drift registration (``germquant register``, timelapse.register, docs/TIMELAPSE.md "Registration") the
+loop also keeps, per timepoint, a downsampled copy of the segmentation channel next to the fixed-image file
+set, ``t<NNN>/<image_id>__ref_stride<k>.npy`` (uint16, Z x Y/k x X/k, k = ``timelapse.reference_stride``, code
+default 8), and the brightfield channel the same way as ``<image_id>__ref_brightfield_stride<k>.npy`` when a
+role named brightfield resolves. ``timelapse.keep_reference_volume`` (code default true) switches it off. The
+volumes come out of the stack process_image has already read (its ``on_stack`` callback), so the file is not
+read twice; a fixed image never writes one. Every key is read with a code default.
 """
 from __future__ import annotations
 
@@ -23,6 +31,7 @@ import os
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .. import batch as B
@@ -35,6 +44,146 @@ log = logging.getLogger(__name__)
 
 SERIES_RECORD_SUFFIX = "__series.json"
 SUMMARY_TABLE = "series_summary"
+
+# ---- reference volumes for registration (module docstring; docs/TIMELAPSE.md "Registration") ------------
+BRIGHTFIELD_ROLE = "brightfield"
+REFERENCE_DEFAULTS = {"keep_reference_volume": True, "reference_stride": 8}
+
+
+def reference_settings(cfg) -> tuple[bool, int]:
+    """``(keep, stride)`` from ``timelapse.keep_reference_volume`` and ``timelapse.reference_stride``, each
+    read with its code default (REFERENCE_DEFAULTS). ValueError for a stride that is not a positive integer."""
+    keep = bool(cfg.get("timelapse.keep_reference_volume", REFERENCE_DEFAULTS["keep_reference_volume"]))
+    raw = cfg.get("timelapse.reference_stride", REFERENCE_DEFAULTS["reference_stride"])
+    try:
+        stride = int(raw)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"timelapse.reference_stride must be a positive integer, got {raw!r}") from e
+    if isinstance(raw, bool) or stride < 1:
+        raise ValueError(f"timelapse.reference_stride must be a positive integer, got {raw!r}")
+    return keep, stride
+
+
+def segmentation_role(cfg) -> str:
+    """The channel role the segment stage reads: ``segmentation.nuclei.channel``, code default ``dna``."""
+    return str(cfg.get("segmentation.nuclei.channel", "dna") or "dna")
+
+
+def reference_volume_path(sub: str | Path, image_id: str, stride: int, role: str | None = None) -> Path:
+    """``<sub>/<image_id>__ref_stride<k>.npy`` for the segmentation channel (``role`` None) or
+    ``<sub>/<image_id>__ref_<role>_stride<k>.npy`` for another kept role (brightfield)."""
+    tag = "" if role is None else f"_{role}"
+    return Path(sub) / f"{image_id}__ref{tag}_stride{int(stride)}.npy"
+
+
+def write_reference_volumes(stack, role_to_idx: dict, cfg, sub: str | Path, image_id: str, stride: int,
+                            series_dir: str | Path) -> dict:
+    """Write the reference volumes of one timepoint from the stack as read: the segmentation channel
+    (segmentation_role; channel 0 stands in when the role does not resolve, the segment stage's own fallback)
+    as ``<image_id>__ref_stride<k>.npy`` and, when a brightfield role resolves to another channel, that channel
+    as ``<image_id>__ref_brightfield_stride<k>.npy``; both uint16 (a float stack is rounded and clipped), every
+    z plane, every k-th row and column. Returns the series-record entry: stride, role, channel_index,
+    role_resolved, spacing_um of the volumes (dz, dy * k, dx * k), shape, dtype and files (role -> path
+    relative to the series folder, forward slashes)."""
+    sub, series_dir = Path(sub), Path(series_dir)
+    k = int(stride)
+    role = segmentation_role(cfg)
+    idx = role_to_idx.get(role)
+    resolved = idx is not None
+    if not resolved:
+        idx = 0
+    os.makedirs(long_path(sub), exist_ok=True)
+    files: dict[str, str] = {}
+    seg = _to_uint16(np.asarray(stack.data[int(idx)])[:, ::k, ::k])
+    p = reference_volume_path(sub, image_id, k)
+    np.save(long_path(p), seg)
+    files[role] = _relative(p, series_dir)
+    bf_idx = role_to_idx.get(BRIGHTFIELD_ROLE)
+    if bf_idx is not None and int(bf_idx) != int(idx):
+        pb = reference_volume_path(sub, image_id, k, BRIGHTFIELD_ROLE)
+        np.save(long_path(pb), _to_uint16(np.asarray(stack.data[int(bf_idx)])[:, ::k, ::k]))
+        files[BRIGHTFIELD_ROLE] = _relative(pb, series_dir)
+    dz, dy, dx = (float(s) for s in stack.spacing)
+    return {"stride": k, "role": role, "channel_index": int(idx), "role_resolved": resolved,
+            "spacing_um": [dz, dy * k, dx * k], "shape": [int(s) for s in seg.shape], "dtype": "uint16",
+            "files": files}
+
+
+def reference_info_from_disk(sub: str | Path, image_id: str, stride: int, role: str,
+                             series_dir: str | Path) -> dict | None:
+    """The record entry for reference volumes already on disk (a resumed timepoint), or None when the
+    segmentation volume is absent. The spacing comes from the timepoint's image_summary voxel columns."""
+    sub, series_dir = Path(sub), Path(series_dir)
+    p = reference_volume_path(sub, image_id, stride)
+    if not p.is_file():
+        return None
+    arr = np.load(long_path(p))
+    files = {role: _relative(p, series_dir)}
+    pb = reference_volume_path(sub, image_id, stride, BRIGHTFIELD_ROLE)
+    if pb.is_file():
+        files[BRIGHTFIELD_ROLE] = _relative(pb, series_dir)
+    spacing = None
+    try:
+        s = pd.read_csv(long_path(sub / f"{image_id}__image_summary.csv"), nrows=1, low_memory=False)
+        dz, dy, dx = (float(s[c].iloc[0]) for c in ("voxel_dz_um", "voxel_dy_um", "voxel_dx_um"))
+        spacing = [dz, dy * int(stride), dx * int(stride)]
+    except Exception:  # noqa: BLE001 - no summary (a failed timepoint): the registration takes another timepoint's
+        pass
+    return {"stride": int(stride), "role": role, "channel_index": None, "role_resolved": None,
+            "spacing_um": spacing, "shape": [int(v) for v in arr.shape], "dtype": str(arr.dtype), "files": files}
+
+
+def _to_uint16(a: np.ndarray) -> np.ndarray:
+    a = np.asarray(a)
+    if a.dtype == np.uint16:
+        return np.ascontiguousarray(a)
+    if a.dtype.kind in "iu":
+        return np.clip(a, 0, 65535).astype(np.uint16)
+    return np.clip(np.rint(np.nan_to_num(a.astype(np.float64))), 0, 65535).astype(np.uint16)
+
+
+def _relative(p: Path, series_dir: Path) -> str:
+    return Path(os.path.relpath(p, series_dir)).as_posix()
+
+
+def _reference_hook(cfg, sub: Path, stride: int, series_dir: Path, info: dict):
+    """process_image's ``on_stack`` callback for one timepoint: writes its reference volumes and fills
+    ``info`` with the record entry. A failure is logged and recorded in ``info["error"]``, never raised, so
+    the timepoint itself goes on (the volume is an extra next to the fixed-image file set)."""
+    def hook(ctx: dict) -> None:
+        try:
+            info.update(write_reference_volumes(ctx["stack"], ctx["role_to_idx"], cfg, sub, ctx["image_id"],
+                                                stride, series_dir))
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s: could not write the reference volume (%s: %s)", ctx.get("image_id"), type(e).__name__, e)
+            info.clear()
+            info["error"] = f"{type(e).__name__}: {e}"
+    return hook
+
+
+def _resumed_reference_volumes(path: Path, cfg, sub: Path, iid: str, k: int, stride: int, series_dir: Path,
+                               xy_stride: int, zr, prev_entry: dict | None) -> dict:
+    """The reference-volume entry of a timepoint a resume skipped: the volumes already on disk (the entry the
+    run that wrote them recorded, when it matches), else the timepoint is read back from the file once, at the
+    run's geometry, and the volumes are written now (no stage runs). A series processed before the volumes
+    existed is registrable after one ``--resume`` pass without reprocessing a single timepoint."""
+    role = segmentation_role(cfg)
+    info = reference_info_from_disk(sub, iid, stride, role, series_dir)
+    if info is not None:
+        prev = (prev_entry or {}).get("reference_volumes")
+        if isinstance(prev, dict) and prev.get("stride") == stride and prev.get("files") == info["files"]:
+            return prev
+        return info
+    log.info("%s: reference volumes missing; reading the timepoint back at stride %d (no stage runs)", iid, stride)
+    try:
+        meta_k, stack_k = pipeline._read_input(path, xy_stride=xy_stride, z_range=zr, t=k)
+        roles, _flags = cfg.channel_map.resolve(meta_k["channel_names"])
+        info = write_reference_volumes(stack_k, roles, cfg, sub, iid, stride, series_dir)
+        info["regenerated"] = True
+        return info
+    except Exception as e:  # noqa: BLE001 - the resume itself must not fail over an extra
+        log.warning("%s: could not read the reference volume back (%s: %s)", iid, type(e).__name__, e)
+        return {"error": f"{type(e).__name__}: {e}"}
 
 
 def parse_timepoints(spec, n_timepoints: int) -> list[int]:
@@ -108,7 +257,11 @@ def process_series(
 
     Returns ``series_id``, ``out_dir``, ``n_timepoints`` (of the file), ``requested``, ``done`` and ``failed``
     (t_index lists; ``failed`` as ``{"t_index", "flags"}`` dicts), ``record`` (the series.json content),
-    ``record_path``, ``summary`` (the series_summary DataFrame) and ``summary_path``."""
+    ``record_path``, ``summary`` (the series_summary DataFrame) and ``summary_path``.
+
+    With ``timelapse.keep_reference_volume`` (code default true) every processed timepoint also gets its
+    reference volumes for ``germquant register`` (module docstring), recorded per timepoint under
+    ``reference_volumes`` in the series record; a resumed timepoint that lacks them has them read back."""
     path = Path(path)
     out_dir = Path(out_dir)
     xy_stride = int(xy_stride) if xy_stride else 1
@@ -132,11 +285,13 @@ def process_series(
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
     segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha)["segment"]
     enabled = B.enabled_stage_names(cfg)
+    keep_ref, ref_stride = reference_settings(cfg)
     prov = provenance.write_manifest(
         out_dir, config_hash=cfg.hash, config=cfg.as_dict(),
         extra={"series_id": stem, "input": str(path), "n_timepoints": n_t, "timepoints_requested": requested,
                "period_s": period_s, "xy_stride": xy_stride, "z_range": list(zr) if zr else None,
-               "model_sha256": model_sha, "enabled_stages": enabled, "resume": bool(resume)})
+               "model_sha256": model_sha, "enabled_stages": enabled, "resume": bool(resume),
+               "keep_reference_volume": keep_ref, "reference_stride": ref_stride})
 
     prev = read_series_record(out_dir, stem)   # read whether or not this is a resume: a partial rerun must not shrink the record
     prev_entries = {int(e["t_index"]): e for e in (prev or {}).get("timepoints", []) if "t_index" in e}
@@ -146,6 +301,7 @@ def process_series(
         "config_hash": cfg.hash, "pipeline_version": prov["pipeline_version"], "git_sha": prov["git_sha"],
         "n_timepoints": n_t, "period_s": period_s, "t_seconds": t_seconds,
         "xy_stride": xy_stride, "z_range": list(zr) if zr else None, "enabled_stages": enabled,
+        "keep_reference_volume": keep_ref, "reference_stride": ref_stride,
         "resume": bool(resume), "requested": requested, "done": [], "failed": [], "elapsed_s": {},
         "timepoints": [], "started": started, "finished": None, "complete": False,
     }
@@ -157,7 +313,8 @@ def process_series(
         iid = f"{stem}_t{k:03d}"
         ts = pipeline.t_seconds_of(meta, k)
         entry = {"t_index": k, "t_seconds": ts, "image_id": iid, "out_dir": sub.name, "status": "",
-                 "resumed": False, "qc_pass": None, "qc_flags": [], "failed_stages": [], "elapsed_s": None}
+                 "resumed": False, "qc_pass": None, "qc_flags": [], "failed_stages": [], "elapsed_s": None,
+                 "reference_volumes": None}
         if resume:
             done, why = B.is_done(sub, iid, cfg, xy_stride=xy_stride, z_range=zr, segment_hash=segment_hash, t=k)
             if done:
@@ -168,6 +325,9 @@ def process_series(
                              failed_stages=list(marker.get("failed_stages", [])),
                              elapsed_s=prev_entries.get(k, {}).get("elapsed_s"))
                 row["elapsed_s"] = entry["elapsed_s"]
+                if keep_ref:
+                    entry["reference_volumes"] = _resumed_reference_volumes(
+                        path, cfg, sub, iid, k, ref_stride, out_dir, xy_stride, zr, prev_entries.get(k))
                 rows.append(row)
                 log.info("[%d/%d] %s already done (completion marker matches); skipping", i, len(requested), iid)
                 _append(record, entry, record_path)
@@ -176,11 +336,15 @@ def process_series(
                 log.info("[%d/%d] %s reprocessing: %s", i, len(requested), iid, why)
         log.info("[%d/%d] %s", i, len(requested), iid)
         t0 = time.perf_counter()
+        ref_info: dict = {}
+        # the reference volumes come out of the stack process_image reads anyway (its on_stack callback);
+        # without the key the call is exactly the one it always was
+        kw = {"on_stack": _reference_hook(cfg, sub, ref_stride, out_dir, ref_info)} if keep_ref else {}
         try:
             # a rerun that fails before process_image reaches its own clear_done_marker call (the reader
             # runs first) would otherwise leave the old marker in place and look finished on the next resume
             provenance.clear_done_marker(sub, iid)
-            res = pipeline.process_image(path, cfg, sub, xy_stride=xy_stride, z_range=zr, prov=None, t=k)
+            res = pipeline.process_image(path, cfg, sub, xy_stride=xy_stride, z_range=zr, prov=None, t=k, **kw)
             elapsed = round(time.perf_counter() - t0, 3)
             row = _summary_row(sub, res["image_id"], k, ts)
             row["elapsed_s"] = elapsed
@@ -193,6 +357,8 @@ def process_series(
             flag = f"EXCEPTION:{type(e).__name__}: {e}"
             entry.update(status="failed", qc_pass=False, qc_flags=[flag], elapsed_s=elapsed)
             row = _failed_row(iid, k, ts, flag, elapsed)
+        if keep_ref:
+            entry["reference_volumes"] = ref_info or None     # written before the stages ran: present for a failed timepoint too
         rows.append(row)
         _append(record, entry, record_path)
 
