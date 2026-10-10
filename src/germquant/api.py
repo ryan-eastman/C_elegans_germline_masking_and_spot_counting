@@ -41,8 +41,10 @@ from .provenance import read_done_marker
 from .segment import segment_nuclei
 from .spots import detect_spots
 from .stages import STAGES, apply_cli_switches, cli_switches, stage_enabled
+from .timelapse import parse_timepoints, process_series
 
-# one image (run, run_loaded, resolve_config, default_out_dir, process_image); configuration (Config,
+# one image (run, run_loaded, resolve_config, default_out_dir, process_image); a time-lapse (process_series,
+# parse_timepoints: the loop `germquant run --t` runs, docs/TIMELAPSE.md); configuration (Config,
 # load_config, find_profile, default_config_path); reading (Stack, SUPPORTED_SUFFIXES, UnsupportedImageError,
 # image_format, image_stem, read_image, read_image_metadata, read_nd2_metadata, read_stack); stages
 # (STAGES, stage_enabled, cli_switches, apply_cli_switches, spot_instances); the heavy building blocks
@@ -70,7 +72,9 @@ __all__ = [
     "is_done",
     "load_config",
     "load_exclusions",
+    "parse_timepoints",
     "process_image",
+    "process_series",
     "read_done_marker",
     "read_image",
     "read_image_metadata",

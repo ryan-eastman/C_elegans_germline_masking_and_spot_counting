@@ -108,10 +108,11 @@ def enabled_stage_names(cfg) -> list[str]:
 
 
 def is_done(out_dir: str | Path, image_id: str, cfg, *, xy_stride: int = 1, z_range=None,
-            segment_hash: str | None = None, retry_failed: bool = True) -> tuple[bool, str]:
+            segment_hash: str | None = None, retry_failed: bool = True, t: int | None = None) -> tuple[bool, str]:
     """True when ``<image_id>__done.json`` exists in out_dir with the same config_hash, the same set of
     enabled stages, the same run geometry (xy_stride, z_range), no failed stage (unless
-    retry_failed=False) and, when given, the same segment sub-hash (model file or Cellpose version)."""
+    retry_failed=False) and, when given, the same segment sub-hash (model file or Cellpose version).
+    ``t`` (a time-lapse timepoint, timelapse.series) additionally requires the marker's t_index to be it."""
     m = provenance.read_done_marker(out_dir, image_id)
     if not m:
         return False, "no completion marker"
@@ -124,6 +125,8 @@ def is_done(out_dir: str | Path, image_id: str, cfg, *, xy_stride: int = 1, z_ra
     want = list(z_range) if z_range else None
     if (m.get("z_range") or None) != want:
         return False, "z_range differs"
+    if t is not None and m.get("t_index") != int(t):
+        return False, f"t_index {m.get('t_index', 'absent')} != {int(t)}"
     if retry_failed and m.get("failed_stages"):
         return False, f"stage(s) failed last run: {', '.join(m['failed_stages'])}"
     if segment_hash is not None and m.get("stage_hashes", {}).get("segment") != segment_hash:
@@ -177,6 +180,25 @@ def _bool(v) -> bool:
         return False
 
 
+def collect_series_summaries(out_root: str | Path) -> int | None:
+    """Stack every ``<stem>__series_summary.csv`` under out_root (one per time-lapse series,
+    timelapse.series.process_series) into ``batch_series_summary.csv``. Returns the row count, or None
+    when the tree holds no series (then nothing is written, so a fixed-image study's folder is unchanged)."""
+    out_root = Path(out_root)
+    files = _find(out_root, "__series_summary.csv")
+    if not files:
+        return None
+    frames = []
+    for f in files:
+        try:
+            frames.append(pd.read_csv(long_path(f), low_memory=False))
+        except Exception as e:  # noqa: BLE001 - one unreadable table must not block the stack
+            log.warning("collect: skipping %s (%s)", f, e)
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=schema.SERIES_SUMMARY)
+    df.to_csv(long_path(out_root / "batch_series_summary.csv"), index=False)
+    return len(df)
+
+
 def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES), *,
             image_ids: set[str] | None = None, extra_rows: list[dict] | None = None,
             outlier_factor: float | None = 1.8, require_marker: bool = True) -> dict[str, int]:
@@ -188,7 +210,11 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
     * ``image_ids`` restricts the collection to a study (the files the batch discovered, so images
       excluded after a first pass drop out);
     * ``extra_rows`` (this pass's EXCEPTION rows) override or add summary rows by image_id;
-    * the framing outlier QC is applied over the final rows (``outlier_factor``; None = skip).
+    * the framing outlier QC is applied over the final rows (``outlier_factor``; None = skip);
+    * time-lapse series (timelapse.series): the per-timepoint folders stack like any image (their ids
+      carry the _t<NNN> suffix), and when any ``<stem>__series_summary.csv`` is present those are stacked
+      into ``batch_series_summary.csv`` as well (counted under ``series_summary``; nothing is written
+      without one).
     Idempotent; safe to rerun after any subset of images was reprocessed. Returns {table: n_rows}."""
     out_root = Path(out_root)
     counts: dict[str, int] = {}
@@ -216,6 +242,9 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
         df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=schema.TABLES.get(t, schema.SPOTS))
         df.to_csv(long_path(out_root / f"batch_{t}.csv"), index=False)
         counts[t] = len(df)
+    n_series = collect_series_summaries(out_root)
+    if n_series is not None:
+        counts["series_summary"] = n_series
     rows: dict[str, dict] = {}
     for iid, (d, marker) in folders.items():
         f = d / f"{iid}__image_summary.csv"

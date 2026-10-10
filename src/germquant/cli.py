@@ -2,10 +2,13 @@
 
   germquant info  STACK.nd2
   germquant run   STACK.nd2 --config config/config.yaml --out results/ [--xy-stride 4 --z-range 20 40]
+  germquant run   SERIES.nd2 --config config/config.yaml --out results/ --t all|7|0-24 [--resume]
   germquant batch /nas/folder --config config/config.yaml --out /nas/folder_results
 
 `info` and `run` also take TIFF / OME-TIFF, CZI, LIF and OME-Zarr files when the optional `readers`
 extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders.
+`run --t` processes the named timepoints of a time-lapse one by one into results/t<NNN>/ and writes the
+series record and summary next to them (docs/TIMELAPSE.md); without --t a run is the single-image run.
 """
 from __future__ import annotations
 
@@ -46,6 +49,14 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--out", required=True)
     pr.add_argument("--xy-stride", type=int, default=1, help="downsample xy for a quick test")
     pr.add_argument("--z-range", type=int, nargs=2, default=None, metavar=("Z0", "Z1"))
+    pr.add_argument("--t", default=None, metavar="all|N|A-B",
+                    help="time-lapse: process these timepoints ('all', one index such as 7, or an inclusive "
+                         "range such as 0-24) one by one into OUT/t<NNN>/, each as a fixed image under the "
+                         "id <stem>_t<NNN>, and write <stem>__series.json and <stem>__series_summary.csv to OUT "
+                         "(docs/TIMELAPSE.md). Without --t the file's first timepoint is the image, as before.")
+    pr.add_argument("--resume", action="store_true",
+                    help="with --t: skip timepoints whose completion marker matches this config, geometry and "
+                         "segment stage (an interrupted series picks up where it stopped)")
     _add_stage_switches(pr)
 
     pb = sub.add_parser("batch", help="process every .nd2 under a folder, mirroring the tree")
@@ -225,6 +236,10 @@ def _run(args) -> int:
 
     cfg = load_config(_resolve_config_path(args))
     _apply_switches(cfg, args)
+    if getattr(args, "t", None) is not None:
+        return _run_series(args, cfg)
+    if getattr(args, "resume", False):
+        raise SystemExit("--resume applies to a time series: give --t as well (for example --t all)")
     # germquant.api.run is the one path to a results folder: a GUI or a notebook calling it with the same
     # settings writes the same files (process_image writes run_manifest.json itself)
     res = run(args.nd2, config=cfg, out=args.out, xy_stride=args.xy_stride, z_range=args.z_range)
@@ -236,6 +251,26 @@ def _run(args) -> int:
     # QC status is recorded in the output tables; a flagged image is NOT a process
     # failure (so unattended Snakemake batches complete). Only exceptions are errors.
     return 0
+
+
+def _run_series(args, cfg) -> int:
+    """``germquant run SERIES.nd2 --t ...``: the per-timepoint loop (timelapse.series.process_series). A
+    timepoint that raises is recorded in the series record and the loop goes on; the exit code is 0 when at
+    least one requested timepoint finished and 1 when none did."""
+    from .timelapse import process_series
+
+    res = process_series(args.nd2, cfg, args.out, timepoints=args.t, xy_stride=args.xy_stride,
+                         z_range=args.z_range, resume=bool(getattr(args, "resume", False)))
+    rec = res["record"]
+    n_req, n_done, n_failed = len(res["requested"]), len(res["done"]), len(res["failed"])
+    n_pass = sum(1 for e in rec["timepoints"] if e.get("status") == "done" and e.get("qc_pass"))
+    n_resumed = sum(1 for e in rec["timepoints"] if e.get("resumed"))
+    print(f"\n{res['series_id']}: {n_req} timepoint(s) requested of {res['n_timepoints']}, {n_done} done"
+          + (f" ({n_resumed} already on disk)" if n_resumed else "") + f", {n_failed} failed, {n_pass} passed QC")
+    for f in res["failed"]:
+        print(f"  t{f['t_index']:03d} FAILED: {'; '.join(f['flags'])}")
+    print(f"  -> {res['out_dir']}  ({Path(res['record_path']).name}, {Path(res['summary_path']).name})")
+    return 0 if n_done else 1
 
 
 def _batch(args) -> int:

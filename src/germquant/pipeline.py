@@ -108,16 +108,37 @@ def resolve_model_path(cfg):
     return model_path
 
 
-def _read_input(path: Path, *, xy_stride: int, z_range):
+def read_input_metadata(path: str | Path) -> dict:
+    """The header of the input image through this module's reader names (``read_nd2_metadata`` for an
+    ``.nd2``, io.read_image_metadata otherwise): the seam the synthetic-stack test fixtures patch, so the
+    time-lapse loop (timelapse.series) learns the timepoint count from the same reader process_image uses."""
+    if image_format(path) == "nd2":
+        return read_nd2_metadata(path)
+    return read_image_metadata(path)
+
+
+def _read_input(path: Path, *, xy_stride: int, z_range, t: int | None = None):
     """Header and pixels of the input image: ``(metadata dict, Stack)``.
 
     An ``.nd2`` goes through this module's ``read_nd2_metadata`` and ``read_stack`` names: the functions
     every golden was made with, and the seam the synthetic-stack test fixtures patch. Every other format
     goes through io.read_image_metadata / io.read_image (bioio, optional ``readers`` extra), which return
-    the same Stack and honour xy_stride and z_range the same way."""
+    the same Stack and honour xy_stride and z_range the same way. ``t`` (a timepoint of a time-lapse) is
+    handed to the reader only when given, so a fixed image is read with exactly the call it always was."""
+    tk = {} if t is None else {"t": int(t)}
     if image_format(path) == "nd2":
-        return read_nd2_metadata(path), read_stack(path, xy_stride=xy_stride, z_range=z_range)
-    return read_image_metadata(path), read_image(path, xy_stride=xy_stride, z_range=z_range)
+        return read_nd2_metadata(path), read_stack(path, xy_stride=xy_stride, z_range=z_range, **tk)
+    return read_image_metadata(path), read_image(path, xy_stride=xy_stride, z_range=z_range, **tk)
+
+
+def t_seconds_of(meta: dict, t: int) -> float | None:
+    """The acquisition time (s) of timepoint ``t`` from the reader's ``t_seconds`` list, or None when the
+    header carries none (a fixed image, or a reader without the field)."""
+    ts = meta.get("t_seconds") if isinstance(meta, dict) else None
+    try:
+        return float(ts[int(t)]) if ts is not None else None
+    except (IndexError, TypeError, ValueError):
+        return None
 
 
 def process_image(
@@ -128,13 +149,24 @@ def process_image(
     xy_stride: int = 1,
     z_range: tuple[int, int] | None = None,
     prov: dict | None = None,
+    t: int | None = None,
 ) -> dict:
     """Run every enabled stage on one image and write its results folder. ``nd2_path`` (the name is kept
     for compatibility) is any supported image: an ``.nd2``, or a TIFF / OME-TIFF, CZI, LIF or OME-Zarr
     file when the ``readers`` extra is installed (io/read.py). Returns image_id, n_nuclei, qc_pass,
-    qc_flags, out_dir, the tables (DataFrames by name) and the per-stage record."""
+    qc_flags, out_dir, the tables (DataFrames by name) and the per-stage record.
+
+    ``t`` selects one timepoint of a time-lapse (docs/DESIGN_timelapse.md, docs/TIMELAPSE.md): the reader
+    loads that timepoint's stack, the image_id becomes ``<stem>_t<NNN>`` (three digits, after the raw stem
+    has been parsed for the design columns), every stage runs unchanged on it, and ``t_index`` and
+    ``t_seconds`` enter the run geometry (run_manifest.json, ``__stages.json``) and the completion marker.
+    With ``t`` None (the default) nothing of this happens: a fixed image is processed exactly as before."""
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
+    if t is not None:
+        t = int(t)
+        if t < 0:
+            raise ValueError(f"t must be a timepoint index >= 0, got {t}")
     os.makedirs(long_path(out_dir), exist_ok=True)
     flags: list[str] = []
     outcomes: dict[str, Outcome] = {}      # per-stage record -> <image_id>__stages.json
@@ -142,7 +174,7 @@ def process_image(
     # ---- read + resolve channels ----
     t_read = time.perf_counter()
     acq_expected = expected_settings(cfg)   # a bad acquisition.expected section fails here, before any pixel is read ({} when absent)
-    meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range)
+    meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range, t=t)
     role_to_idx, ch_flags = cfg.channel_map.resolve(meta["channel_names"])
     flags += ch_flags
     spacing = stack.spacing
@@ -153,6 +185,11 @@ def process_image(
     dapi_present = role_to_idx.get("dna") is not None
 
     sample = parse_sample(nd2_path, cfg.get("metadata.filename_regex"), cfg.get("metadata.defaults"))
+    if t is not None:
+        # one timepoint of a time-lapse: the design columns above came from the raw stem; the id gets the
+        # timepoint suffix so every file and row of this timepoint is keyed on it (single underscore,
+        # three digits: <stem>_t007)
+        sample["image_id"] = f"{sample['image_id']}_t{t:03d}"
     # a rerun must never leave an older run's completion marker behind (batch --resume trusts it)
     provenance.clear_done_marker(out_dir, sample["image_id"])
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
@@ -165,6 +202,12 @@ def process_image(
     run_geometry = {"xy_stride": int(xy_stride), "z_range": list(z_range) if z_range else None,
                     "stage_hashes": stage_hashes, "model_sha256": model_sha,
                     "enabled_stages": [s.name for s in STAGES if stage_enabled(cfg, s.name)]}
+    timepoint: dict | None = None
+    if t is not None:
+        # only for a timepoint of a time-lapse, so the manifest, stage record and completion marker of a
+        # fixed image keep their exact keys
+        timepoint = {"t_index": t, "t_seconds": t_seconds_of(meta, t)}
+        run_geometry.update(timepoint)
     prov = prov or provenance.write_manifest(out_dir, config_hash=cfg.hash, config=cfg.as_dict(),
                                              extra=run_geometry)
 
@@ -857,7 +900,7 @@ def process_image(
     provenance.write_done_marker(
         out_dir, sample["image_id"], config_hash=cfg.hash, enabled_stages=run_geometry["enabled_stages"],
         stage_hashes=stage_hashes, xy_stride=run_geometry["xy_stride"], z_range=run_geometry["z_range"],
-        failed_stages=[n for n, oc in outcomes.items() if oc.status == "failed"])
+        failed_stages=[n for n, oc in outcomes.items() if oc.status == "failed"], extra=timepoint)
 
     log.info("%s: %d nuclei, %d germline, spots=%d, qc_pass=%s",
              sample["image_id"], n_nuclei, n_germline_nuclei, len(spots), qc_pass)
