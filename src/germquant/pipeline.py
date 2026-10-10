@@ -1,8 +1,8 @@
 """Single-image pipeline: .nd2 -> tidy tables + montage + label mask + manifest.
 
 Stages, in the order of `germquant.stages.STAGES`: read -> segment nuclei (Cellpose) -> measure ->
-isolate germline -> linearize axis -> spots (SpotMAX) -> granules (PGL-1) -> coloc -> qc -> render ->
-write. Optional stages are switched by one config key each (read with a code default, so config files
+signal QC -> isolate germline -> linearize axis -> spots (SpotMAX) -> granules (PGL-1) -> coloc -> qc ->
+render -> write. Optional stages are switched by one config key each (read with a code default, so config files
 never need editing) and run through `stages.run_stage`, which flags a failure (`<stage>:FAILED_<Exc>`)
 and continues instead of killing the batch. Voxel spacing from the .nd2 is threaded into every 3D op.
 A per-stage outcome record is written next to the tables as ``<image_id>__stages.json``.
@@ -223,6 +223,43 @@ def process_image(
         return df.rename(columns={"label": "nucleus_id"}) if not df.empty else pd.DataFrame(columns=["nucleus_id"])
 
     nuclei = run_stage("measure", _measure, flags=flags, outcomes=outcomes, fatal=True)
+
+    # ---- signal QC: is each channel measurable, and does one leak into another? (germquant.signal_qc) ----
+    # Runs on an xy sub-sample right after measure, before any stage trusts a channel. It adds only NEW
+    # image_summary columns (sig_<role>_*) and its own table (channel_crosstalk), and its flags are off
+    # unless a profile enables them, so the qc_flags text of the validated default path (and its goldens)
+    # stays byte-identical. The acquisition stage's exposure / power fields normalize the levels.
+    signal_summary_fields: dict = {}
+    crosstalk_table = pd.DataFrame(columns=schema.CHANNEL_CROSSTALK)
+
+    def _signal_qc():
+        from .signal_qc import DEFAULTS as SQ
+        from .signal_qc import run_signal_qc, signal_flags
+
+        res = run_signal_qc(
+            stack.data, labels, spacing, role_to_idx, acq_fields=acq_fields, image_id=sample["image_id"],
+            stride=int(cfg.get("signal_qc.stride", SQ["stride"])),
+            tissue_dilation_um=float(cfg.get("signal_qc.tissue_dilation_um", SQ["tissue_dilation_um"])),
+            ring_um=float(cfg.get("signal_qc.ring_um", SQ["ring_um"])),
+            min_bg_voxels=int(cfg.get("signal_qc.min_bg_voxels", SQ["min_bg_voxels"])),
+            bit_depth=cfg.get("signal_qc.bit_depth"), source_dtype=meta.get("dtype"),
+        )
+        if bool(cfg.get("signal_qc.flags.enabled", False)):
+            flags.extend(signal_flags(
+                res["summary"], res["crosstalk"], res["roles"],
+                min_snr=float(cfg.get("signal_qc.min_snr", SQ["min_snr"])),
+                max_sat_frac=float(cfg.get("signal_qc.max_sat_frac", SQ["max_sat_frac"])),
+                max_r=float(cfg.get("signal_qc.crosstalk.max_r", SQ["crosstalk_max_r"]))))
+        return res
+
+    sig_on = stage_enabled(cfg, "signal_qc")
+    sig_roles = [r for r, i in role_to_idx.items() if i is not None]
+    sig_res = run_stage("signal_qc", _signal_qc, flags=flags, outcomes=outcomes,
+                        enabled=sig_on and bool(sig_roles),
+                        skip_reason="disabled" if not sig_on else "no resolved channel role")
+    if sig_res is not None:
+        signal_summary_fields = dict(sig_res["summary"])
+        crosstalk_table = sig_res["crosstalk"]
 
     # ---- isolate germline (drop nuclei segmented OUTSIDE the gonad: gut, debris, off-gonad) ----
     # Uses SYP (central_element) intensity + spatial connectivity, NEVER the spot count. Excluded
@@ -677,6 +714,7 @@ def process_image(
         "segmentation_method": seg_method, "axis_confidence": axis_conf,
         **coloc_summary_fields, **sc_summary_fields, **env_summary_fields, **audit_summary_fields,
         **acq_fields, **staging_summary_fields, **partition_summary, **tail_summary, **spot_instance_summary,
+        **signal_summary_fields,
     }])
 
     # ---- write outputs ----
@@ -714,6 +752,7 @@ def process_image(
               "coloc": coloc, "image_summary": image_summary,
               "sc_tracks": sc_tracks, "sc_per_nucleus": sc_per_nuc, "mask_audit": audit_table,
               "zones": zones_table, "partition": partition_table, "granule_tail": tail_table,
+              "channel_crosstalk": crosstalk_table,
               **extra_spot_tables}
 
     def _write():
