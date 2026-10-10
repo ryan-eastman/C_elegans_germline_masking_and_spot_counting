@@ -116,6 +116,13 @@ def resolve_model_path(cfg):
             registered = resolve_registered(str(model_path), base_dir)
             if registered is not None:
                 return registered
+        from .models_registry import known_models
+
+        if str(model_path) in known_models():
+            # Cellpose would silently fall back to its default weights for an unknown pretrained name
+            raise FileNotFoundError(
+                f"model {model_path!r} is registered but its file is missing: fetch it with "
+                f"'germquant get-model {model_path}' (release assets), register it again, or set GERMQUANT_MODELS")
     return model_path
 
 

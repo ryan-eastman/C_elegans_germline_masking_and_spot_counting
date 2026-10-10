@@ -395,6 +395,7 @@ def register_series(
 
     n = len(tps)
     cum: list = [None] * n          # cumulative shift (um; z, y, x) per timepoint, None without an estimate
+    est: list = [None] * n          # the uncapped cumulative estimate (t0 mode), so a capped step is not carried into the next
     cum_bf: list = [None] * n
     origin = last = None            # the timepoint every shift is accumulated to; the last registrable one
     rows: list[dict] = []
@@ -419,6 +420,7 @@ def register_series(
         if origin is None:
             origin = last = i
             cum[i] = np.zeros(3)
+            est[i] = np.zeros(3)
             has_bf = bool(cross) and cross in files[i]
             cum_bf[i] = np.zeros(3) if has_bf else None
             _fill(row, ref_k=None, step=np.zeros(3), cum=np.zeros(3),
@@ -436,11 +438,12 @@ def register_series(
             log.warning("t%03d: %s", k, why)
             rows.append(row)
             continue
-        raw_step = disp_um if mode == "previous" else disp_um - cum[last]
+        raw_step = disp_um if mode == "previous" else disp_um - est[last]
         step, capped = cap_step(raw_step, cap)
         base = cum[ref_i] if mode == "previous" else cum[last]
         cum_i = base + step
         cum[i] = cum_i
+        est[i] = disp_um if mode != "previous" else cum_i
         applied = cum_i - cum[ref_i]          # the displacement between this timepoint and its reference frame
         # the cross-check: the same estimate on the other channel's volumes, never capped
         bf_step = bf_cum = None

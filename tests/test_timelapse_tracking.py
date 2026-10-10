@@ -639,6 +639,9 @@ def test_tracking_reads_a_folder_process_series_wrote(tmp_path, patched_series_r
     picks = pick_validation_nuclei(out, n=4, n_tz=2, n_pach=1, n_edge=1, write=False)
     assert len(picks) == 4
     rec = export_cellacdc(out, tmp_path / "exp", stride=2, image="ref")
-    assert rec["image"]["source"] == "none" and rec["image"]["reason"] == "no reference volume on disk"
-    with pytest.raises(Exception):
-        track_strips(out, tmp_path / "strips")                  # no reference volume and no readable series file
+    # the series loop keeps a reference volume per timepoint (timelapse.keep_reference_volume, default true
+    # for a series run), so the export finds its image on disk and the strips have something to draw
+    assert rec["image"]["source"] == "ref" and rec["image"].get("file")
+    assert (tmp_path / "exp" / "Position_1" / "Images" / rec["image"]["file"]).exists()
+    track_strips(out, tmp_path / "strips")
+    assert any((tmp_path / "strips").glob("*.png"))

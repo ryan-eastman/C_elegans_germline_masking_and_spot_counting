@@ -98,7 +98,7 @@ def find_runs(root: str | Path) -> list[RunRef]:
     for dirpath, _dirs, names in os.walk(root_lp):
         rel = os.path.relpath(dirpath, root_lp)
         folder = root if rel == "." else root / rel
-        if "run_manifest.json" not in names:
+        if "run_manifest.json" not in names and not any(n.endswith("__stages.json") for n in names):
             continue
         for n in sorted(names):
             if not n.endswith("__nuclei_labels.tif"):
@@ -117,8 +117,19 @@ def find_runs(root: str | Path) -> list[RunRef]:
 
 
 def _run_ref(folder: Path, iid: str, labels_path: Path, summary_path: Path) -> RunRef:
-    with open(long_path(folder / "run_manifest.json"), encoding="utf-8") as fh:
-        man = json.load(fh)
+    man_path = folder / "run_manifest.json"
+    if man_path.exists():
+        with open(long_path(man_path), encoding="utf-8") as fh:
+            man = json.load(fh)
+    else:
+        # germquant batch writes one manifest at the batch root; the run's own geometry (xy_stride, z_range,
+        # t_index) is in its stage record, the segmented role defaults to dna
+        with open(long_path(folder / f"{iid}__stages.json"), encoding="utf-8") as fh:
+            rec = json.load(fh)
+        man = {k: rec.get(k) for k in ("xy_stride", "z_range", "t_index") if rec.get(k) is not None}
+        for nested in ("run_geometry", "geometry"):
+            if isinstance(rec.get(nested), dict):
+                man.update({k: v for k, v in rec[nested].items() if k in ("xy_stride", "z_range", "t_index")})
     s = pd.read_csv(long_path(summary_path), low_memory=False)
     row = s.iloc[0] if len(s) else pd.Series(dtype=object)
     src = row.get("file_path")
@@ -398,6 +409,14 @@ def _resolve_base(base: str) -> dict:
     p = Path(b)
     if p.is_file():
         return {"name": b, "kind": "file", "path": str(p.resolve()), "sha256": _sha256(p)}
+    from ..models_registry import CELLPOSE_BUILTIN_NAMES, known_models
+
+    if b in known_models():
+        raise FileNotFoundError(f"--base {b!r} is a registered model but its file is missing; fetch or register it first")
+    if b.lower() not in CELLPOSE_BUILTIN_NAMES:
+        # Cellpose fine-tunes from its default weights for any unknown name without saying so
+        raise ValueError(f"--base {b!r} is not 'none', a registered model with its file on disk, a model file or a "
+                         f"Cellpose built-in name {CELLPOSE_BUILTIN_NAMES}")
     return {"name": b, "kind": "cellpose_builtin", "path": None, "sha256": None}
 
 

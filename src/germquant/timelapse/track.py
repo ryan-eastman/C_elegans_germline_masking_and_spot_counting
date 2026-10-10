@@ -268,8 +268,12 @@ def export_cellacdc(series_dir: str | Path, out_dir: str | Path, *, crop: str | 
         if img is not None:
             import tifffile
 
-            tifffile.imwrite(long_path(image_path), img, compression="zlib",
-                             metadata={"axes": "TZYX"})
+            sp_img = (float(spacing[0]), float(spacing[1]) * stride, float(spacing[2]) * stride)
+            tifffile.imwrite(long_path(image_path), img, compression="zlib", ome=True,
+                             metadata={"axes": "TZYX",
+                                       "PhysicalSizeX": sp_img[2], "PhysicalSizeXUnit": "µm",
+                                       "PhysicalSizeY": sp_img[1], "PhysicalSizeYUnit": "µm",
+                                       "PhysicalSizeZ": sp_img[0], "PhysicalSizeZUnit": "µm"})
             image_info["file"] = image_path.name
             image_info["dtype"] = str(img.dtype)
         else:
@@ -493,7 +497,11 @@ def _link_laptrack(objects: pd.DataFrame, *, max_dist_um: float, gap_frames: int
     ``max_dist_um ** 2`` for frame-to-frame links and for gap closing over at most ``gap_frames`` frames (a
     track ending at t joins one starting at t + d when 1 <= d <= gap_frames; 0 = no gap closing); splitting
     and merging off. A timepoint with no object is an empty frame, which gap closing bridges like a dropout."""
-    from laptrack import LapTrack
+    try:
+        from laptrack import LapTrack
+    except ImportError as e:
+        raise RuntimeError("the laptrack backend needs the timelapse extra: uv pip install -e \".[timelapse]\" "
+                           "(laptrack>=0.17); the overlap backend needs nothing extra") from e
 
     df = objects[["t_index", "nucleus_id", "zr_um", "yr_um", "xr_um"]].reset_index(drop=True)
     if df.empty:
@@ -909,7 +917,14 @@ def _assign_from_points(layout: SeriesLayout, points: pd.DataFrame, spacing, *, 
     owner: dict[tuple[int, int], int] = {}
     n_conflict = 0
     n_duplicate = 0
+    n_multi = 0
+    seen_tt: set[tuple[int, int]] = set()
     for r in pts.dropna(subset=["nucleus_id"]).sort_values(["t_index", "track_id"]).itertuples(index=False):
+        tt = (int(r.track_id), int(r.t_index))
+        if tt in seen_tt:
+            n_multi += 1                      # a second point of the same track in one frame (an Imaris merge, a typo): the first keeps it
+            continue
+        seen_tt.add(tt)
         key = (int(r.t_index), int(r.nucleus_id))
         if key in owner:
             if owner[key] != int(r.track_id):
@@ -921,6 +936,7 @@ def _assign_from_points(layout: SeriesLayout, points: pd.DataFrame, spacing, *, 
         assign[key] = int(r.track_id)
     info = {"n_points": int(len(pts)), "n_outside_any_label": n_outside, "n_off_series_timepoints": n_off_series,
             "n_conflicts_same_nucleus": n_conflict, "n_duplicate_points": n_duplicate,
+            "n_multi_point_frames": n_multi,
             "n_imported_tracks": int(pts["track_id"].nunique())}
     return assign, info
 

@@ -76,6 +76,15 @@ def reference_volume_path(sub: str | Path, image_id: str, stride: int, role: str
     return Path(sub) / f"{image_id}__ref{tag}_stride{int(stride)}.npy"
 
 
+def _atomic_save(path, arr) -> None:
+    """``np.save`` through a temporary file and an atomic rename, so a killed run never leaves a truncated
+    reference volume that a later ``--resume`` would trip over."""
+    path = Path(path)
+    tmp = path.with_name(path.stem + ".part.npy")
+    np.save(long_path(tmp), arr)
+    os.replace(long_path(tmp), long_path(path))
+
+
 def write_reference_volumes(stack, role_to_idx: dict, cfg, sub: str | Path, image_id: str, stride: int,
                             series_dir: str | Path) -> dict:
     """Write the reference volumes of one timepoint from the stack as read: the segmentation channel
@@ -96,12 +105,12 @@ def write_reference_volumes(stack, role_to_idx: dict, cfg, sub: str | Path, imag
     files: dict[str, str] = {}
     seg = _to_uint16(np.asarray(stack.data[int(idx)])[:, ::k, ::k])
     p = reference_volume_path(sub, image_id, k)
-    np.save(long_path(p), seg)
+    _atomic_save(p, seg)
     files[role] = _relative(p, series_dir)
     bf_idx = role_to_idx.get(BRIGHTFIELD_ROLE)
     if bf_idx is not None and int(bf_idx) != int(idx):
         pb = reference_volume_path(sub, image_id, k, BRIGHTFIELD_ROLE)
-        np.save(long_path(pb), _to_uint16(np.asarray(stack.data[int(bf_idx)])[:, ::k, ::k]))
+        _atomic_save(pb, _to_uint16(np.asarray(stack.data[int(bf_idx)])[:, ::k, ::k]))
         files[BRIGHTFIELD_ROLE] = _relative(pb, series_dir)
     dz, dy, dx = (float(s) for s in stack.spacing)
     return {"stride": k, "role": role, "channel_index": int(idx), "role_resolved": resolved,
@@ -168,7 +177,11 @@ def _resumed_reference_volumes(path: Path, cfg, sub: Path, iid: str, k: int, str
     run's geometry, and the volumes are written now (no stage runs). A series processed before the volumes
     existed is registrable after one ``--resume`` pass without reprocessing a single timepoint."""
     role = segmentation_role(cfg)
-    info = reference_info_from_disk(sub, iid, stride, role, series_dir)
+    try:
+        info = reference_info_from_disk(sub, iid, stride, role, series_dir)
+    except Exception as e:  # noqa: BLE001 - a truncated volume from a killed run is read back below, not a crash
+        log.warning("%s: reference volume on disk unreadable (%s: %s); reading the timepoint back", iid, type(e).__name__, e)
+        info = None
     if info is not None:
         prev = (prev_entry or {}).get("reference_volumes")
         if isinstance(prev, dict) and prev.get("stride") == stride and prev.get("files") == info["files"]:

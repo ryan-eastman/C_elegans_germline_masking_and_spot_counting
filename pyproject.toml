@@ -37,6 +37,7 @@ readers = ["bioio>=1.0", "bioio-tifffile", "bioio-ome-tiff", "bioio-czi", "bioio
 # Reading Imaris .ims projects (HDF5) for the truth reader, `germquant imaris-truth`. The spots extra
 # already brings h5py in through Cell-ACDC; this names the dependency on its own.
 imaris = ["h5py>=3"]
+timelapse = ["laptrack>=0.17"]           # the laptrack linking backend of germquant track-link
 viz = ["napari[all]>=0.4.19", "napari-animation>=0.0.8"]
 # Snakemake batch orchestration. `germquant batch` is a pure-python loop and needs none of
 # this; the NAS->mirrored-tree Snakemake workflow (workflow/Snakefile) does.
