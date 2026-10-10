@@ -150,6 +150,11 @@ IMAGE_SUMMARY = [
     "tail_n_granules", "tail_n_no_envelope_dropped", "tail_nuclear_syp", "tail_frac_excess_gt_0.25",
     "tail_frac_excess_gt_0.5", "tail_frac_excess_gt_1.0", "tail_excess_p50", "tail_excess_p90", "tail_excess_p99",
     "tail_n_granules_scored",
+    # partition measurability (partition stage, docs/PARTITION_QC.md): the SYP signal-to-noise the signal_qc
+    # stage measured (sig_central_element_snr; NaN when that stage did not run) and whether it clears
+    # partition.min_syp_snr (True when the gate is off, the code default). Both NA when the partition stage
+    # did not run. An image below the gate is flagged partition:low_syp_snr; its numbers are still written.
+    "partition_syp_snr", "partition_measurable",
 ]
 
 TABLES = {

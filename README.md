@@ -402,7 +402,9 @@ region choice and the meaning of every column are in `docs/COLOCALIZATION.md`.
 
 The stage-resolved analysis of SYP-3 partitioning into P granules under heat shock (partition
 coefficient, hand-traced pachytene zones, controls, figures) lives in `analysis/coloc/`, and the
-same analysis now runs inside the pipeline as the `ccw77_partition` profile.
+same analysis now runs inside the pipeline as the `ccw77_partition` profile. Whether the SYP channel
+carried a live signal at all is recorded by the `partition_syp_snr` and `partition_measurable`
+columns of `..._image_summary.csv` (`docs/PARTITION_QC.md`).
 
 ## If something breaks
 
@@ -614,7 +616,8 @@ every other format to `io/bioio_reader.py` (bioio, the `readers` extra); both re
 
 Documents: `docs/ARCHITECTURE.md` (design), `docs/RUNBOOK.md` (full-resolution GPU run and spot
 calibration), `docs/SPOTMAX_VALIDATION.md` (how the spot counts were validated against Imaris and
-what is still unvalidated), `docs/COLOCALIZATION.md` (the coloc stage), `docs/SC_TRACING.md` (the SC
+what is still unvalidated), `docs/COLOCALIZATION.md` (the coloc stage), `docs/PARTITION_QC.md` (the
+partition measurability columns and flag), `docs/SC_TRACING.md` (the SC
 tracer), `docs/MAC_METAL.md` (Apple Silicon), `docs/ANNOTATION.md` (annotating nuclei and
 fine-tuning the Cellpose model), `docs/BACKENDS.md` (pluggable nucleus segmentation and spot detection
 backends: the contracts, `segmentation.nuclei.backend` and `spots.backend`, the experimental `log`
