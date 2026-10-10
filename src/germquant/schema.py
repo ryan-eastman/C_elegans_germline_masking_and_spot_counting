@@ -168,6 +168,14 @@ IMAGE_SUMMARY = [
     "tail_n_granules", "tail_n_no_envelope_dropped", "tail_nuclear_syp", "tail_frac_excess_gt_0.25",
     "tail_frac_excess_gt_0.5", "tail_frac_excess_gt_1.0", "tail_excess_p50", "tail_excess_p90", "tail_excess_p99",
     "tail_n_granules_scored",
+    # acquisition stage (acquisition.read_exposures, off by default): the complete per-channel record from
+    # the .nd2 description as compact JSON, channel names as keys, each with exposure_ms, power, em_filter,
+    # ex_filter, dichroic, camera_mode, bit_depth, binning, conversion_gain, readout_speed and modality
+    # (null where the description has no such line). The per-role columns of the same stage, exp_ms_<role>
+    # and laser_pow_<role> (the original two) followed by em_filter_<role>, camera_mode_<role> and
+    # bit_depth_<role>, take their names from the channel map, so they are per-role extras written after
+    # the declared columns (docs/QC.md, "Acquisition record").
+    "acquisition_json",
     # signal_qc stage (per channel role, in SIGNAL_QC_ROLES x SIGNAL_QC_METRICS order; see above)
     *SIGNAL_QC,
 ]

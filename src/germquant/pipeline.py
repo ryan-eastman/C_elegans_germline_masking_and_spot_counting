@@ -35,6 +35,7 @@ from .axis import linearize_germline
 from .config import Config
 from .fsutil import long_path
 from .io import parse_sample, read_image, read_image_metadata, read_nd2_metadata, read_stack
+from .io.acquisition import expected_flags, expected_settings, read_acquisition
 from .io.formats import image_format
 from .measure import measure_objects
 from .render import make_montage
@@ -156,6 +157,7 @@ def process_image(
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
     # the stage record, never table columns, so no CSV header changes.
     spot_instances(cfg)                    # a bad spots.instances declaration fails here, before any pixel is read
+    acq_expected = expected_settings(cfg)  # likewise a bad acquisition.expected section ({} when absent)
     model_file = resolve_model_path(cfg)
     model_sha = (provenance.file_sha256(model_file)
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
@@ -179,16 +181,24 @@ def process_image(
     }
     outcomes["read"] = Outcome("ran", elapsed_s=time.perf_counter() - t_read, flags=list(flags))
 
-    # ---- acquisition metadata (exposure / laser power per role, from the nd2 description) ----
+    # ---- acquisition metadata (exposure / laser power / filters / camera per role, from the nd2 description) ----
+    # With acquisition.expected set (docs/QC.md), the record is also checked against the study's expected
+    # settings and the advisory acq:<role>_* flags are raised; the section is absent from every shipped
+    # config, so the default path writes the same flags it always has.
     acq_fields: dict = {}
 
     def _acquisition():
-        from .io.acquisition import acquisition_fields
-
-        return acquisition_fields(nd2_path, list(meta["channel_names"]), role_to_idx)
+        rec = read_acquisition(nd2_path, list(meta["channel_names"]), role_to_idx)
+        if acq_expected:
+            flags.extend(expected_flags(rec.per_role, acq_expected))
+        return rec.fields
 
     acq_on = stage_enabled(cfg, "acquisition")
     is_nd2 = image_format(nd2_path) == "nd2"      # the description text lives in the .nd2 header only
+    if acq_expected and not (acq_on and is_nd2):
+        log.warning("acquisition.expected is set but the acquisition stage is not running (%s); the "
+                    "expected-settings check is skipped",
+                    "acquisition.read_exposures is off" if not acq_on else "not an .nd2")
     acq_res = run_stage("acquisition", _acquisition, flags=flags, outcomes=outcomes, enabled=acq_on and is_nd2,
                         skip_reason="disabled" if not acq_on else "not an .nd2 (no acquisition description)")
     if acq_res is not None:
