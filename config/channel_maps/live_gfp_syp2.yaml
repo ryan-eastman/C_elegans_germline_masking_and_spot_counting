@@ -1,0 +1,31 @@
+# Channel map for live imaging of GFP::SYP-2 (the October 2026 5-minute, 2-hour series on the lab NAS:
+# channels [Brightfield, EGFP], 76 planes at 0.2 um, 2720 x 2720 at 0.108 um; docs/TIMELAPSE.md).
+#
+# There is NO DNA stain in a live worm, so this map has no `dna` role. The EGFP channel (GFP::SYP-2, the
+# synaptonemal complex inside every meiotic nucleus) is `central_element`, which the live profile
+# (config/profiles/live_syp2.yaml) also names as the channel the segment stage segments
+# (segmentation.nuclei.channel: central_element). The germline stage seeds on the same channel, as it does
+# for a fixed SYP stain. Every stage that needs a DNA, RAD-51, PGL-1 or lamin channel skips itself or is
+# switched off by the profile; the nuclei table still carries dna_*_intensity columns, as NaN.
+#
+# `brightfield` is a new role that no stage consumes: it is recorded by the signal_qc stage (background
+# and SNR per timepoint, sig_brightfield_* in image_summary and the series summary), gets a montage panel
+# and per-nucleus intensity columns, and the time-lapse loop keeps a downsampled copy of it next to the
+# EGFP reference volume as the registration cross-check (docs/DESIGN_timelapse.md section 4).
+#
+# Name match is a case-insensitive substring test against the channel names `germquant info FILE.nd2`
+# prints. central_element falls back to channel 1 when no name matches (flagged
+# channel:central_element:name_unmatched_used_index_1); brightfield resolves by name only, so an unnamed
+# channel is never taken for transmitted light by position.
+match_by: name
+roles:
+  central_element:          # GFP::SYP-2 -> nucleus segmentation (segmentation.nuclei.channel) and germline isolation
+    names: ["EGFP", "GFP", "488", "477"]
+    index: 1
+    required: true
+    marker: GFP::SYP-2
+  brightfield:              # transmitted light -> signal_qc record and the registration cross-check volume only
+    names: ["Brightfield", "BF", "TD", "Trans"]
+    index: null
+    required: false
+    marker: brightfield

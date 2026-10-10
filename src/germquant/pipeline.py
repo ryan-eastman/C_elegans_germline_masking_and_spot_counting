@@ -91,7 +91,9 @@ def resolve_model_path(cfg):
     """The Cellpose model the config names, resolved against the config's base_dir when it is a relative
     path to an existing file (so a profile outside the repo still finds models/...), or against
     ``$GERMQUANT_MODELS`` (the HPC / container binding: the config's ``models/...`` path is looked up
-    under it, with or without the leading ``models/``); bare built-in names such as 'cpsam' pass through."""
+    under it, with or without the leading ``models/``). A bare name that is a registered model (a release
+    asset or a model added with ``germquant register-model``, models_registry) resolves to the registered
+    file when it is on disk; other bare names such as 'cpsam' pass through to Cellpose."""
     model_path = cfg.get("segmentation.nuclei.cellpose_model")
     if not model_path:
         return model_path
@@ -105,6 +107,15 @@ def resolve_model_path(cfg):
                 return cand
     if (cfg.base_dir / p).is_file():
         return cfg.base_dir / p
+    if len(p.parts) == 1:
+        from .models_registry import resolve_registered
+
+        # the installation's registry first ($GERMQUANT_MODELS or the checkout's models/models), then a
+        # registry next to the config's base folder (a study tree with its own models/models)
+        for base_dir in (None, cfg.base_dir):
+            registered = resolve_registered(str(model_path), base_dir)
+            if registered is not None:
+                return registered
     return model_path
 
 
@@ -252,14 +263,19 @@ def process_image(
         acq_fields = acq_res
 
     # ---- segment nuclei (always on; a failure here is fatal, as it always was) ----
+    # The stage segments the channel whose ROLE segmentation.nuclei.channel names (code default "dna", the
+    # value every shipped config carries, so every frozen recipe resolves the same pixels). A live profile
+    # without a DNA stain names central_element here (config/profiles/live_syp2.yaml, docs/TIMELAPSE.md).
+    seg_role = str(cfg.get("segmentation.nuclei.channel", "dna") or "dna")
+
     def _segment():
-        dna = stack.channel(role_to_idx.get("dna"))
-        if dna is None:
-            flags.append("segment:no_dna_channel_using_first_channel")
-            dna = stack.data[0]
+        img = stack.channel(role_to_idx.get(seg_role))
+        if img is None:
+            flags.append(f"segment:no_{seg_role}_channel_using_first_channel")
+            img = stack.data[0]
         seg = cfg.segmentation.nuclei
         return segment_nuclei(
-            dna, spacing,
+            img, spacing,
             method=seg.get("method", "auto"), cellpose_model=str(model_file) if model_file else "cpsam",
             diameter_um=float(seg.get("diameter_um", 3.0)), min_volume_um3=float(seg.get("min_volume_um3", 4.0)),
             device=seg.get("device"),          # cuda | mps | cpu | auto; $GERMQUANT_DEVICE overrides
@@ -277,7 +293,17 @@ def process_image(
     def _measure():
         intensity = {r: stack.data[i] for r, i in role_to_idx.items() if i is not None}
         df = measure_objects(labels, intensity, spacing, compute_surface=False)
-        return df.rename(columns={"label": "nucleus_id"}) if not df.empty else pd.DataFrame(columns=["nucleus_id"])
+        if df.empty:
+            return pd.DataFrame(columns=["nucleus_id"])
+        df = df.rename(columns={"label": "nucleus_id"})
+        if not cfg.channel_map.has_role("dna"):
+            # a channel map with no dna role at all (live imaging without a DNA stain, docs/TIMELAPSE.md):
+            # the per-role intensity columns are written for the roles present, and the dna ones that
+            # downstream readers expect are NaN rather than absent. Every shipped map has a dna role, so
+            # nothing changes for them.
+            for m in ("mean", "max", "integrated"):
+                df[f"dna_{m}_intensity"] = float("nan")
+        return df
 
     nuclei = run_stage("measure", _measure, flags=flags, outcomes=outcomes, fatal=True)
 
@@ -875,6 +901,7 @@ def process_image(
             granule_mask=(granule_labels > 0) if granule_labels is not None else None,
             scalebar_um=float(cfg.get("render.scalebar_um", 10)),
             title=f"{sample['image_id']}  [{sample['sex']}/{sample['treatment']}]  n={n_nuclei}",
+            base_role=seg_role,          # the overlay sits on the channel that was segmented ("dna" by default)
         )
 
     def _dump_stage_record(complete: bool) -> dict:

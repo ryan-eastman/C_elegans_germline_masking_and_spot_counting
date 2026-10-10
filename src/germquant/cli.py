@@ -9,6 +9,12 @@
 extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders.
 `run --t` processes the named timepoints of a time-lapse one by one into results/t<NNN>/ and writes the
 series record and summary next to them (docs/TIMELAPSE.md); without --t a run is the single-image run.
+
+The nucleus training loop (docs/TIMELAPSE.md, "Segmenting without DAPI: the training loop"):
+
+  germquant export-training RESULTS_OR_SERIES_DIR --out PAIRS [--orientations xy,xz,yz] [--slices-per-image 3]
+  germquant train-nuclei --pairs PAIRS --out MODELDIR [--base cpsam] [--epochs 150] [--split-by series] [--cpu]
+  germquant register-model --model MODELDIR/NAME --card MODELDIR/NAME.card.json [--name NAME]
 """
 from __future__ import annotations
 
@@ -135,6 +141,59 @@ def main(argv: list[str] | None = None) -> int:
     pit.add_argument("--no-masks", action="store_true",
                      help="skip the mask channel (no label image; much faster, tables only)")
 
+    pe = sub.add_parser("export-training",
+                        help="write paired 2D training slices (image/ and labels/ TIFs plus manifest.csv) from the "
+                             "nucleus labels of every finished run under a results or series folder, for correction "
+                             "in napari or the Cellpose GUI (docs/TIMELAPSE.md)")
+    pe.add_argument("results_dir", help="a results folder, a time-lapse series folder (its t<NNN>/ subfolders are "
+                                        "the runs) or a batch tree")
+    pe.add_argument("--out", required=True, help="the training folder: image/, labels/, manifest.csv, export.json")
+    pe.add_argument("--orientations", default="xy,xz,yz",
+                    help="comma-separated subset of xy,xz,yz; xz and yz slices are resampled along z to the xy "
+                         "pixel size so every slice is isotropic (default: all three)")
+    pe.add_argument("--slices-per-image", type=int, default=3, metavar="N",
+                    help="slices per run and orientation, drawn at random (seeded) from slices that cut at least "
+                         "--min-labels nuclei (default 3)")
+    pe.add_argument("--seed", type=int, default=0, help="seed of the slice draw (default 0)")
+    pe.add_argument("--zone-column", default="zone",
+                    help="nuclei-table column whose most frequent value among a slice's nuclei becomes its zone "
+                         "tag in the manifest (default zone, the staging stage's; empty when absent)")
+    pe.add_argument("--min-labels", type=int, default=3, help="a slice must cut at least this many nuclei (default 3)")
+    pe.add_argument("--max-gb", type=float, default=2.0,
+                    help="stop once this many GB of slices are written (default 2; a 56 GB series must not "
+                         "become a 56 GB training folder)")
+
+    ptn = sub.add_parser("train-nuclei",
+                         help="train a Cellpose nucleus model on corrected slice pairs (cellpose.train.train_seg in "
+                              "process), split by image or series, never by slice; writes the model file, "
+                              "training_log.json and a model card with hold-out F1 (docs/TIMELAPSE.md)")
+    ptn.add_argument("--pairs", required=True, help="the folder export-training wrote (image/, labels/, manifest.csv)")
+    ptn.add_argument("--base", default="cpsam",
+                     help="starting weights: a registered model name, a model file, a Cellpose built-in name "
+                          "(default cpsam) or 'none' for a randomly initialised network (smoke tests only)")
+    ptn.add_argument("--out", required=True, metavar="MODELDIR",
+                     help="output folder: MODELDIR/<name> (the model), training_log.json, <name>.card.json")
+    ptn.add_argument("--name", help="model name (default: the name of MODELDIR)")
+    ptn.add_argument("--epochs", type=int, default=150, help="training epochs (default 150, as the combined model)")
+    ptn.add_argument("--split-by", choices=["image", "series"], default="series",
+                     help="hold out whole source images, or whole series so neighbouring timepoints never straddle "
+                          "the split (default series; for fixed images both are the same)")
+    ptn.add_argument("--val-frac", type=float, default=0.2, help="fraction of groups held out (default 0.2, at least one)")
+    ptn.add_argument("--seed", type=int, default=0, help="seed of the split (default 0)")
+    ptn.add_argument("--cpu", action="store_true", help="train on the CPU even when an accelerator is available")
+    ptn.add_argument("--batch-size", type=int, default=8, help="images per step (default 8)")
+    ptn.add_argument("--learning-rate", type=float, default=1e-5, help="AdamW learning rate (default 1e-5)")
+    ptn.add_argument("--min-train-masks", type=int, default=5,
+                     help="Cellpose drops training slices with fewer nuclei than this (default 5)")
+
+    prm = sub.add_parser("register-model",
+                         help="add a locally trained model to the model registry (local_models.json next to the "
+                              "release assets), so a profile can name it in segmentation.nuclei.cellpose_model and "
+                              "`get-model NAME` verifies it")
+    prm.add_argument("--model", required=True, help="the model file `train-nuclei` wrote")
+    prm.add_argument("--card", help="its model card JSON (<name>.card.json next to the model file)")
+    prm.add_argument("--name", help="registry name (default: the card's name, else the file name)")
+
     args = p.parse_args(argv)
     _force_utf8_stdio()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -152,6 +211,9 @@ def main(argv: list[str] | None = None) -> int:
         "check-gpu": lambda: _check_gpu(),
         "get-model": lambda: _get_model(args),
         "imaris-truth": lambda: _imaris_truth(args),
+        "export-training": lambda: _export_training(args),
+        "train-nuclei": lambda: _train_nuclei(args),
+        "register-model": lambda: _register_model(args),
     }[args.cmd]()
 
 
@@ -474,6 +536,59 @@ def _get_model(args) -> int:
     from .models_registry import main as get_model_main
 
     return get_model_main([args.name] + (["--force"] if args.force else []))
+
+
+def _export_training(args) -> int:
+    from .segment.training import export_training_pairs
+
+    orientations = tuple(o.strip() for o in str(args.orientations).split(",") if o.strip())
+    manifest = export_training_pairs(args.results_dir, args.out, orientations=orientations,
+                                     slices_per_image=args.slices_per_image, seed=args.seed,
+                                     zone_column=args.zone_column or None, min_labels=args.min_labels,
+                                     max_bytes=float(args.max_gb) * 1e9)
+    n_img = manifest["image_id"].nunique() if len(manifest) else 0
+    per = manifest.groupby("orientation").size().to_dict() if len(manifest) else {}
+    print(f"{len(manifest)} slice pair(s) from {n_img} run(s) -> {args.out}  "
+          f"({', '.join(f'{k}: {v}' for k, v in sorted(per.items()))})")
+    print(f"  correct labels/<name>.tif in napari (napari {args.out}/image/X.tif {args.out}/labels/X.tif) or the "
+          f"Cellpose GUI, keep the file names, then `germquant train-nuclei --pairs {args.out} --out MODELDIR`")
+    return 0
+
+
+def _train_nuclei(args) -> int:
+    from .segment.training import train_nuclei
+
+    res = train_nuclei(args.pairs, args.out, base=args.base, name=args.name, epochs=args.epochs,
+                       split_by=args.split_by, val_frac=args.val_frac, seed=args.seed, cpu=args.cpu,
+                       learning_rate=args.learning_rate, batch_size=args.batch_size,
+                       min_train_masks=args.min_train_masks)
+    sp = res["split"]
+    print(f"\n{res['name']}: trained on {sp['n_train']} slice(s) from {len(sp['train_groups'])} {sp['by']} group(s), "
+          f"{sp['n_val']} held out from {len(sp['val_groups'])}, device {res['device']}")
+    overall = res["metrics"].get("overall")
+    if overall:
+        print(f"  hold-out at IoU 0.5: F1 {overall['f1']:.3f}  precision {overall['precision']:.3f}  "
+              f"recall {overall['recall']:.3f}  miss rate {overall['miss_rate']:.3f}  "
+              f"(TP {overall['tp']} FP {overall['fp']} FN {overall['fn']})")
+        for o, m in res["metrics"].get("per_orientation", {}).items():
+            print(f"    {o}: F1 {m['f1']:.3f} on {m['n_pairs']} slice(s)")
+    elif res["metrics"].get("error"):
+        print(f"  hold-out metrics missing: {res['metrics']['error']}")
+    print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
+    print(f"  card  -> {res['card_path']}")
+    print(f"  register it:  germquant register-model --model \"{res['model_path']}\" --card \"{res['card_path']}\"")
+    return 0
+
+
+def _register_model(args) -> int:
+    from .models_registry import register_main
+
+    argv = ["--model", args.model]
+    if args.card:
+        argv += ["--card", args.card]
+    if args.name:
+        argv += ["--name", args.name]
+    return register_main(argv)
 
 
 def _imaris_truth(args) -> int:
