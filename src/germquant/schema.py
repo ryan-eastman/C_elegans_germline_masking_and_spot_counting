@@ -118,6 +118,24 @@ COLOC = [
     "partition_coef", "partition_coef_rot", "pc_gran_voxels",   # condensate PC (exposure-independent)
 ]
 
+# signal_qc stage: one block of per-channel signal metrics per channel role, appended to image_summary as
+# sig_<role>_<metric> (NaN for a role the image does not carry; a role a custom channel map adds beyond
+# these five rides along as an extra column after the declared ones). offset = camera offset (0.5th
+# percentile), bg / noise = background median and robust sigma outside the tissue (bg_source says
+# "outside_tissue" or the "p5" fallback), p99 = 99th percentile inside the tissue, snr = (p99 - bg) / noise,
+# sat_frac = fraction of sampled voxels at the saturation level, and the exposure- and power-normalized
+# levels (NaN unless the acquisition stage supplied exposure and laser power). docs/QC.md.
+SIGNAL_QC_ROLES = ("dna", "central_element", "foci", "granule", "lamin")
+SIGNAL_QC_METRICS = ("offset", "bg", "bg_source", "noise", "p99", "snr", "sat_frac",
+                     "bg_per_ms", "p99_per_ms", "bg_per_ms_pct")
+SIGNAL_QC = [f"sig_{r}_{m}" for r in SIGNAL_QC_ROLES for m in SIGNAL_QC_METRICS]
+
+# signal_qc stage: one row per unordered pair of resolved channel roles and region (nuclei /
+# perinuclear_ring / cytoplasm) on the stage's xy sub-sample: Pearson r of the two channels over the
+# region and the least-squares slope of the offset-subtracted role_b on role_a. image_id and the rest of
+# the shared block are stamped on by the writer, as for every other table.
+CHANNEL_CROSSTALK = ["role_a", "role_b", "region", "n_voxels", "pearson_r", "slope"]
+
 # one row per image (QC summary). The coloc HEADLINE is the shell voxel coloc (SYP<->PGL-1 in the
 # lamin-defined perinuclear cytoplasmic shell, SC ribbon excluded) — it separates male>herm on real
 # data. The syp_aggregate object metrics are secondary (threshold-fragile).
@@ -150,6 +168,8 @@ IMAGE_SUMMARY = [
     "tail_n_granules", "tail_n_no_envelope_dropped", "tail_nuclear_syp", "tail_frac_excess_gt_0.25",
     "tail_frac_excess_gt_0.5", "tail_frac_excess_gt_1.0", "tail_excess_p50", "tail_excess_p90", "tail_excess_p99",
     "tail_n_granules_scored",
+    # signal_qc stage (per channel role, in SIGNAL_QC_ROLES x SIGNAL_QC_METRICS order; see above)
+    *SIGNAL_QC,
 ]
 
 TABLES = {
@@ -164,6 +184,7 @@ TABLES = {
     "zones": ZONES,
     "partition": PARTITION,
     "granule_tail": GRANULE_TAIL,
+    "channel_crosstalk": CHANNEL_CROSSTALK,
 }
 
 # which stage owns which table (nuclei and image_summary are shared: every stage may append columns).
@@ -177,4 +198,5 @@ STAGE_TABLES = {
     "staging": ["zones"],
     "partition": ["partition"],
     "granule_tail": ["granule_tail"],
+    "signal_qc": ["channel_crosstalk"],
 }
