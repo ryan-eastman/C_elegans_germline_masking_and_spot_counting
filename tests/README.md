@@ -61,6 +61,17 @@ gonads are built inside the fixtures.
   reproduces its spots table (log backend always, SpotMAX when installed). Tiny planted-foci gonads with
   truth files exercise the runner, the trial log, the test guard and the final-run log (on synthetic
   test-role gonads and temporary logs only), and the process pool against the sequential run.
+- `test_net3d.py`: the EXPERIMENTAL net3d detector (`germquant.spots.net3d`; `docs/BENCHMARK.md`,
+  "net3d"), on the CPU with tiny networks (skips itself without torch). The U-Net's shapes and the bound
+  on its receptive field (a single perturbed voxel never reaches farther), tiled inference equal to
+  untiled inference in xy and z and with the tile skip, peak finding on a synthetic heatmap (sub-voxel
+  refinement, ellipsoidal suppression, the threshold property the validation sweep relies on, the
+  nearest-label fallback and the contested flag), the exact dilations of the loss region and the
+  weights and masked loss, the backend contract with a randomly initialised model (including the DNA
+  channel through `channels`, the provenance hook, the spots sub-hash and the default path untouched),
+  a pipeline run with `spots.backend: net3d`, and `germquant train-spots` for one epoch on tiny planted
+  gonads (the test gonad is never opened, the same seed gives the same weights, the validation scorer
+  agrees with the bench harness, and `scripts/bench_detector.py --backend net3d` scores the model).
 
 ## Markers
 

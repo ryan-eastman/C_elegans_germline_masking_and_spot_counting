@@ -14,8 +14,21 @@ real zero) and the ``detector`` column of both set to the backend's registry nam
 checks the columns and warns when the detector column does not carry the name.
 
 Built-ins: ``spotmax`` (the validated default, Imaris cross-validated; its outputs are byte-identical to
-the pre-registry code) and ``log`` (an EXPERIMENTAL classical Laplacian-of-Gaussian baseline that is
-never selected unless ``spots.backend: log`` is set). Third-party packages add backends through the
+the pre-registry code), ``log`` (an EXPERIMENTAL classical Laplacian-of-Gaussian baseline that is
+never selected unless ``spots.backend: log`` is set) and ``net3d`` (an EXPERIMENTAL learned 3D U-Net
+heatmap detector, ``spots.backend: net3d`` with ``spots.net3d.model``; it needs torch).
+
+Two optional attributes of a backend callable extend the contract without touching the others (an
+append-only change: a backend without them is called exactly as before):
+
+* ``input_roles``: channel roles beyond the foci channel the backend wants (net3d: ``("dna",)``). The
+  caller passes those the image has as ``detect_spots(..., channels={role: array})`` and the backend
+  receives them as the keyword ``channels``; a backend without the attribute never sees that keyword.
+* ``provenance(cfg_section) -> dict``: what a run records before any pixel is read (net3d: its model
+  file's sha256), which the pipeline adds to the spots stage sub-hash and the run manifest
+  (``spot_backend``) only when the dict is not empty, so the default run's hashes do not move.
+
+Third-party packages add backends through the
 entry-point group ``germquant.spot_backends`` (``name = "package.module:function"``); a failing entry
 point is logged and skipped, never fatal, and an entry point can not replace a registered name (the
 validated default can not be swapped out from outside). docs/BACKENDS.md has the user-facing text.
@@ -83,6 +96,35 @@ def list_backends() -> list[str]:
     """Sorted names of every available backend (entry points discovered on first use)."""
     discover_backends()
     return sorted(_REGISTRY)
+
+
+def backend_input_roles(name: str) -> tuple[str, ...]:
+    """The channel roles beyond the foci channel that backend ``name`` asks for, from its optional
+    ``input_roles`` attribute (net3d: ``("dna",)``); empty for spotmax and log. The caller passes the
+    roles the image has as ``detect_spots(..., channels={role: array})``. ValueError for an unknown
+    name, as ``get_backend``."""
+    roles = getattr(get_backend(name), "input_roles", ()) or ()
+    return tuple(str(r) for r in roles)
+
+
+def backend_provenance(name: str, cfg_section: dict | None) -> dict:
+    """What a run records about backend ``name`` before any pixel is read, from its optional
+    ``provenance(cfg_section)`` attribute (net3d: the model file and its sha256). {} for a backend
+    without one and for an unknown name (the spots stage reports that one when it runs); a failing hook
+    is logged and recorded as ``provenance_error``, never fatal."""
+    try:
+        fn = get_backend(name)
+    except (TypeError, ValueError):
+        return {}
+    hook = getattr(fn, "provenance", None)
+    if hook is None:
+        return {}
+    try:
+        rec = hook(dict(cfg_section or {}))
+    except Exception as e:  # noqa: BLE001 - provenance is a record, it must not stop a run
+        log.warning("spot backend %r: provenance hook failed (%s: %s)", name, type(e).__name__, e)
+        return {"backend": name, "provenance_error": f"{type(e).__name__}: {e}"}
+    return dict(rec or {})
 
 
 def discover_backends(force: bool = False) -> None:
@@ -184,5 +226,23 @@ def _log_backend(image, labels, spacing, *, cfg_section: dict, marker: str):
     return detect_spots_log(image, labels, spacing, marker=marker, **log_kwargs(cfg_section))
 
 
+def _net3d_backend(image, labels, spacing, *, cfg_section: dict, marker: str, channels: dict | None = None):
+    """EXPERIMENTAL learned detector (a trained net3d 3D U-Net, spots.net3d.model); never the default.
+    Needs torch; reads the DNA channel from ``channels`` when the model was trained with it."""
+    from .net3d.backend import detect_spots_net3d, net3d_kwargs
+
+    return detect_spots_net3d(image, labels, spacing, marker=marker, channels=channels, **net3d_kwargs(cfg_section))
+
+
+def _net3d_provenance(cfg_section: dict) -> dict:
+    from .net3d.backend import net3d_provenance
+
+    return net3d_provenance(cfg_section)
+
+
+_net3d_backend.input_roles = ("dna",)           # passed when the image has it; a foci-only model ignores it
+_net3d_backend.provenance = _net3d_provenance   # the model file's sha256 enters the spots sub-hash
+
 register_backend(DEFAULT_BACKEND, _spotmax_backend)
 register_backend("log", _log_backend)
+register_backend("net3d", _net3d_backend)

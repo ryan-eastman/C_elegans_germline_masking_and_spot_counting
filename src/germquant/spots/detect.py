@@ -51,6 +51,7 @@ def detect_spots(
     max_spot_candidates: int | None = None,
     backend: str = DEFAULT_BACKEND,
     cfg_section: dict | None = None,
+    channels: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (per_spot_df, per_nucleus_df) from the spot detection backend ``backend``: by default
     ``spotmax``, the validated SpotMAX chain of ``detect_spots_spotmax`` below, called with exactly
@@ -60,7 +61,11 @@ def detect_spots(
     mapping; the backend receives a copy of it with these parameters resolved (an explicit argument wins,
     then the section's own value, then the SpotMAX default), so a backend finds its own keys (``log.diameter_um``) next to the shared ones
     (``max_spot_candidates``). Both tables always have the columns PER_SPOT_COLS / PER_NUC_COLS and
-    the ``detector`` column carries the backend name; an unknown name raises ValueError."""
+    the ``detector`` column carries the backend name; an unknown name raises ValueError.
+
+    ``channels`` maps further channel roles to (Z, Y, X) arrays for a backend that declares
+    ``input_roles`` (net3d reads ``dna``); it reaches only such a backend, so spotmax and log are
+    called exactly as before whatever is passed."""
     # precedence: an explicit keyword (not None) wins; else the section's own value; else the SpotMAX default.
     # A caller that passes the shared keys only in cfg_section is therefore not silently overridden.
     section = dict(cfg_section or {})
@@ -76,6 +81,9 @@ def detect_spots(
         elif key not in section:
             section[key] = default
     fn = get_backend(backend)
+    if getattr(fn, "input_roles", None):
+        return conform_result(backend, fn(spot_img, labels, spacing, cfg_section=section, marker=marker,
+                                          channels=dict(channels or {})))
     return conform_result(backend, fn(spot_img, labels, spacing, cfg_section=section, marker=marker))
 
 

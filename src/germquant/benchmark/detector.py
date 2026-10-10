@@ -579,25 +579,51 @@ def _in_memory(arr):
     return np.asarray(arr)
 
 
+# channel roles a backend may ask for (its input_roles) that the cache holds, and the cached array of each
+CACHED_ROLES = {"dna": "dna"}
+
+
+def backend_cache_arrays(backend: str) -> tuple[str, ...]:
+    """The cache arrays a run of ``backend`` reads: foci and labels, plus the cached channel of every
+    extra role it asks for (net3d: dna). ValueError for an unknown backend, as detect_spots."""
+    from germquant.spots.backends import backend_input_roles
+
+    extra = tuple(CACHED_ROLES[r] for r in backend_input_roles(backend) if r in CACHED_ROLES)
+    return ("foci", "labels") + extra
+
+
 def run_backend(tag: str, backend: str = "spotmax", params: dict | None = None, *, cache_root=None,
                 cache: GonadCache | None = None, allow_test: bool = False):
     """Run spot detection backend ``backend`` on the cached gonad ``tag`` exactly as the pipeline's
     spots stage calls ``detect_spots`` (same image, labels, spacing, marker, keyword parameters from the
-    cached spots section with ``params`` overriding, ``backend`` and ``cfg_section``). Returns
-    (per_spot, per_nucleus), the two tables of ``detect_spots``. A test gonad is refused unless
-    ``allow_test``."""
+    cached spots section with ``params`` overriding, ``backend`` and ``cfg_section``; for a backend that
+    asks for further channel roles, ``channels`` with those the cache holds, as the stage passes those
+    the image has). Returns (per_spot, per_nucleus), the two tables of ``detect_spots``. A test gonad
+    is refused unless ``allow_test``."""
     from germquant.spots import detect_spots
+    from germquant.spots.backends import backend_input_roles
 
     guard_test([tag], allow_test=allow_test, roles={tag: cache.role if cache is not None else None})
+    roles = backend_input_roles(backend)
     if cache is None:
-        cache = load_cache(tag, cache_root, arrays=("foci", "labels"), mmap=False)
+        cache = load_cache(tag, cache_root, arrays=backend_cache_arrays(backend), mmap=False)
     guard_test([tag], allow_test=allow_test, roles={tag: cache.role})
     foci = cache.foci if cache.foci is not None else cache.array("foci", mmap=False)
     labels = cache.labels if cache.labels is not None else cache.array("labels", mmap=False)
     section = effective_section(cache.spots_config, params)
     kw = pipeline_spot_kwargs(section)
+    extra = {}
+    if roles:
+        chans = {}
+        for r in roles:
+            name = CACHED_ROLES.get(r)
+            if name is None or name not in (cache.meta.get("arrays") or {}):
+                continue                      # the role is not in the cache: like an image without it
+            arr = getattr(cache, name, None)
+            chans[r] = _in_memory(arr if arr is not None else cache.array(name, mmap=False))
+        extra = {"channels": chans}
     return detect_spots(_in_memory(foci), _in_memory(labels), cache.spacing, marker=cache.marker, **kw,
-                        backend=backend, cfg_section=section)
+                        backend=backend, cfg_section=section, **extra)
 
 
 # --------------------------------------------------------------------------------- scoring
@@ -845,10 +871,12 @@ def bench_one(tag: str, backend: str, params: dict | None, *, cache_root=None, m
     pool can run it). Returns the per-gonad row, the per-nucleus table, the matched pairs and the
     detector's own per-spot table."""
     t0 = time.time()
-    cache = load_cache(tag, cache_root, arrays=("foci", "labels"), mmap=False)
+    guard_test([tag], allow_test=allow_test)
+    cache = load_cache(tag, cache_root, arrays=backend_cache_arrays(backend), mmap=False)
     per_spot, per_nuc = run_backend(tag, backend, params, cache=cache, allow_test=allow_test)
     t_detect = time.time() - t0
     cache.foci = None
+    cache.dna = None
     t1 = time.time()
     row, pn, matches = score(tag, per_spot, per_nuc, manifest=manifest, cache=cache, allow_test=allow_test,
                              **(score_kwargs or {}))
