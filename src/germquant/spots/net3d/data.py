@@ -8,8 +8,9 @@ truth spot (``sigma_um`` per axis, (z, xy) = (0.25, 0.12) um by default: about 1
 maximum); and the per-voxel loss weight.
 
 Where the truth is known, and the weights. The expert's spots were detected by Imaris over the whole
-field with one Quality threshold per gonad, chosen by eye while looking at the traced nuclei. The loss
-is therefore restricted to the germline as the pipeline sees it: the germline nucleus labels of the
+field with one Quality threshold per gonad, set by eye (docs/BENCHMARK_PROTOCOL.md, section 4.1), and
+the counts that matter are per nucleus. The loss is restricted to the germline as the pipeline sees
+it: the germline nucleus labels of the
 golden run (the cached ``labels.npy`` with the ``germline_label_ids`` of ``meta.json``) dilated by
 ``known_um`` (0.3 um, the nearest-label reach of the assignment). Inside that region:
 

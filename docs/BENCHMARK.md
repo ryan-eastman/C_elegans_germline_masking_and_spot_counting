@@ -562,9 +562,9 @@ of the RAD-51 channel is 208 to 343 on the train gonads, 149 (HS_herm_001) and 2
   centred on the Imaris position converted to the image grid (`(coordinate - ExtMin) / imaris_voxel -
   0.5`, whose rounding is the truth files' `zi, yi, xi`).
 * Loss region: the golden run's germline nucleus labels dilated by 0.3 um (exact ellipsoidal dilation).
-  The truth spots were detected over the whole field, but the per-gonad Quality threshold was set while
-  looking at the nuclei, and the counts that matter are per nucleus; outside this region the weight is 0
-  and the network is unconstrained there (it does put low probabilities on background, which the
+  The truth spots were detected over the whole field with a per-gonad Quality threshold set by eye
+  (protocol section 4.1), and the counts that matter are per nucleus; outside this region the weight
+  is 0 and the network is unconstrained there (it does put low probabilities on background, which the
   nucleus assignment drops; see the peak finding below).
 * Inside it: weight 1 within the traced truth coverage (the protocol's region C: the truth masks dilated
   by 1.0 um in xy and one plane in z) and 0.5 elsewhere in the germline, where the same automatic
@@ -598,7 +598,8 @@ checks that a perturbed voxel never reaches farther.
 AdamW (learning rate 1e-3, weight decay 1e-4), 200 warm-up steps then a cosine decay to 5 percent over
 the maximum of 40 epochs of 200 steps, bf16 autocast on CUDA, seeds for python, numpy and torch,
 `torch.use_deterministic_algorithms(True)` with cuDNN benchmarking off and `CUBLAS_WORKSPACE_CONFIG`
-set. Two launches with the same seed gave bit-identical losses and validation numbers.
+set. Four launches with the same seed gave bit-identical losses and validation numbers for every epoch
+they shared.
 
 After every epoch the val gonads go through the backend's own path (tiled float32 inference, peak
 finding, nucleus assignment in the cached labels) and are scored with the bench harness's functions:
@@ -639,9 +640,11 @@ local maxima, of which 1269 were assigned at that threshold. The peak finder han
 3 x 3 x 3 maximum filter prefilters dense blocks (28 s instead of 49 s for the identical candidate
 set), suppression only loops over candidates that have a partner, and a coarse grid of blocks within
 reach of a label drops the far peaks before refinement and assignment (3210 instead of 240015 peaks to
-assign, the identical 1269 assigned). On the same run the validation numbers of four epochs were
-recomputed with the old and the new peak finder: identical at every threshold, pooled and per gonad.
-At a working threshold (0.3) the whole chain takes about 3 s per gonad.
+assign, the identical 1269 assigned). Three launches of the same seeded run, with the original peak
+finder, with the pair-only suppression and a coarse grid, and with the final version, gave the same
+validation numbers at every threshold, pooled and per gonad: epochs 1 to 4 between the first two, and
+epochs 1 to 10 between the last two (8280 values, none different), with bit-identical losses. At a
+working threshold (0.3) the whole chain takes about 3 s per gonad.
 
 Timing on the RTX 5090 (shared with other jobs): 39 to 44 s per training epoch, about 4.3 GB of
 allocated GPU memory in training and about 12.5 GB reserved during the validation inference; inference
@@ -669,6 +672,98 @@ once into `--prep-dir` and reused by later runs. Outputs in MODELDIR: `model.pt`
 (settings, gonads, every epoch's loss, timing, memory, checkpoint sha256 and the full validation sweep,
 the selection), `model_card.json` (training, val and excluded gonads, truth classes, epochs, the
 selection, the val metrics, sha256, git sha, limitations) and `checkpoints/`.
+
+### First training run and its val scores (2026-10-10)
+
+The model: `C:/Users/ryane/germquant_golden/models/net3d_20261010/model.pt`, sha256
+`8cdb710bd2f0fe7acef49c6117d7113ad61e224405960d2847b34c8327a4c4f7`, trained by commit 87d77f1 with seed
+0 (17:19 to 17:40 UTC, 1268 s on the RTX 5090). It ran 12 epochs and stopped early (the selection did
+not change in 8 validations); the selected configuration is epoch 4 at threshold 0.40, out of 216 scored
+(12 epochs times 18 thresholds; 32 were within 0.01 of the best traced CCC). At epoch 4 the learning rate
+was still 0.99 of its peak (the cosine runs over the maximum of 40 epochs).
+
+Scored with `scripts/bench_detector.py --backend net3d` on the val split (trial log line 79, commit
+5181bed, CUDA; outputs in
+`C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/detector_bench/net3d_20261010_val_5181bed/`).
+The harness's numbers are the training-time validation numbers exactly (1909 matched of our 2089 and
+the expert's 3975 spots in both). SpotMAX (golden config) and `log` (defaults) are lines 3 and 6, the runs
+of the "First runs" section above, on the same two gonads. Intervals: cluster bootstrap by gonad, 1000
+resamples, seed 20251105; with two gonads they only show how far apart the two gonads are.
+
+| val, pooled over 2 gonads | SpotMAX (golden config) | log (defaults) | net3d |
+|---|---|---|---|
+| per nucleus, germline, A+B: CCC | 0.695 [0.643, 0.783] | 0.926 [0.880, 0.957] | 0.982 [0.981, 0.982] |
+| per nucleus, germline, A+B: bias | +1.25 [+1.07, +1.34] | +0.16 [-0.14, +0.73] | +0.04 [+0.03, +0.08] |
+| per nucleus, traced, A+B: CCC | 0.590 [0.436, 0.703] | 0.872 [0.821, 0.932] | 0.977 [0.974, 0.977] |
+| per nucleus, traced, A+B: bias | +2.88 [+2.30, +3.76] | +0.72 [-0.17, +1.30] | -0.00 [-0.11, +0.06] |
+| per nucleus, germline, Class A: CCC | 0.676 | 0.922 | 0.973 |
+| per nucleus, traced, Class A: CCC | 0.574 | 0.869 | 0.969 |
+| spots A+B: F1 | 0.428 [0.317, 0.636] | 0.558 [0.427, 0.734] | 0.630 [0.494, 0.854] |
+| spots A+B: precision / recall | 0.414 / 0.443 | 0.766 / 0.439 | 0.914 / 0.480 |
+| matched / ours / expert | 1762 / 4253 / 3975 | 1747 / 2282 / 3975 | 1909 / 2089 / 3975 |
+| spots without Class B: F1 | 0.494 | 0.711 | 0.805 |
+| spots detector-only (traced nuclei): F1 | 0.597 | 0.824 | 0.945 |
+| detection time per gonad | 77 to 127 s (CPU) | 18 to 33 s (CPU) | 20 to 28 s (CUDA) |
+
+| val gonad: germline CCC / traced CCC / F1 (our spots, expert spots) | SpotMAX | log | net3d |
+|---|---|---|---|
+| n2rad51_noHS_herm_001 | 0.783 / 0.703 / 0.636 (1653, 1222) | 0.880 / 0.821 / 0.734 (1453, 1222) | 0.981 / 0.975 / 0.854 (1065, 1222) |
+| n2rad51_HS_herm_001 | 0.643 / 0.436 / 0.317 (2600, 2753) | 0.957 / 0.932 / 0.427 (829, 2753) | 0.982 / 0.974 / 0.494 (1024, 2753) |
+
+The net3d per-nucleus bias is +0.08 (germline) and +0.06 (traced) on the no-heat-shock gonad and +0.03
+and -0.11 on the heat-shock one. Of its spots, 1035 and 985 lie inside a label and 30 and 39 were
+assigned by the nearest-label fallback; 13 and 65 are contested.
+
+How much the selection on val could flatter it: at the selected epoch every threshold from 0.25 to 0.55
+gives a traced CCC of at least 0.963 and an F1 of at least 0.615; at threshold 0.40 every epoch from 3
+to 11 gives a traced CCC of 0.94 to 0.98 and an F1 of 0.58 to 0.63. Epoch 12 fell to 0.887 at 0.40 (0.932
+at its own best threshold, 0.10), and the best threshold of an epoch moved between 0.10 and 0.60 from
+epoch to epoch.
+
+**Device check.** The same model on the CPU (4 threads, `--no-trial-log`, outputs in
+`.../detector_bench/net3d_20261010_val_cpu_check_5181bed/`) gives the identical spots on both gonads
+(1065 and 1024, the same nuclei, positions within 6e-7 um and probabilities within 1e-6 of the CUDA
+run) and so the identical scores; detection took 288 s and 537 s per gonad against 20 s and 28 s.
+
+**Ablation without DAPI.** The same recipe and seed with the RAD-51 channel only (`--no-dna`;
+`C:/Users/ryane/germquant_golden/models/net3d_nodna_20261010/model.pt`, sha256
+`7eb7563decaf3d3f3178c716eda2a9118ff7714dba1547aa1c9e908c7a5d6e7f`, commit 5181bed, whose training code
+is that of 87d77f1; 16 epochs, 1159 s) selected epoch 8 at threshold 0.10 out of 288 configurations. On
+val (trial log line 96, commit 9ec3f3b): germline CCC 0.983 [0.977, 0.986] with bias +0.04, traced CCC
+0.980 [0.974, 0.983] with bias +0.05, Class A CCC 0.975 (germline) and 0.973 (traced), F1 0.635 [0.498,
+0.853] (precision 0.925, recall 0.483; 1921 matched of 2076 and 3975), without Class B 0.813,
+detector-only 0.951; per gonad 0.977 / 0.974 / 0.853 (1105 spots) without heat shock and 0.986 / 0.983 /
+0.498 (971 spots) with it. Every CCC and F1 is within 0.01 of the two-channel model's (the precision, 0.925
+against 0.914, differs by 0.011).
+
+What this does and does not say:
+
+* On the two val hermaphrodites net3d agrees with the Imaris truth far better than the deployed SpotMAX
+  recipe and the untuned `log` baseline on every pooled number: a per-nucleus CCC of 0.98 over the
+  germline nuclei and over the traced subset, with biases of +0.04 and -0.005 spots per nucleus (SpotMAX
+  +1.25 and +2.88, `log` +0.16 and +0.72), a spot precision of 0.91 and a detector-only F1 of 0.945.
+* These are development numbers. net3d's epoch and threshold were chosen on these two gonads among 216
+  configurations; SpotMAX is the deployed configuration and `log` its never-tuned defaults (other `log`
+  settings are being tried on train, trial log lines 7 onward). The plateau above suggests the optimism
+  of the selection is a few hundredths of CCC, well below the gap to the baselines, but only the test
+  set can show it. No test gonad was opened.
+* The heat-shock undercount, the in-house detector's main target, is not tested: there is no heat-shock
+  male in train or val. On the heat-shock hermaphrodite net3d counts 1024 spots where the expert has 2753
+  over the whole field; per germline nucleus its bias is +0.03, and most of the other expert spots lie
+  outside our nuclei (969 of the 2753 fall in germline labels, "First runs" above), which caps the
+  whole-field recall (0.339) and F1 (0.494) of any detector that counts inside nuclei.
+* DAPI brings no measurable gain on val: the RAD-51-only network matches the two-channel one within
+  0.01 on every CCC and F1. With two val gonads that means no gain could be seen, not that there is none.
+* The selected epoch is early (4 of 12) with the learning rate at its peak, and each epoch's best
+  threshold moved between 0.10 and 0.60, so the network's calibration was not settled from epoch to
+  epoch; the ablation picked threshold 0.10. A schedule that anneals sooner is the obvious next run; it was
+  not tried here.
+* A learned detector imitates its truth, including the expert's per-gonad Imaris Quality thresholds
+  (6.8 to 102.3), which the per-gonad normalisation lets it partly mimic. Agreement with Imaris is not
+  agreement with a person (protocol section 9).
+* Before any test scoring, the protocol (section 6.1) asks for the selected configuration to be retrained
+  on train plus val; that, the leave-one-gonad-out analysis of section 6.2 and the changelog entry of
+  section 10 have not been done.
 
 ## Tests
 
