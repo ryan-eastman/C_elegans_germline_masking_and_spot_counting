@@ -279,9 +279,8 @@ def main(argv: list[str] | None = None) -> int:
     pts.add_argument("--recipe-from", default=None, metavar="MODELDIR",
                      help="retrain by the frozen recipe of an earlier model (its training_log.json): its settings, "
                           "seed and schedule, its selected epoch count and its selected threshold, no validation "
-                          "unless --val-tags names gonads; overrides --epochs, --patch, --seed, --batch-size, "
-                          "--steps-per-epoch, --lr, --no-dna, --base-channels, --levels and --tile (protocol "
-                          "sections 6.1 and 6.2)")
+                          "and no selection; overrides --epochs, --patch, --seed, --batch-size, --steps-per-epoch, "
+                          "--lr, --no-dna, --base-channels, --levels and --tile (protocol sections 6.1 and 6.2)")
     pts.add_argument("--train-tags", nargs="+", default=None,
                      help="train on exactly these gonads, in this order (train or val gonads of the split with "
                           "usable spot truth; never a test gonad); default: the split's train gonads")
@@ -903,11 +902,14 @@ def _train_spots(args) -> int:
             print("REFUSED: --recipe-from fixes the epoch count and the threshold; drop --stop-after-epochs and "
                   "--threshold")
             return 2
+        if val_tags:
+            print("REFUSED: --recipe-from trains without validation (the recipe fixes the epoch count and the "
+                  "threshold, nothing is selected); drop --val-tags")
+            return 2
         recipe_kw, recipe = recipe_from(args.recipe_from)
         kw.update(recipe_kw)
         kw["recipe"] = recipe
-        if val_tags is None:
-            val_tags = []
+        val_tags = []
     res = train_spots(args.cache, args.split_file, args.out, manifest=args.manifest, patience=args.patience,
                       val_every=args.val_every, device=args.device, thresholds=thresholds, prep_dir=args.prep_dir,
                       min_free_gb=args.min_free_gb, wait_minutes=args.wait_minutes,

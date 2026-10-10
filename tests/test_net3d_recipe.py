@@ -150,6 +150,8 @@ def test_recipe_refusals(tiny_bench, capsys):  # noqa: F811
     # a threshold is fixed only without val gonads
     with pytest.raises(ValueError, match="fixed_threshold"):
         cli.main([*_base(b, b["root"] / "y"), "--epochs", "1", *TRAIN_ARGS, "--threshold", "0.4"])
-    # --recipe-from fixes the epoch count and the threshold itself
+    # --recipe-from fixes the epoch count and the threshold itself, and selects nothing on val gonads
     assert cli.main([*_base(b, b["root"] / "z"), "--recipe-from", str(b["root"]), "--threshold", "0.4"]) == 2
     assert "REFUSED" in capsys.readouterr().out
+    assert cli.main([*_base(b, b["root"] / "z"), "--recipe-from", str(b["root"]), "--val-tags", "synth_val_c"]) == 2
+    assert "drop --val-tags" in capsys.readouterr().out

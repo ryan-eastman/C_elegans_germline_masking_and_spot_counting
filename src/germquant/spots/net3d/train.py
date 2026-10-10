@@ -216,6 +216,7 @@ def recipe_from(model_dir) -> tuple[dict, dict]:
     }
     if int(s["arch"].get("in_channels", 2 if kwargs["use_dna"] else 1)) != (2 if kwargs["use_dna"] else 1):
         raise ValueError(f"{path}: the architecture's input channels do not match its input roles")
+    assert set(kwargs) == set(RECIPE_KEYS)
     recipe = {"from_model_dir": str(Path(model_dir)).replace("\\", "/"),
               "from_model_sha256": log_doc.get("model_sha256"), "from_git_sha": log_doc.get("git_sha"),
               "from_train_gonads": [g.get("tag") for g in (log_doc.get("gonads") or {}).get("train", [])],
