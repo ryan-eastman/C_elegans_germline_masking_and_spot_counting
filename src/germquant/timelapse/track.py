@@ -11,7 +11,9 @@ as files, and the result is two series tables.
 * ``link_series`` (``germquant track-link``): links the nuclei across timepoints with one of the backends
   ``overlap`` (Cell-ACDC's own overlap tracker, headless), ``overlap_inhouse`` (the same majority-overlap rule
   in NumPy, used when Cell-ACDC is not importable), ``laptrack`` (LAP linking of the registered centroids with
-  gap closing, splitting and merging off) or ``none`` (no linking: the points table only).
+  gap closing, splitting and merging off) or ``none`` (no linking: the points table only), in the frame of the
+  rigid registration (one shift per timepoint) or of the piecewise one (timelapse.piecewise: one displacement
+  per nucleus, interpolated along the gonad axis; the overlap backends then move each label by its own shift).
 * ``import_tracks`` (``germquant track-import``): a TrackMate spots CSV or XML, an Imaris points table or a
   Cell-ACDC tracked ``segm.npz`` becomes the same two tables with ``link_source`` ``imported:<tool>``.
 * ``track_strips`` (``germquant track-strips``): one PNG per track with a tile per timepoint, the
@@ -62,8 +64,10 @@ DEFAULTS = {
     "strip_size_um": 8.0,        # strips: tile width in microns
     "strip_planes": 3,           # strips: planes max-projected around the centroid
     "strip_tile_px": 64,         # strips: tile side in output pixels (nearest-neighbour upscale)
+    "registration": "rigid",     # track-link: rigid (<stem>__register_shifts.csv) | piecewise (<stem>__register_piecewise.csv)
 }
 BACKENDS = ("overlap", "overlap_inhouse", "laptrack", "none")
+REGISTRATIONS = ("rigid", "piecewise")
 IMPORT_SOURCES = ("trackmate", "imaris", "cellacdc")
 LINK_RECORD = "track_link"           # <stem>__track_link.json
 EXPORT_RECORD = "export.json"
@@ -189,14 +193,87 @@ def place_frame(lab: np.ndarray, sv: np.ndarray, box: dict, stride: int, ids: np
     return out
 
 
-def registered_frames(layout: SeriesLayout, vox_shifts: dict[int, np.ndarray], box: dict, stride: int,
-                      crop: str = "germline", dtype=None):
+def registered_frames(layout: SeriesLayout, vox_shifts: dict[int, np.ndarray] | None, box: dict, stride: int,
+                      crop: str = "germline", dtype=None, label_shifts: dict[int, dict[int, np.ndarray]] | None = None):
     """Yield ``(t_index, frame)`` for every timepoint on disk: the label image of the timepoint placed on the
-    registered, cropped, strided grid (place_frame). One label image is in memory at a time."""
+    registered, cropped, strided grid (place_frame; with ``label_shifts``, the per-nucleus shifts of the piecewise
+    registration, place_frame_labels). One label image is in memory at a time."""
     for t in layout.timepoints:
         lab = layout.read_labels(t)
-        yield int(t), place_frame(lab, vox_shifts.get(int(t), np.zeros(3, int)), box, stride,
-                                  _keep_ids(layout, t, crop), dtype=dtype)
+        if label_shifts is not None:
+            yield int(t), place_frame_labels(lab, label_shifts.get(int(t), {}), box, stride,
+                                             _keep_ids(layout, t, crop), dtype=dtype)
+        else:
+            yield int(t), place_frame(lab, (vox_shifts or {}).get(int(t), np.zeros(3, int)), box, stride,
+                                      _keep_ids(layout, t, crop), dtype=dtype)
+
+
+def place_frame_labels(lab: np.ndarray, shifts_by_label: dict[int, np.ndarray], box: dict, stride: int,
+                       ids: np.ndarray | None = None, dtype=None) -> np.ndarray:
+    """``lab`` placed on the registered grid with a whole-voxel shift per label (the piecewise registration gives
+    every nucleus its own displacement): the voxels of label L land at their raw voxel minus shift(L), on the grid
+    of ``box`` sub-sampled by ``stride`` in y and x, as place_frame does with one shift for the frame (the two
+    agree when every label has the same shift). A label without an entry keeps a zero shift; where two labels
+    land on one registered voxel the later one in raw C order wins."""
+    s = max(1, int(stride))
+    z0, y0, x0 = box["start"]
+    z1, y1, x1 = box["stop"]
+    out = np.zeros((z1 - z0, len(range(y0, y1, s)), len(range(x0, x1, s))), dtype=dtype or lab.dtype)
+    keep = _mask_ids(lab, ids)
+    zz, yy, xx = np.nonzero(keep)
+    if zz.size == 0:
+        return out
+    L = keep[zz, yy, xx].astype(np.int64)
+    lut = np.zeros((int(L.max()) + 1, 3), dtype=np.int64)
+    for lbl, v in shifts_by_label.items():
+        if 0 < int(lbl) < len(lut):
+            lut[int(lbl)] = np.asarray(v, dtype=np.int64)
+    rz, ry, rx = zz - lut[L, 0], yy - lut[L, 1], xx - lut[L, 2]
+    m = ((rz >= z0) & (rz < z1) & (ry >= y0) & (ry < y1) & (rx >= x0) & (rx < x1)
+         & ((ry - y0) % s == 0) & ((rx - x0) % s == 0))
+    out[rz[m] - z0, (ry[m] - y0) // s, (rx[m] - x0) // s] = L[m]
+    return out
+
+
+def label_voxel_shifts(objects: pd.DataFrame, spacing) -> dict[int, dict[int, np.ndarray]]:
+    """``{t_index: {nucleus_id: whole-voxel shift (z, y, x)}}`` from the object table's per-nucleus displacement
+    (``disp_*_um``, rounded to voxels; a NaN displacement is no shift)."""
+    sp = np.asarray(spacing, dtype=float)
+    d = objects[["disp_z_um", "disp_y_um", "disp_x_um"]].to_numpy(float)
+    v = np.rint(np.nan_to_num(d, nan=0.0) / sp).astype(int)
+    out: dict[int, dict[int, np.ndarray]] = {}
+    for t, nid, vv in zip(objects["t_index"].astype(int), objects["nucleus_id"].astype(int), v):
+        out.setdefault(int(t), {})[int(nid)] = vv
+    return out
+
+
+def crop_box_labels(layout: SeriesLayout, label_shifts: dict[int, dict[int, np.ndarray]], crop: str = "germline") -> dict:
+    """crop_box for per-label shifts: the union bounding box, on the registered grid, of every kept label moved by
+    its own whole-voxel shift (scipy.ndimage.find_objects gives each label's extent in one pass per frame)."""
+    from scipy import ndimage as ndi
+
+    start = stop = shape = None
+    n_labels: dict[int, int] = {}
+    for t in layout.timepoints:
+        lab = layout.read_labels(t)
+        shape = np.array(lab.shape) if shape is None else shape
+        ids = _keep_ids(layout, t, crop)
+        keep = _mask_ids(lab, ids)
+        n_labels[int(t)] = int(len(ids)) if ids is not None else int(len(layout.read_nuclei(t)))
+        sh = label_shifts.get(int(t), {})
+        for i, slc in enumerate(ndi.find_objects(keep)):
+            if slc is None:
+                continue
+            v = np.asarray(sh.get(i + 1, np.zeros(3, int)), dtype=int)
+            lo = np.array([slc[0].start, slc[1].start, slc[2].start]) - v
+            hi = np.array([slc[0].stop, slc[1].stop, slc[2].stop]) - v
+            start = lo if start is None else np.minimum(start, lo)
+            stop = hi if stop is None else np.maximum(stop, hi)
+        del lab, keep
+    if start is None:
+        raise SeriesLayoutError(f"{layout.stem}: no label to place (every timepoint is empty for crop={crop!r})")
+    return {"start": [int(v) for v in start], "stop": [int(v) for v in stop],
+            "shape_raw": [int(v) for v in shape], "n_labels": n_labels}
 
 
 def _label_dtype(max_label: int):
@@ -448,11 +525,12 @@ def _relabel(frame: np.ndarray, assign: dict[int, int], dtype=np.int64) -> np.nd
 
 
 def _link_overlap(layout: SeriesLayout, vsh, box, stride, *, min_ioa: float, use_cellacdc: bool,
-                  germline_only: bool) -> tuple[dict[tuple[int, int], int], dict]:
+                  germline_only: bool, label_shifts=None) -> tuple[dict[tuple[int, int], int], dict]:
     """Frame-by-frame overlap linking on the registered label grid. With ``use_cellacdc`` each frame pair goes
     through ``CellACDC_tracker.track_frame`` (the function Cell-ACDC's own tracker loop calls); otherwise
-    through overlap_assign. Returns ``{(t_index, nucleus_id): time_track_id}`` and the backend's details.
-    The first timepoint keeps its nucleus ids as track ids."""
+    through overlap_assign. ``label_shifts`` (the piecewise registration) moves every label by its own
+    whole-voxel shift instead of the frame's one. Returns ``{(t_index, nucleus_id): time_track_id}`` and the
+    backend's details. The first timepoint keeps its nucleus ids as track ids."""
     if use_cellacdc:
         from cellacdc.trackers.CellACDC import CellACDC_tracker as CT
         from skimage.measure import regionprops
@@ -461,7 +539,7 @@ def _link_overlap(layout: SeriesLayout, vsh, box, stride, *, min_ioa: float, use
     prev_tracked = None
     next_id = 1
     n_new, n_linked = 0, 0
-    for t, frame in registered_frames(layout, vsh, box, stride, crop, dtype=np.int32):
+    for t, frame in registered_frames(layout, vsh, box, stride, crop, dtype=np.int32, label_shifts=label_shifts):
         ids = np.unique(frame)
         ids = ids[ids > 0]
         if prev_tracked is None:
@@ -529,20 +607,35 @@ def _link_laptrack(objects: pd.DataFrame, *, max_dist_um: float, gap_frames: int
 
 def link_series(series_dir: str | Path, *, backend: str = "overlap", gap: int | None = None,
                 max_dist_um: float | None = None, min_overlap: float | None = None, stride: int | None = None,
-                germline_only: bool = True, stem: str | None = None, cfg=None, write: bool = True) -> dict:
+                germline_only: bool = True, stem: str | None = None, cfg=None, write: bool = True,
+                registration: str | None = None) -> dict:
     """``germquant track-link``: link the nuclei of a finished series across its timepoints with ``backend``
     (BACKENDS) and write ``<stem>__track_points.csv`` and ``<stem>__tracks.csv`` next to the timepoint folders,
-    plus ``<stem>__track_link.json`` (the backend, its parameters, the shift source, the axis sign per
-    timepoint). ``overlap`` falls back to ``overlap_inhouse`` (and says so) when Cell-ACDC cannot be imported.
-    Returns the points and tracks DataFrames, the link record and the file paths."""
+    plus ``<stem>__track_link.json`` (the backend, its parameters, the registration and shift source, the axis
+    sign per timepoint). ``overlap`` falls back to ``overlap_inhouse`` (and says so) when Cell-ACDC cannot be
+    imported. ``registration`` (REGISTRATIONS; default the ``timelapse.track.registration`` key, code default
+    ``rigid``): ``rigid`` subtracts the timepoint's cumulative shift of ``<stem>__register_shifts.csv`` (zero
+    without the table), ``piecewise`` each nucleus's displacement interpolated along the gonad axis from
+    ``<stem>__register_piecewise.csv`` (``germquant register --mode piecewise``; required). Returns the points and
+    tracks DataFrames, the link record and the file paths."""
     t_start = time.perf_counter()
     backend = str(backend).lower()
     if backend not in BACKENDS:
         raise ValueError(f"backend must be one of {', '.join(BACKENDS)}, got {backend!r}")
+    reg_mode = str(registration if registration is not None
+                   else cfg_get(cfg, "timelapse.track.registration", DEFAULTS["registration"])).strip().lower()
+    if reg_mode not in REGISTRATIONS:
+        raise ValueError(f"registration must be one of {', '.join(REGISTRATIONS)}, got {reg_mode!r}")
     layout = find_series(series_dir, stem)
     spacing = layout.spacing()
     shifts, shift_source = load_shifts(layout)
-    objects = object_table(layout, shifts, germline_only=germline_only)
+    piecewise = None
+    if reg_mode == "piecewise":
+        from .piecewise import load_piecewise
+
+        piecewise = load_piecewise(layout)
+        shift_source = "register_piecewise"
+    objects = object_table(layout, shifts, germline_only=germline_only, registration=piecewise)
     gap = int(gap if gap is not None else cfg_get(cfg, "timelapse.track.gap_frames", DEFAULTS["gap_frames"]))
     max_dist_um = float(max_dist_um if max_dist_um is not None else cfg_get(cfg, "timelapse.track.max_dist_um", DEFAULTS["max_dist_um"]))
     min_overlap = float(min_overlap if min_overlap is not None else cfg_get(cfg, "timelapse.track.min_overlap", DEFAULTS["min_overlap"]))
@@ -557,10 +650,19 @@ def link_series(series_dir: str | Path, *, backend: str = "overlap", gap: int | 
             note = f"Cell-ACDC's tracker could not be imported ({why}); the in-house overlap linking was used"
             log.warning("%s", note)
     if used in ("overlap", "overlap_inhouse"):
-        vsh = voxel_shifts(shifts, spacing)
-        box = crop_box(layout, vsh, "germline" if germline_only else "all")
-        assign, binfo = _link_overlap(layout, vsh, box, stride, min_ioa=min_overlap, use_cellacdc=(used == "overlap"),
-                                      germline_only=germline_only)
+        crop = "germline" if germline_only else "all"
+        if piecewise is None:
+            vsh = voxel_shifts(shifts, spacing)
+            box = crop_box(layout, vsh, crop)
+            assign, binfo = _link_overlap(layout, vsh, box, stride, min_ioa=min_overlap,
+                                          use_cellacdc=(used == "overlap"), germline_only=germline_only)
+        else:
+            lsh = label_voxel_shifts(objects, spacing)
+            box = crop_box_labels(layout, lsh, crop)
+            assign, binfo = _link_overlap(layout, None, box, stride, min_ioa=min_overlap,
+                                          use_cellacdc=(used == "overlap"), germline_only=germline_only,
+                                          label_shifts=lsh)
+            binfo["placement"] = "per-nucleus whole-voxel shift (piecewise registration)"
     elif used == "laptrack":
         assign, binfo = _link_laptrack(objects, max_dist_um=max_dist_um, gap_frames=gap)
     else:
@@ -569,7 +671,8 @@ def link_series(series_dir: str | Path, *, backend: str = "overlap", gap: int | 
     points, tracks, tinfo = build_track_tables(layout, objects, assign, link_source=link_source)
     record = {
         "series_id": layout.stem, "backend_requested": backend, "backend": used, "link_source": link_source, "note": note,
-        "germline_only": bool(germline_only), "shift_source": shift_source, "timepoints": layout.timepoints,
+        "germline_only": bool(germline_only), "registration": reg_mode, "shift_source": shift_source,
+        "registration_info": piecewise.summary() if piecewise is not None else None, "timepoints": layout.timepoints,
         "missing_timepoints": layout.missing, "n_objects": int(len(objects)),
         "n_tracks": int(tracks["time_track_id"].notna().sum()) if len(tracks) else 0,
         "n_full_length": int(tracks["is_full_length"].fillna(False).astype(bool).sum()) if len(tracks) else 0,
@@ -626,6 +729,14 @@ def build_track_tables(layout: SeriesLayout, objects: pd.DataFrame, assign: dict
     # one reference axis for every timepoint (the per-frame axis is refitted and its origin moves; see
     # fixed_axis_positions), used for the axis velocity of the tracks
     pts["axis_position_fixed_um"] = fixed_axis_positions(pts)
+    # the same axis at the RAW centroids (the microscope frame, whatever the registration): its slope is
+    # axis_velocity_raw_um_per_min, the flow along the gonad when the registered frame follows the flow itself
+    raw_view = pd.DataFrame({"t_index": pts["t_index"], "zr_um": pts["z_um"], "yr_um": pts["y_um"],
+                             "xr_um": pts["x_um"]}, index=pts.index)
+    for c in ("in_germline", "axis_position_um"):
+        if c in pts.columns:
+            raw_view[c] = pts[c]
+    pts["axis_position_fixed_raw_um"] = fixed_axis_positions(raw_view)
     syp = "central_element_mean_intensity"
     if syp in pts.columns:
         med = pts.groupby("t_index")[syp].transform("median")
@@ -705,12 +816,28 @@ def fixed_axis_positions(pts: pd.DataFrame, k_neighbours: int = 16) -> pd.Series
     fitted to its nuclei with the axis stage's curve fit instead. NaN for every point when the first timepoint
     has fewer than 5 usable nuclei."""
     out = pd.Series(np.nan, index=pts.index, dtype=float)
-    if pts.empty or not {"zr_um", "yr_um", "xr_um", "t_index"} <= set(pts.columns):
+    model = fixed_axis_model(pts, k_neighbours)
+    if model is None:
         return out
     coords = pts[["zr_um", "yr_um", "xr_um"]].to_numpy(float)
     ok = np.isfinite(coords).all(axis=1)
+    out.loc[pts.index[ok]] = model(coords[ok])
+    return out
+
+
+def fixed_axis_model(pts: pd.DataFrame, k_neighbours: int = 16):
+    """The reference axis of fixed_axis_positions as a function: a callable that maps an (N, 3) array of
+    registered coordinates (z, y, x um) to positions along the first timepoint's axis, built from the first
+    timepoint's rows of ``pts`` (``zr_um``, ``yr_um``, ``xr_um``, ``t_index``, optional ``in_germline`` and
+    ``axis_position_um``) by the rule fixed_axis_positions documents. None when the first timepoint has fewer
+    than 5 usable nuclei. Each query point's value depends only on that point, so evaluating a subset gives the
+    values the whole set would give (the piecewise registration evaluates it repeatedly, timelapse.piecewise)."""
+    if pts.empty or not {"zr_um", "yr_um", "xr_um", "t_index"} <= set(pts.columns):
+        return None
+    coords = pts[["zr_um", "yr_um", "xr_um"]].to_numpy(float)
+    ok = np.isfinite(coords).all(axis=1)
     if not ok.any():
-        return out
+        return None
     t_idx = pd.to_numeric(pts["t_index"], errors="coerce").to_numpy(float)
     t0 = float(np.nanmin(t_idx[ok]))
     sel = ok & (t_idx == t0)
@@ -722,13 +849,15 @@ def fixed_axis_positions(pts: pd.DataFrame, k_neighbours: int = 16) -> pd.Series
           if "axis_position_um" in pts.columns else np.full(len(pts), np.nan))
     have_p = sel & np.isfinite(p0)
     if int(have_p.sum()) >= 5:
-        ref, val = coords[have_p], p0[have_p]
-        out.loc[pts.index[ok]] = _local_linear_field(ref, val, coords[ok], k_neighbours)
-        return out
+        ref, val = coords[have_p].copy(), p0[have_p].copy()
+
+        def local_linear(x):
+            return _local_linear_field(ref, val, np.asarray(x, dtype=float).reshape(-1, 3), k_neighbours)
+
+        return local_linear
     if int(sel.sum()) < 5:
-        return out
-    out.loc[pts.index[ok]] = _centerline_positions(coords[sel], coords[ok])
-    return out
+        return None
+    return _centerline_model(coords[sel].copy())
 
 
 def _local_linear_field(ref: np.ndarray, val: np.ndarray, x: np.ndarray, k: int) -> np.ndarray:
@@ -759,15 +888,22 @@ def _centerline_positions(ref: np.ndarray, x: np.ndarray) -> np.ndarray:
     """Arc length along a centerline fitted to ``ref`` (the axis stage's curve fit), for the points ``x``, with
     a straight extension beyond both ends; a principal straight line when no curve can be fitted. Zeroed at
     the most distal reference point; the orientation is arbitrary (no axis positions to orient it by)."""
+    return _centerline_model(ref)(x)
+
+
+def _centerline_model(ref: np.ndarray):
+    """The centerline of _centerline_positions fitted once to ``ref``, as a callable on query points."""
     from ..axis.linearize import _fit_principal_curve
 
     center = ref.mean(axis=0)
     scale = float(np.std(ref - center)) or 1.0
-    ref_s, x_s = (ref - center) / scale, (x - center) / scale
+    ref_s = (ref - center) / scale
     curve, _method = _fit_principal_curve(ref_s)
     if curve is None or len(curve) < 2:
         _u, _sv, vt = np.linalg.svd(ref_s, full_matrices=False)
-        arc_x, arc_ref = x_s @ vt[0], ref_s @ vt[0]
+
+        def project(q: np.ndarray) -> np.ndarray:
+            return q @ vt[0]
     else:
         seg = np.linalg.norm(np.diff(curve, axis=0), axis=1)
         s_curve = np.concatenate([[0.0], np.cumsum(seg)])
@@ -786,8 +922,13 @@ def _centerline_positions(ref: np.ndarray, x: np.ndarray) -> np.ndarray:
                 res[i:i + 4096] = a
             return res
 
-        arc_x, arc_ref = project(x_s), project(ref_s)
-    return (arc_x - float(np.min(arc_ref))) * scale
+    arc_min = float(np.min(project(ref_s)))
+
+    def positions(x) -> np.ndarray:
+        x_s = (np.asarray(x, dtype=float).reshape(-1, 3) - center) / scale
+        return (project(x_s) - arc_min) * scale
+
+    return positions
 
 
 def _axis_velocity(minutes: np.ndarray, g: pd.DataFrame) -> float:
@@ -841,6 +982,8 @@ def _tracks_from_points(pts: pd.DataFrame, layout: SeriesLayout, link_source: st
             "intensity_slope_norm_per_min": _slope_per_min(minutes, g["central_element_mean_intensity_norm"].to_numpy(float))
             if "central_element_mean_intensity_norm" in g.columns else float("nan"),
             "sc_length_change_um": float("nan"), "link_source": link_source,
+            "axis_velocity_raw_um_per_min": _slope_per_min(minutes, g["axis_position_fixed_raw_um"].to_numpy(float))
+            if "axis_position_fixed_raw_um" in g.columns else float("nan"),
         }
         if "sc_total_length_um" in g.columns:
             sc = pd.to_numeric(g["sc_total_length_um"], errors="coerce").dropna()
