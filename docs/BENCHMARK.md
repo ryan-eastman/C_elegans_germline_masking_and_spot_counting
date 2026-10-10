@@ -326,6 +326,144 @@ to 0.17 to 0.35 there. Whether that is the expert's threshold or our detector is
 score is for, and it needs the truth label image. These are the first numbers of the harness, not a
 calibration verdict.
 
+## Detector bench harness
+
+The scripts above score outputs that already exist. The detector bench harness produces new ones: it
+runs a spot detection backend (SpotMAX with other settings, the experimental `log` backend, an
+in-house detector later) on exactly the inputs the deployed spots stage saw, scores the result the same
+way as the baseline, and keeps a record of every trial, which the tuning budget of
+`docs/BENCHMARK_PROTOCOL.md` (section 6.4) counts. Three pieces:
+
+* `scripts/bench_cache.py` writes the cache: the inputs of the golden runs' spots stage, one folder per
+  gonad.
+* `germquant.benchmark.detector`: `load_cache(tag)`, `run_backend(tag, backend, params)`,
+  `score(tag, per_spot, per_nucleus)`, `pool_scores`, the test guard and the trial log helpers.
+* `scripts/bench_detector.py` runs and scores every usable gonad of the train or the val split and
+  appends the trial record.
+
+`scripts/bench_reproduce_golden.py` is the check that the harness reproduces the deployed pipeline (below).
+
+### The cache
+
+`python scripts/bench_cache.py [--verify-sha256] [--tags ...] [--overwrite]` reads the benchmark
+manifest (`--manifest`, default `C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/manifest.json`)
+and, for every entry whose results folder holds the golden outputs (nuclei table, label image, spots
+table, image summary, run manifest), writes `<cache root>/<tag>/` (`--cache-root`, default
+`C:/Users/ryane/germquant_golden/bench_cache`). Entries without outputs are skipped and listed; a
+complete cache is kept unless `--overwrite`.
+
+| file | content |
+|---|---|
+| `foci.npy`, `dna.npy` | the foci and DNA channels, (Z, Y, X), full resolution, in the reader's dtype (uint16 for the lab's .nd2 stacks), read with `germquant.io.read.read_image`, the reader the pipeline uses. The channel indices come from the golden run's `channel_map_json` (its image summary), never from a constant. |
+| `labels.npy` | int32 (Z, Y, X): exactly the label image the golden run handed to `detect_spots` |
+| `nuclei.csv` | `nucleus_id`, `in_germline`, the three centroid columns and the golden `n_spots` of every row of the golden nuclei table |
+| `meta.json` | written last (a folder without it is an unfinished cache and `load_cache` refuses it): `image_id`, `stem`, `spacing_zyx_um` (the reader's voxel size, exact), `shape_zyx`, `role_indices`, `channel_names`, `marker` and where it came from, `spots_config` (the golden run's `spots:` section, from its run_manifest.json), `nd2` (path, size, the sha256 of the split record and whether it was verified), `labels` (source, content, label count), `n_nuclei`, `n_germline`, `germline_label_ids`, `arrays` (file, dtype, shape and a sha256 of the data in C order for each array), the golden run's git sha, config hash, timestamp, tool versions, spot count and files, the role, condition and sex, and when and with which code the cache was made |
+
+**Which label image.** In `src/germquant/pipeline.py`, at the pinned commit 8666f07 and on the current
+branch alike, the spots stage calls `detect_spots(stack.data[spots_idx], labels, spacing, ...)` with
+`labels` as the nucleus segmentation returned it. The germline stage only splits the rows of the nuclei
+table (`in_germline`) and never edits the label image, and the run saves that same array as
+`<image>__nuclei_labels.tif` (int32). So the spots stage saw every segmented nucleus, germline and
+off-gonad alike, and `labels.npy` is that TIFF unchanged. The germline ids go into meta.json for
+scoring; the off-gonad nuclei keep their spots, as they do in the pipeline.
+
+Arrays are written through `numpy.lib.format.open_memmap` eight z planes at a time (`--z-chunk`)
+under a temporary name that is renamed when complete. `--verify-sha256` hashes every .nd2 and refuses
+one that is not the registered file. The test gonads are cached like the others: the cache holds
+images and labels and no metric, and scoring a test gonad stays behind the guard below.
+
+Built on 2026-10-10 with `--verify-sha256` (all eleven stacks matched their registered sha256): eleven
+gonads, 40.94 GB on disk (40,939,186,156 bytes; 3.84 GB per no-heat-shock gonad of 71 planes, 3.62 GB
+per heat-shock gonad of 67 planes), 11 to 15 s per gonad. `n2rad51_noHS_male_002` was skipped: its
+golden outputs were still being frozen. `cache_index.json` at the cache root lists what each run did.
+
+### Running and scoring (library)
+
+```python
+from germquant.benchmark import detector as bd
+
+per_spot, per_nucleus = bd.run_backend("n2rad51_noHS_herm_000", "spotmax", {"effect_size_min": 2.5})
+row, per_nuc, matches = bd.score("n2rad51_noHS_herm_000", per_spot, per_nucleus)
+```
+
+`run_backend` calls `germquant.spots.detect_spots` exactly as the spots stage does: the cached foci
+channel and label image (read into memory), the voxel size, the marker, the nine SpotMAX keyword
+arguments built from the `spots:` section with the stage's own expressions and code defaults
+(`pipeline_spot_kwargs`), `backend` and `cfg_section`. `params` override keys of the golden section
+first (`effective_section`); a nested mapping such as `log:` merges one level deep, the rule the
+pipeline applies to a spot instance, so `{"log": {"min_snr": 3}}` changes one key of the log backend
+and `{}` is the deployed configuration. `params` may not carry `backend`.
+
+`score` reuses `germquant.benchmark.spots.benchmark_gonad` with the detector's spots and per-nucleus
+counts in place of the golden ones, the cached label image as our nuclei and the truth files the
+manifest lists. Every column of the spot benchmark's `per_gonad.csv` is there (matching against all
+expert spots, `no_b_*` without Class B, `det_*` detector-only in the traced nuclei, the per-nucleus
+agreement over all germline nuclei and over the traced subset), plus:
+
+| column | meaning |
+|---|---|
+| `role` | train, val or test (the per-gonad `split` column holds the condition, noHS or HS, so `pooled.json` pools by condition under `by_split`) |
+| `n_expert_spots_class_a` | expert spots that are not Class B |
+| `class_a_mean_expert_all`, `class_a_pearson_r_all`, `class_a_ccc_all`, `class_a_bias_all`, and the same with `_traced` | the per-nucleus agreement with the expert count taken from Class A spots only; our count is unchanged (protocol section 5.1: the truth count changes with the class, the method's does not) |
+| `backend`, `detect_s`, `score_s`, `n_spots_reconcile`, `n_unknown_nucleus_ids` | the backend, seconds spent detecting and scoring, whether the per-nucleus counts sum to the spot count, and nucleus ids the detector reported that the cached nuclei table does not hold (0 expected) |
+
+`per_nucleus.csv` gains `role` and `expert_n_class_a`. `pool_scores` returns the blocks of
+`spots.pool` with the cluster bootstrap by gonad plus `per_nucleus_all_class_a` and
+`per_nucleus_traced_class_a`, overall and per condition.
+
+### `scripts/bench_detector.py`
+
+```powershell
+$env:CUDA_VISIBLE_DEVICES = "-1"
+python scripts/bench_detector.py --backend spotmax --params '{\"effect_size_min\": 2.5}' --split val --out <dir>
+python scripts/bench_detector.py --backend log --params log_params.json --split train --jobs 2 --out <dir>
+```
+
+`--params` is a JSON object or the path of a JSON or YAML file (`{}` by default). `--split` is train or
+val; `--tags` restricts the run to gonads of that split (a tag of another split is refused). Gonads
+whose spot truth is unusable (`spot_truth_usable` false in the manifest: the two heat-shock males
+exported with Imaris region growing) and gonads without a cache are skipped and listed. `--jobs N` runs
+N gonads at once in separate processes (a SpotMAX worker peaked at 10.4 to 12.1 GB of working set on
+these gonads, measured on 2026-10-10; the cached foci channel and labels alone are 2.9 GB), so pick N
+by the free memory. Other options: `--manifest`, `--cache-root`, `--trials-log`,
+`--no-trial-log`, `--n-boot` (1000) and `--seed` (20251105, the protocol's), `--tol-xy` and `--tol-z`
+(0.3 and 0.4 um), `--verbose` (keeps SpotMAX's progress bars).
+
+Outputs in `--out`: `per_gonad.csv`, `per_nucleus.csv`, `per_spot_matches.csv`, `pooled.json` (the
+pooled blocks above with `backend`, `params`, `params_sha256`, `split`, `skipped`, `git_sha`,
+`manifest`, `cache_root` and the bootstrap settings) and `detections/<tag>__spots.csv`, the detector's
+own spot table per gonad.
+
+**The trial log.** Every run appends one JSON line to `trials.jsonl` next to the manifest
+(`C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/trials.jsonl`): `utc`, `git_sha` (with
+`-dirty` when the tree had uncommitted changes), `backend`, `params`, `params_sha256` (sha256 of the
+key-sorted compact JSON of `params`), `split`, `tags`, `skipped`, `final`, `pooled` (the seven pooled
+blocks with their intervals), `pooled_by_condition`, `per_gonad` (the headline numbers of each gonad,
+for paired comparisons), `bootstrap`, `out_dir`, `manifest`, `cache_root`, the versions of germquant,
+SpotMAX, numpy, scipy, scikit-image and pandas, and `elapsed_s`. It is the record the protocol's
+tuning budget (at most 60 configurations per competitor, each listed with its val score) is counted
+from.
+
+**The test guard.** `--split test`, or a test gonad among the selected ones, is refused unless
+`--final` is given. The test gonads are those the pre-registration names
+(`germquant.validate.benchmark_split.PREREGISTERED_ROLES`) and those the manifest calls test; a
+manifest that disagrees with the pre-registration is refused outright. `--final` also needs `--reason`,
+refuses a code tree with uncommitted changes unless `--allow-dirty`, refuses a third test scoring of the
+same backend (protocol section 10), and appends its record to `final_runs.jsonl` instead of
+`trials.jsonl`. The library refuses too: `run_backend` and `score` raise `TestSetGuardError` for a test
+gonad unless called with `allow_test=True`, before anything is loaded, and `score` refuses a gonad with
+unusable spot truth unless `include_unusable=True`.
+
+### Harness validation
+
+`scripts/bench_reproduce_golden.py --tags n2rad51_noHS_herm_000 n2rad51_HS_herm_000` ran SpotMAX with
+each golden run's own `spots:` section from the cache and compared the result with the golden
+`<image>__spots.parquet` (exact binary floats) column by column in row order (spot_id, nucleus_id,
+marker, z_um, y_um, x_um, effect_size, spot_mean_intensity, detector) and the per-nucleus counts with the
+golden nuclei table. Both gonads are identical bit for bit: 1934 of 1934 spots (1274 nuclei) and 1552
+of 1552 spots (662 nuclei), every column, every count, in 85 s and 97 s. The two ran one after the
+other in one process, so nothing carries over between gonads either.
+
 ## Tests
 
 `tests/test_benchmark.py`: synthetic label volumes and spot sets with known answers for every metric
