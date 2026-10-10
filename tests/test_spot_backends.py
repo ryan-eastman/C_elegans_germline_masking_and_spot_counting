@@ -328,6 +328,55 @@ def test_log_backend_edge_cases_and_validation():
         detect_spots(img, labels, SP, backend="log", cfg_section={"log": 5})
 
 
+def test_log_pre_gate_is_a_config_key(monkeypatch, caplog):
+    """spots.log.pre_gate_sigmas: read with the code default 3.0 (the value of the former constant, so a
+    run that does not name it is unchanged), handed to the candidate step, validated, and it gates."""
+    from germquant.benchmark.detector import effective_section
+    from germquant.spots import log_detect
+    from germquant.spots.log_detect import LOG_DEFAULTS, PRE_GATE_SIGMAS, log_kwargs
+
+    assert PRE_GATE_SIGMAS == 3.0 and LOG_DEFAULTS["pre_gate_sigmas"] == 3.0
+    assert log_kwargs({})["pre_gate_sigmas"] == 3.0
+    with caplog.at_level(logging.WARNING, logger="germquant.spots.log_detect"):
+        assert log_kwargs({"log": {"pre_gate_sigmas": 1.5}})["pre_gate_sigmas"] == 1.5
+    assert "unknown keys" not in caplog.text                       # a known key, not a typo
+    # the bench harness's params merge reaches it like any other spots.log key
+    section = effective_section({"log": {"diameter_um": 0.5}}, {"log": {"pre_gate_sigmas": 2.0}})
+    assert log_kwargs(section)["pre_gate_sigmas"] == 2.0 and log_kwargs(section)["diameter_um"] == 0.5
+
+    img, labels, _ = _planted_stack()
+    default = detect_spots(img, labels, SP, backend="log")
+    for value in (3.0, 3, None):                                   # null in YAML means the code default
+        got = detect_spots(img, labels, SP, backend="log", cfg_section={"log": {"pre_gate_sigmas": value}})
+        pd.testing.assert_frame_equal(got[0], default[0])
+        pd.testing.assert_frame_equal(got[1], default[1])
+
+    seen = []
+    real = log_detect._candidates
+
+    def spy(*a, **k):
+        seen.append(a[5] if len(a) > 5 else k.get("pre_gate_sigmas"))
+        return real(*a, **k)
+
+    monkeypatch.setattr(log_detect, "_candidates", spy)
+    detect_spots(img, labels, SP, backend="log", cfg_section={"log": {"pre_gate_sigmas": 4.5}})
+    detect_spots(img, labels, SP, backend="log")
+    assert seen == [4.5, 3.0]
+    monkeypatch.setattr(log_detect, "_candidates", real)
+
+    # a gate no response clears leaves a real zero in every nucleus
+    ps, pn = detect_spots(img, labels, SP, backend="log", cfg_section={"log": {"pre_gate_sigmas": 1e9}})
+    assert ps.empty and list(pn["nucleus_id"]) == [1, 2, 3, 4] and (pn["n_spots"] == 0).all()
+    # on noise-only nuclei, with the SNR gate off, the pre-gate is what keeps the noise maxima out
+    noise_img, noise_labels, _ = _planted_stack(n_per_nucleus=0)
+    open_gate, _ = detect_spots_log(noise_img, noise_labels, SP, min_snr=0.0, pre_gate_sigmas=0.0)
+    gated, _ = detect_spots_log(noise_img, noise_labels, SP, min_snr=0.0)
+    assert len(open_gate) > len(gated) and len(open_gate) > 20
+    for bad in (-0.5, float("nan"), float("inf"), "three"):
+        with pytest.raises(ValueError, match="pre_gate_sigmas"):
+            detect_spots_log(img, labels, SP, pre_gate_sigmas=bad)
+
+
 # ---- pipeline wiring ----
 
 def test_pipeline_dispatches_spots_backend_from_config(tmp_path, patched_reader):  # noqa: F811

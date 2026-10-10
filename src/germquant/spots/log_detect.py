@@ -13,8 +13,10 @@ stays small on a 2600 x 2600 x 90 stack):
    sigma: the standard deviation of a Gaussian whose full width at half maximum equals the expected
    focus diameter (``spots.log.diameter_um``). Bright blobs give a positive response.
 2. Local maxima: a voxel is a candidate when it is the maximum of the response inside an ellipsoid of
-   radius ``spots.log.min_separation_um`` (physical units, so z and xy are treated alike), its response
-   is positive and it lies inside the label. A greedy pass in physical coordinates settles ties.
+   radius ``spots.log.min_separation_um`` (physical units, so z and xy are treated alike), it lies
+   inside the label and its response clears the pre-gate: more than ``spots.log.pre_gate_sigmas``
+   robust standard deviations (1.4826 times the median absolute deviation) of the response over the
+   voxels of that nucleus, and always more than zero. A greedy pass in physical coordinates settles ties.
 3. Flood guard: ``_cap_candidates`` (the SpotMAX path's guard, same key ``spots.max_spot_candidates``).
 4. Signal-to-background gate: the raw peak (the brightest voxel in a core ellipsoid of radius half the
    diameter) divided by the median of the raw image in a local annulus (``annulus_inner_um`` to
@@ -48,7 +50,7 @@ from .detect import _cap_candidates, _empty, _finish_tables, _merge_z_columns
 log = logging.getLogger(__name__)
 
 DETECTOR = "log"
-PRE_GATE_SIGMAS = 3.0   # candidate pre-gate: LoG response above this many robust SDs of the in-nucleus response
+PRE_GATE_SIGMAS = 3.0   # code default of spots.log.pre_gate_sigmas (the candidate pre-gate, see _candidates)
 
 # spots.log.* keys and their code defaults (None = derived from the diameter, see _resolve)
 LOG_DEFAULTS: dict = {
@@ -57,7 +59,8 @@ LOG_DEFAULTS: dict = {
     "min_separation_um": None,   # minimum distance between two maxima; default half the diameter
     "annulus_inner_um": None,    # local background annulus; defaults: diameter to twice the diameter
     "annulus_outer_um": None,
-}
+    "pre_gate_sigmas": PRE_GATE_SIGMAS,   # candidate pre-gate: LoG response above this many robust SDs
+}                                         #   of the response inside the nucleus (0 = any positive response)
 # keys shared with the SpotMAX path (read from the top of the spots section, same code defaults)
 SHARED_DEFAULTS: dict = {
     "merge_z_columns": True, "z_merge_gap_um": 0.8, "z_merge_valley_frac": 0.8, "max_spot_candidates": 30000,
@@ -94,6 +97,7 @@ def detect_spots_log(
     min_separation_um: float | None = None,
     annulus_inner_um: float | None = None,
     annulus_outer_um: float | None = None,
+    pre_gate_sigmas: float = PRE_GATE_SIGMAS,
     merge_z_columns: bool = True,
     z_merge_gap_um: float = 0.8,
     z_merge_valley_frac: float = 0.8,
@@ -112,7 +116,7 @@ def detect_spots_log(
         raise ValueError(f"spacing must be three positive voxel sizes (dz, dy, dx) in microns, got {spacing!r}")
     if not np.issubdtype(lab.dtype, np.integer):
         lab = lab.astype(np.int64)
-    p = _resolve(diameter_um, min_snr, min_separation_um, annulus_inner_um, annulus_outer_um)
+    p = _resolve(diameter_um, min_snr, min_separation_um, annulus_inner_um, annulus_outer_um, pre_gate_sigmas)
 
     sigma_vox = p["sigma_um"] / sp
     footprint = _footprint(p["separation_um"], sp)
@@ -120,7 +124,7 @@ def detect_spots_log(
     shell_off = _shell_offsets(p["annulus_inner_um"], p["annulus_outer_um"], sp)
     pad = np.ceil(max(4.0 * p["sigma_um"], p["separation_um"]) / sp).astype(int) + 1
 
-    cand = _candidates(img, lab, sigma_vox, footprint, pad)
+    cand = _candidates(img, lab, sigma_vox, footprint, pad, p["pre_gate_sigmas"])
     if cand.empty:
         return _empty(lab, marker, DETECTOR)
     # flood guard, exactly as the SpotMAX path: the brightest raw voxels survive, with a loud warning
@@ -155,7 +159,8 @@ def detect_spots_log(
 
 # ---- parameters and geometry ----
 
-def _resolve(diameter_um, min_snr, min_separation_um, annulus_inner_um, annulus_outer_um) -> dict:
+def _resolve(diameter_um, min_snr, min_separation_um, annulus_inner_um, annulus_outer_um,
+             pre_gate_sigmas=PRE_GATE_SIGMAS) -> dict:
     d = float(diameter_um)
     if not d > 0:
         raise ValueError(f"spots.log.diameter_um must be positive, got {diameter_um!r}")
@@ -167,8 +172,15 @@ def _resolve(diameter_um, min_snr, min_separation_um, annulus_inner_um, annulus_
     if not (r_out > r_in > 0):
         raise ValueError("spots.log.annulus_outer_um must exceed spots.log.annulus_inner_um and both must be "
                          f"positive, got {annulus_inner_um!r} and {annulus_outer_um!r}")
+    try:                                   # None (a YAML null) means the code default, like the other keys
+        gate = PRE_GATE_SIGMAS if pre_gate_sigmas is None else float(pre_gate_sigmas)
+    except (TypeError, ValueError):
+        gate = float("nan")
+    if not (math.isfinite(gate) and gate >= 0):
+        raise ValueError(f"spots.log.pre_gate_sigmas must be a finite number >= 0, got {pre_gate_sigmas!r}")
     return {"sigma_um": d / _FWHM_PER_SIGMA, "core_um": d / 2, "separation_um": sep,
-            "annulus_inner_um": r_in, "annulus_outer_um": r_out, "min_snr": float(min_snr)}
+            "annulus_inner_um": r_in, "annulus_outer_um": r_out, "min_snr": float(min_snr),
+            "pre_gate_sigmas": gate}
 
 
 def _ellipsoid_offsets(radius_um: float, sp: np.ndarray) -> np.ndarray:
@@ -197,8 +209,9 @@ def _footprint(radius_um: float, sp: np.ndarray) -> np.ndarray:
 
 # ---- the chain ----
 
-def _candidates(img, lab, sigma_vox, footprint, pad) -> pd.DataFrame:
-    """Local maxima of the LoG response inside every label, each label in its own padded crop."""
+def _candidates(img, lab, sigma_vox, footprint, pad, pre_gate_sigmas: float = PRE_GATE_SIGMAS) -> pd.DataFrame:
+    """Local maxima of the LoG response inside every label, each label in its own padded crop, that
+    clear the pre-gate of ``pre_gate_sigmas`` robust standard deviations of the in-nucleus response."""
     objs = ndi.find_objects(lab) if lab.size and lab.max() > 0 else []
     rows = []
     for lab_id, sl in enumerate(objs, start=1):
@@ -212,12 +225,13 @@ def _candidates(img, lab, sigma_vox, footprint, pad) -> pd.DataFrame:
             continue
         crop = np.asarray(img[win], dtype=np.float32)
         resp = -ndi.gaussian_laplace(crop, sigma=sigma_vox, mode="nearest")
-        # pre-gate: a local maximum must clear a noise-scaled floor (PRE_GATE_SIGMAS robust standard
-        # deviations of the response inside the nucleus) before it can count as a candidate, so that on a
-        # noisy or empty nucleus the flood cap is never filled with noise maxima that crowd out real foci.
+        # pre-gate: a local maximum must clear a noise-scaled floor (spots.log.pre_gate_sigmas robust
+        # standard deviations of the response inside the nucleus, code default PRE_GATE_SIGMAS) before it
+        # can count as a candidate, so that on a noisy or empty nucleus the flood cap is never filled with
+        # noise maxima that crowd out real foci. With 0 the floor is 0: any positive response passes.
         vals = resp[inside]
         noise = 1.4826 * float(np.median(np.abs(vals - np.median(vals)))) if vals.size else 0.0
-        floor = PRE_GATE_SIGMAS * noise
+        floor = pre_gate_sigmas * noise
         peaks = (resp >= ndi.maximum_filter(resp, footprint=footprint, mode="nearest")) & (resp > floor) & inside
         idx = np.argwhere(peaks)
         if len(idx) == 0:
