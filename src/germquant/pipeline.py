@@ -108,16 +108,27 @@ def resolve_model_path(cfg):
     return model_path
 
 
-def _read_input(path: Path, *, xy_stride: int, z_range):
+def _read_input(path: Path, *, xy_stride: int, z_range, t=None):
     """Header and pixels of the input image: ``(metadata dict, Stack)``.
 
     An ``.nd2`` goes through this module's ``read_nd2_metadata`` and ``read_stack`` names: the functions
     every golden was made with, and the seam the synthetic-stack test fixtures patch. Every other format
     goes through io.read_image_metadata / io.read_image (bioio, optional ``readers`` extra), which return
-    the same Stack and honour xy_stride and z_range the same way."""
+    the same Stack and honour xy_stride and z_range the same way. ``t`` (one timepoint of a time series)
+    is passed on only when given, so a fixed image makes exactly the calls it always has."""
+    kw = {} if t is None else {"t": t}
     if image_format(path) == "nd2":
-        return read_nd2_metadata(path), read_stack(path, xy_stride=xy_stride, z_range=z_range)
-    return read_image_metadata(path), read_image(path, xy_stride=xy_stride, z_range=z_range)
+        return read_nd2_metadata(path, **kw), read_stack(path, xy_stride=xy_stride, z_range=z_range, **kw)
+    return read_image_metadata(path, **kw), read_image(path, xy_stride=xy_stride, z_range=z_range, **kw)
+
+
+def _t_seconds_of(meta: dict, t: int) -> float | None:
+    """The recorded time stamp of timepoint ``t`` from the header's ``t_seconds`` list, or None when the
+    file carries none (bioio formats, or an unreadable per-frame record)."""
+    stamps = meta.get("t_seconds")
+    if stamps is None or not 0 <= int(t) < len(stamps):
+        return None
+    return float(stamps[int(t)])
 
 
 def process_image(
@@ -128,11 +139,18 @@ def process_image(
     xy_stride: int = 1,
     z_range: tuple[int, int] | None = None,
     prov: dict | None = None,
+    t: int | None = None,
 ) -> dict:
     """Run every enabled stage on one image and write its results folder. ``nd2_path`` (the name is kept
     for compatibility) is any supported image: an ``.nd2``, or a TIFF / OME-TIFF, CZI, LIF or OME-Zarr
     file when the ``readers`` extra is installed (io/read.py). Returns image_id, n_nuclei, qc_pass,
-    qc_flags, out_dir, the tables (DataFrames by name) and the per-stage record."""
+    qc_flags, out_dir, the tables (DataFrames by name) and the per-stage record.
+
+    ``t`` processes one timepoint of a time series (docs/TIMELAPSE.md): the reader loads that timepoint's
+    stack, every stage runs on it unchanged, the image id (and with it every per-image file name) becomes
+    ``<stem>_t<NNN>``, and ``t_index`` / ``t_seconds`` are recorded in the run geometry (run_manifest.json,
+    ``__stages.json``) and the completion marker. With ``t=None``, the default, nothing changes: a fixed
+    image's id, tables, stage record and marker are exactly what they were."""
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
     os.makedirs(long_path(out_dir), exist_ok=True)
@@ -142,7 +160,7 @@ def process_image(
     # ---- read + resolve channels ----
     t_read = time.perf_counter()
     acq_expected = expected_settings(cfg)   # a bad acquisition.expected section fails here, before any pixel is read ({} when absent)
-    meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range)
+    meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range, t=t)
     role_to_idx, ch_flags = cfg.channel_map.resolve(meta["channel_names"])
     flags += ch_flags
     spacing = stack.spacing
@@ -153,6 +171,10 @@ def process_image(
     dapi_present = role_to_idx.get("dna") is not None
 
     sample = parse_sample(nd2_path, cfg.get("metadata.filename_regex"), cfg.get("metadata.defaults"))
+    if t is not None:
+        # one timepoint of a series: the design columns were parsed from the raw stem above; the image id,
+        # and so every per-image file name, carries the timepoint (three digits, one underscore)
+        sample["image_id"] = f"{sample['image_id']}_t{int(t):03d}"
     # a rerun must never leave an older run's completion marker behind (batch --resume trusts it)
     provenance.clear_done_marker(out_dir, sample["image_id"])
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
@@ -165,6 +187,10 @@ def process_image(
     run_geometry = {"xy_stride": int(xy_stride), "z_range": list(z_range) if z_range else None,
                     "stage_hashes": stage_hashes, "model_sha256": model_sha,
                     "enabled_stages": [s.name for s in STAGES if stage_enabled(cfg, s.name)]}
+    if t is not None:
+        # the timepoint enters the run geometry (manifest, stage record) and the marker ONLY for a series
+        run_geometry["t_index"] = int(t)
+        run_geometry["t_seconds"] = _t_seconds_of(meta, t)
     prov = prov or provenance.write_manifest(out_dir, config_hash=cfg.hash, config=cfg.as_dict(),
                                              extra=run_geometry)
 
@@ -854,10 +880,11 @@ def process_image(
         stage_record = _dump_stage_record(complete)
     # completion marker: the LAST file written, so `germquant batch --resume` can trust a folder that has
     # it (same config_hash, enabled stages and run geometry, no failed stage) and reprocess one that does not.
+    timepoint = {k: run_geometry[k] for k in ("t_index", "t_seconds") if k in run_geometry}   # {} for a fixed image
     provenance.write_done_marker(
         out_dir, sample["image_id"], config_hash=cfg.hash, enabled_stages=run_geometry["enabled_stages"],
         stage_hashes=stage_hashes, xy_stride=run_geometry["xy_stride"], z_range=run_geometry["z_range"],
-        failed_stages=[n for n, oc in outcomes.items() if oc.status == "failed"])
+        failed_stages=[n for n, oc in outcomes.items() if oc.status == "failed"], extra=timepoint or None)
 
     log.info("%s: %d nuclei, %d germline, spots=%d, qc_pass=%s",
              sample["image_id"], n_nuclei, n_germline_nuclei, len(spots), qc_pass)
