@@ -16,6 +16,14 @@ gonads are built inside the fixtures.
 - `test_end_to_end.py`: the whole single-image pipeline on synthetic 3-channel and 4-channel gonads
   with the `.nd2` reader monkeypatched. Its fixtures (`patched_reader`, `patched_reader_4ch`) are
   imported by several other modules.
+- `test_timelapse_reader.py`: the T-aware reader (`docs/TIMELAPSE.md`). A fake `ND2File` with nd2's
+  one-chunk-per-frame layout records which planes a read touches, so the tests show that `t=<index>`
+  reads one timepoint's planes and nothing else, that `t=None` is the old behaviour, that out-of-range
+  values are refused before any pixel is read, and that the header reports `n_timepoints`, `period_s`
+  and `t_seconds`. The bioio branch runs on a fake `BioImage` and, when `bioio-ome-tiff` is installed,
+  on an OME-TIFF with a T axis written by tifffile. `process_image(t=...)` is checked to suffix the
+  image id, record the timepoint in the markers only, and write the same numbers as a fixed run on the
+  same stack.
 - `test_golden.py`: the numeric gate. `test_synthetic_golden` runs the same two synthetic gonads
   with the classical nucleus segmenter and SpotMAX and compares every output table cell for cell
   with the references under `golden/synthetic/` and `golden/synthetic_4ch/`. A `config_hash.txt`

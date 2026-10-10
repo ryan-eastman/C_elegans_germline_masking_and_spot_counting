@@ -630,6 +630,8 @@ emission filter and camera mode, and the `acquisition.expected` check that flags
 the wrong settings), `docs/HPC_ALPINE.md` (cluster runs), `docs/BENCHMARK.md` (the benchmark harness:
 `germquant.benchmark`, `scripts/benchmark_spots.py` and `scripts/benchmark_nuclei3d.py`, scoring the spot
 detector and the 3D nucleus segmentation against the Imaris expert truth gonad by gonad),
+`docs/TIMELAPSE.md` (time series: reading one timepoint of an .nd2 or OME-TIFF series with `t=<index>`,
+what the header reports about the time axis, and how a timepoint run is named and recorded),
 `analysis/coloc/README.md` (the SYP-3 / PGL-1 analysis layer).
 
 Configuration: `config/config.yaml` holds every tunable value with a comment saying why it is set

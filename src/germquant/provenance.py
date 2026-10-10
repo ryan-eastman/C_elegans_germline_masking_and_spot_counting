@@ -120,17 +120,18 @@ def write_manifest(out_dir: str | Path, *, config_hash: str, config: dict, extra
 
 def write_done_marker(out_dir: str | Path, image_id: str, *, config_hash: str, enabled_stages: list[str],
                       stage_hashes: dict[str, str], xy_stride: int = 1, z_range=None,
-                      failed_stages: list[str] | None = None) -> Path:
+                      failed_stages: list[str] | None = None, extra: dict | None = None) -> Path:
     """``<image_id>__done.json``: written as the very last act of a successful process_image, so its
     presence (with a matching config_hash, enabled stage set and run geometry) means every output of
     that run is on disk. Batch resume keys on it; a folder without it is reprocessed, and so is one whose
-    marker lists failed (non-fatal) stages."""
+    marker lists failed (non-fatal) stages. ``extra`` adds fields after the run geometry (the timepoint of
+    a time-series run: t_index, t_seconds); a fixed image passes none and its marker is unchanged."""
     out_dir = Path(out_dir)
     p = out_dir / f"{image_id}__done.json"
     with open(long_path(p), "w", encoding="utf-8") as fh:
         fh.write(json.dumps({"image_id": image_id, "config_hash": config_hash, "enabled_stages": enabled_stages,
                              "stage_hashes": stage_hashes, "xy_stride": int(xy_stride),
-                             "z_range": list(z_range) if z_range else None,
+                             "z_range": list(z_range) if z_range else None, **(extra or {}),
                              "failed_stages": list(failed_stages or []), "finished": run_timestamp()}, indent=1))
     return p
 

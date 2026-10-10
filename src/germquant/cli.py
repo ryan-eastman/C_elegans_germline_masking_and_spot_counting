@@ -197,6 +197,10 @@ def _info(nd2: str) -> int:
     dz, dy, dx = m["spacing"]
     print(f"voxel µm   : dz={dz:.4f} dy={dy:.4f} dx={dx:.4f}  (anisotropy z/xy={dz/dy:.2f})")
     print(f"channels   : {m['channel_names']}")
+    if int(m.get("n_timepoints", 1) or 1) > 1:       # a time series: say so (fixed images print nothing here)
+        period = m.get("period_s")
+        every = f" every {period:g} s" if period else ""
+        print(f"timepoints : {m['n_timepoints']}{every}  (run one with t=<index>; docs/TIMELAPSE.md)")
     if image_format(nd2) == "nd2":
         _print_acquisition(nd2)
     return 0
