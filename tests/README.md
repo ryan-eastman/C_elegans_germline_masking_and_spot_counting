@@ -24,6 +24,10 @@ gonads are built inside the fixtures.
   workstation (Windows, the pinned `constraints/desktop-2026-09.txt` environment) and are checked
   with `check_exact=True`.
 - `test_gpu.py`: the real Cellpose-SAM 3D path. See the markers.
+- `test_benchmark.py`: the benchmark harness (`germquant.benchmark`, see `docs/BENCHMARK.md`) on
+  synthetic label volumes and spot sets with known answers for every metric (a split, a merge, an
+  out-of-coverage prediction, the z-extent error, the chunked Hungarian against the dense result, the
+  bootstrap intervals), plus both benchmark scripts run on a temporary manifest in a subprocess.
 
 ## Markers
 
