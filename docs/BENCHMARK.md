@@ -690,3 +690,19 @@ runner end to end with the log backend (scores, Class A columns, conditions unde
 trial log (one line per run, the params sha256), the test guard in the script and in the library, the
 final-run log and its limit of two (on synthetic test-role gonads and temporary logs only), and the
 process pool against the sequential run.
+
+`tests/test_net3d.py`: net3d on the CPU with tiny networks (skips itself without torch). The network's
+shapes and receptive-radius bound (a perturbed voxel never reaches farther), tiled inference equal to
+untiled inference in xy and z and with the tile skip, the normalisation, peak finding on a synthetic
+heatmap (log-parabola refinement, ellipsoidal suppression, the threshold property the validation sweep
+relies on), the suppression against the plain greedy and the candidate scan against its definition
+(dense and sparse blocks, exact ties), the reach grid against assigning every peak, nucleus assignment
+with the nearest-label fallback and the contested flag, the selection rule, the exact dilations, the
+targets, weights and masked loss, reproducible sampling, the Imaris-to-grid conversion of the truth
+positions, the backend contract with a randomly initialised model (the DNA channel through `channels`,
+a foci-only model, the provenance hook, thresholds from zero to above every probability, deterministic output), channels
+reaching only backends that ask for them, the default run's stage hashes and manifest unchanged, a
+pipeline run with `spots.backend: net3d`, and `germquant train-spots` for one epoch on tiny planted gonads
+(the test gonad and the region-growing gonad are never opened, the same seed gives the same weights, the
+validation scorer agrees with the harness, a split file that moves a gonad is refused, and
+`scripts/bench_detector.py --backend net3d` scores the trained model from the cache).
