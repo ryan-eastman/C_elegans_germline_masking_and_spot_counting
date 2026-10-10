@@ -71,10 +71,10 @@ jobs:
         # 2.11.0+cpu build, and the next step sees its torch pin as already satisfied.
         run: uv pip install --system --index-url https://download.pytorch.org/whl/cpu "torch==2.11.0" "torchvision==0.26.0"
 
-      - name: Install germquant with the Cellpose, SpotMAX, SC-tracer and test extras
+      - name: Install germquant with the Cellpose, SpotMAX, SC-tracer, time-lapse (laptrack) and test extras
         # numba is named explicitly because SpotMAX imports it at load time without declaring it (it
         # would otherwise arrive only as a dependency of skan). Everything resolves against the pins.
-        run: uv pip install --system -c constraints/ci-cpu-2026-10.txt -e ".[gpu,spots,sc,dev]" numba
+        run: uv pip install --system -c constraints/ci-cpu-2026-10.txt -e ".[gpu,spots,sc,dev,timelapse]" numba
 
       - name: Record the resolved environment
         run: |

@@ -2,10 +2,30 @@
 
   germquant info  STACK.nd2
   germquant run   STACK.nd2 --config config/config.yaml --out results/ [--xy-stride 4 --z-range 20 40]
+  germquant run   SERIES.nd2 --config config/config.yaml --out results/ --t all|7|0-24 [--resume]
+  germquant register results/SERIES [--reference previous|t0] [--upsample 10] [--max-step-um 5] [--channel ROLE] [--rigid]
   germquant batch /nas/folder --config config/config.yaml --out /nas/folder_results
 
 `info` and `run` also take TIFF / OME-TIFF, CZI, LIF and OME-Zarr files when the optional `readers`
 extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders.
+`run --t` processes the named timepoints of a time-lapse one by one into results/t<NNN>/ and writes the
+series record and summary next to them (docs/TIMELAPSE.md); without --t a run is the single-image run.
+
+The nucleus training loop (docs/TIMELAPSE.md, "Segmenting without DAPI: the training loop"):
+
+  germquant export-training RESULTS_OR_SERIES_DIR --out PAIRS [--orientations xy,xz,yz] [--slices-per-image 3]
+  germquant train-nuclei --pairs PAIRS --out MODELDIR [--base cpsam] [--epochs 150] [--split-by series] [--cpu]
+  germquant register-model --model MODELDIR/NAME --card MODELDIR/NAME.card.json [--name NAME]
+
+`register` estimates the drift of a finished series from the reference volumes that loop kept and writes the
+register_shifts table and a report next to the series record; nothing is resampled.
+
+Tracking a finished series (docs/TIMELAPSE.md, "Tracking" and "Validating the linking"):
+  germquant track-export   SERIES_DIR --out DIR [--crop germline|all] [--stride 2]   (a Cell-ACDC position folder)
+  germquant track-link     SERIES_DIR --backend overlap|overlap_inhouse|laptrack|none [--gap 2] [--max-dist-um 3.0]
+  germquant track-import   SERIES_DIR --from trackmate|imaris|cellacdc FILE
+  germquant track-strips   SERIES_DIR --out DIR [--size-um 8]
+  germquant track-validate SERIES_DIR --points hand.csv
 """
 from __future__ import annotations
 
@@ -30,7 +50,7 @@ from pathlib import Path
 
 from . import provenance
 from .config import find_profile, load_config
-from .io import read_image_metadata
+from .io import image_format, read_image_metadata
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -46,6 +66,14 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--out", required=True)
     pr.add_argument("--xy-stride", type=int, default=1, help="downsample xy for a quick test")
     pr.add_argument("--z-range", type=int, nargs=2, default=None, metavar=("Z0", "Z1"))
+    pr.add_argument("--t", default=None, metavar="all|N|A-B",
+                    help="time-lapse: process these timepoints ('all', one index such as 7, or an inclusive "
+                         "range such as 0-24) one by one into OUT/t<NNN>/, each as a fixed image under the "
+                         "id <stem>_t<NNN>, and write <stem>__series.json and <stem>__series_summary.csv to OUT "
+                         "(docs/TIMELAPSE.md). Without --t the file's first timepoint is the image, as before.")
+    pr.add_argument("--resume", action="store_true",
+                    help="with --t: skip timepoints whose completion marker matches this config, geometry and "
+                         "segment stage (an interrupted series picks up where it stopped)")
     _add_stage_switches(pr)
 
     pb = sub.add_parser("batch", help="process every .nd2 under a folder, mirroring the tree")
@@ -61,6 +89,34 @@ def main(argv: list[str] | None = None) -> int:
     pc = sub.add_parser("collect", help="stack the per-image tables under a results folder into batch_<table>.csv "
                                         "and rebuild batch_summary.csv (safe to rerun any time)")
     pc.add_argument("results_root")
+
+    prg = sub.add_parser("register", help="time-lapse drift as a shift table: phase correlation of the reference "
+                                          "volumes `run --t` kept per timepoint, accumulated to the first timepoint, "
+                                          "written as <stem>__register_shifts.csv plus a report (docs/TIMELAPSE.md); "
+                                          "no image is resampled")
+    prg.add_argument("series_dir", help="the --out folder of a `germquant run SERIES.nd2 --t ...` run")
+    prg.add_argument("--reference", choices=["previous", "t0"], default="previous",
+                     help="register each timepoint against the previous one and accumulate (default), or "
+                          "directly against the first timepoint")
+    prg.add_argument("--upsample", type=int, default=10, metavar="N",
+                     help="phase correlation upsampling: estimates are quantised to 1/N of a reference-volume voxel "
+                          "(default 10)")
+    prg.add_argument("--max-step-um", type=float, default=5.0, metavar="UM",
+                     help="cap on one step in microns; a longer step is shortened to it and flagged capped "
+                          "(default 5.0; 0 = no cap)")
+    prg.add_argument("--channel", default=None, metavar="ROLE",
+                     help="channel role whose reference volume is registered (default: the segmentation channel's; "
+                          "'brightfield' when a brightfield volume was kept)")
+    prg.add_argument("--normalization", choices=["none", "phase"], default="none",
+                     help="cross-power spectrum normalization: 'none' (plain cross-correlation, the default: exact "
+                          "on smooth nuclei at stride 4 to 8) or 'phase' (whitened; for textured volumes)")
+    prg.add_argument("--taper", type=float, default=0.0, metavar="FRACTION",
+                     help="Tukey window fraction applied to both volumes (0 = off, the default; 0.25 tapers the "
+                          "outer eighth of each axis): quiets tissue the field edge cuts, a stationary feature that "
+                          "pulls the estimate towards zero")
+    prg.add_argument("--rigid", action="store_true",
+                     help="EXPERIMENTAL: also fit a rigid rotation (Kabsch) on nucleus centroids linked by nearest "
+                          "neighbour after the translation; stored in the report only, the shift table is unchanged")
 
     pt = sub.add_parser("trace", help="draw the pachytene region on each finished image (pop-up); saves the "
                                       "polylines in whole-image microns to the traces file the staging stage reads")
@@ -113,6 +169,72 @@ def main(argv: list[str] | None = None) -> int:
     pm.add_argument("name", nargs="?", default="germline_nuclei_combined")
     pm.add_argument("--force", action="store_true", help="download even if a verified copy exists")
 
+    pit = sub.add_parser("imaris-truth", help="read the expert truth out of an Imaris .ims project (Spots, Surfaces, "
+                                              "the traced nucleus masks) into the truth files the benchmark compares "
+                                              "against (docs/IMARIS_TRUTH.md)")
+    pit.add_argument("ims", help="an Imaris .ims project (HDF5); read only")
+    pit.add_argument("--out", required=True, help="folder for <stem>__imaris_{spots,nuclei}.csv, "
+                                                  "<stem>__imaris_labels.tif and <stem>__imaris_params.json")
+    pit.add_argument("--nd2", help="the .nd2 the project was made from; its voxel size defines our frame "
+                                   "(default: a sibling <stem>.nd2, else Imaris's own voxel size)")
+    pit.add_argument("--no-masks", action="store_true",
+                     help="skip the mask channel (no label image; much faster, tables only)")
+
+    pe = sub.add_parser("export-training",
+                        help="write paired 2D training slices (image/ and labels/ TIFs plus manifest.csv) from the "
+                             "nucleus labels of every finished run under a results or series folder, for correction "
+                             "in napari or the Cellpose GUI (docs/TIMELAPSE.md)")
+    pe.add_argument("results_dir", help="a results folder, a time-lapse series folder (its t<NNN>/ subfolders are "
+                                        "the runs) or a batch tree")
+    pe.add_argument("--out", required=True, help="the training folder: image/, labels/, manifest.csv, export.json")
+    pe.add_argument("--orientations", default="xy,xz,yz",
+                    help="comma-separated subset of xy,xz,yz; xz and yz slices are resampled along z to the xy "
+                         "pixel size so every slice is isotropic (default: all three)")
+    pe.add_argument("--slices-per-image", type=int, default=3, metavar="N",
+                    help="slices per run and orientation, drawn at random (seeded) from slices that cut at least "
+                         "--min-labels nuclei (default 3)")
+    pe.add_argument("--seed", type=int, default=0, help="seed of the slice draw (default 0)")
+    pe.add_argument("--zone-column", default="zone",
+                    help="nuclei-table column whose most frequent value among a slice's nuclei becomes its zone "
+                         "tag in the manifest (default zone, the staging stage's; empty when absent)")
+    pe.add_argument("--min-labels", type=int, default=3, help="a slice must cut at least this many nuclei (default 3)")
+    pe.add_argument("--max-gb", type=float, default=2.0,
+                    help="stop once this many GB of slices are written (default 2; a 56 GB series must not "
+                         "become a 56 GB training folder)")
+
+    ptn = sub.add_parser("train-nuclei",
+                         help="train a Cellpose nucleus model on corrected slice pairs (cellpose.train.train_seg in "
+                              "process), split by image or series, never by slice; writes the model file, "
+                              "training_log.json and a model card with hold-out F1 (docs/TIMELAPSE.md)")
+    ptn.add_argument("--pairs", required=True, help="the folder export-training wrote (image/, labels/, manifest.csv)")
+    ptn.add_argument("--base", default="cpsam",
+                     help="starting weights: a registered model name, a model file, a Cellpose built-in name "
+                          "(default cpsam) or 'none' for a randomly initialised network (smoke tests only)")
+    ptn.add_argument("--out", required=True, metavar="MODELDIR",
+                     help="output folder: MODELDIR/<name> (the model), training_log.json, <name>.card.json")
+    ptn.add_argument("--name", help="model name (default: the name of MODELDIR)")
+    ptn.add_argument("--epochs", type=int, default=150, help="training epochs (default 150, as the combined model)")
+    ptn.add_argument("--split-by", choices=["image", "series"], default="series",
+                     help="hold out whole source images, or whole series so neighbouring timepoints never straddle "
+                          "the split (default series; for fixed images both are the same)")
+    ptn.add_argument("--val-frac", type=float, default=0.2, help="fraction of groups held out (default 0.2, at least one)")
+    ptn.add_argument("--seed", type=int, default=0, help="seed of the split (default 0)")
+    ptn.add_argument("--cpu", action="store_true", help="train on the CPU even when an accelerator is available")
+    ptn.add_argument("--batch-size", type=int, default=8, help="images per step (default 8)")
+    ptn.add_argument("--learning-rate", type=float, default=1e-5, help="AdamW learning rate (default 1e-5)")
+    ptn.add_argument("--min-train-masks", type=int, default=5,
+                     help="Cellpose drops training slices with fewer nuclei than this (default 5)")
+
+    prm = sub.add_parser("register-model",
+                         help="add a locally trained model to the model registry (local_models.json next to the "
+                              "release assets), so a profile can name it in segmentation.nuclei.cellpose_model and "
+                              "`get-model NAME` verifies it")
+    prm.add_argument("--model", required=True, help="the model file `train-nuclei` wrote")
+    prm.add_argument("--card", help="its model card JSON (<name>.card.json next to the model file)")
+    prm.add_argument("--name", help="registry name (default: the card's name, else the file name)")
+
+    _add_track_parsers(sub)
+
     args = p.parse_args(argv)
     _force_utf8_stdio()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -122,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         "run": lambda: _run(args),
         "batch": lambda: _batch(args),
         "collect": lambda: _collect(args),
+        "register": lambda: _register(args),
         "trace": lambda: _trace(args),
         "restage": lambda: _restage(args),
         "validate": lambda: _validate(args),
@@ -129,7 +252,165 @@ def main(argv: list[str] | None = None) -> int:
         "finetune": lambda: _finetune(args),
         "check-gpu": lambda: _check_gpu(),
         "get-model": lambda: _get_model(args),
+        "imaris-truth": lambda: _imaris_truth(args),
+        "export-training": lambda: _export_training(args),
+        "train-nuclei": lambda: _train_nuclei(args),
+        "register-model": lambda: _register_model(args),
+
+        "track-export": lambda: _track_export(args),
+        "track-link": lambda: _track_link(args),
+        "track-import": lambda: _track_import(args),
+        "track-strips": lambda: _track_strips(args),
+        "track-validate": lambda: _track_validate(args),
     }[args.cmd]()
+
+
+def _add_track_parsers(sub) -> None:
+    """The tracking exchange of a time-lapse series (germquant.timelapse.track / track_validate). Every command
+    takes the series folder `germquant run --t` wrote; --config / --profile are optional here: without them the
+    timelapse.* keys are read from the series' run_manifest.json, and every key has a code default."""
+    def common(parser, stem_help="the series stem when the folder holds several (default: the one <stem>__series.json)"):
+        parser.add_argument("series_dir", help="the results folder of `germquant run SERIES.nd2 --t ...` (t<NNN>/ folders inside)")
+        parser.add_argument("--stem", default=None, help=stem_help)
+        g = parser.add_mutually_exclusive_group(required=False)
+        g.add_argument("--config", help="config yaml for the timelapse.* keys (default: the series' run_manifest.json)")
+        g.add_argument("--profile", help="profile name instead of --config")
+
+    pe = sub.add_parser("track-export", help="write the germline nucleus labels (registered, cropped, strided) and the "
+                                             "central_element channel as a Cell-ACDC Position_1/Images folder + export.json")
+    common(pe)
+    pe.add_argument("--out", required=True, help="folder to create Position_1/Images in")
+    pe.add_argument("--crop", choices=["germline", "all"], default=None,
+                    help="germline: in_germline labels cropped to their union bounding box (default); all: every label, whole field")
+    pe.add_argument("--stride", type=int, default=None, help="xy sub-sampling of the export (default 2)")
+    pe.add_argument("--image", choices=["ref", "file", "none"], default="ref",
+                    help="image stack source: the reference volumes the loop kept (ref, default), the series file at the "
+                         "export stride (file; one full frame read per timepoint), or no image (none)")
+    pe.add_argument("--channel-name", default="central_element", help="Cell-ACDC channel name of the image file")
+
+    pl = sub.add_parser("track-link", help="link the nuclei across timepoints and write <stem>__track_points.csv and "
+                                           "<stem>__tracks.csv next to the timepoint folders")
+    common(pl)
+    pl.add_argument("--backend", choices=["overlap", "overlap_inhouse", "laptrack", "none"], default="overlap",
+                    help="overlap: Cell-ACDC's overlap tracker run headless (falls back to overlap_inhouse, the same rule in "
+                         "NumPy, when it cannot be imported); laptrack: LAP linking of the registered centroids with gap "
+                         "closing; none: the points table only (measurements per timepoint, no tracks)")
+    pl.add_argument("--gap", type=int, default=None, help="laptrack: bridge a track end at t to a start at t + d for 1 <= d <= GAP "
+                                                          "(default 2 = one missing timepoint; 0 = off)")
+    pl.add_argument("--max-dist-um", type=float, default=None, help="laptrack: largest registered displacement linked (default 3.0)")
+    pl.add_argument("--min-overlap", type=float, default=None,
+                    help="overlap backends: least intersection over the previous nucleus' volume (default 0.4, Cell-ACDC's)")
+    pl.add_argument("--stride", type=int, default=None, help="overlap backends: xy stride of the label grid (default 2)")
+    pl.add_argument("--all-nuclei", action="store_true", help="link every label, not only in_germline nuclei")
+
+    pi = sub.add_parser("track-import", help="turn a tracker's result (TrackMate CSV / XML, an Imaris points table, a "
+                                             "Cell-ACDC tracked segm.npz) into the same two tables, link_source imported:<tool>")
+    common(pi)
+    pi.add_argument("--from", dest="source", required=True, choices=["trackmate", "imaris", "cellacdc"])
+    pi.add_argument("file", help="the tracker's file")
+    pi.add_argument("--space", choices=["raw", "export"], default="raw",
+                    help="raw: coordinates in raw-frame microns (default); export: measured on the exported stack")
+    pi.add_argument("--export-json", default=None, help="the export.json of the exported stack (default: found next to FILE)")
+    pi.add_argument("--time-base", type=int, default=0, help="index of the first timepoint in the file (Imaris: 1)")
+    pi.add_argument("--snap-um", type=float, default=0.0,
+                    help="a point just outside every label takes the nearest nucleus within this distance (default 0 = off)")
+    pi.add_argument("--all-nuclei", action="store_true", help="keep every label in the points table, not only in_germline nuclei")
+
+    ps = sub.add_parser("track-strips", help="one PNG per track with a tile per timepoint around the tracked nucleus: the "
+                                             "non-programmer's check that an identity did not jump")
+    common(ps)
+    ps.add_argument("--out", required=True)
+    ps.add_argument("--size-um", type=float, default=None, help="tile width in microns (default 8)")
+    ps.add_argument("--planes", type=int, default=None, help="planes max-projected around the centroid (default 3)")
+    ps.add_argument("--image", choices=["ref", "file"], default="ref", help="reference volumes (default) or the series file")
+    ps.add_argument("--stride", type=int, default=None, help="with --image file: xy stride of the read (default 2)")
+    ps.add_argument("--max-tracks", type=int, default=None, help="only the first N tracks")
+
+    pv = sub.add_parser("track-validate", help="score the linking against hand-followed nuclei (scripts/pick_validation_nuclei.py "
+                                               "picks them; the biologist completes the worksheet in Imaris)")
+    common(pv)
+    pv.add_argument("--points", required=True, help="the completed worksheet: hand_track_id, t_index, z_um, y_um, x_um (raw-frame microns)")
+    pv.add_argument("--snap-um", type=float, default=0.0,
+                    help="a hand point just outside every label takes the nearest nucleus within this distance (default 0 = off)")
+
+
+def _track_cfg(args):
+    """The config the timelapse.* keys are read from: --config / --profile when given, else the series' own
+    run_manifest.json config (a plain dict), else None (every key falls back to its code default)."""
+    import json
+
+    if getattr(args, "config", None) or getattr(args, "profile", None):
+        return load_config(_resolve_config_path(args))
+    man = Path(args.series_dir) / "run_manifest.json"
+    try:
+        with open(man, encoding="utf-8") as fh:
+            return json.load(fh).get("config") or None
+    except (OSError, ValueError):
+        return None
+
+
+def _track_export(args) -> int:
+    from .timelapse.track import export_cellacdc
+
+    rec = export_cellacdc(args.series_dir, args.out, crop=args.crop, stride=args.stride, image=args.image,
+                          channel_name=args.channel_name, stem=args.stem, cfg=_track_cfg(args))
+    shape = "x".join(str(v) for v in rec["shape"])
+    print(f"{rec['series_id']}: {len(rec['timepoints'])} timepoint(s) exported as (T, Z, Y, X) = {shape}, stride {rec['stride']}, "
+          f"crop {rec['crop']}, shifts from {rec['shift_source']}")
+    print(f"  labels -> {rec['files']['segm']}" + (f"; image -> {rec['files']['image']}" if rec["files"]["image"] else "; no image written"))
+    print(f"  -> {Path(args.out) / 'export.json'}")
+    return 0
+
+
+def _track_link(args) -> int:
+    from .timelapse.track import link_series
+
+    res = link_series(args.series_dir, backend=args.backend, gap=args.gap, max_dist_um=args.max_dist_um,
+                      min_overlap=args.min_overlap, stride=args.stride, germline_only=not args.all_nuclei,
+                      stem=args.stem, cfg=_track_cfg(args))
+    rec = res["record"]
+    print(f"{rec['series_id']}: backend {rec['backend']} ({rec['link_source']}): {rec['n_objects']} nucleus-timepoints over "
+          f"{len(rec['timepoints'])} timepoint(s) -> {rec['n_tracks']} track(s), {rec['n_full_length']} full length; "
+          f"shifts from {rec['shift_source']}")
+    if rec.get("note"):
+        print(f"  note: {rec['note']}")
+    flipped = [t for t, s in rec.get("axis_sign_by_t", {}).items() if int(s) < 0]
+    if flipped:
+        print(f"  axis orientation flipped relative to t0 at timepoint(s) {', '.join(flipped)} (aligned)")
+    print(f"  -> {res['paths'].get('track_points')}\n  -> {res['paths'].get('tracks')}")
+    return 0
+
+
+def _track_import(args) -> int:
+    from .timelapse.track import import_tracks
+
+    res = import_tracks(args.series_dir, args.source, args.file, space=args.space, time_base=args.time_base,
+                        export_json=args.export_json, snap_um=args.snap_um, germline_only=not args.all_nuclei, stem=args.stem)
+    rec = res["record"]
+    info = rec.get("backend_info", {})
+    print(f"{rec['series_id']}: imported {args.source} from {Path(args.file).name}: {rec['n_tracks']} track(s), "
+          f"{rec['n_objects_unlinked']} of {rec['n_objects']} nucleus-timepoints without a track")
+    print("  " + ", ".join(f"{k} {v}" for k, v in info.items()))
+    print(f"  -> {res['paths'].get('track_points')}\n  -> {res['paths'].get('tracks')}")
+    return 0
+
+
+def _track_strips(args) -> int:
+    from .timelapse.track import track_strips
+
+    written = track_strips(args.series_dir, args.out, size_um=args.size_um, planes=args.planes, image=args.image,
+                           stride=args.stride, max_tracks=args.max_tracks, stem=args.stem, cfg=_track_cfg(args))
+    print(f"{len(written)} strip(s) -> {args.out}")
+    return 0
+
+
+def _track_validate(args) -> int:
+    from .timelapse.track_validate import format_verdict, validate_tracks
+
+    res = validate_tracks(args.series_dir, args.points, stem=args.stem, cfg=_track_cfg(args), snap_um=args.snap_um)
+    print(format_verdict(res))
+    print(f"  -> {res['paths'].get('track_validation')}")
+    return 0 if res["verdict"]["pass"] else 2
 
 
 def _add_config_args(parser) -> None:
@@ -185,7 +466,31 @@ def _info(nd2: str) -> int:
     dz, dy, dx = m["spacing"]
     print(f"voxel µm   : dz={dz:.4f} dy={dy:.4f} dx={dx:.4f}  (anisotropy z/xy={dz/dy:.2f})")
     print(f"channels   : {m['channel_names']}")
+    if int(m.get("n_timepoints", 1) or 1) > 1:       # a time series: say so (fixed images print nothing here)
+        period = m.get("period_s")
+        every = f" every {period:g} s" if period else ""
+        print(f"timepoints : {m['n_timepoints']}{every}  (run one with t=<index>; docs/TIMELAPSE.md)")
+    if image_format(nd2) == "nd2":
+        _print_acquisition(nd2)
     return 0
+
+
+def _print_acquisition(nd2: str) -> None:
+    """The per-channel acquisition table from the .nd2 description (exposure, laser power, emission filter,
+    camera mode): the record the acquisition stage writes and the one acquisition.expected is checked
+    against (docs/QC.md). Other formats carry no such description, so nothing is printed for them."""
+    from .io.acquisition import format_table, parse_description, read_description
+
+    try:
+        per_name = parse_description(read_description(nd2))
+    except Exception as e:  # noqa: BLE001 - the header fields above are already printed; say why this part is not
+        print(f"acquisition: description unreadable ({e})")
+        return
+    if not per_name:
+        print("acquisition: the description lists no per-channel planes")
+        return
+    print("acquisition (from the .nd2 description; the full record goes to image_summary.acquisition_json):")
+    print(format_table(per_name))
 
 
 def _run(args) -> int:
@@ -193,6 +498,10 @@ def _run(args) -> int:
 
     cfg = load_config(_resolve_config_path(args))
     _apply_switches(cfg, args)
+    if getattr(args, "t", None) is not None:
+        return _run_series(args, cfg)
+    if getattr(args, "resume", False):
+        raise SystemExit("--resume applies to a time series: give --t as well (for example --t all)")
     # germquant.api.run is the one path to a results folder: a GUI or a notebook calling it with the same
     # settings writes the same files (process_image writes run_manifest.json itself)
     res = run(args.nd2, config=cfg, out=args.out, xy_stride=args.xy_stride, z_range=args.z_range)
@@ -204,6 +513,26 @@ def _run(args) -> int:
     # QC status is recorded in the output tables; a flagged image is NOT a process
     # failure (so unattended Snakemake batches complete). Only exceptions are errors.
     return 0
+
+
+def _run_series(args, cfg) -> int:
+    """``germquant run SERIES.nd2 --t ...``: the per-timepoint loop (timelapse.series.process_series). A
+    timepoint that raises is recorded in the series record and the loop goes on; the exit code is 0 when at
+    least one requested timepoint finished and 1 when none did."""
+    from .timelapse import process_series
+
+    res = process_series(args.nd2, cfg, args.out, timepoints=args.t, xy_stride=args.xy_stride,
+                         z_range=args.z_range, resume=bool(getattr(args, "resume", False)))
+    rec = res["record"]
+    n_req, n_done, n_failed = len(res["requested"]), len(res["done"]), len(res["failed"])
+    n_pass = sum(1 for e in rec["timepoints"] if e.get("status") == "done" and e.get("qc_pass"))
+    n_resumed = sum(1 for e in rec["timepoints"] if e.get("resumed"))
+    print(f"\n{res['series_id']}: {n_req} timepoint(s) requested of {res['n_timepoints']}, {n_done} done"
+          + (f" ({n_resumed} already on disk)" if n_resumed else "") + f", {n_failed} failed, {n_pass} passed QC")
+    for f in res["failed"]:
+        print(f"  t{f['t_index']:03d} FAILED: {'; '.join(f['flags'])}")
+    print(f"  -> {res['out_dir']}  ({Path(res['record_path']).name}, {Path(res['summary_path']).name})")
+    return 0 if n_done else 1
 
 
 def _batch(args) -> int:
@@ -324,6 +653,49 @@ def _restage(args) -> int:
     return 0
 
 
+def _register(args) -> int:
+    """``germquant register SERIES_DIR``: the drift of a time-lapse as a shift table (timelapse.register,
+    docs/TIMELAPSE.md "Registration"). Exit code 1, with the reason, when the folder is not a series or holds no
+    reference volumes; a timepoint that cannot be registered is a row with an error, not a failure."""
+    from .timelapse.register import register_series
+
+    try:
+        res = register_series(args.series_dir, reference=args.reference, upsample=args.upsample,
+                              max_step_um=args.max_step_um, channel=args.channel, rigid=args.rigid,
+                              normalization=args.normalization, taper=args.taper)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    rep, par = res["report"], res["report"]["parameters"]
+    print(f"\n{res['series_id']}: {rep['n_timepoints']} timepoint(s), {rep['n_registered']} step(s) registered on "
+          f"{par['channel_role']} ({rep['method']}, stride {par['stride']}, upsample {par['upsample_factor']}, "
+          f"reference {par['reference']})")
+    if rep.get("cumulative_last_um"):
+        dz, dy, dx = rep["cumulative_last_um"]
+        cap = f"{par['max_step_um']:g} um" if par.get("max_step_um") else "none"
+        print(f"  cumulative shift at t{rep['last_t_index']:03d}: dz={dz:+.2f} dy={dy:+.2f} dx={dx:+.2f} um; "
+              f"largest step {rep['max_step_um']:.2f} um; {rep['n_capped']} capped (cap {cap})")
+    q = rep["quality"]
+    if q.get("median_before_um") is not None and q.get("median_after_um") is not None:
+        print(f"  quality: median nearest-neighbour displacement {q['median_before_um']:.2f} -> "
+              f"{q['median_after_um']:.2f} um (before -> after the step, over {q['n_steps']} step(s))")
+    if par.get("cross_check_role"):
+        med = rep.get("median_disagreement_um")
+        med_txt = f"{med:.2f} um" if med is not None else "n/a"
+        print(f"  {par['cross_check_role']} cross-check: median disagreement {med_txt}, {rep['n_disagreement']} step(s) "
+              f"above {par['disagreement_um']:g} um")
+    else:
+        print("  no brightfield reference volume: cross-check skipped")
+    if rep.get("rigid") is not None:
+        angles = [r["rotation_deg"] for r in rep["rigid"] if r.get("rotation_deg") is not None]
+        print(f"  rigid fit (experimental, report only): {len(angles)} step(s) fitted, largest rotation "
+              f"{max(angles) if angles else 0.0:.2f} deg")
+    for k, why in rep.get("errors", {}).items():
+        print(f"  t{int(k):03d}: {why}")
+    print(f"  -> {res['table_path']}, {res['report_path']}")
+    return 0
+
+
 def _collect(args) -> int:
     from . import batch as B
 
@@ -403,6 +775,81 @@ def _get_model(args) -> int:
     from .models_registry import main as get_model_main
 
     return get_model_main([args.name] + (["--force"] if args.force else []))
+
+
+def _export_training(args) -> int:
+    from .segment.training import export_training_pairs
+
+    orientations = tuple(o.strip() for o in str(args.orientations).split(",") if o.strip())
+    manifest = export_training_pairs(args.results_dir, args.out, orientations=orientations,
+                                     slices_per_image=args.slices_per_image, seed=args.seed,
+                                     zone_column=args.zone_column or None, min_labels=args.min_labels,
+                                     max_bytes=float(args.max_gb) * 1e9)
+    n_img = manifest["image_id"].nunique() if len(manifest) else 0
+    per = manifest.groupby("orientation").size().to_dict() if len(manifest) else {}
+    print(f"{len(manifest)} slice pair(s) from {n_img} run(s) -> {args.out}  "
+          f"({', '.join(f'{k}: {v}' for k, v in sorted(per.items()))})")
+    print(f"  correct labels/<name>.tif in napari (napari {args.out}/image/X.tif {args.out}/labels/X.tif) or the "
+          f"Cellpose GUI, keep the file names, then `germquant train-nuclei --pairs {args.out} --out MODELDIR`")
+    return 0
+
+
+def _train_nuclei(args) -> int:
+    from .segment.training import train_nuclei
+
+    res = train_nuclei(args.pairs, args.out, base=args.base, name=args.name, epochs=args.epochs,
+                       split_by=args.split_by, val_frac=args.val_frac, seed=args.seed, cpu=args.cpu,
+                       learning_rate=args.learning_rate, batch_size=args.batch_size,
+                       min_train_masks=args.min_train_masks)
+    sp = res["split"]
+    print(f"\n{res['name']}: trained on {sp['n_train']} slice(s) from {len(sp['train_groups'])} {sp['by']} group(s), "
+          f"{sp['n_val']} held out from {len(sp['val_groups'])}, device {res['device']}")
+    overall = res["metrics"].get("overall")
+    if overall:
+        print(f"  hold-out at IoU 0.5: F1 {overall['f1']:.3f}  precision {overall['precision']:.3f}  "
+              f"recall {overall['recall']:.3f}  miss rate {overall['miss_rate']:.3f}  "
+              f"(TP {overall['tp']} FP {overall['fp']} FN {overall['fn']})")
+        for o, m in res["metrics"].get("per_orientation", {}).items():
+            print(f"    {o}: F1 {m['f1']:.3f} on {m['n_pairs']} slice(s)")
+    elif res["metrics"].get("error"):
+        print(f"  hold-out metrics missing: {res['metrics']['error']}")
+    print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
+    print(f"  card  -> {res['card_path']}")
+    print(f"  register it:  germquant register-model --model \"{res['model_path']}\" --card \"{res['card_path']}\"")
+    return 0
+
+
+def _register_model(args) -> int:
+    from .models_registry import register_main
+
+    argv = ["--model", args.model]
+    if args.card:
+        argv += ["--card", args.card]
+    if args.name:
+        argv += ["--name", args.name]
+    return register_main(argv)
+
+
+def _imaris_truth(args) -> int:
+    from .validate.imaris_ims import export_imaris_truth
+
+    p = export_imaris_truth(args.ims, args.out, nd2=args.nd2, masks=not args.no_masks)
+    m = p["mask"]
+    line = f"{p['stem']}: {p['n_spots']} spots, {p['n_surfaces']} surfaces"
+    if m.get("labels_file"):
+        line += (f", {m['n_surfaces_with_mask']}/{p['n_surfaces']} surfaces with a mask from channel "
+                 f"{m['channel']} ('{m['channel_name']}'), labels {tuple(m['labels_shape_zyx'])}")
+    else:
+        line += f", no label image ({m.get('reason_no_labels')})"
+    print(line)
+    if m.get("labels_file"):
+        print(f"  centroid check: {m['n_centroid_inside_own_label']} inside own label, {m['n_centroid_in_cavity']} on a "
+              f"cavity (0), {m['n_centroid_in_other_label']} inside another label; "
+              f"{m['n_orphan_values']} unclaimed mask value(s) dropped")
+    for w in p["warnings"]:
+        print(f"  warning: {w}")
+    print(f"  -> {args.out}")
+    return 0
 
 
 def _check_gpu() -> int:

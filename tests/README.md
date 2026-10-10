@@ -11,9 +11,31 @@ gonads are built inside the fixtures.
   profile machinery (`test_profiles.py`), the stage registry (`test_stages.py`), batch bookkeeping
   (`test_batch.py`) and the model download command (`test_models_registry.py`, which fakes the
   network).
+- `test_imaris_truth.py`: the Imaris truth reader (`germquant imaris-truth`) on a tiny synthetic
+  HDF5 written in the `.ims` layout; skips itself when `h5py` is not installed.
 - `test_end_to_end.py`: the whole single-image pipeline on synthetic 3-channel and 4-channel gonads
   with the `.nd2` reader monkeypatched. Its fixtures (`patched_reader`, `patched_reader_4ch`) are
   imported by several other modules.
+- `test_timelapse_reader.py`: the T-aware reader (`docs/TIMELAPSE.md`). A fake `ND2File` with nd2's
+  one-chunk-per-frame layout records which planes a read touches, so the tests show that `t=<index>`
+  reads one timepoint's planes and nothing else, that `t=None` is the old behaviour, that out-of-range
+  values are refused before any pixel is read, and that the header reports `n_timepoints`, `period_s`
+  and `t_seconds`. The bioio branch runs on a fake `BioImage` and, when `bioio-ome-tiff` is installed,
+  on an OME-TIFF with a T axis written by tifffile. `process_image(t=...)` is checked to suffix the
+  image id, record the timepoint in the markers only, and write the same numbers as a fixed run on the
+  same stack.
+- `test_live_profile.py`: the live GFP::SYP-2 profile and channel map (no `dna` role) and the
+  `segmentation.nuclei.channel` key: a spy backend shows which channel the segment stage hands over
+  (DAPI by default, the named role otherwise, channel 0 with a flag when the role is missing), and a
+  synthetic two-channel series with a planted drift runs through `process_series` end to end on the CPU.
+- `test_training_loop.py`: `export-training`, `train-nuclei` and `register-model`
+  (`docs/TIMELAPSE.md`, "Segmenting without DAPI"). The export is checked file for file against the
+  source stack and labels (dtypes, the isotropic xz / yz resampling, the manifest, zone tags, the seeded
+  draw, the size cap); training runs with the three Cellpose seams (`_build_net`, `_train_seg`,
+  `_predict`) replaced by fakes, so the split rule, the losses, the sha256 of every pair, the per-orientation
+  F1 and the card are checked without loading weights or writing a 1.2 GB file; the registry test registers
+  a model, verifies it with `get-model`, and shows the segment stage receives the registered file. One test
+  is opt-in (below): a real training run of a randomly initialised Cellpose-SAM network.
 - `test_golden.py`: the numeric gate. `test_synthetic_golden` runs the same two synthetic gonads
   with the classical nucleus segmenter and SpotMAX and compares every output table cell for cell
   with the references under `golden/synthetic/` and `golden/synthetic_4ch/`. A `config_hash.txt`
@@ -23,7 +45,15 @@ gonads are built inside the fixtures.
   real-data comparison (see the environment variables below). The goldens were produced on the
   workstation (Windows, the pinned `constraints/desktop-2026-09.txt` environment) and are checked
   with `check_exact=True`.
+- `test_benchmark_split.py`: the pre-registered RAD-51 benchmark split (`golden/rad51_split.json`,
+  `docs/BENCHMARK_PROTOCOL.md`): the 12 tags and their train/val/test roles, the sha256 helper, the
+  Imaris creation-parameter reader on a synthetic HDF5 project, and the manifest builder
+  (`scripts/benchmark_manifest.py`) on a temporary tree.
 - `test_gpu.py`: the real Cellpose-SAM 3D path. See the markers.
+- `test_benchmark.py`: the benchmark harness (`germquant.benchmark`, see `docs/BENCHMARK.md`) on
+  synthetic label volumes and spot sets with known answers for every metric (a split, a merge, an
+  out-of-coverage prediction, the z-extent error, the chunked Hungarian against the dense result, the
+  bootstrap intervals), plus both benchmark scripts run on a temporary manifest in a subprocess.
 
 ## Markers
 
@@ -48,10 +78,17 @@ Opt-ins driven by environment variables rather than markers:
 - `GERMQUANT_UPDATE_GOLDEN=1`: `test_synthetic_golden` rewrites the synthetic references instead of
   checking them. Only for a deliberately number-changing step, run from the code that is being
   certified; see the docstring of `test_golden.py` and `scripts/make_goldens.py`.
+- `GERMQUANT_TRAIN_SMOKE=1`: `test_training_loop.py::test_real_random_init_training_on_the_cpu` trains a
+  randomly initialised Cellpose-SAM network (no weights downloaded) for two epochs on the CPU through
+  `train_nuclei` and checks the model file, log and card. It takes about 90 seconds and writes a 1.2 GB
+  model file under the test's temporary folder, which is why it is not in the default suite; set
+  `OMP_NUM_THREADS` to leave cores free for other work.
 
 Other automatic skips: the extended-path check in `test_fsutil.py` runs only on Windows, its
-POSIX twin only elsewhere, and `test_staging.py` skips its comparison with the August staging tables
-when they are not on the machine.
+POSIX twin only elsewhere, `test_staging.py` skips its comparison with the August staging tables
+when they are not on the machine, and `test_benchmark_split.py` skips the check that the 24
+registered `.nd2` and `.ims` files exist with their registered sizes when the N2 RAD-51 data is not
+on the machine.
 
 ## Running the suite locally
 
@@ -132,4 +169,7 @@ Two sets of real gonads are frozen under `C:/Users/ryane/germquant_golden/8666f0
 * `n2rad51_*` (12 gonads): the 3-channel N2 RAD-51 cross-validation set of 2025-11-05 (DAPI, SYP, RAD-51),
   no heat shock and heat shock, hermaphrodites and males, imaged with the standard preparation and paired
   with Imaris annotations. These are both regression inputs and the benchmark set for spot detection.
+  Their train/val/test split, with the size and sha256 of every `.nd2` and `.ims`, is
+  `tests/golden/rad51_split.json` (rebuilt by `scripts/make_rad51_split.py`); the benchmark protocol is
+  `docs/BENCHMARK_PROTOCOL.md`.
 

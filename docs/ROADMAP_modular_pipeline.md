@@ -57,6 +57,7 @@ table every run (empty when off). Default state is what keeps today's outputs id
 | acquisition (exposure, laser power per role) | analysis/coloc build_acquisition_metadata.py | acquisition.read_exposures | off |
 | segment (Cellpose nuclei) | existing | segmentation.nuclei.method | on |
 | measure | existing | none | on |
+| signal_qc (per-channel background, noise, SNR, saturation; pairwise cross-talk; docs/QC.md) | new | signal_qc.enabled | on (flags off) |
 | germline | existing | germline.enabled | on |
 | envelope (LMN-1 watershed masks, ring test, territories) | pc_lamin_worker.lamin_nuclei, nucleus_filter.py | envelope.enabled | off |
 | axis | existing, gains an enable gate | axis.enabled | on |

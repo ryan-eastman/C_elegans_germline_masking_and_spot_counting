@@ -1,8 +1,8 @@
 """Single-image pipeline: .nd2 -> tidy tables + montage + label mask + manifest.
 
 Stages, in the order of `germquant.stages.STAGES`: read -> segment nuclei (Cellpose) -> measure ->
-isolate germline -> linearize axis -> spots (SpotMAX) -> granules (PGL-1) -> coloc -> qc -> render ->
-write. Optional stages are switched by one config key each (read with a code default, so config files
+signal QC -> isolate germline -> linearize axis -> spots (SpotMAX) -> granules (PGL-1) -> coloc -> qc ->
+render -> write. Optional stages are switched by one config key each (read with a code default, so config files
 never need editing) and run through `stages.run_stage`, which flags a failure (`<stage>:FAILED_<Exc>`)
 and continues instead of killing the batch. Voxel spacing from the .nd2 is threaded into every 3D op.
 A per-stage outcome record is written next to the tables as ``<image_id>__stages.json``.
@@ -35,6 +35,7 @@ from .axis import linearize_germline
 from .config import Config
 from .fsutil import long_path
 from .io import parse_sample, read_image, read_image_metadata, read_nd2_metadata, read_stack
+from .io.acquisition import expected_flags, expected_settings, read_acquisition
 from .io.formats import image_format
 from .measure import measure_objects
 from .render import make_montage
@@ -90,7 +91,9 @@ def resolve_model_path(cfg):
     """The Cellpose model the config names, resolved against the config's base_dir when it is a relative
     path to an existing file (so a profile outside the repo still finds models/...), or against
     ``$GERMQUANT_MODELS`` (the HPC / container binding: the config's ``models/...`` path is looked up
-    under it, with or without the leading ``models/``); bare built-in names such as 'cpsam' pass through."""
+    under it, with or without the leading ``models/``). A bare name that is a registered model (a release
+    asset or a model added with ``germquant register-model``, models_registry) resolves to the registered
+    file when it is on disk; other bare names such as 'cpsam' pass through to Cellpose."""
     model_path = cfg.get("segmentation.nuclei.cellpose_model")
     if not model_path:
         return model_path
@@ -104,19 +107,67 @@ def resolve_model_path(cfg):
                 return cand
     if (cfg.base_dir / p).is_file():
         return cfg.base_dir / p
+    if len(p.parts) == 1:
+        from .models_registry import resolve_registered
+
+        # the installation's registry first ($GERMQUANT_MODELS or the checkout's models/models), then a
+        # registry next to the config's base folder (a study tree with its own models/models)
+        for base_dir in (None, cfg.base_dir):
+            registered = resolve_registered(str(model_path), base_dir)
+            if registered is not None:
+                return registered
+        from .models_registry import known_models
+
+        if str(model_path) in known_models():
+            # Cellpose would silently fall back to its default weights for an unknown pretrained name
+            raise FileNotFoundError(
+                f"model {model_path!r} is registered but its file is missing: fetch it with "
+                f"'germquant get-model {model_path}' (release assets), register it again, or set GERMQUANT_MODELS")
     return model_path
 
 
-def _read_input(path: Path, *, xy_stride: int, z_range):
+def read_input_metadata(path: str | Path) -> dict:
+    """The header of the input image through this module's reader names (``read_nd2_metadata`` for an
+    ``.nd2``, io.read_image_metadata otherwise): the seam the synthetic-stack test fixtures patch, so the
+    time-lapse loop (timelapse.series) learns the timepoint count from the same reader process_image uses."""
+    if image_format(path) == "nd2":
+        return read_nd2_metadata(path)
+    return read_image_metadata(path)
+
+
+def _read_input(path: Path, *, xy_stride: int, z_range, t=None):
     """Header and pixels of the input image: ``(metadata dict, Stack)``.
 
     An ``.nd2`` goes through this module's ``read_nd2_metadata`` and ``read_stack`` names: the functions
     every golden was made with, and the seam the synthetic-stack test fixtures patch. Every other format
     goes through io.read_image_metadata / io.read_image (bioio, optional ``readers`` extra), which return
-    the same Stack and honour xy_stride and z_range the same way."""
+    the same Stack and honour xy_stride and z_range the same way. ``t`` (one timepoint of a time series)
+    is passed on only when given, so a fixed image makes exactly the calls it always has."""
+    kw = {} if t is None else {"t": t}
     if image_format(path) == "nd2":
-        return read_nd2_metadata(path), read_stack(path, xy_stride=xy_stride, z_range=z_range)
-    return read_image_metadata(path), read_image(path, xy_stride=xy_stride, z_range=z_range)
+        return read_nd2_metadata(path, **kw), read_stack(path, xy_stride=xy_stride, z_range=z_range, **kw)
+    return read_image_metadata(path, **kw), read_image(path, xy_stride=xy_stride, z_range=z_range, **kw)
+
+
+def _t_seconds_of(meta: dict, t: int) -> float | None:
+    """The recorded time stamp of timepoint ``t`` from the header's ``t_seconds`` list, or None when the
+    file carries none (bioio formats, or an unreadable per-frame record)."""
+    stamps = meta.get("t_seconds")
+    if stamps is None or not 0 <= int(t) < len(stamps):
+        return None
+    return float(stamps[int(t)])
+
+
+def t_seconds_of(meta: dict, t: int) -> float | None:
+    """The acquisition time (s) of timepoint ``t`` from the reader's ``t_seconds`` list, or None when the
+    header carries none (a fixed image, or a reader without the field). Public name of ``_t_seconds_of``
+    for the time-lapse loop; tolerant of a header that is not a dict."""
+    if not isinstance(meta, dict):
+        return None
+    try:
+        return _t_seconds_of(meta, t)
+    except (IndexError, TypeError, ValueError):
+        return None
 
 
 def process_image(
@@ -127,11 +178,24 @@ def process_image(
     xy_stride: int = 1,
     z_range: tuple[int, int] | None = None,
     prov: dict | None = None,
+    t: int | None = None,
+    on_stack=None,
 ) -> dict:
     """Run every enabled stage on one image and write its results folder. ``nd2_path`` (the name is kept
     for compatibility) is any supported image: an ``.nd2``, or a TIFF / OME-TIFF, CZI, LIF or OME-Zarr
     file when the ``readers`` extra is installed (io/read.py). Returns image_id, n_nuclei, qc_pass,
-    qc_flags, out_dir, the tables (DataFrames by name) and the per-stage record."""
+    qc_flags, out_dir, the tables (DataFrames by name) and the per-stage record.
+
+    ``t`` processes one timepoint of a time series (docs/TIMELAPSE.md): the reader loads that timepoint's
+    stack, every stage runs on it unchanged, the image id (and with it every per-image file name) becomes
+    ``<stem>_t<NNN>``, and ``t_index`` / ``t_seconds`` are recorded in the run geometry (run_manifest.json,
+    ``__stages.json``) and the completion marker. With ``t=None``, the default, nothing changes: a fixed
+    image's id, tables, stage record and marker are exactly what they were.
+
+    ``on_stack`` (None by default) is called once, right after the read stage, with a dict holding the
+    ``stack`` as read, the header ``meta``, the resolved ``role_to_idx``, the ``image_id``, ``out_dir``,
+    ``spacing`` and ``t``: the time-lapse loop keeps a downsampled reference volume for registration with it
+    (timelapse.series, docs/TIMELAPSE.md). It changes no stage and no output; a fixed image passes nothing."""
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
     os.makedirs(long_path(out_dir), exist_ok=True)
@@ -140,7 +204,8 @@ def process_image(
 
     # ---- read + resolve channels ----
     t_read = time.perf_counter()
-    meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range)
+    acq_expected = expected_settings(cfg)   # a bad acquisition.expected section fails here, before any pixel is read ({} when absent)
+    meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range, t=t)
     role_to_idx, ch_flags = cfg.channel_map.resolve(meta["channel_names"])
     flags += ch_flags
     spacing = stack.spacing
@@ -151,6 +216,10 @@ def process_image(
     dapi_present = role_to_idx.get("dna") is not None
 
     sample = parse_sample(nd2_path, cfg.get("metadata.filename_regex"), cfg.get("metadata.defaults"))
+    if t is not None:
+        # one timepoint of a series: the design columns were parsed from the raw stem above; the image id,
+        # and so every per-image file name, carries the timepoint (three digits, one underscore)
+        sample["image_id"] = f"{sample['image_id']}_t{int(t):03d}"
     # a rerun must never leave an older run's completion marker behind (batch --resume trusts it)
     provenance.clear_done_marker(out_dir, sample["image_id"])
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
@@ -163,6 +232,10 @@ def process_image(
     run_geometry = {"xy_stride": int(xy_stride), "z_range": list(z_range) if z_range else None,
                     "stage_hashes": stage_hashes, "model_sha256": model_sha,
                     "enabled_stages": [s.name for s in STAGES if stage_enabled(cfg, s.name)]}
+    if t is not None:
+        # the timepoint enters the run geometry (manifest, stage record) and the marker ONLY for a series
+        run_geometry["t_index"] = int(t)
+        run_geometry["t_seconds"] = _t_seconds_of(meta, t)
     prov = prov or provenance.write_manifest(out_dir, config_hash=cfg.hash, config=cfg.as_dict(),
                                              extra=run_geometry)
 
@@ -178,31 +251,49 @@ def process_image(
         "config_hash": cfg.hash, "run_timestamp": prov["run_timestamp"],
     }
     outcomes["read"] = Outcome("ran", elapsed_s=time.perf_counter() - t_read, flags=list(flags))
+    if on_stack is not None:
+        # the caller's look at the stack as read (the series loop's reference volumes for registration); an
+        # exception here fails the image the way a failed read does
+        on_stack({"stack": stack, "meta": meta, "role_to_idx": role_to_idx, "image_id": sample["image_id"],
+                  "out_dir": out_dir, "spacing": spacing, "t": t})
 
-    # ---- acquisition metadata (exposure / laser power per role, from the nd2 description) ----
+    # ---- acquisition metadata (exposure / laser power / filters / camera per role, from the nd2 description) ----
+    # With acquisition.expected set (docs/QC.md), the record is also checked against the study's expected
+    # settings and the advisory acq:<role>_* flags are raised; the section is absent from every shipped
+    # config, so the default path writes the same flags it always has.
     acq_fields: dict = {}
 
     def _acquisition():
-        from .io.acquisition import acquisition_fields
-
-        return acquisition_fields(nd2_path, list(meta["channel_names"]), role_to_idx)
+        rec = read_acquisition(nd2_path, list(meta["channel_names"]), role_to_idx)
+        if acq_expected:
+            flags.extend(expected_flags(rec.per_role, acq_expected))
+        return rec.fields
 
     acq_on = stage_enabled(cfg, "acquisition")
     is_nd2 = image_format(nd2_path) == "nd2"      # the description text lives in the .nd2 header only
+    if acq_expected and not (acq_on and is_nd2):
+        log.warning("acquisition.expected is set but the acquisition stage is not running (%s); the "
+                    "expected-settings check is skipped",
+                    "acquisition.read_exposures is off" if not acq_on else "not an .nd2")
     acq_res = run_stage("acquisition", _acquisition, flags=flags, outcomes=outcomes, enabled=acq_on and is_nd2,
                         skip_reason="disabled" if not acq_on else "not an .nd2 (no acquisition description)")
     if acq_res is not None:
         acq_fields = acq_res
 
     # ---- segment nuclei (always on; a failure here is fatal, as it always was) ----
+    # The stage segments the channel whose ROLE segmentation.nuclei.channel names (code default "dna", the
+    # value every shipped config carries, so every frozen recipe resolves the same pixels). A live profile
+    # without a DNA stain names central_element here (config/profiles/live_syp2.yaml, docs/TIMELAPSE.md).
+    seg_role = str(cfg.get("segmentation.nuclei.channel", "dna") or "dna")
+
     def _segment():
-        dna = stack.channel(role_to_idx.get("dna"))
-        if dna is None:
-            flags.append("segment:no_dna_channel_using_first_channel")
-            dna = stack.data[0]
+        img = stack.channel(role_to_idx.get(seg_role))
+        if img is None:
+            flags.append(f"segment:no_{seg_role}_channel_using_first_channel")
+            img = stack.data[0]
         seg = cfg.segmentation.nuclei
         return segment_nuclei(
-            dna, spacing,
+            img, spacing,
             method=seg.get("method", "auto"), cellpose_model=str(model_file) if model_file else "cpsam",
             diameter_um=float(seg.get("diameter_um", 3.0)), min_volume_um3=float(seg.get("min_volume_um3", 4.0)),
             device=seg.get("device"),          # cuda | mps | cpu | auto; $GERMQUANT_DEVICE overrides
@@ -220,9 +311,56 @@ def process_image(
     def _measure():
         intensity = {r: stack.data[i] for r, i in role_to_idx.items() if i is not None}
         df = measure_objects(labels, intensity, spacing, compute_surface=False)
-        return df.rename(columns={"label": "nucleus_id"}) if not df.empty else pd.DataFrame(columns=["nucleus_id"])
+        if df.empty:
+            return pd.DataFrame(columns=["nucleus_id"])
+        df = df.rename(columns={"label": "nucleus_id"})
+        if not cfg.channel_map.has_role("dna"):
+            # a channel map with no dna role at all (live imaging without a DNA stain, docs/TIMELAPSE.md):
+            # the per-role intensity columns are written for the roles present, and the dna ones that
+            # downstream readers expect are NaN rather than absent. Every shipped map has a dna role, so
+            # nothing changes for them.
+            for m in ("mean", "max", "integrated"):
+                df[f"dna_{m}_intensity"] = float("nan")
+        return df
 
     nuclei = run_stage("measure", _measure, flags=flags, outcomes=outcomes, fatal=True)
+
+    # ---- signal QC: is each channel measurable, and does one leak into another? (germquant.signal_qc) ----
+    # Runs on an xy sub-sample right after measure, before any stage trusts a channel. It adds only NEW
+    # image_summary columns (sig_<role>_*) and its own table (channel_crosstalk), and its flags are off
+    # unless a profile enables them, so the qc_flags text of the validated default path (and its goldens)
+    # stays byte-identical. The acquisition stage's exposure / power fields normalize the levels.
+    signal_summary_fields: dict = {}
+    crosstalk_table = pd.DataFrame(columns=schema.CHANNEL_CROSSTALK)
+
+    def _signal_qc():
+        from .signal_qc import DEFAULTS as SQ
+        from .signal_qc import run_signal_qc, signal_flags
+
+        res = run_signal_qc(
+            stack.data, labels, spacing, role_to_idx, acq_fields=acq_fields, image_id=sample["image_id"],
+            stride=int(cfg.get("signal_qc.stride", SQ["stride"])),
+            tissue_dilation_um=float(cfg.get("signal_qc.tissue_dilation_um", SQ["tissue_dilation_um"])),
+            ring_um=float(cfg.get("signal_qc.ring_um", SQ["ring_um"])),
+            min_bg_voxels=int(cfg.get("signal_qc.min_bg_voxels", SQ["min_bg_voxels"])),
+            bit_depth=cfg.get("signal_qc.bit_depth"), source_dtype=meta.get("dtype"),
+        )
+        if bool(cfg.get("signal_qc.flags.enabled", False)):
+            flags.extend(signal_flags(
+                res["summary"], res["crosstalk"], res["roles"],
+                min_snr=float(cfg.get("signal_qc.min_snr", SQ["min_snr"])),
+                max_sat_frac=float(cfg.get("signal_qc.max_sat_frac", SQ["max_sat_frac"])),
+                max_r=float(cfg.get("signal_qc.crosstalk.max_r", SQ["crosstalk_max_r"]))))
+        return res
+
+    sig_on = stage_enabled(cfg, "signal_qc")
+    sig_roles = [r for r, i in role_to_idx.items() if i is not None]
+    sig_res = run_stage("signal_qc", _signal_qc, flags=flags, outcomes=outcomes,
+                        enabled=sig_on and bool(sig_roles),
+                        skip_reason="disabled" if not sig_on else "no resolved channel role")
+    if sig_res is not None:
+        signal_summary_fields = dict(sig_res["summary"])
+        crosstalk_table = sig_res["crosstalk"]
 
     # ---- isolate germline (drop nuclei segmented OUTSIDE the gonad: gut, debris, off-gonad) ----
     # Uses SYP (central_element) intensity + spatial connectivity, NEVER the spot count. Excluded
@@ -655,6 +793,29 @@ def process_image(
     if tail_res is not None:
         tail_table, tail_summary = tail_res["table"], dict(tail_res["summary"])
 
+    # ---- per-image summary fields ----
+    # Every stage's image_summary contribution, spread in the order the row has always used (declared
+    # columns are reordered to the schema on write; the per-instance extras keep this order). A stage that
+    # needs another stage's number reads it here: the partition measurability check below reads the
+    # signal_qc stage's SYP signal-to-noise (sig_central_element_snr) from this dict.
+    summary_fields: dict = {**coloc_summary_fields, **sc_summary_fields, **env_summary_fields, **audit_summary_fields,
+                            **acq_fields, **staging_summary_fields, **partition_summary, **tail_summary,
+                            **spot_instance_summary, **signal_summary_fields}
+
+    # ---- partition measurability (partition_syp_snr, partition_measurable; docs/PARTITION_QC.md) ----
+    # A SYP channel with no live fluorophore, or recorded through the wrong emission filter, yields a
+    # partition coefficient floor above 1 that no rotation null removes. When a profile sets
+    # partition.min_syp_snr (code default 0.0: off) an image below it is flagged partition:low_syp_snr;
+    # every partition number is still written, the flag is the signal.
+    if part_res is not None:
+        from .partition import partition_measurability
+
+        meas_fields, meas_flags = partition_measurability(summary_fields,
+                                                          min_syp_snr=cfg.get("partition.min_syp_snr", 0.0))
+        summary_fields.update(meas_fields)
+        flags.extend(meas_flags)
+        outcomes["partition"].flags.extend(meas_flags)
+
     # ---- QC ----
     t_qc = time.perf_counter()
     qc_pass, qc_all = qc.qc_flags(
@@ -675,8 +836,7 @@ def process_image(
         if "axis_position_um" in nuclei and not nuclei.empty else float("nan"),
         "qc_pass": qc_pass, "qc_flags": ";".join(qc_all),
         "segmentation_method": seg_method, "axis_confidence": axis_conf,
-        **coloc_summary_fields, **sc_summary_fields, **env_summary_fields, **audit_summary_fields,
-        **acq_fields, **staging_summary_fields, **partition_summary, **tail_summary, **spot_instance_summary,
+        **summary_fields,
     }])
 
     # ---- write outputs ----
@@ -714,6 +874,7 @@ def process_image(
               "coloc": coloc, "image_summary": image_summary,
               "sc_tracks": sc_tracks, "sc_per_nucleus": sc_per_nuc, "mask_audit": audit_table,
               "zones": zones_table, "partition": partition_table, "granule_tail": tail_table,
+              "channel_crosstalk": crosstalk_table,
               **extra_spot_tables}
 
     def _write():
@@ -758,6 +919,7 @@ def process_image(
             granule_mask=(granule_labels > 0) if granule_labels is not None else None,
             scalebar_um=float(cfg.get("render.scalebar_um", 10)),
             title=f"{sample['image_id']}  [{sample['sex']}/{sample['treatment']}]  n={n_nuclei}",
+            base_role=seg_role,          # the overlay sits on the channel that was segmented ("dna" by default)
         )
 
     def _dump_stage_record(complete: bool) -> dict:
@@ -784,10 +946,11 @@ def process_image(
         stage_record = _dump_stage_record(complete)
     # completion marker: the LAST file written, so `germquant batch --resume` can trust a folder that has
     # it (same config_hash, enabled stages and run geometry, no failed stage) and reprocess one that does not.
+    timepoint = {k: run_geometry[k] for k in ("t_index", "t_seconds") if k in run_geometry}   # {} for a fixed image
     provenance.write_done_marker(
         out_dir, sample["image_id"], config_hash=cfg.hash, enabled_stages=run_geometry["enabled_stages"],
         stage_hashes=stage_hashes, xy_stride=run_geometry["xy_stride"], z_range=run_geometry["z_range"],
-        failed_stages=[n for n, oc in outcomes.items() if oc.status == "failed"])
+        failed_stages=[n for n, oc in outcomes.items() if oc.status == "failed"], extra=timepoint or None)
 
     log.info("%s: %d nuclei, %d germline, spots=%d, qc_pass=%s",
              sample["image_id"], n_nuclei, n_germline_nuclei, len(spots), qc_pass)
