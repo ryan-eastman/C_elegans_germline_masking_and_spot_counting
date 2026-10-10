@@ -1,10 +1,10 @@
 # Time-lapse quantification
 
-Status: the reader side is implemented (this page, "Reading one timepoint"); the loop over a series, its
-resume logic and the command line switch are the next package and are described in
-[DESIGN_timelapse.md](DESIGN_timelapse.md). Nothing on this page changes a fixed image: its id, its
-tables, its stage record and its completion marker are byte for byte what they were, and
-tests/test_golden.py still gates that.
+Status: the reader ("Reading one timepoint"), the loop over a series with its resume logic and command line
+switch ("Running a series") and the drift registration ("Registration") are implemented; tracking and the
+biologist validation are the next packages and are described in [DESIGN_timelapse.md](DESIGN_timelapse.md).
+Nothing on this page changes a fixed image: its id, its tables, its stage record and its completion marker
+are byte for byte what they were, and tests/test_golden.py still gates that.
 
 The first dataset is the October 2026 GFP::SYP-2 series on the lab NAS: 25 timepoints 300 s apart, 76 (or
 66 in the second worm) planes at 0.2 um, two channels (Brightfield, EGFP), 2720 x 2720 pixels at 0.108 um,
@@ -130,6 +130,10 @@ What happens, per timepoint k:
    one) are written into the run geometry of `run_manifest.json` and `<id>__stages.json` and into the
    completion marker `<id>__done.json`. They are written only when `--t` was given, so the markers of
    a fixed image keep their exact keys.
+5. With `timelapse.keep_reference_volume` (code default true) a downsampled copy of the segmentation
+   channel, and of the brightfield channel when a role of that name resolves, is kept next to the file set
+   as `t<NNN>/<id>__ref_stride<k>.npy` for `germquant register` (see "Registration"). A fixed image never
+   writes one.
 
 Next to the timepoint folders the loop keeps two series-level records:
 
@@ -208,10 +212,160 @@ is `time_track_id`; `track_id` already means an SC fragment in `sc_tracks`.
 | table | written by | one row per | columns |
 |---|---|---|---|
 | `series_summary` | this package (`process_series`) | requested timepoint | `t_index`, `t_seconds`, `image_id`, `n_nuclei`, `n_germline_nuclei`, `mean_spots`, `qc_pass`, `qc_flags`, `elapsed_s`, then `sig_<role>_bg` and `sig_<role>_snr` for each channel role the series resolves (the signal_qc stage's background and signal-to-noise), then `SERIES_META` |
-| `register_shifts` | registration package (`germquant register`) | timepoint | the step against the reference frame and the accumulated shift to t0 in microns, the brightfield cross-check and its disagreement flag, whether the step was capped, the median nearest-neighbour displacement before and after, stride, upsample factor, method |
+| `register_shifts` | `germquant register` (timelapse.register; see "Registration") | timepoint | the cumulative shift to the first timepoint (`dz_um`, `dy_um`, `dx_um`) and the step against the reference frame in microns, the brightfield cross-check and its disagreement flag, whether the step was capped, the median nearest-neighbour displacement before and after the step, an error text, stride, upsample factor, method |
 | `track_points` | tracking package | object per timepoint | `time_track_id`, `t_index`, `t_seconds`, `image_id`, `nucleus_id`, raw and registered centroids, the step from the previous point, `is_gap`, `link_source`; nucleus measurements are joined on `(image_id, nucleus_id)` |
 | `tracks` | tracking package | track | `n_points`, `n_gaps`, `t_start`, `t_end`, `is_full_length`, path length, net displacement, speed, signed axis velocity after the t0 sign alignment, SYP intensity slopes raw and median-normalised, SC length change, `link_source` |
 | `track_validation` | `germquant track-validate` | hand-followed point | the biologist's point in raw-frame microns, the label it lands in and its track, the outcome (linked, segmentation_miss, switch, edge_missing), the validation set (holdout or constraint) and zone |
+
+## Registration
+
+Drift between timepoints is measured, never corrected in the images: `germquant register` writes a shift
+table, and the tracking package subtracts the shifts from the nucleus centroids. Nothing the stages see is
+resampled, so every per-timepoint table stays what the fixed-image pipeline would have written.
+
+### The reference volumes
+
+`germquant run --t` keeps, next to each timepoint's fixed-image file set, a downsampled copy of the
+segmentation channel: `t<NNN>/<image_id>__ref_stride<k>.npy`, a uint16 array of shape Z x Y/k x X/k (every
+plane, every k-th row and column of the stack as read, so a run with `--xy-stride 2` and k = 8 keeps every
+16th pixel of the file; a float stack is rounded and clipped). When the channel map resolves a role named
+`brightfield`, that channel is kept the same way as `<image_id>__ref_brightfield_stride<k>.npy`. Two config
+keys, both read with code defaults, so no config file changes:
+
+| key | code default | meaning |
+|---|---|---|
+| `timelapse.reference_stride` | 8 | k, the xy stride of the reference volumes (4 for a finer estimate at four times the disk space) |
+| `timelapse.keep_reference_volume` | true | whether a series run keeps them; a fixed image (`run` without `--t`) never writes one |
+
+The volumes come out of the stack `process_image` has already read (its `on_stack` callback), so the 56 GB
+file is not read twice; at stride 8 the October series costs 18 MB per timepoint per channel. The
+segmentation channel is the role `segmentation.nuclei.channel` names (code default `dna`), channel 0 when
+that role does not resolve (the segment stage's own fallback). Each timepoint's entry in
+`<stem>__series.json` records them under `reference_volumes`: `stride`, `role`, `channel_index`,
+`role_resolved`, `spacing_um` (dz, dy x k, dx x k), `shape`, `dtype` and `files` (role to path relative to
+the series folder); the record's top level carries `keep_reference_volume` and `reference_stride`. A
+failure to write a volume is logged and recorded in that entry's `error`; the timepoint itself goes on.
+
+A series processed before the volumes existed (or with the key off) is not lost: `germquant run SERIES.nd2
+--t all --out ... --resume` with the key on skips every finished timepoint as before and, when a resumed
+timepoint lacks its volumes, reads that timepoint back from the file at the run's geometry and writes them
+(no stage runs; `regenerated: true` in the entry). On the real series that is a read of about 25 s per
+timepoint over the network instead of a night of segmentation.
+
+### The command
+
+```
+germquant register results/SERIES
+germquant register results/SERIES --reference t0 --upsample 20 --max-step-um 2 --channel brightfield
+germquant register results/SERIES --rigid
+```
+
+`SERIES_DIR` is the `--out` folder of the series run. The command needs no config: it reads the series
+record (or, without one, the `t<NNN>/` folders and their file sets), the reference volumes, the per-timepoint
+`__nuclei.csv` tables and the voxel size of the volumes (from the record entry, else the `__image_summary.csv`
+voxel columns times the stride).
+
+For each timepoint, in `t_index` order, the translation between its reference volume and the reference
+frame's is estimated with `skimage.registration.phase_cross_correlation` at `--upsample` 10 (the code
+default): the estimate is quantised to a tenth of a reference-volume voxel, 0.086 um at stride 8 on the
+October series, below the full-resolution pixel. The reference frame is the previous registrable timepoint
+(`--reference previous`, the default; the steps are accumulated to the first timepoint with a volume), or the
+first timepoint itself (`--reference t0`: every estimate is independent, the step is the difference of
+consecutive estimates, and an estimate that went wrong does not propagate). A step longer than
+`--max-step-um` (code default 5.0 um; 0 switches the cap off) is shortened to that length, its direction kept,
+and flagged `capped`; in `previous` mode a capped step stays in the cumulative shift of every later timepoint,
+which is the cost of chaining and is why the quality columns and the brightfield cross-check exist.
+
+`--channel ROLE` registers another kept volume (the segmentation channel's by default; `brightfield` when one
+was kept; the other kept volume becomes the cross-check). `--normalization none|phase`: by default the
+cross-power spectrum is not whitened (plain cross-correlation with skimage's upsampled peak refinement; the
+`method` column says `cross_correlation`). Nuclei at stride 4 to 8 are smooth blobs with little texture, and
+whitening (`phase`, the textbook phase correlation, method `phase_cross_correlation`) then amplifies the
+empty high frequencies: on the synthetic series of the tests it biased a step by up to 0.6 reference voxel
+where the plain correlation was exact to the quantisation, with and without camera noise. `phase` stays
+available for textured volumes. `--taper FRACTION` (0, off, by default) subtracts each volume's mean and
+multiplies it by a Tukey window that tapers that fraction of every axis (0.25: the outer eighth on each
+side) before the correlation; see the caveats below for when to use it. `--rigid` is described below.
+
+Sign convention, shared by every time-lapse package: a positive shift means the sample moved by that much in
+the raw frame (a feature at position p at t0 sits at p + shift at t), so a registered coordinate is the raw
+centroid minus the cumulative shift of its timepoint. `phase_cross_correlation` reports the opposite (the
+shift that brings the moving volume back onto the reference) and the command negates it. Microns, in the raw
+frame, (z, y, x) order.
+
+### The outputs
+
+`<stem>__register_shifts.csv` and `.parquet` (`schema.SERIES_TABLES["register_shifts"]`), one row per
+timepoint, the declared columns first, then `SERIES_META` (the design columns from the series summary, the
+run's `config_hash`, this registration's version, git sha and timestamp):
+
+| column | meaning |
+|---|---|
+| `t_index`, `t_seconds`, `image_id` | the timepoint (`t_seconds` from the series record, NaN without one) |
+| `reference_t_index` | the frame this timepoint was registered against (empty for the origin) |
+| `channel_role` | the role whose volume was registered (`segmentation` when no record names it) |
+| `dz_um`, `dy_um`, `dx_um` | the cumulative shift to the first timepoint; the tracking package subtracts it. `cum_shift_z_um`, `cum_shift_y_um`, `cum_shift_x_um` carry the same numbers (the names declared first) |
+| `step_dz_um`, `step_dy_um`, `step_dx_um` | the step against the reference frame, after the cap; `shift_z_um`, `shift_y_um`, `shift_x_um` are the same numbers |
+| `capped` | the step hit `--max-step-um` |
+| `bf_shift_z_um`, `bf_shift_y_um`, `bf_shift_x_um` | the brightfield (cross-check) step, never capped |
+| `brightfield_dz_um`, `brightfield_dy_um`, `brightfield_dx_um` | the brightfield cumulative shift |
+| `brightfield_disagreement_um`, `bf_disagreement_um` | the distance between the brightfield step and the uncapped primary step (the same number twice); NaN without a brightfield volume |
+| `disagreement_flag` | that distance is above 1 um (`register_series(disagreement_um=...)` from code) |
+| `quality_before_um`, `quality_after_um` | the median nearest-neighbour displacement of the nucleus centroids (germline nuclei when `in_germline` marks any) between this timepoint and its reference frame, raw and after the step is subtracted; `nn_disp_before_um`, `nn_disp_after_um` are the same numbers. NaN without nuclei tables |
+| `error` | why a timepoint has no estimate (`no reference volume`, a shape mismatch after a stride change, ...); empty otherwise. The next registrable timepoint is registered against the last one that was, so one bad frame costs one row, not the chain |
+| `xy_stride`, `upsample_factor`, `method` | the reference volumes' stride, the upsampling, `cross_correlation` or `phase_cross_correlation` |
+
+`<stem>__register_report.json`: the parameters (reference mode, upsample, normalization, cap, disagreement
+threshold, channel and cross-check roles, stride, voxel size, origin timepoint), per-step summaries (step, raw
+step when capped, cumulative, brightfield step and cumulative, disagreement, quality before and after), the
+lists of capped and disagreeing timepoints, the errors, the median quality before and after, the largest
+step, the cumulative shift at the last timepoint, and the rigid fits when asked for.
+
+The quality numbers are a sanity check, not a loss: after a good registration what remains is the real flow
+of the nuclei plus segmentation jitter, so `quality_after_um` should drop well below `quality_before_um` and
+stay well under the nearest-neighbour spacing (3.3 to 4.7 um in the goldens). On the lab series the flow
+itself is a few voxels per 5 minutes, about the size of the drift; the brightfield, which drifts but does not
+flow, is what tells them apart when it disagrees.
+
+Two caveats. A feature the field edge cuts (tissue leaving the frame, a bright object at the border) does
+not move between frames and pulls a correlation towards zero shift; the test gonad of
+tests/test_timelapse_series.py has such a blob on purpose and registers a quarter short in x against t0 and
+half short when two such steps are chained, while the sub-voxel series without one registers to the
+quantisation. On a field as small as that toy (80 x 20 reference voxels) no remedy works, because a window
+skews the content it keeps; on the 340 x 340 reference volumes of the lab series `--taper 0.25` is the
+standard remedy and costs nothing when no edge is cut (on the sub-voxel series it changes the recovery by
+at most a tenth of a reference voxel over four steps). When `quality_after_um` does not drop well below
+`quality_before_um`, or the brightfield disagrees, try `--taper 0.25` and `--reference t0` before anything
+else. And a uniform flow of every nucleus is indistinguishable from drift in the GFP channel; the
+brightfield cross-check is the only handle on it.
+
+### Level 2: a rigid fit (experimental)
+
+`--rigid` adds, per step, a Kabsch rigid fit on nucleus centroids: the centroids of the timepoint are
+translated by the step, linked to the reference frame's by mutual nearest neighbour within 0.7 times the
+reference frame's median nearest-neighbour spacing, and the proper rotation plus residual translation that
+maps the linked pairs onto each other is stored in the report (`rigid`: `n_linked`, `link_radius_um`,
+`rotation_deg`, `rotation_axis` in (z, y, x) order, `rotation_matrix`, `translation_um`, `rmsd_before_um`,
+`rmsd_after_um`; the fit fields are null with fewer than six links). The shift table is unchanged: nothing
+consumes the rotation yet, it is the diagnostic the design asked for before deciding whether a rotation stage
+is needed (DESIGN_timelapse.md section 4). A pure translation fits to about 0 degrees; a planted 3 degree
+turn per step is recovered within 0.5 degree on the synthetic series.
+
+### Tests
+
+tests/test_timelapse_register.py builds a synthetic series of 16 gaussian nuclei and a brightfield channel
+with a planted sub-voxel drift per step (0.4 planes, 1.3 and 2.7 voxels), a zero-mean shear flow of the
+nuclei, and writes what a series run leaves behind. It checks that the cumulative shift is recovered within
+0.2 reference voxel at stride 4 and 0.5 at stride 8 (the tolerances are in reference-volume voxels, the unit
+phase correlation works in), against the previous frame and against t0; that a planted 1.6 um jump is capped
+to a 1 um step and flagged while the brightfield, which jumped too, raises no disagreement; that a jump in
+the nuclei alone raises the disagreement flag at that step and only there; that the quality drops after
+every step; that a series without reference volumes fails with a message naming
+`timelapse.keep_reference_volume`; that a missing volume costs one row and the chain continues; that
+`--rigid` finds no rotation on a translation and recovers a planted 3 degree turn; and, on the
+three-timepoint gonad of test_timelapse_series.py, that `germquant run --t all` writes the volumes next to
+the fixed-image file set and records them, that a fixed image writes none, that `--resume` reads missing
+volumes back without running a stage, and that `germquant register` runs on the loop's output.
 
 ## What stays unchanged
 

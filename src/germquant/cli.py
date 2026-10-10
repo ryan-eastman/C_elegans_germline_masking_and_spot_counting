@@ -3,12 +3,15 @@
   germquant info  STACK.nd2
   germquant run   STACK.nd2 --config config/config.yaml --out results/ [--xy-stride 4 --z-range 20 40]
   germquant run   SERIES.nd2 --config config/config.yaml --out results/ --t all|7|0-24 [--resume]
+  germquant register results/SERIES [--reference previous|t0] [--upsample 10] [--max-step-um 5] [--channel ROLE] [--rigid]
   germquant batch /nas/folder --config config/config.yaml --out /nas/folder_results
 
 `info` and `run` also take TIFF / OME-TIFF, CZI, LIF and OME-Zarr files when the optional `readers`
 extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders.
 `run --t` processes the named timepoints of a time-lapse one by one into results/t<NNN>/ and writes the
 series record and summary next to them (docs/TIMELAPSE.md); without --t a run is the single-image run.
+`register` estimates the drift of a finished series from the reference volumes that loop kept and writes the
+register_shifts table and a report next to the series record; nothing is resampled.
 """
 from __future__ import annotations
 
@@ -72,6 +75,34 @@ def main(argv: list[str] | None = None) -> int:
     pc = sub.add_parser("collect", help="stack the per-image tables under a results folder into batch_<table>.csv "
                                         "and rebuild batch_summary.csv (safe to rerun any time)")
     pc.add_argument("results_root")
+
+    prg = sub.add_parser("register", help="time-lapse drift as a shift table: phase correlation of the reference "
+                                          "volumes `run --t` kept per timepoint, accumulated to the first timepoint, "
+                                          "written as <stem>__register_shifts.csv plus a report (docs/TIMELAPSE.md); "
+                                          "no image is resampled")
+    prg.add_argument("series_dir", help="the --out folder of a `germquant run SERIES.nd2 --t ...` run")
+    prg.add_argument("--reference", choices=["previous", "t0"], default="previous",
+                     help="register each timepoint against the previous one and accumulate (default), or "
+                          "directly against the first timepoint")
+    prg.add_argument("--upsample", type=int, default=10, metavar="N",
+                     help="phase correlation upsampling: estimates are quantised to 1/N of a reference-volume voxel "
+                          "(default 10)")
+    prg.add_argument("--max-step-um", type=float, default=5.0, metavar="UM",
+                     help="cap on one step in microns; a longer step is shortened to it and flagged capped "
+                          "(default 5.0; 0 = no cap)")
+    prg.add_argument("--channel", default=None, metavar="ROLE",
+                     help="channel role whose reference volume is registered (default: the segmentation channel's; "
+                          "'brightfield' when a brightfield volume was kept)")
+    prg.add_argument("--normalization", choices=["none", "phase"], default="none",
+                     help="cross-power spectrum normalization: 'none' (plain cross-correlation, the default: exact "
+                          "on smooth nuclei at stride 4 to 8) or 'phase' (whitened; for textured volumes)")
+    prg.add_argument("--taper", type=float, default=0.0, metavar="FRACTION",
+                     help="Tukey window fraction applied to both volumes (0 = off, the default; 0.25 tapers the "
+                          "outer eighth of each axis): quiets tissue the field edge cuts, a stationary feature that "
+                          "pulls the estimate towards zero")
+    prg.add_argument("--rigid", action="store_true",
+                     help="EXPERIMENTAL: also fit a rigid rotation (Kabsch) on nucleus centroids linked by nearest "
+                          "neighbour after the translation; stored in the report only, the shift table is unchanged")
 
     pt = sub.add_parser("trace", help="draw the pachytene region on each finished image (pop-up); saves the "
                                       "polylines in whole-image microns to the traces file the staging stage reads")
@@ -144,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         "run": lambda: _run(args),
         "batch": lambda: _batch(args),
         "collect": lambda: _collect(args),
+        "register": lambda: _register(args),
         "trace": lambda: _trace(args),
         "restage": lambda: _restage(args),
         "validate": lambda: _validate(args),
@@ -392,6 +424,49 @@ def _restage(args) -> int:
     cfg = load_config(_resolve_config_path(args))
     done = restage(args.results_root, _traces_path(cfg, args), cfg, args.image_ids or None)
     print(f"restaged {len(done)} image(s)")
+    return 0
+
+
+def _register(args) -> int:
+    """``germquant register SERIES_DIR``: the drift of a time-lapse as a shift table (timelapse.register,
+    docs/TIMELAPSE.md "Registration"). Exit code 1, with the reason, when the folder is not a series or holds no
+    reference volumes; a timepoint that cannot be registered is a row with an error, not a failure."""
+    from .timelapse.register import register_series
+
+    try:
+        res = register_series(args.series_dir, reference=args.reference, upsample=args.upsample,
+                              max_step_um=args.max_step_um, channel=args.channel, rigid=args.rigid,
+                              normalization=args.normalization, taper=args.taper)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    rep, par = res["report"], res["report"]["parameters"]
+    print(f"\n{res['series_id']}: {rep['n_timepoints']} timepoint(s), {rep['n_registered']} step(s) registered on "
+          f"{par['channel_role']} ({rep['method']}, stride {par['stride']}, upsample {par['upsample_factor']}, "
+          f"reference {par['reference']})")
+    if rep.get("cumulative_last_um"):
+        dz, dy, dx = rep["cumulative_last_um"]
+        cap = f"{par['max_step_um']:g} um" if par.get("max_step_um") else "none"
+        print(f"  cumulative shift at t{rep['last_t_index']:03d}: dz={dz:+.2f} dy={dy:+.2f} dx={dx:+.2f} um; "
+              f"largest step {rep['max_step_um']:.2f} um; {rep['n_capped']} capped (cap {cap})")
+    q = rep["quality"]
+    if q.get("median_before_um") is not None and q.get("median_after_um") is not None:
+        print(f"  quality: median nearest-neighbour displacement {q['median_before_um']:.2f} -> "
+              f"{q['median_after_um']:.2f} um (before -> after the step, over {q['n_steps']} step(s))")
+    if par.get("cross_check_role"):
+        med = rep.get("median_disagreement_um")
+        med_txt = f"{med:.2f} um" if med is not None else "n/a"
+        print(f"  {par['cross_check_role']} cross-check: median disagreement {med_txt}, {rep['n_disagreement']} step(s) "
+              f"above {par['disagreement_um']:g} um")
+    else:
+        print("  no brightfield reference volume: cross-check skipped")
+    if rep.get("rigid") is not None:
+        angles = [r["rotation_deg"] for r in rep["rigid"] if r.get("rotation_deg") is not None]
+        print(f"  rigid fit (experimental, report only): {len(angles)} step(s) fitted, largest rotation "
+              f"{max(angles) if angles else 0.0:.2f} deg")
+    for k, why in rep.get("errors", {}).items():
+        print(f"  t{int(k):03d}: {why}")
+    print(f"  -> {res['table_path']}, {res['report_path']}")
     return 0
 
 
