@@ -1,0 +1,45 @@
+# Profile: live GFP::SYP-2 time-lapse series (docs/TIMELAPSE.md, docs/DESIGN_timelapse.md). Overlays
+# config/config.yaml, which stays frozen; this profile is a new recipe with its own config_hash.
+#
+#   germquant run SERIES.nd2 --profile live_syp2 --out results/SERIES --t all
+#
+# What differs from a fixed-image run: the channel map has no DNA stain, so the segment stage segments the
+# GFP::SYP-2 channel (segmentation.nuclei.channel: central_element; the key's code default is dna, which is
+# what every frozen recipe resolves). The fixed-image stages that need RAD-51, PGL-1 or lamin are off, the
+# signal QC runs on every timepoint with its flags off (a flag would enter qc_flags; the numbers are what
+# matter here), and the series loop keeps a downsampled reference copy of the segmentation channel (and of
+# the brightfield channel) per timepoint for the registration step.
+#
+# Segmentation model: the inherited DAPI-trained germline model fragments SC bundles on this signal. Train a
+# GFP model with the loop in docs/TIMELAPSE.md ("Segmenting without DAPI: the training loop"), register it
+# with `germquant register-model`, and name it here: `cellpose_model: <registered name>`. Until then the
+# inherited model (or `method: classical`) gives population numbers per timepoint, the design's fallback.
+extends: config.yaml
+
+io:
+  channel_map: config/channel_maps/live_gfp_syp2.yaml
+
+segmentation:
+  nuclei:
+    channel: central_element    # the role the segment stage segments (no dna role in this map)
+
+spots:
+  enabled: false                # no RAD-51 channel
+granule:
+  enabled: false                # no PGL-1 channel
+coloc:
+  enabled: false
+envelope:
+  enabled: false                # no lamin channel
+partition:
+  enabled: false
+staging:
+  enabled: false                # no hand-traced pachytene axis for a moving gonad (yet)
+
+signal_qc:
+  enabled: true                 # per-channel background / SNR per timepoint: the bleaching record
+  flags:
+    enabled: false
+
+timelapse:
+  keep_reference_volume: true   # t<NNN>/<id>__ref_stride8.npy (and the brightfield copy) for `germquant register`

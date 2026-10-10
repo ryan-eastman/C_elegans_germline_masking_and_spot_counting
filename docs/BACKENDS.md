@@ -40,6 +40,23 @@ An unknown backend name raises `UnknownBackendError` under `auto` and `cellpose`
 of available names in the message: a misspelt name is a config error, never a silent switch to the
 fallback.
 
+### Which channel is segmented
+
+`segmentation.nuclei.channel` names the channel ROLE the segment stage hands to the backend. Every
+shipped config says `channel: dna` and the key is read with that code default, so the validated runs and
+their goldens segment the DAPI channel exactly as before. A profile for a stain-free live series names
+another role (`config/profiles/live_syp2.yaml` says `central_element`, the GFP::SYP-2 channel;
+`docs/TIMELAPSE.md`, "Segmenting without DAPI"). When the named role does not resolve in an image the
+stage falls back to channel 0 and flags `segment:no_<role>_channel_using_first_channel`. The montage's
+outline panel sits on the same channel. A backend therefore receives "the channel to segment", which is
+the DNA channel unless the profile says otherwise; its first argument keeps the name `dna` for
+compatibility.
+
+`segmentation.nuclei.cellpose_model` takes a file path, a Cellpose built-in name (`cpsam`) or the name of
+a registered model: a release asset `get-model` has downloaded, or a model added with `germquant
+register-model` (`models_registry.register_local_model`), which resolves to the registered file and puts
+its sha256 in the run manifest as always.
+
 ### What the output says
 
 `segmentation_method` in `<image_id>__image_summary.csv` (the only table that carries it) names the backend that produced the labels
@@ -62,7 +79,7 @@ def segment(dna, spacing, *, model, diameter_um, device, cfg_section):
 
 | argument | type | meaning |
 |---|---|---|
-| `dna` | `np.ndarray`, shape (Z, Y, X) | the DNA (DAPI) channel as read from the .nd2 (uint16; float32 for a synthetic stack), not normalised |
+| `dna` | `np.ndarray`, shape (Z, Y, X) | the channel to segment, as read from the .nd2 (uint16; float32 for a synthetic stack), not normalised: the DNA (DAPI) channel by default, the role `segmentation.nuclei.channel` names otherwise (GFP::SYP-2 in the live profile) |
 | `spacing` | `tuple[float, float, float]` | (dz, dy, dx) voxel size in micrometres from the .nd2 metadata; every physical scale comes from it, never from a constant |
 | `model` | `str` | the resolved `segmentation.nuclei.cellpose_model`: a model file path (resolved against the repository or `$GERMQUANT_MODELS`) or a bare name such as `cpsam`. Use it as your model reference or ignore it |
 | `diameter_um` | `float` | `segmentation.nuclei.diameter_um`, the expected nucleus diameter |

@@ -24,6 +24,18 @@ gonads are built inside the fixtures.
   on an OME-TIFF with a T axis written by tifffile. `process_image(t=...)` is checked to suffix the
   image id, record the timepoint in the markers only, and write the same numbers as a fixed run on the
   same stack.
+- `test_live_profile.py`: the live GFP::SYP-2 profile and channel map (no `dna` role) and the
+  `segmentation.nuclei.channel` key: a spy backend shows which channel the segment stage hands over
+  (DAPI by default, the named role otherwise, channel 0 with a flag when the role is missing), and a
+  synthetic two-channel series with a planted drift runs through `process_series` end to end on the CPU.
+- `test_training_loop.py`: `export-training`, `train-nuclei` and `register-model`
+  (`docs/TIMELAPSE.md`, "Segmenting without DAPI"). The export is checked file for file against the
+  source stack and labels (dtypes, the isotropic xz / yz resampling, the manifest, zone tags, the seeded
+  draw, the size cap); training runs with the three Cellpose seams (`_build_net`, `_train_seg`,
+  `_predict`) replaced by fakes, so the split rule, the losses, the sha256 of every pair, the per-orientation
+  F1 and the card are checked without loading weights or writing a 1.2 GB file; the registry test registers
+  a model, verifies it with `get-model`, and shows the segment stage receives the registered file. One test
+  is opt-in (below): a real training run of a randomly initialised Cellpose-SAM network.
 - `test_golden.py`: the numeric gate. `test_synthetic_golden` runs the same two synthetic gonads
   with the classical nucleus segmenter and SpotMAX and compares every output table cell for cell
   with the references under `golden/synthetic/` and `golden/synthetic_4ch/`. A `config_hash.txt`
@@ -66,6 +78,11 @@ Opt-ins driven by environment variables rather than markers:
 - `GERMQUANT_UPDATE_GOLDEN=1`: `test_synthetic_golden` rewrites the synthetic references instead of
   checking them. Only for a deliberately number-changing step, run from the code that is being
   certified; see the docstring of `test_golden.py` and `scripts/make_goldens.py`.
+- `GERMQUANT_TRAIN_SMOKE=1`: `test_training_loop.py::test_real_random_init_training_on_the_cpu` trains a
+  randomly initialised Cellpose-SAM network (no weights downloaded) for two epochs on the CPU through
+  `train_nuclei` and checks the model file, log and card. It takes about 90 seconds and writes a 1.2 GB
+  model file under the test's temporary folder, which is why it is not in the default suite; set
+  `OMP_NUM_THREADS` to leave cores free for other work.
 
 Other automatic skips: the extended-path check in `test_fsutil.py` runs only on Windows, its
 POSIX twin only elsewhere, `test_staging.py` skips its comparison with the August staging tables

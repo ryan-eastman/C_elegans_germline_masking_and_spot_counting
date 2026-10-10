@@ -236,6 +236,7 @@ Instead of `--config config/config.yaml` you can name a profile with `--profile`
 | `n2_sc` | adds the SC tracer for fragmentation (see `docs/SC_TRACING.md`) |
 | `ccw77_partition` | the SYP-3 / PGL-1 partition analysis: lamin envelopes, hand-traced staging, the Imaris-calibrated granule recipe, on top of `config/config_ccw77.yaml` |
 | `generic` | samples that are not a worm germline (cultured cells, yeast, sections): nuclei with the stock Cellpose model and puncta per nucleus, every worm stage off (see `docs/GENERIC_PROFILE.md`) |
+| `live_syp2` | live GFP::SYP-2 time-lapse series with no DNA stain: nuclei segmented on the GFP channel (`segmentation.nuclei.channel: central_element`), germline, axis and signal QC per timepoint, the fixed-image stains off; run with `--t all` (see `docs/TIMELAPSE.md`, which also has the training loop for a GFP nucleus model) |
 
 Windows:
 ```
@@ -631,7 +632,9 @@ the wrong settings), `docs/HPC_ALPINE.md` (cluster runs), `docs/BENCHMARK.md` (t
 `germquant.benchmark`, `scripts/benchmark_spots.py` and `scripts/benchmark_nuclei3d.py`, scoring the spot
 detector and the 3D nucleus segmentation against the Imaris expert truth gonad by gonad),
 `docs/TIMELAPSE.md` (time series: reading one timepoint of an .nd2 or OME-TIFF series with `t=<index>`,
-what the header reports about the time axis, and how a timepoint run is named and recorded),
+what the header reports about the time axis, how a timepoint run is named and recorded, the `live_syp2`
+profile, the `segmentation.nuclei.channel` key, and the training loop for a nucleus model without DAPI:
+`export-training`, `train-nuclei`, `register-model`),
 `analysis/coloc/README.md` (the SYP-3 / PGL-1 analysis layer).
 
 Configuration: `config/config.yaml` holds every tunable value with a comment saying why it is set
@@ -655,8 +658,13 @@ Silicon), `constraints/ci-cpu-2026-10.txt` (continuous integration, CPU).
 Other CLI commands: `validate` (compare a pipeline table or label image with hand-scored ground
 truth), `imaris-truth` (read the expert Spots, Surfaces and nucleus masks out of an Imaris `.ims`
 project into truth files in our frame, `docs/IMARIS_TRUTH.md`), `prep-training` (export DAPI slices
-for annotation), `finetune` (fine-tune the Cellpose model on a labelled folder), `check-gpu`,
-`get-model`, `collect`, `trace`, `restage`. Run the program with `--help` for the options.
+for annotation), `finetune` (fine-tune the Cellpose model on a labelled folder), `export-training`
+(paired 2D slices and labels from a run's own segmentation, in xy, xz and yz, for correction),
+`train-nuclei` (train a Cellpose nucleus model on corrected pairs in process, split by image or series,
+with a model card and hold-out F1), `register-model` (add a trained model to the registry so a profile
+can name it in `segmentation.nuclei.cellpose_model`; `docs/TIMELAPSE.md`), `check-gpu`,
+`get-model` (release assets and registered local models), `collect`, `trace`, `restage`. Run the program
+with `--help` for the options.
 
 ## Citing
 

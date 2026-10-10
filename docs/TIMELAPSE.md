@@ -213,9 +213,167 @@ is `time_track_id`; `track_id` already means an SC fragment in `sc_tracks`.
 | `tracks` | tracking package | track | `n_points`, `n_gaps`, `t_start`, `t_end`, `is_full_length`, path length, net displacement, speed, signed axis velocity after the t0 sign alignment, SYP intensity slopes raw and median-normalised, SC length change, `link_source` |
 | `track_validation` | `germquant track-validate` | hand-followed point | the biologist's point in raw-frame microns, the label it lands in and its track, the outcome (linked, segmentation_miss, switch, edge_missing), the validation set (holdout or constraint) and zone |
 
+## Segmenting without DAPI: the training loop
+
+A live worm carries no DNA stain. The October series has two channels, transmitted light and GFP::SYP-2,
+so the nuclei have to be segmented on the synaptonemal complex signal itself, and the shipped nucleus model
+(trained on DAPI) fragments SC bundles into several objects. The loop below gets from that first run to a
+model trained on the series' own corrected labels, with provenance at every step. Everything in it is CPU
+tested on a synthetic series (`tests/test_live_profile.py`, `tests/test_training_loop.py`); the real training
+run on the GFP data has not been done yet.
+
+### The live channel map and profile
+
+`config/channel_maps/live_gfp_syp2.yaml` has two roles and no `dna`:
+
+| role | names (substring, case-insensitive) | fallback | required | consumed by |
+|---|---|---|---|---|
+| `central_element` | EGFP, GFP, 488, 477 | channel 1 (flagged) | yes | the segment stage (see the channel key), germline isolation, the signal QC, the series reference volume |
+| `brightfield` | Brightfield, BF, TD, Trans | none: by name only | no | nothing; recorded by the signal QC (`sig_brightfield_*`), given per-nucleus intensity columns and a montage panel, and kept as the registration cross-check volume |
+
+`config/profiles/live_syp2.yaml` extends `config/config.yaml` with that map and sets
+`segmentation.nuclei.channel: central_element`, switches spots, granule, coloc, envelope, partition and
+staging off, keeps the signal QC on with its flags off, and sets `timelapse.keep_reference_volume: true`.
+Germline isolation and the axis stay on: the GFP channel is the SYP marker the germline stage seeds on.
+The nuclei table of a run made with it carries `central_element_*` and `brightfield_*` intensity columns
+and the three `dna_*_intensity` columns as NaN (a map without a `dna` role writes them empty rather than
+leaving them out, so a reader that expects them finds them); `dapi_present` is False. The stages that need
+RAD-51, PGL-1 or lamin are recorded as `skipped` / `disabled` in `<id>__stages.json`.
+
+```
+germquant run SERIES.nd2 --profile live_syp2 --out results/SERIES --t 0 --xy-stride 4    # check the roles
+germquant run SERIES.nd2 --profile live_syp2 --out results/SERIES --t all
+```
+
+### The channel key
+
+`segmentation.nuclei.channel` names the channel ROLE the segment stage segments. Every shipped config
+carries `channel: dna` and the key is read with the code default `dna`, so every frozen recipe resolves
+exactly the pixels it always did and the goldens do not move. When the named role does not resolve in an
+image the stage falls back to channel 0 and writes the flag `segment:no_<role>_channel_using_first_channel`
+(for `dna` that is the text the fixed path always wrote). The montage draws the nucleus outlines over the
+segmented channel. The key is part of the `segmentation` section, so a profile that changes it gets a new
+segment sub-hash and a new config hash. `docs/BACKENDS.md` has the backend side of it: the first argument a
+backend receives is this channel, whatever its role.
+
+### 1. Export slices to correct
+
+```
+germquant export-training results/SERIES --out training/live_syp2 --orientations xy,xz,yz --slices-per-image 3 --seed 0
+```
+
+`export-training` takes one results folder, a series folder (every `t<NNN>/` folder is a run) or a batch
+tree, and for every finished run (a folder with `run_manifest.json`, `<id>__nuclei_labels.tif` and
+`<id>__image_summary.csv`):
+
+* re-reads the stack from the source file named in the run's tables, at the `xy_stride`, `z_range` and
+  `t_index` recorded in `run_manifest.json`, so the slices sit on exactly the grid the labels were made on;
+* takes the channel the run segmented (`segmentation.nuclei.channel` of the recorded config, resolved
+  through the run's `channel_map_json`);
+* for each orientation draws `--slices-per-image` slices at random (seeded per image, so adding a run to
+  the folder does not change the slices of the others) from the slices that cut at least `--min-labels`
+  nuclei (default 3; when fewer qualify, from every slice that cuts one);
+* writes `image/<id>_<orient>_<index>.tif` (uint16, the raw intensities) and `labels/<id>_<orient>_<index>.tif`
+  (int32, the run's labels). `xz` and `yz` slices are resampled along z to the xy pixel size (linear for
+  the image, nearest neighbour for the labels), so every exported slice is isotropic. A 2D model trained on
+  isotropic slices applies in 3D with `anisotropy = dz / dy`, which is how the segment stage runs Cellpose,
+  and the xz and yz slices teach it the z profile of a nucleus that xy slices alone cannot;
+* records every pair in `manifest.csv`: `image_id`, `series_id` (the id without its `_t<NNN>` suffix),
+  `t_index`, `orientation`, `slice_index`, `n_labels`, `zone`, the two file paths, the source file, the
+  geometry, the channel role and index, `pixel_um`, `z_zoom`, `height`, `width`; and the settings in
+  `export.json`. `--zone-column zone` (the default) tags each slice with the most frequent zone among its
+  nuclei when the nuclei table has that column (the staging stage's); without it the tag is empty and the
+  biologist adds zones by hand in the manifest. Running the export again into the same folder replaces the
+  rows (and files) of the images exported, and keeps the rest.
+* stops at `--max-gb` (default 2) of written slices: a 56 GB series must not become a 56 GB training folder.
+
+Include the last timepoint (t24 in the October series): bleaching makes it the hardest frame.
+
+### 2. Correct the labels
+
+Open a pair in napari (`napari training/live_syp2/image/X.tif training/live_syp2/labels/X.tif`, the second
+layer as labels) or in the Cellpose GUI, fix the merges and splits, and save the labels back under the same
+name in `labels/`. A pair that is not worth correcting is deleted (both files); `train-nuclei` skips the
+manifest rows whose files are gone. About 30 corrected slices across zones and timepoints is the design's
+first training set; the zone tag in `manifest.csv` is what lets the hold-out metrics be reported per zone.
+
+### 3. Train
+
+```
+germquant train-nuclei --pairs training/live_syp2 --out models/live_syp2_nuclei --epochs 150 --split-by series --val-frac 0.2 --seed 0
+```
+
+`train-nuclei` runs `cellpose.train.train_seg` in process, as `scripts/train_nucleus_model_combined.py`
+did (AdamW, learning rate 1e-5, weight decay 0.1, batch 8, 150 epochs), on the GPU when one is visible
+(`--cpu` keeps it off every accelerator). The hold-out set is whole groups, never slices: `--split-by series`
+(the default) holds out whole series, so two neighbouring timepoints of one worm never straddle the split;
+`--split-by image` holds out whole images (for fixed images the two are the same). At least one group is
+held out whenever there are two or more; a single group trains alone and the card says there are no
+hold-out metrics. `--base` is the starting weights: `cpsam` (the default, Cellpose's stock model), a
+registered model name (`germline_nuclei_combined` once `get-model` has fetched it), a model file, or
+`none` for a randomly initialised network (smoke tests only). Cellpose drops training slices with fewer
+than `--min-train-masks` nuclei (default 5); the command warns about them beforehand.
+
+It writes, in `--out`:
+
+* the model file `<name>` (`--name`, default the folder's name), float32 Cellpose-SAM weights, 1.2 GB;
+* `training_log.json`: the losses per epoch, the split (groups and files on each side), counts per
+  orientation, every setting, the device, start and end times;
+* `<name>.card.json`, the model card: the base model (name, path, sha256), the sha256 of the model file,
+  the training set with the sha256 of every image and label file, its image id, series, orientation, slice
+  index, zone and split side, the orientations and zones, the epochs and the other settings, the date, the
+  germquant, Cellpose and torch versions, and the hold-out metrics: `germquant.validate.segmentation_metrics`
+  on every validation pair (F1 at IoU 0.5 from the pooled true and false positives and misses, precision,
+  recall, the miss rate fn / n_gt, the mean matched IoU) overall, per orientation and per zone, plus the
+  per-pair rows.
+
+The design's gate, read off the card before the model is used for numbers: F1 at IoU 0.5 of 0.85 or better
+on pachytene slices and 0.75 on transition-zone slices, and a miss rate under 10 percent.
+
+### 4. Register and use
+
+```
+germquant register-model --model models/live_syp2_nuclei/live_syp2_nuclei --card models/live_syp2_nuclei/live_syp2_nuclei.card.json
+germquant get-model live_syp2_nuclei          # verifies the registered file (sha256), downloads nothing
+```
+
+`register-model` adds the model to `local_models.json` next to the release assets (`models/models/` under
+the checkout, or `$GERMQUANT_MODELS/models/`): name, absolute path, sha256, size, the card's path and
+summary. The sha256 is computed from the file and must agree with the card's `model_sha256`, so a card
+cannot be attached to other weights; a release name or a Cellpose built-in name is refused; registering a
+name again replaces its entry. Then a profile names it:
+
+```yaml
+extends: live_syp2.yaml
+segmentation:
+  nuclei:
+    cellpose_model: live_syp2_nuclei
+```
+
+`segmentation.nuclei.cellpose_model` accepts a registered name: a bare name that is neither a file next to
+the config nor under `$GERMQUANT_MODELS` is looked up in the registry (local models, then downloaded
+release assets) and resolves to the registered file; `cpsam` and the other Cellpose names still pass
+through. The run's `run_manifest.json` records the file's digest as `model_sha256` and the segment stage's
+sub-hash changes, so `--resume` reprocesses every timepoint made with the old model. Rerun the series with
+the new profile, then `export-training` again if a second round of corrections is wanted: the loop is
+cheap to repeat because the labels to correct are the model's own.
+
+### What is tested, and what is not
+
+`tests/test_live_profile.py` runs the synthetic two-channel series through the profile end to end on the
+CPU (the channel key, the NaN dna columns, the signal QC of both roles, the planted drift in the nucleus
+centroids). `tests/test_training_loop.py` covers the export (file names, dtypes, the isotropic resampling,
+the manifest, the zone tag, the seeded draw, the size cap), the split rule, the training wrapper with the
+Cellpose calls replaced by fakes (the losses, the sha256 of every pair, the per-orientation F1, the card),
+and the registry (register, verify, resolve into the segment stage). A real training run of a randomly
+initialised network for two epochs on the CPU is opt-in, `GERMQUANT_TRAIN_SMOKE=1`, because it takes about
+90 seconds and writes 1.2 GB. The GFP model itself, its gate numbers and the rerun of the October series
+are the work of the first real loop.
+
 ## What stays unchanged
 
 The fixed-image path is byte-identical: `process_image` without `t` makes the same reader call, the
 same image id, the same tables and the same marker keys as before; `tests/test_golden.py` runs the
 synthetic goldens unchanged, and `config/config.yaml`, the study configs and the channel maps are not
 edited. Every new key is read with a code default; the new schema entries are appended, not inserted.
+`segmentation.nuclei.channel` is read with the code default `dna`, the value every shipped config carries.
