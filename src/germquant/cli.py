@@ -22,6 +22,11 @@ the Imaris spots of the train gonads, selected on the val gonads, never on test:
 
   germquant train-spots --cache DIR --split-file tests/golden/rad51_split.json --out MODELDIR [--epochs N] [--patch Z,Y,X] [--seed S]
 
+and retrained by the frozen recipe of a selected model (no validation, its epoch count and threshold) on
+other train and val gonads, for the leave-one-gonad-out folds and the train-plus-val model:
+
+  germquant train-spots --cache DIR --split-file tests/golden/rad51_split.json --out MODELDIR --recipe-from SELECTEDDIR --train-tags TAG ...
+
 `register` estimates the drift of a finished series from the reference volumes that loop kept and writes the
 register_shifts table and a report next to the series record; nothing is resampled.
 
@@ -271,6 +276,22 @@ def main(argv: list[str] | None = None) -> int:
     pts.add_argument("--select-tolerance", type=float, default=0.01,
                      help="configurations whose val traced CCC is within this of the best count as tied and the "
                           "best F1 among them is selected (default 0.01, the protocol's meaningful change)")
+    pts.add_argument("--recipe-from", default=None, metavar="MODELDIR",
+                     help="retrain by the frozen recipe of an earlier model (its training_log.json): its settings, "
+                          "seed and schedule, its selected epoch count and its selected threshold, no validation "
+                          "unless --val-tags names gonads; overrides --epochs, --patch, --seed, --batch-size, "
+                          "--steps-per-epoch, --lr, --no-dna, --base-channels, --levels and --tile (protocol "
+                          "sections 6.1 and 6.2)")
+    pts.add_argument("--train-tags", nargs="+", default=None,
+                     help="train on exactly these gonads, in this order (train or val gonads of the split with "
+                          "usable spot truth; never a test gonad); default: the split's train gonads")
+    pts.add_argument("--val-tags", nargs="*", default=None,
+                     help="validate on these gonads; give the option with no tag for none (default: the split's "
+                          "val gonads that are not training gonads; none with --recipe-from)")
+    pts.add_argument("--stop-after-epochs", type=int, default=None,
+                     help="stop after this many epochs; the learning-rate schedule still spans --epochs")
+    pts.add_argument("--threshold", type=float, default=None,
+                     help="the peak threshold stored in model.pt for a run without val gonads")
 
     prm = sub.add_parser("register-model",
                          help="add a locally trained model to the model registry (local_models.json next to the "
@@ -868,24 +889,39 @@ def _train_nuclei(args) -> int:
 
 
 def _train_spots(args) -> int:
-    from .spots.net3d.train import DEFAULT_THRESHOLDS, parse_patch, train_spots
+    from .spots.net3d.train import DEFAULT_THRESHOLDS, parse_patch, recipe_from, train_spots
 
     thresholds = (DEFAULT_THRESHOLDS if not args.thresholds else
                   tuple(float(t) for t in str(args.thresholds).split(",") if t.strip()))
-    res = train_spots(args.cache, args.split_file, args.out, manifest=args.manifest, epochs=args.epochs,
-                      patch=parse_patch(args.patch), seed=args.seed, batch_size=args.batch_size,
-                      steps_per_epoch=args.steps_per_epoch, lr=args.lr, patience=args.patience,
-                      val_every=args.val_every, use_dna=not args.no_dna, device=args.device,
-                      base_channels=args.base_channels, levels=args.levels, thresholds=thresholds,
-                      tile_zyx=parse_patch(args.tile), prep_dir=args.prep_dir, min_free_gb=args.min_free_gb,
-                      wait_minutes=args.wait_minutes, select_tolerance=args.select_tolerance)
+    kw = dict(epochs=args.epochs, patch=parse_patch(args.patch), seed=args.seed, batch_size=args.batch_size,
+              steps_per_epoch=args.steps_per_epoch, lr=args.lr, use_dna=not args.no_dna,
+              base_channels=args.base_channels, levels=args.levels, tile_zyx=parse_patch(args.tile),
+              run_epochs=args.stop_after_epochs, fixed_threshold=args.threshold)
+    val_tags = args.val_tags
+    if args.recipe_from:
+        if args.stop_after_epochs is not None or args.threshold is not None:
+            print("REFUSED: --recipe-from fixes the epoch count and the threshold; drop --stop-after-epochs and "
+                  "--threshold")
+            return 2
+        recipe_kw, recipe = recipe_from(args.recipe_from)
+        kw.update(recipe_kw)
+        kw["recipe"] = recipe
+        if val_tags is None:
+            val_tags = []
+    res = train_spots(args.cache, args.split_file, args.out, manifest=args.manifest, patience=args.patience,
+                      val_every=args.val_every, device=args.device, thresholds=thresholds, prep_dir=args.prep_dir,
+                      min_free_gb=args.min_free_gb, wait_minutes=args.wait_minutes,
+                      select_tolerance=args.select_tolerance, train_tags=args.train_tags, val_tags=val_tags, **kw)
     g = res["gonads"]
     print(f"\nnet3d: trained on {[r['tag'] for r in g['train']]} ({res['device']}), validated on "
           f"{[r['tag'] for r in g['val']]}; left out {[r['tag'] for r in g['excluded']]}; test gonads never opened")
     vb = res.get("val_best") or {}
-    print(f"  selected epoch {res['best_epoch']} of {res['epochs_run']} ({res['stop_reason']}), threshold "
-          f"{res['best_threshold']}: val traced CCC {vb.get('ccc_traced')}, germline CCC {vb.get('ccc_all')}, "
-          f"F1 {vb.get('f1')}")
+    if not g["val"]:
+        print(f"  frozen recipe: {res['epochs_run']} epochs ({res['stop_reason']}), threshold {res['best_threshold']}")
+    else:
+        print(f"  selected epoch {res['best_epoch']} of {res['epochs_run']} ({res['stop_reason']}), threshold "
+              f"{res['best_threshold']}: val traced CCC {vb.get('ccc_traced')}, germline CCC {vb.get('ccc_all')}, "
+              f"F1 {vb.get('f1')}")
     print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
     print(f"  card  -> {res['card_path']}")
     print(f"  score it: python scripts/bench_detector.py --backend net3d --params "
