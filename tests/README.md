@@ -96,7 +96,10 @@ with Python 3.11:
 3. `pytest -q -rs -m "not model" --strict-markers`: the full suite including the synthetic golden
    tests; `test_gpu.py` reports itself as skipped.
 
-`QT_QPA_PLATFORM=offscreen` and `CUDA_VISIBLE_DEVICES=-1` are set for the whole job. The README
+`QT_QPA_PLATFORM=offscreen` and `CUDA_VISIBLE_DEVICES=-1` are set for the whole job. So is `GERMQUANT_GOLDEN_RTOL=1e-12`: the synthetic goldens are compared exactly on the
+workstation that made them, but the GitHub runners have other CPUs and sum floats in a different vector order,
+which moved `coloc.pearson_r` by one part in 1e14 on the first CI run; the tolerance allows that and nothing
+more (leave the variable unset locally so any real change fails). The README
 badge shows the result of the latest run on the default branch.
 
 Rehearsal on the workstation (2026-10-09, the same commands in a fresh `uv` environment with a cold

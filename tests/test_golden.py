@@ -61,6 +61,15 @@ def _read(p: Path) -> pd.DataFrame:
     return df.drop(columns=[c for c in VOLATILE if c in df.columns])
 
 
+# The goldens were made on the lab workstation and are compared exactly there. Other CPUs sum in a different
+# vector order, so a correlation or a mean can differ in its last bits (coloc.pearson_r differed by one part
+# in 1e14 between the workstation and the GitHub runners). CI sets GERMQUANT_GOLDEN_RTOL (1e-12) to allow
+# exactly that and nothing more; leave it unset on the workstation so a real change of any size fails.
+_RTOL_ENV = os.environ.get("GERMQUANT_GOLDEN_RTOL")
+_FLOAT_TOLERANCE = ({"check_exact": False, "rtol": float(_RTOL_ENV), "atol": 0.0} if _RTOL_ENV
+                    else {"check_exact": True})
+
+
 @pytest.mark.parametrize("name", list(CASES))
 def test_synthetic_golden(tmp_path, request, name):
     request.getfixturevalue(CASES[name][0])          # activate the matching synthetic reader
@@ -88,7 +97,7 @@ def test_synthetic_golden(tmp_path, request, name):
             a, b = got[col], ref[col]
             if pd.api.types.is_numeric_dtype(b):
                 pd.testing.assert_series_equal(a.astype(float), b.astype(float), check_names=False,
-                                               check_exact=True, obj=f"{t}.{col}")
+                                               obj=f"{t}.{col}", **_FLOAT_TOLERANCE)
             else:
                 assert (a.astype("string").fillna("<NA>") == b.astype("string").fillna("<NA>")).all(), \
                     f"{t}.{col} differs"
