@@ -324,6 +324,7 @@ def test_overlap_assign_rule():
 
 
 def test_laptrack_bridges_the_dropout(series):
+    pytest.importorskip("laptrack")    # the timelapse extra; CI installs it
     res = link_series(series["out"], backend="laptrack", gap=2, max_dist_um=3.0)
     points, tracks = res["points"], res["tracks"]
     linked = _check_identities(points, series["ids"])                        # one track per identity, the dropout bridged
@@ -470,6 +471,7 @@ def test_import_trackmate_imaris_and_cellacdc(series, tmp_path):
 # ---- track-strips ------------------------------------------------------------------------------------
 
 def test_strips_are_written(series, tmp_path):
+    pytest.importorskip("laptrack")    # the timelapse extra; CI installs it
     link_series(series["out"], backend="laptrack")
     out = tmp_path / "strips"
     written = track_strips(series["out"], out, size_um=6.0, max_tracks=4)
@@ -540,6 +542,7 @@ def _hand_set(ids: dict, identities, swap: dict | None = None, miss: tuple | Non
 
 
 def test_track_validate_scores_a_perfect_and_a_swapped_hand_set(series, tmp_path):
+    pytest.importorskip("laptrack")    # the timelapse extra; CI installs it
     link_series(series["out"], backend="laptrack")
     perfect = tmp_path / "perfect.csv"
     _hand_set(series["ids"], (1, 2, 3, 4, DROPOUT[0])).to_csv(perfect, index=False)
@@ -585,6 +588,7 @@ def test_track_validate_scores_a_perfect_and_a_swapped_hand_set(series, tmp_path
 # ---- the command line --------------------------------------------------------------------------------
 
 def test_cli_track_commands(series, tmp_path, capsys):
+    pytest.importorskip("laptrack")    # the timelapse extra; CI installs it
     sd = str(series["out"])
     assert cli.main(["track-export", sd, "--out", str(tmp_path / "exp"), "--stride", "2"]) == 0
     assert (tmp_path / "exp" / "export.json").exists()
