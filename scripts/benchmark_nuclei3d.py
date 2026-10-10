@@ -3,7 +3,7 @@
     python scripts/benchmark_nuclei3d.py --manifest benchmark_manifest.json --out benchmark_nuclei3d_out
         [--split HS] [--tags T1 T2] [--coverage auto|roi|bbox|none|protocol] [--dilate-um 2.0]
         [--majority-frac 0.5] [--max-dense-cells N] [--n-boot 1000] [--seed 0]
-        [--pred-dir DIR | --model MODEL.pt --cache-root DIR [--device cuda]]
+        [--pred-dir DIR | --model MODEL.pt | --cellpose-model FILE] [--cache-root DIR] [--device cuda]
 
 The manifest is the one scripts/benchmark_manifest.py builds (tag, split, results_dir, truth_dir, nd2,
 ims per entry). Every gonad needs the truth label image <stem>__imaris_labels.tif in truth_dir (the truth
@@ -22,6 +22,10 @@ Which prediction is scored:
   (``--cache-root``); the labels are written to <out>/labels/<tag>__labels.tif so they can be scored
   again with ``--pred-dir``. ``--fg-threshold``, ``--h-um`` and ``--neighbour-weight`` override the
   model file's instance parameters. It needs torch, and a GPU to be quick.
+* ``--cellpose-model FILE``: a Cellpose model file (a fine-tuned competitor, or the deployed model) run the
+  same way, through ``segment_nuclei`` with the pipeline's own Cellpose path (3D, anisotropy from the
+  voxel size) and the same size filter; labels written and reusable as for ``--model``. Cellpose-SAM in
+  3D takes about 20 minutes per 2600 x 2600 x 71 stack on the workstation's GPU.
 
 Coverage. ``--coverage protocol`` is the pre-registered rule of docs/BENCHMARK_PROTOCOL.md section 5.3
 (truth fragments under ``--min-truth-voxels`` removed; predictions in scope when at least
@@ -48,6 +52,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 REPO = Path(__file__).resolve().parents[1]
@@ -98,8 +103,11 @@ def parse_args(argv=None):
     src = ap.add_mutually_exclusive_group()
     src.add_argument("--pred-dir", default=None, help="score DIR/<tag>__labels.tif instead of the pipeline's labels")
     src.add_argument("--model", default=None, help="segment with this nuclei3d model file and score the result")
-    ap.add_argument("--cache-root", default=None, help="bench cache root for --model (default: the harness's)")
-    ap.add_argument("--device", default="auto", help="--model: auto, cuda or cpu")
+    src.add_argument("--cellpose-model", default=None,
+                     help="segment with this Cellpose model file (the pipeline's Cellpose path) and score the result")
+    ap.add_argument("--cache-root", default=None,
+                    help="bench cache root for --model and --cellpose-model (default: the harness's)")
+    ap.add_argument("--device", default="auto", help="--model and --cellpose-model: auto, cuda or cpu")
     ap.add_argument("--tile", default="96,384,384", help="--model: inference tile Z,Y,X")
     ap.add_argument("--min-volume-um3", type=float, default=4.0,
                     help="--model: the size filter (segmentation.nuclei.min_volume_um3, 4.0 in config/config.yaml)")
@@ -122,12 +130,19 @@ def _model_labels(args, entry, out_dir: Path) -> tuple[object, dict]:
     cache = bd.load_cache(entry.tag, args.cache_root, arrays=("dna",), mmap=True)
     if cache.dna is None:
         raise FileNotFoundError(f"{entry.tag}: the bench cache holds no DNA channel")
-    section = {"nuclei3d": {"model": str(args.model), "device": args.device, "tile_zyx": list(parse_zyx(args.tile)),
-                            "fg_threshold": args.fg_threshold, "h_um": args.h_um,
-                            "neighbour_weight": args.neighbour_weight}}
     t0 = time.time()
-    labels, method = segment_nuclei(cache.dna, cache.spacing, method="cellpose", backend="nuclei3d",
-                                    min_volume_um3=args.min_volume_um3, cfg_section=section)
+    if args.cellpose_model:
+        if not Path(args.cellpose_model).is_file():
+            raise FileNotFoundError(f"Cellpose model file not found: {args.cellpose_model}")
+        labels, method = segment_nuclei(np.asarray(cache.dna), cache.spacing, method="cellpose", backend="cellpose",
+                                        cellpose_model=str(args.cellpose_model), min_volume_um3=args.min_volume_um3,
+                                        device=None if args.device == "auto" else args.device, cfg_section={})
+    else:
+        section = {"nuclei3d": {"model": str(args.model), "device": args.device,
+                                "tile_zyx": list(parse_zyx(args.tile)), "fg_threshold": args.fg_threshold,
+                                "h_um": args.h_um, "neighbour_weight": args.neighbour_weight}}
+        labels, method = segment_nuclei(cache.dna, cache.spacing, method="cellpose", backend="nuclei3d",
+                                        min_volume_um3=args.min_volume_um3, cfg_section=section)
     seg_s = time.time() - t0
     out = out_dir / "labels" / f"{entry.tag}__labels.tif"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -149,10 +164,12 @@ def main(argv=None) -> int:
         want = set(args.tags)
         entries = [e for e in entries if e.tag in want]
     model_rec = None
-    if args.model:
+    if args.model or args.cellpose_model:
         from germquant import provenance
 
-        model_rec = {"path": str(args.model), "sha256": provenance.file_sha256(args.model)}
+        mpath = args.model or args.cellpose_model
+        model_rec = {"path": str(mpath), "sha256": provenance.file_sha256(mpath),
+                     "kind": "nuclei3d" if args.model else "cellpose"}
     out_dir = Path(args.out)
     rows, per_truth, skipped = [], [], []
     for e in entries:
@@ -176,19 +193,19 @@ def main(argv=None) -> int:
         try:
             outputs = find_pipeline_outputs(e.results_dir)
         except (FileNotFoundError, ValueError) as err:
-            if not (args.pred_dir or args.model):
+            if not (args.pred_dir or args.model or args.cellpose_model):
                 skipped.append({"tag": e.tag, "reason": f"pipeline outputs: {err}"})
                 print(f"  skip {e.tag}: {err}")
                 continue
         extra = {}
-        if args.model:
+        if args.model or args.cellpose_model:
             try:
                 pred, extra = _model_labels(args, e, out_dir)
             except FileNotFoundError as err:
                 skipped.append({"tag": e.tag, "reason": f"model run: {err}"})
                 print(f"  skip {e.tag}: {err}")
                 continue
-            source = "nuclei3d model"
+            source = "nuclei3d model" if args.model else "cellpose model"
         elif args.pred_dir:
             path = Path(args.pred_dir) / f"{e.tag}__labels.tif"
             if not path.is_file():
@@ -241,7 +258,7 @@ def main(argv=None) -> int:
         settings["protocol"] = {"min_truth_voxels": args.min_truth_voxels, "coverage_xy_um": args.coverage_xy_um,
                                 "coverage_z_planes": args.coverage_z_planes, "scope_frac": args.scope_frac,
                                 "split_frac": args.split_frac}
-    if args.model:
+    if args.model or args.cellpose_model:
         settings["model_run"] = {"device": args.device, "tile": args.tile, "min_volume_um3": args.min_volume_um3,
                                  "fg_threshold": args.fg_threshold, "h_um": args.h_um,
                                  "neighbour_weight": args.neighbour_weight, "cache_root": args.cache_root}

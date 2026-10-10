@@ -573,3 +573,66 @@ def test_protocol_scope_is_half_the_volume():
     _cube(pred, 1, (1, 3), (10, 20), (21, 41))           # 9 of 20 columns inside: out of scope
     row, _ = n3.benchmark_gonad(pred, truth, vox, coverage="protocol", min_truth_voxels=10)
     assert row["n_pred_counted"] == 0 and row["fp_iou50"] == 0 and row["fn_iou50"] == 1
+
+
+def test_benchmark_script_scores_a_cellpose_model_file(tiny_bench, monkeypatch):
+    """--cellpose-model runs the pipeline's Cellpose path (stubbed here) on the cached DAPI and scores it."""
+    from scipy import ndimage as ndi
+
+    from germquant.segment import nuclei as N
+
+    calls = []
+
+    def fake_cellpose(dna, spacing, model_name, diameter_um, device_pref=None):
+        calls.append(str(model_name))
+        return ndi.label(np.asarray(dna) > 500)[0].astype(np.int32)
+
+    monkeypatch.setattr(N, "_cellpose", fake_cellpose)
+    b = tiny_bench
+    model = b["root"] / "cp_model"
+    model.write_bytes(b"a stand-in for a Cellpose model file")
+    spec = importlib.util.spec_from_file_location("benchmark_nuclei3d", ROOT / "scripts" / "benchmark_nuclei3d.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = b["root"] / "bench_cp"
+    rc = mod.main(["--manifest", str(b["manifest"]), "--out", str(out), "--coverage", "protocol", "--split", "val",
+                   "--cellpose-model", str(model), "--cache-root", str(b["root"] / "cache"), "--device", "cpu",
+                   "--n-boot", "20"])
+    assert rc == 0 and calls == [str(model)]
+    row = pd.read_csv(out / "per_gonad.csv").iloc[0]
+    assert row["pred_source"] == "cellpose model" and row["segmentation_method"] == "cellpose"
+    assert row["tp_iou50"] == 4 and row["fp_iou50"] == 0 and row["f1_iou50"] == 1.0
+    pooled = json.loads((out / "pooled.json").read_text(encoding="utf-8"))
+    assert pooled["settings"]["model"]["kind"] == "cellpose"
+    assert (out / "labels" / "synth_val_c__labels.tif").is_file()
+
+
+def test_export_imaris_training_pairs(tiny_bench):
+    """The Cellpose competitor's slice export: train gonads only, the truth masks as labels, one series."""
+    import tifffile
+
+    from germquant.segment.training import load_pairs, split_pairs
+
+    b = tiny_bench
+    spec = importlib.util.spec_from_file_location("export_pairs", ROOT / "scripts" / "export_imaris_training_pairs.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = b["root"] / "pairs"
+    rc = mod.main(["--out", str(out), "--split-file", str(b["split"]), "--manifest", str(b["manifest"]),
+                   "--cache-root", str(b["root"] / "cache"), "--slices-per-image", "2", "--min-labels", "1"])
+    assert rc == 0
+    man = pd.read_csv(out / "manifest.csv")
+    assert set(man["image_id"]) == {"synth_noHS_a", "synth_HS_b"} and (man["series_id"] == "train").all()
+    assert set(man["orientation"]) == {"xy", "xz", "yz"} and len(man) == 12
+    exp = json.loads((out / "export.json").read_text(encoding="utf-8"))
+    assert exp["test_never_opened"] == ["synth_test_d"] and exp["mask_untraced"] is True
+    pairs = load_pairs(out)
+    train, val, rec = split_pairs(pairs, by="series")
+    assert len(val) == 0 and len(train) == len(man)            # a single group: everything trains
+    for r in man.itertuples():
+        lab = tifffile.imread(out / r.labels)
+        im = tifffile.imread(out / r.image)
+        assert lab.shape == im.shape == (r.height, r.width) and im.dtype == np.uint16
+        assert set(np.unique(lab).tolist()) <= {0, 1, 2, 3, 4} and lab.max() > 0
+        if r.orientation != "xy":
+            assert abs(r.z_zoom - SP[0] / SP[1]) < 1e-9
