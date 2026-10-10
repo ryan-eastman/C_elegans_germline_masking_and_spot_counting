@@ -1,0 +1,30 @@
+# Profile: the EXPERIMENTAL log spot backend with the parameters selected on the RAD-51 benchmark's train
+# and val gonads (package D3, 2026-10-10; docs/BENCHMARK.md, "Tuning on train and val"). Overlays
+# config/config.yaml and changes only spots: keys; select it with
+# `germquant run X.nd2 --profile bench_log_tuned --out ...`.
+#
+# Status: a development result, not a validated recipe and not the default. It was chosen by the pooled
+# per-nucleus CCC against the Imaris truth on the 4 train gonads with usable spot truth (3 without heat
+# shock, 1 heat-shock hermaphrodite), then among the 5 best train sets on the 2 val hermaphrodites. It
+# was never run on a test gonad, and no heat-shock male took part in choosing it (both training ones
+# have unusable spot truth). On the heat-shock val gonad it undercounts (bias -0.48 foci per germline
+# nucleus) where the untuned log defaults do not; read the BENCHMARK.md section before relying on it.
+# Every run made with it carries the QC flag spots:unvalidated_backend=log. The pre-gate of 2.0 lets
+# more than spots.max_spot_candidates (30000) candidates through on large or bright gonads (2 of the 6
+# train and val gonads), so those runs log the FLOODED warning; with the cap lifted they gave the same
+# 1130 spots and 425 instead of 424, so the counts are not floors in practice. The two finalists with
+# the pre-gate at its default of 3.0 were within 0.003 of it in val CCC and 0.001 in val F1 and stay
+# under the cap on all six (at most 20827 candidates).
+#
+# Selected set: logB_d0.5_s2.5_k0.5_g2_m0, params sha256
+# 2f0fa0ef1b57444662bceff6e15e61bacb2ac9d807977b541553135373ef1a49 (trial records in
+# C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/trials.jsonl, stages B and val).
+extends: config.yaml
+
+spots:
+  backend: log
+  merge_z_columns: false     # the z-split merge off for this backend (its anisotropic suppression stays)
+  log:
+    diameter_um: 0.5         # the code default, written out
+    min_snr: 2.5
+    pre_gate_sigmas: 2.0

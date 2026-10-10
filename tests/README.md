@@ -61,6 +61,14 @@ gonads are built inside the fixtures.
   reproduces its spots table (log backend always, SpotMAX when installed). Tiny planted-foci gonads with
   truth files exercise the runner, the trial log, the test guard and the final-run log (on synthetic
   test-role gonads and temporary logs only), and the process pool against the sequential run.
+- `test_bench_tuning.py`: the parameter search runner (`germquant.benchmark.tuning`,
+  `scripts/bench_tune.py`; `docs/BENCHMARK.md`, "Tuning on train and val") and the two tuned profiles.
+  The SpotMAX effect-size filter applied after a run with `effect_size_min` 0 reproduces a run made with
+  that minimum, table for table (SpotMAX when installed); the ranking rule; on the planted-foci gonads of
+  `test_bench_detector.py`, one trial record per parameter set, the same scores and detections as
+  `bench_detector.py`, the process pool, the budget guard, the top-K selection for val and the test
+  guard. `config/profiles/bench_log_tuned.yaml` and `bench_spotmax_tuned.yaml` load, extend
+  `config/config.yaml` and change only `spots:` keys.
 
 ## Markers
 

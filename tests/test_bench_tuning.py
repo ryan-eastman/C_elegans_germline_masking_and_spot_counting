@@ -6,13 +6,16 @@ scripts/bench_tune.py), on synthetic data:
 - the objective and the ranking (rounding, the F1 tie-break, a missing value last) and the chunking;
 - bench_tune.py on the planted-foci gonads of test_bench_detector: one trial record per parameter set
   with its tuning block, the same scores and detections as bench_detector.py for the same parameters,
-  the process pool, the budget guard, the top-K selection for val and the test guard.
+  the process pool, the budget guard, the top-K selection for val and the test guard;
+- config/profiles/bench_log_tuned.yaml and bench_spotmax_tuned.yaml extend config/config.yaml and
+  change only spots: keys, and as bench parameters they give the section the profile gives.
 Nothing here needs microscopy data or a GPU.
 """
 from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -23,6 +26,7 @@ from test_end_to_end import _synthetic_stack
 from germquant.benchmark import detector as bd
 from germquant.benchmark import tuning as bt
 
+ROOT = Path(__file__).resolve().parents[1]
 TIMING = ["detect_s", "score_s", "elapsed_s"]
 
 
@@ -226,3 +230,36 @@ def test_bench_tune_refuses_test_gonads(planted_bench, capsys):  # noqa: F811
     with pytest.raises(ValueError, match="unusable"):
         bt.run_configs("synth_rg_e", "log", [{"name": "x", "params": {}}], cache_root=b["root"] / "cache",
                        manifest=b["manifest"])
+
+
+# ------------------------------------------------------------------------------ the tuned profiles
+@pytest.mark.parametrize("name, backend", [("bench_log_tuned", "log"), ("bench_spotmax_tuned", "spotmax")])
+def test_tuned_profiles_change_only_spots_keys(name, backend):
+    import yaml
+
+    from germquant.config import load_config
+    from germquant.spots.detect import SPOTMAX_KEYS
+    from germquant.spots.log_detect import LOG_DEFAULTS, log_kwargs
+
+    path = ROOT / "config" / "profiles" / f"{name}.yaml"
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert raw["extends"] == "config.yaml" and set(raw) == {"extends", "spots"}
+    base = load_config(ROOT / "config" / "config.yaml").as_dict()
+    prof = load_config(path).as_dict()
+    assert {k: v for k, v in prof.items() if k != "spots"} == {k: v for k, v in base.items() if k != "spots"}
+    spots = prof["spots"]
+    assert spots.get("backend", "spotmax") == backend
+    overlay = {k: v for k, v in raw["spots"].items() if k != "backend"}
+    # as bench parameters over the base section, the overlay gives exactly the profile's section
+    assert bd.effective_section(base["spots"], overlay) == {k: v for k, v in spots.items() if k != "backend"}
+    changed = {k for k in set(spots) | set(base["spots"]) if spots.get(k) != base["spots"].get(k)}
+    if backend == "log":
+        assert set(raw["spots"]["log"]) <= set(LOG_DEFAULTS) and "log" in changed
+        kw = log_kwargs(spots)                                    # every key valid for the detector
+        from germquant.spots.log_detect import _resolve
+
+        _resolve(kw["diameter_um"], kw["min_snr"], kw["min_separation_um"], kw["annulus_inner_um"],
+                 kw["annulus_outer_um"], kw["pre_gate_sigmas"])
+    else:
+        assert changed <= set(SPOTMAX_KEYS)
+        assert spots["thresholding_method"] in ("threshold_triangle", "threshold_otsu", "threshold_li")

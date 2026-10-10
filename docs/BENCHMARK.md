@@ -525,6 +525,291 @@ What this does and does not say:
   spirit to a Laplacian of Gaussian, so a LoG detector may agree with it partly by construction;
   agreement with this truth is not yet agreement with a person (protocol section 9).
 
+## Tuning on train and val
+
+Package D3, 2026-10-10. The two classical detectors that the bench harness runs were tuned on the train
+gonads and chosen between on the val gonads: the experimental `log` backend, and SpotMAX, the deployed
+detector, re-tuned as the competitor that section 8 of `docs/BENCHMARK_PROTOCOL.md` requires. No test
+gonad was run, scored or looked at. Every parameter set below is a record in `trials.jsonl` (split train
+or val, with a `tuning` block naming its search and stage), and every output folder is under
+`C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/tuning_d3/`.
+
+### Rules, fixed before the first trial
+
+The plan was written to `tuning_d3/search_plan.json` before any D3 trial ran.
+
+* Gonads. Train: the four with usable spot truth, n2rad51_noHS_herm_000, noHS_male_000, noHS_male_001
+  and HS_herm_000 (2805 germline nuclei, 425 traced, 9183 expert spots). Val: n2rad51_noHS_herm_001 and
+  HS_herm_001 (1762 germline nuclei, 208 traced, 3975 expert spots). The two heat-shock males of train,
+  HS_male_000 and HS_male_002, were skipped because their spots were exported with Imaris region growing.
+  **No heat-shock male took part in any choice below, and val holds hermaphrodites only**, so the final
+  choices were made without seeing any male on val and without seeing a heat-shock male at all.
+* Objective. The pooled per-nucleus Lin's CCC over the germline nuclei of the split, the truth counted
+  from Class A+B spots and the method counted end-to-end (the detector's own spots and per-nucleus counts
+  on the deployed nucleus masks): `per_nucleus_all` in pooled.json, the harness's headline per-nucleus
+  number. It is rounded to 3 decimals and the pooled spot F1 (Class A+B, 0.3 um in xy by 0.4 um in z)
+  breaks ties. The traced-subset CCC, the Class A numbers, the F1 without Class B and the detector-only
+  F1 are reported and steered nothing. The harness's traced subset (our nuclei with more than half of
+  their volume inside one Imaris surface, counted in our labels) is not the primary partition of
+  protocol section 5.1, which takes the Imaris masks themselves as the nuclei; neither was used to select.
+* Budgets. At most 60 parameter sets for `log` (search `d3_log`) and 24 for SpotMAX (search
+  `d3_spotmax`); `bench_tune.py --budget` refuses a run that would exceed them.
+* Selection. The best 5 `log` sets on train went to val and the best of the 5 on val by the same
+  objective is the final `log` configuration; the best 3 SpotMAX sets likewise. The deployed SpotMAX
+  recipe is the reference on val.
+
+### The runner: `scripts/bench_tune.py`
+
+`bench_detector.py` runs one parameter set per call and reloads each gonad's cache (about 3 GB) every
+time. `bench_tune.py` (library `germquant.benchmark.tuning`) takes a list of parameter sets (a JSON or
+YAML file of `{name, params}`, `params` exactly as `bench_detector.py --params`), keeps each gonad in one
+worker process that loads its cache once, runs every set of its share with `detector.run_backend`, then
+releases the foci channel, loads the truth once and scores every set with `detector.score`. Each set is
+pooled with `detector.pool_scores`, written to `<out-root>/<name>/` with the files of
+`bench_detector.py` (per_gonad.csv, per_nucleus.csv, per_spot_matches.csv, pooled.json,
+detections/), and logged with `detector.trial_record` plus a `tuning` block (search, stage, name,
+objective, whether the detection was shared, wall time). `<out-root>/summary.csv` and `summary.json`
+rank the sets by the objective. `--top-from SUMMARY ... --top K` takes the K best sets of earlier
+summaries (how the finalists went to val); `--budget N` with `--search` counts the distinct parameter
+sets already logged under that search; `--jobs` sets the worker processes and `--chunks` the tasks per
+gonad. There is no `--final`: a test gonad is refused by the script and by `run_configs`.
+
+```powershell
+$env:CUDA_VISIBLE_DEVICES = "-1"
+python scripts/bench_tune.py --backend log --configs logA.json --split train --search d3_log --stage A `
+    --budget 60 --jobs 4 --out-root <dir>
+python scripts/bench_tune.py --backend log --top-from <A>/summary.json <B>/summary.json --top 5 `
+    --split val --search d3_log --stage val --out-root <dir>
+```
+
+**Shared SpotMAX detections.** `detect_spots_spotmax` applies `effect_size_min` as its last step, a row
+filter after detection, the features and the z-split merge (a missing effect size passes; nothing is
+filtered when no spot has one). Sets that differ only in `effect_size_min` therefore share everything
+before it: the runner makes one SpotMAX run per such group with `effect_size_min` 0 and applies each
+set's minimum afterwards (`tuning.filter_effect_size`, which rebuilds both tables as
+`detect._finish_tables` does). The equality is tested on synthetic data, and on the real gonads the
+deployed recipe obtained this way (triangle, 0.3 um, 0.08 um, filtered at 3.0) is bit for bit the
+golden spots table, every column and every per-nucleus count, on all six train and val gonads (1934,
+1440, 1519 and 1552 spots on the train gonads, 1653 and 2600 on the val gonads; `detector.compare_with_golden`).
+Those runs also give the same 66 per-gonad columns as D1's `bench_detector.py` runs of the deployed recipe
+(trials 3 and 4), and the `log` run with the code defaults gives D1's detections byte for byte on the four
+train gonads, so the `pre_gate_sigmas` key left the default path unchanged on real data. `--no-shortcut`
+runs every set on its own.
+
+### Trial counts
+
+88 trial records, all with split train or val: `log` 55 parameter sets on train (budget 60) and its 5
+finalists on val; SpotMAX 24 parameter sets on train (budget 24) and its 3 finalists plus the deployed
+recipe on val. Wall time about 56 minutes for `log` and 66 minutes for SpotMAX, run with at most four
+worker processes in all (other jobs shared the workstation; the SpotMAX stages used one or two workers
+to stay within memory). No configuration was cut. All records carry git sha `1a95863...-dirty`: the
+uncommitted changes at the time were this documentation, the tests and the profiles; the detector,
+harness and runner code that ran is the committed 1a95863. The parameter lists of every stage are in
+`tuning_d3/configs/` (logA, logB, logC, smS1, smS2, smVal); the outputs are in `tuning_d3/log_A_train`,
+`log_B_train`, `log_C_train`, `log_val`, `spotmax_S1_train`, `spotmax_S2_train` and `spotmax_val`, each
+with its `summary.csv`, and the console logs sit next to them.
+
+### `log` on train
+
+| stage | what varied (everything else at the code defaults) | sets | wall time |
+|---|---|---|---|
+| A | `diameter_um` 0.35, 0.42, 0.5, 0.6, 0.7 by `min_snr` 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 | 30 | 18.5 min, 4 workers |
+| B | at the stage-A best (0.5 um, SNR 2.5): `min_separation_um` 0.25 (the default, half the diameter), 0.375 and 0.5 by `pre_gate_sigmas` 2, 3, 4 by `merge_z_columns` on and off, less the stage-A point | 17 | 23.2 min, 2 workers |
+| C | at the best of A and B (pre-gate 2, merge on): `diameter_um` 0.46, 0.5, 0.54 by `min_snr` 2.25, 2.5, 2.75, less the centre | 8 | 9.2 min, 2 workers |
+
+Stage A, pooled germline CCC / bias on train (bias is ours minus expert, foci per germline nucleus; 0.5
+um with SNR 2.0 is the code default):
+
+| `diameter_um` \ `min_snr` | 1.5 | 2.0 | 2.5 | 3.0 | 3.5 | 4.0 |
+|---|---|---|---|---|---|---|
+| 0.35 | 0.113 / +14.09 | 0.462 / +3.09 | 0.640 / +1.30 | 0.769 / +0.35 | 0.775 / -0.26 | 0.651 / -0.66 |
+| 0.42 | 0.131 / +8.20 | 0.799 / +0.90 | 0.903 / +0.12 | 0.864 / -0.28 | 0.745 / -0.60 | 0.592 / -0.82 |
+| 0.5 | 0.161 / +6.04 | 0.861 / +0.60 | **0.934 / -0.04** | 0.879 / -0.36 | 0.760 / -0.62 | 0.622 / -0.80 |
+| 0.6 | 0.213 / +4.39 | 0.854 / +0.46 | 0.923 / -0.12 | 0.869 / -0.39 | 0.754 / -0.62 | 0.626 / -0.80 |
+| 0.7 | 0.272 / +3.13 | 0.836 / +0.31 | 0.895 / -0.20 | 0.839 / -0.44 | 0.730 / -0.65 | 0.622 / -0.80 |
+
+* The SNR gate is the parameter that matters. At SNR 1.5 every diameter floods (13,503 to 44,842 spots
+  against the expert's 9183); the per-nucleus bias falls through zero near SNR 2.5 and is negative from
+  3.0 up at every diameter but 0.35 um. 0.5 um is the best diameter at every SNR from 2.0 to 3.0.
+* The flood guard (`max_spot_candidates`, 30000 candidates) fired in 30 stage-A runs: every gonad at 0.35
+  um and noHS_herm_000 at 0.42 um. Those counts are floors in the pipeline's sense.
+* Stage B: at SNR 2.5 the pre-gate and the z merge change the spot counts by less than 1 percent (the
+  SNR gate removes what they let through; the six sets at the default separation are within 0.0005 in
+  CCC); a separation of 0.75 or 1.0 diameters lowers the CCC to 0.932 and 0.920.
+* Stage C: no neighbour beats the centre (the best is 0.931, at 0.54 um).
+* By condition, at the best setting the three gonads without heat shock are nearly unbiased (+0.12 per
+  germline nucleus) and the heat-shock hermaphrodite is undercounted (-0.61). Its bias reaches zero near
+  SNR 2.0, theirs between 2.5 and 3.0: one global threshold cannot fit both. The Imaris Quality
+  thresholds the annotator set were lower for the heat-shock projects (24.2 and 17.4 against 42 to 69).
+
+The five best of the 55 on train (all one point of the search, 0.5 um and SNR 2.5, with different
+pre-gate and merge settings), with the untuned defaults and the deployed SpotMAX recipe for reference:
+
+| set | germline CCC [95% CI] | bias | traced CCC | traced bias | germline CCC, Class A | spot F1 [95% CI] | P / R | F1 without B | detector-only F1 | matched / ours / expert |
+|---|---|---|---|---|---|---|---|---|---|---|
+| logB_d0.5_s2.5_k0.5_g2_m1 | 0.934 [0.892, 0.971] | -0.04 | 0.936 | +0.15 | 0.934 | 0.516 [0.347, 0.753] | 0.869 / 0.367 | 0.561 | 0.882 | 3369 / 3877 / 9183 |
+| logA_d0.5_s2.5 | 0.934 [0.891, 0.971] | -0.04 | 0.935 | +0.14 | 0.934 | 0.516 [0.347, 0.754] | 0.870 / 0.367 | 0.561 | 0.883 | 3367 / 3870 / 9183 |
+| logB_d0.5_s2.5_k0.5_g4_m1 | 0.934 [0.890, 0.971] | -0.04 | 0.935 | +0.14 | 0.934 | 0.516 [0.346, 0.755] | 0.871 / 0.366 | 0.561 | 0.883 | 3363 / 3860 / 9183 |
+| logB_d0.5_s2.5_k0.5_g2_m0 | 0.934 [0.892, 0.971] | -0.03 | 0.934 | +0.17 | 0.934 | 0.515 [0.347, 0.753] | 0.866 / 0.367 | 0.561 | 0.880 | 3369 / 3891 / 9183 |
+| logB_d0.5_s2.5_k0.5_g3_m0 | 0.934 [0.891, 0.971] | -0.03 | 0.934 | +0.16 | 0.934 | 0.515 [0.346, 0.754] | 0.867 / 0.367 | 0.561 | 0.880 | 3367 / 3884 / 9183 |
+| `log` defaults (rank 33 of 55) | 0.861 [0.785, 0.926] | +0.60 | 0.732 | +1.73 | 0.858 | 0.493 [0.388, 0.625] | 0.644 / 0.400 | 0.526 | 0.767 | 3672 / 5701 / 9183 |
+| SpotMAX deployed | 0.783 [0.740, 0.831] | +0.87 | 0.636 | +2.48 | 0.783 | 0.409 [0.295, 0.558] | 0.495 / 0.348 | 0.436 | 0.621 | 3193 / 6445 / 9183 |
+
+Names: `k` is the separation in diameters, `g` the pre-gate in robust standard deviations, `m` the z merge
+(1 on, 0 off).
+
+### `log` on val
+
+| set | germline CCC [95% CI] | bias | traced CCC | traced bias | germline CCC, Class A | spot F1 [95% CI] | P / R | F1 without B | detector-only F1 | matched / ours / expert |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **logB_d0.5_s2.5_k0.5_g2_m0** (selected) | 0.874 [0.792, 0.963] | -0.37 | 0.866 | -0.74 | 0.880 | 0.482 [0.249, 0.825] | 0.950 / 0.323 | 0.660 | 0.835 | 1282 / 1349 / 3975 |
+| logB_d0.5_s2.5_k0.5_g3_m0 | 0.874 [0.792, 0.962] | -0.37 | 0.866 | -0.74 | 0.880 | 0.481 [0.249, 0.825] | 0.951 / 0.322 | 0.659 | 0.835 | 1280 / 1346 / 3975 |
+| logB_d0.5_s2.5_k0.5_g2_m1 | 0.872 [0.787, 0.963] | -0.37 | 0.866 | -0.74 | 0.878 | 0.482 [0.250, 0.826] | 0.956 / 0.323 | 0.661 | 0.835 | 1282 / 1341 / 3975 |
+| logA_d0.5_s2.5 | 0.872 [0.787, 0.962] | -0.37 | 0.866 | -0.74 | 0.878 | 0.482 [0.250, 0.826] | 0.957 / 0.322 | 0.661 | 0.835 | 1280 / 1338 / 3975 |
+| logB_d0.5_s2.5_k0.5_g4_m1 | 0.871 [0.786, 0.961] | -0.37 | 0.864 | -0.75 | 0.877 | 0.481 [0.249, 0.825] | 0.957 / 0.321 | 0.660 | 0.832 | 1277 / 1334 / 3975 |
+| `log` defaults (D1, trial 6) | 0.926 [0.880, 0.957] | +0.16 | 0.872 | +0.72 | 0.922 | 0.558 [0.427, 0.734] | 0.766 / 0.439 | 0.711 | 0.824 | 1747 / 2282 / 3975 |
+| SpotMAX deployed | 0.695 [0.643, 0.783] | +1.25 | 0.590 | +2.88 | 0.676 | 0.428 [0.317, 0.636] | 0.414 / 0.443 | 0.494 | 0.597 | 1762 / 4253 / 3975 |
+
+The selected `log` configuration is `diameter_um` 0.5, `min_snr` 2.5, `pre_gate_sigmas` 2.0 and
+`merge_z_columns` off: tied with the pre-gate 3 variant at 0.874 (0.8744 against 0.8740) and ahead on
+F1 (0.4816 against 0.4811).
+
+* The five finalists are within 0.0033 of each other in val CCC and 0.0012 in val F1: the val step could
+  not tell them apart, and the choice among them means no more than the rule that made it.
+* Against the deployed SpotMAX recipe on val the selected set has the higher CCC (0.874 against 0.695),
+  the smaller bias (-0.37 against +1.25), the higher F1 (0.482 against 0.428, from precision 0.950
+  against 0.414 at recall 0.323 against 0.443) and the higher detector-only F1 (0.835 against 0.597).
+* The untuned `log` defaults beat every finalist on val (CCC 0.926, F1 0.558). The difference is the
+  heat-shock gonad (table under "What the heat-shock gonads show"): at SNR 2.5 it is undercounted
+  (-0.48 per germline nucleus), at the default SNR 2.0 it is not (-0.14). Train chose SNR 2.5 because
+  three of its four gonads are without heat shock. Under the rule the defaults (rank 33 on train) were
+  not a finalist; this is reported, not acted on.
+* The pre-gate of 2 lets more than 30000 candidates through on noHS_herm_000 (35,024) and HS_herm_001
+  (49,611), so those runs log the flood warning. With the cap lifted (no metric computed) noHS_herm_000
+  gave the same 1130 spots and HS_herm_001 425 instead of 424 (two spots replaced by three), so the
+  counts are not floors in practice. The pre-gate 3 sets stay under the cap on all six gonads (at most
+  20,827 candidates).
+
+### SpotMAX on train
+
+| stage | what varied | sets | wall time |
+|---|---|---|---|
+| S1 | `thresholding_method` triangle, otsu, li by `effect_size_min` 2, 3, 4, 5, at the deployed `spot_radius_um` 0.3 and `gauss_sigma_um` 0.08 | 12 | 31.6 min, 2 workers |
+| S2 | `threshold_triangle` (the S1 best, at effect size 4): (`spot_radius_um`, `gauss_sigma_um`) (0.25, 0.08), (0.35, 0.08), (0.3, 0.05), (0.3, 0.12) by `effect_size_min` 3.5, 4.0, 4.5 | 12 | 27.9 min, 1 worker |
+
+With the shared detections the 24 sets took 7 SpotMAX runs per gonad (3 in S1, 4 in S2). The
+`threshold_li` run on noHS_herm_000 alone took 29 minutes (24,599 spots before the effect-size filter;
+the flood guard fired once in S1, most likely in this run).
+
+S1, pooled germline CCC / bias on train:
+
+| `thresholding_method` \ `effect_size_min` | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|
+| threshold_triangle | 0.694 / +1.31 | 0.783 / +0.87 (deployed) | **0.839 / +0.39** | 0.810 / -0.01 |
+| threshold_otsu | 0.691 / +0.61 | 0.787 / +0.26 | 0.809 / -0.06 | 0.738 / -0.35 |
+| threshold_li | 0.120 / +7.49 | 0.338 / +3.53 | 0.635 / +1.46 | 0.751 / +0.46 |
+
+Otsu starves the heat-shock gonad (bias -0.88 to -1.41 on HS_herm_000 at every effect size) and li floods
+the gonads without heat shock at low effect sizes (bias +9.25 on them at 2; 25,196 spots on the four
+train gonads against the expert's 9183), the two failure modes the deployed config's comments describe.
+The five best of the 24, and the deployed recipe (rank 13):
+
+| set | germline CCC [95% CI] | bias | traced CCC | traced bias | germline CCC, Class A | spot F1 [95% CI] | P / R | F1 without B | detector-only F1 | matched / ours / expert |
+|---|---|---|---|---|---|---|---|---|---|---|
+| smS2_tri_r0.3_g0.12_e3.5 | 0.855 [0.830, 0.881] | +0.26 | 0.764 | +0.89 | 0.856 | 0.394 [0.266, 0.563] | 0.581 / 0.298 | 0.426 | 0.654 | 2741 / 4715 / 9183 |
+| smS2_tri_r0.35_g0.08_e4 | 0.841 [0.803, 0.881] | +0.19 | 0.767 | +0.58 | 0.839 | 0.377 [0.258, 0.533] | 0.571 / 0.281 | 0.405 | 0.630 | 2583 / 4522 / 9183 |
+| smS1_tri_r0.3_g0.08_e4 | 0.839 [0.813, 0.874] | +0.39 | 0.745 | +1.13 | 0.838 | 0.396 [0.274, 0.560] | 0.555 / 0.308 | 0.424 | 0.638 | 2825 / 5090 / 9183 |
+| smS2_tri_r0.3_g0.12_e4 | 0.835 [0.758, 0.891] | +0.03 | 0.734 | +0.29 | 0.836 | 0.376 [0.251, 0.547] | 0.613 / 0.272 | 0.407 | 0.646 | 2495 / 4071 / 9183 |
+| smS2_tri_r0.25_g0.08_e4 | 0.833 [0.797, 0.880] | +0.27 | 0.725 | +0.87 | 0.831 | 0.377 [0.257, 0.540] | 0.552 / 0.286 | 0.404 | 0.622 | 2628 / 4764 / 9183 |
+| deployed (smS1_tri_r0.3_g0.08_e3) | 0.783 [0.740, 0.831] | +0.87 | 0.636 | +2.48 | 0.783 | 0.409 [0.295, 0.558] | 0.495 / 0.348 | 0.436 | 0.621 | 3193 / 6445 / 9183 |
+
+The best set has the largest smoothing searched (0.12 um) and, at that smoothing, the smallest effect
+size (3.5), so the SpotMAX optimum may lie outside the grid; the 24-set budget did not allow following
+it. In S2 the lightest smoothing (0.05 um) was the worst choice at every effect size.
+
+### SpotMAX on val
+
+| set | germline CCC [95% CI] | bias | traced CCC | traced bias | germline CCC, Class A | spot F1 [95% CI] | P / R | F1 without B | detector-only F1 | matched / ours / expert |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **smS2_tri_r0.3_g0.12_e3.5** (selected) | 0.784 [0.721, 0.891] | +0.60 | 0.717 | +1.20 | 0.760 | 0.444 [0.347, 0.630] | 0.506 / 0.395 | 0.528 | 0.635 | 1571 / 3104 / 3975 |
+| smS2_tri_r0.35_g0.08_e4 | 0.775 [0.732, 0.846] | +0.55 | 0.756 | +0.87 | 0.752 | 0.420 [0.338, 0.581] | 0.488 / 0.369 | 0.500 | 0.605 | 1466 / 3006 / 3975 |
+| smS1_tri_r0.3_g0.08_e4 | 0.724 [0.656, 0.850] | +0.86 | 0.668 | +1.62 | 0.699 | 0.424 [0.325, 0.620] | 0.449 / 0.402 | 0.497 | 0.603 | 1598 / 3558 / 3975 |
+| deployed (smS1_tri_r0.3_g0.08_e3) | 0.695 [0.643, 0.783] | +1.25 | 0.590 | +2.88 | 0.676 | 0.428 [0.317, 0.636] | 0.414 / 0.443 | 0.494 | 0.597 | 1762 / 4253 / 3975 |
+
+The selected SpotMAX configuration is `threshold_triangle`, `spot_radius_um` 0.3, `gauss_sigma_um`
+0.12, `effect_size_min` 3.5: the best of the three finalists on val, and better than the deployed recipe
+on every pooled val number except recall (CCC 0.784 against 0.695, bias +0.60 against +1.25, F1 0.444
+against 0.428). It still overcounts on both val gonads (+0.30 and +0.75 per germline nucleus). By section 7
+of the protocol the SpotMAX reference is the better of the deployed and the re-tuned recipe chosen on val,
+which on these numbers is the re-tuned one (changelog entry 2 leaves open whether this search or the
+section 8 grid supplies the re-tuned competitor). On val the selected `log` set leads the selected
+SpotMAX set in CCC (0.874 against 0.784) and F1 (0.482 against 0.444); these are development numbers on
+two gonads, not a win condition.
+
+### What the heat-shock gonads show
+
+There is no usable heat-shock male in train or val, so the only heat-shock gonads seen are two
+hermaphrodites, HS_herm_000 (train) and HS_herm_001 (val). Per gonad, our spots in germline nuclei
+against the expert's spots that fall in our germline nuclei, the means per germline nucleus, and the
+agreement:
+
+| detector | gonad | ours | ours / expert in germline nuclei | mean ours / expert | CCC | bias | traced CCC | traced bias | spot F1 | detector-only F1 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| SpotMAX deployed | HS_herm_001 (val) | 2600 | 2529 / 969 | 2.17 / 0.83 | 0.643 | +1.34 | 0.436 | +3.76 | 0.317 | 0.432 |
+| SpotMAX re-tuned | HS_herm_001 (val) | 1909 | 1847 / 969 | 1.58 / 0.83 | 0.721 | +0.75 | 0.536 | +2.23 | 0.347 | 0.539 |
+| `log` defaults | HS_herm_001 (val) | 829 | 811 / 969 | 0.69 / 0.83 | 0.957 | -0.14 | 0.932 | -0.17 | 0.427 | 0.830 |
+| `log` tuned | HS_herm_001 (val) | 424 | 414 / 969 | 0.35 / 0.83 | 0.792 | -0.48 | 0.571 | -1.18 | 0.249 | 0.504 |
+| SpotMAX deployed | HS_herm_000 (train) | 1552 | 1527 / 1334 | 2.52 / 2.20 | 0.864 | +0.32 | 0.843 | +0.85 | 0.260 | 0.636 |
+| SpotMAX re-tuned | HS_herm_000 (train) | 1138 | 1118 / 1334 | 1.84 / 2.20 | 0.816 | -0.36 | 0.772 | -0.39 | 0.231 | 0.618 |
+| `log` defaults | HS_herm_000 (train) | 1351 | 1319 / 1334 | 2.17 / 2.20 | 0.938 | -0.02 | 0.978 | +0.29 | 0.357 | 0.916 |
+| `log` tuned | HS_herm_000 (train) | 986 | 975 / 1334 | 1.61 / 2.20 | 0.875 | -0.59 | 0.946 | -0.66 | 0.299 | 0.844 |
+
+* The deployed recipe does not undercount these two heat-shock gonads; it overcounts them, by +0.32 and
+  +1.34 foci per germline nucleus (+0.85 and +3.76 in the traced nuclei). The heat-shock undercount
+  that the nine-gonad baseline attributes to the deployed recipe is not visible in train or val; it
+  comes from gonads this package did not look at, and seeing it during development needs the heat-shock
+  male spot sets re-exported from Imaris without region growing.
+* Most expert spots under heat shock lie outside our germline nuclei: 1334 of 5152 and 969 of 2753 fall
+  inside them. Whole-field spot recall and F1 are therefore low for every detector on these gonads, and
+  the per-nucleus numbers are the informative ones.
+* Tuning towards the gonads without heat shock moves both detectors towards undercounting heat shock:
+  the tuned `log` set undercounts both heat-shock gonads (-0.59 and -0.48); the re-tuned SpotMAX
+  undercounts the training one (-0.36) and overcounts the val one less than the deployed recipe (+0.75
+  against +1.34); the untuned `log` defaults are nearly unbiased on both (-0.02 and -0.14). The
+  annotator's thresholds were lower under heat shock, and one global threshold chosen on a training set
+  that is three quarters no-heat-shock tends to undercount heat shock against that truth. A detector
+  meant to remove the heat-shock undercount needs heat-shock males with usable truth in train or val;
+  today train has none usable and val holds no male at all.
+
+### The two profiles
+
+* `config/profiles/bench_log_tuned.yaml`: `spots.backend: log`, `spots.merge_z_columns: false`,
+  `spots.log.diameter_um: 0.5`, `spots.log.min_snr: 2.5`, `spots.log.pre_gate_sigmas: 2.0`.
+* `config/profiles/bench_spotmax_tuned.yaml`: `spots.thresholding_method: threshold_triangle`,
+  `spots.spot_radius_um: 0.3`, `spots.gauss_sigma_um: 0.12`, `spots.effect_size_min: 3.5`.
+
+Both extend `config/config.yaml` and change only `spots:` keys (`tests/test_bench_tuning.py` checks it,
+and that the overlay used as bench parameters over the base section gives exactly the profile's section;
+the golden runs' `spots:` section of all six cached train and val gonads equals that of
+`config/config.yaml`). Neither is the default, neither has been run on a test gonad, and
+`config/config.yaml`, its hash and the deployed recipe are unchanged. Select one with
+`germquant run X.nd2 --profile bench_log_tuned` (or `bench_spotmax_tuned`); a `log` run carries the QC
+flag `spots:unvalidated_backend=log`.
+
+### What this does not say
+
+* These are development numbers on four train and two val gonads. The intervals are cluster bootstraps by
+  gonad (1000 resamples, seed 20251105); with two val gonads they rest on one gonad per condition.
+* Nothing here is a win condition of the protocol, and the test split was not touched. The searches
+  differ from the pre-registered design (the SpotMAX grid, val scores for finalists only, the germline
+  partition as the objective); protocol changelog entry 2 records the differences.
+* The objective is the germline partition of the harness, not the traced-subset partition of protocol
+  section 5.1, and the harness's traced subset is not that partition either.
+* No heat-shock male informed any choice, and val holds hermaphrodites only.
+* Imaris Spots is close in spirit to a Laplacian of Gaussian, so part of the `log` backend's agreement
+  with this truth may come by construction; agreement with this truth is not agreement with a person
+  (protocol section 9).
+
 ## Tests
 
 `tests/test_benchmark.py`: synthetic label volumes and spot sets with known answers for every metric
@@ -545,3 +830,16 @@ runner end to end with the log backend (scores, Class A columns, conditions unde
 trial log (one line per run, the params sha256), the test guard in the script and in the library, the
 final-run log and its limit of two (on synthetic test-role gonads and temporary logs only), and the
 process pool against the sequential run.
+
+`tests/test_bench_tuning.py`: the parameter search runner. The SpotMAX effect-size filter applied to a
+run made with `effect_size_min` 0 reproduces runs made with minima from 0 to above the largest effect
+size, table for table, and `run_configs` gives the same tables and scores with the shared detection as
+without it (SpotMAX when installed); the ranking rule (rounding, the F1 tie-break, missing values last)
+and the chunking that keeps a shared SpotMAX group in one task; on the planted-foci gonads,
+`bench_tune.py` writes one trial record per parameter set with its tuning block and the same per-gonad
+rows, pooled blocks and detections as `bench_detector.py` for the same parameters, the process pool with
+two tasks per gonad equals the sequential run, the budget guard counts distinct parameter sets per search,
+`--top-from` sends the best sets to val, and test gonads are refused by the script and the library. The
+two tuned profiles extend `config/config.yaml`, change only `spots:` keys and, used as bench parameters
+over the base section, give exactly the profile's section. `tests/test_spot_backends.py` covers the
+`spots.log.pre_gate_sigmas` key (default, validation, that it reaches the candidate step and gates).

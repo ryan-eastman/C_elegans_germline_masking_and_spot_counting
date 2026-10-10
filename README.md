@@ -237,6 +237,7 @@ Instead of `--config config/config.yaml` you can name a profile with `--profile`
 | `ccw77_partition` | the SYP-3 / PGL-1 partition analysis: lamin envelopes, hand-traced staging, the Imaris-calibrated granule recipe, on top of `config/config_ccw77.yaml` |
 | `generic` | samples that are not a worm germline (cultured cells, yeast, sections): nuclei with the stock Cellpose model and puncta per nucleus, every worm stage off (see `docs/GENERIC_PROFILE.md`) |
 | `live_syp2` | live GFP::SYP-2 time-lapse series with no DNA stain: nuclei segmented on the GFP channel (`segmentation.nuclei.channel: central_element`), germline, axis and signal QC per timepoint, the fixed-image stains off; run with `--t all` (see `docs/TIMELAPSE.md`, which also has the training loop for a GFP nucleus model) |
+| `bench_log_tuned`, `bench_spotmax_tuned` | benchmark development profiles, not validated recipes: the experimental `log` spot backend and SpotMAX with the spot parameters chosen on the RAD-51 benchmark's train and val gonads (`docs/BENCHMARK.md`, "Tuning on train and val"); everything else as `config/config.yaml` |
 
 Windows:
 ```
