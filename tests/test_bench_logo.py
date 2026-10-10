@@ -198,6 +198,22 @@ def test_bench_logo_heldout_and_report(planted_bench, capsys):  # noqa: F811
     assert {"pair", "block", "stat", "diff", "lo", "hi", "excludes_zero"} <= set(pd.read_csv(out / "logo_paired.csv").columns)
     # a missing held-out folder is refused
     assert mod.main([*common, "report", "--heldout", f"x={b['root'] / 'nowhere'}", "--out", str(out)]) == 2
+    # --tags pools given gonads, from one bench_detector.py folder or from per-gonad folders: the numbers of
+    # the two layouts agree for the same gonads
+    det = _load_script("bench_detector.py")
+    one = b["root"] / "one_folder"
+    assert det.main(["--backend", "log", "--split", "train", "--detector-only", "--no-trial-log", "--out", str(one),
+                     "--manifest", str(b["manifest"]), "--cache-root", str(b["root"] / "cache"), "--n-boot", "50"]) == 0
+    out2 = b["root"] / "report_tags"
+    rc = mod.main([*common, "report", "--tags", "synth_HS_b", "synth_noHS_a", "--heldout", f"single={one}",
+                   f"per_gonad={b['root'] / 'heldout' / 'log_defaults'}", "--out", str(out2)])
+    assert rc == 0, capsys.readouterr().out
+    d2 = json.loads((out2 / "logo_report.json").read_text(encoding="utf-8"))
+    assert d2["held_out_gonads"] == ["synth_HS_b", "synth_noHS_a"] and d2["folds"] == []
+    s_one, s_per = d2["pooled"]["single"]["truth_masks"]["stats"], d2["pooled"]["per_gonad"]["truth_masks"]["stats"]
+    assert s_one["ccc"]["point"] == pytest.approx(s_per["ccc"]["point"])
+    assert d2["paired"]["single - per_gonad"]["spots_all"]["f1"]["diff"]["point"] == pytest.approx(0.0)
+    assert mod.main([*common, "report", "--tags", "synth_val_c", "--heldout", f"single={one}", "--out", str(out2)]) == 2
     # the test gonad never takes part
     assert "synth_test_d" not in json.dumps(doc["folds"])
     assert load_manifest(b["manifest"])           # the manifest is untouched

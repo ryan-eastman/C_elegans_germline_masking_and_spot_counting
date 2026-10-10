@@ -7,7 +7,7 @@ docs/BENCHMARK.md, "Leave-one-gonad-out"). Train and val gonads only; a test gon
         --out-root DIR [--tags TAG ...]
     python scripts/bench_logo.py net3d-fold --held-out TAG --recipe-from MODELDIR --models-root DIR
         --out-root DIR [--device cuda] [--prep-dir DIR] [--min-free-gb 8]
-    python scripts/bench_logo.py report --heldout NAME=DIR ... --out DIR
+    python scripts/bench_logo.py report --heldout NAME=DIR ... --out DIR [--tags TAG ...]
 
 folds        the six folds of section 6.2 (germquant.benchmark.logo.logo_folds) as JSON.
 select       replays the D3 search of a tuned classical detector on every fold's own gonads
@@ -24,7 +24,10 @@ net3d-fold   trains net3d on the fold's five gonads by the frozen recipe of a se
              does. Run it under the workstation's GPU lock.
 report       pools the held-out gonads of every detector (cluster bootstrap by gonad, 1000 resamples, seed
              20251105) and compares every pair of detectors on the same resamples; writes logo_report.json,
-             logo_per_gonad.csv, logo_pooled.csv and logo_paired.csv.
+             logo_per_gonad.csv, logo_pooled.csv and logo_paired.csv. With --tags it pools those gonads from
+             the folders given (each DIR may then be one bench_detector.py output folder), which is how the
+             one-time test scoring of docs/FINAL_SCORING.md compares the competitors; it computes nothing
+             itself beyond pooling the per-gonad and per-nucleus tables it is given.
 
 Common options: --manifest, --cache-root, --trials-log, --split-file (net3d-fold), --n-boot, --seed.
 """
@@ -175,18 +178,28 @@ def cmd_net3d_fold(args) -> int:
 
 
 def cmd_report(args) -> int:
-    folds = _folds(args)
-    tags = [f["held_out"] for f in folds]
+    if args.tags:
+        folds, tags = [], list(args.tags)
+    else:
+        folds = _folds(args)
+        tags = [f["held_out"] for f in folds]
     held = {}
     for spec in args.heldout:
         name, _, root = spec.partition("=")
         root = Path(root)
-        dirs = [root / t for t in tags]
+        if (root / "per_gonad.csv").is_file():
+            dirs = [root]                                   # one bench_detector.py folder holding every gonad
+        else:
+            dirs = [root / t for t in tags]                 # one folder per held-out gonad
         lack = [str(d) for d in dirs if not (d / "per_gonad.csv").is_file()]
         if lack:
             print(f"REFUSED: {name} has no held-out scores in {lack}")
             return 2
         held[name] = logo.load_heldout(name, dirs)
+        have = set(held[name].per_gonad["tag"].astype(str))
+        if not set(tags) <= have:
+            print(f"REFUSED: {name} has no scores for {sorted(set(tags) - have)}")
+            return 2
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     pooled = {n: logo.pool_heldout(h, tags, n_boot=args.n_boot, seed=args.seed) for n, h in held.items()}
@@ -260,7 +273,10 @@ def parse_args(argv=None):
     n.add_argument("--min-free-gb", type=float, default=0.0)
     n.add_argument("--retrain", action="store_true")
     r = sub.add_parser("report")
-    r.add_argument("--heldout", nargs="+", required=True, help="NAME=DIR, DIR holding <tag>/ held-out folders")
+    r.add_argument("--heldout", nargs="+", required=True,
+                   help="NAME=DIR, DIR holding <tag>/ held-out folders or one bench_detector.py output folder")
+    r.add_argument("--tags", nargs="*", default=None,
+                   help="pool these gonads instead of the folds' held-out gonads (every DIR must hold them all)")
     r.add_argument("--out", required=True)
     return ap.parse_args(argv)
 
