@@ -17,6 +17,11 @@ The nucleus training loop (docs/TIMELAPSE.md, "Segmenting without DAPI: the trai
   germquant train-nuclei --pairs PAIRS --out MODELDIR [--base cpsam] [--epochs 150] [--split-by series] [--cpu]
   germquant register-model --model MODELDIR/NAME --card MODELDIR/NAME.card.json [--name NAME]
 
+The EXPERIMENTAL net3d RAD-51 foci detector (docs/BENCHMARK.md, "net3d"), trained on the bench cache against
+the Imaris spots of the train gonads, selected on the val gonads, never on test:
+
+  germquant train-spots --cache DIR --split-file tests/golden/rad51_split.json --out MODELDIR [--epochs N] [--patch Z,Y,X] [--seed S]
+
 `register` estimates the drift of a finished series from the reference volumes that loop kept and writes the
 register_shifts table and a report next to the series record; nothing is resampled.
 
@@ -225,6 +230,48 @@ def main(argv: list[str] | None = None) -> int:
     ptn.add_argument("--min-train-masks", type=int, default=5,
                      help="Cellpose drops training slices with fewer nuclei than this (default 5)")
 
+    pts = sub.add_parser("train-spots",
+                         help="train the EXPERIMENTAL net3d RAD-51 foci detector (a residual 3D U-Net heatmap) on the "
+                              "bench cache against the Imaris Class A spots of the train gonads with usable spot "
+                              "truth; early stopping and the peak threshold on the val gonads, scored with the bench "
+                              "harness; never touches a test gonad. Writes MODELDIR/model.pt, training_log.json and "
+                              "model_card.json (docs/BENCHMARK.md, net3d)")
+    pts.add_argument("--cache", required=True, help="the bench cache root (scripts/bench_cache.py writes it)")
+    pts.add_argument("--split-file", required=True,
+                     help="the pre-registered split record with the train / val / test roles "
+                          "(tests/golden/rad51_split.json)")
+    pts.add_argument("--out", required=True, metavar="MODELDIR",
+                     help="output folder (keep it outside the repository)")
+    pts.add_argument("--epochs", type=int, default=40, help="maximum epochs (default 40; early stopping may end sooner)")
+    pts.add_argument("--patch", default="32,128,128",
+                     help="training patch Z,Y,X in voxels, multiples of 4,8,8 (default 32,128,128)")
+    pts.add_argument("--seed", type=int, default=0, help="seed of the patch draw, the initialisation and torch (default 0)")
+    pts.add_argument("--manifest", default=None,
+                     help="benchmark manifest naming the truth folders and the usable spot truth (default: "
+                          "germquant.benchmark.detector.DEFAULT_MANIFEST)")
+    pts.add_argument("--batch-size", type=int, default=8, help="patches per step (default 8)")
+    pts.add_argument("--steps-per-epoch", type=int, default=200, help="steps per epoch (default 200)")
+    pts.add_argument("--lr", type=float, default=1e-3, help="AdamW peak learning rate (default 1e-3)")
+    pts.add_argument("--patience", type=int, default=8,
+                     help="stop after this many validations without improvement (default 8)")
+    pts.add_argument("--val-every", type=int, default=1, help="validate every N epochs (default 1)")
+    pts.add_argument("--no-dna", action="store_true", help="RAD-51 channel only (the ablation without DAPI)")
+    pts.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto",
+                     help="auto = CUDA when available (default)")
+    pts.add_argument("--min-free-gb", type=float, default=0.0,
+                     help="on CUDA, wait until the GPU has this many GB free, polling every 60 s (default 0: no wait)")
+    pts.add_argument("--wait-minutes", type=float, default=120.0, help="give up waiting for the GPU after this long")
+    pts.add_argument("--prep-dir", default=None,
+                     help="folder of the per-gonad loss-region maps (default MODELDIR/prep); share it between runs")
+    pts.add_argument("--base-channels", type=int, default=16, help="width of the first level (default 16)")
+    pts.add_argument("--levels", type=int, default=4, help="U-Net levels (default 4)")
+    pts.add_argument("--thresholds", default=None,
+                     help="comma-separated validation threshold grid (default 0.05 to 0.90 in steps of 0.05)")
+    pts.add_argument("--tile", default="96,384,384", help="inference tile Z,Y,X for the validation (default 96,384,384)")
+    pts.add_argument("--select-tolerance", type=float, default=0.01,
+                     help="configurations whose val traced CCC is within this of the best count as tied and the "
+                          "best F1 among them is selected (default 0.01, the protocol's meaningful change)")
+
     prm = sub.add_parser("register-model",
                          help="add a locally trained model to the model registry (local_models.json next to the "
                               "release assets), so a profile can name it in segmentation.nuclei.cellpose_model and "
@@ -255,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
         "imaris-truth": lambda: _imaris_truth(args),
         "export-training": lambda: _export_training(args),
         "train-nuclei": lambda: _train_nuclei(args),
+        "train-spots": lambda: _train_spots(args),
         "register-model": lambda: _register_model(args),
 
         "track-export": lambda: _track_export(args),
@@ -816,6 +864,32 @@ def _train_nuclei(args) -> int:
     print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
     print(f"  card  -> {res['card_path']}")
     print(f"  register it:  germquant register-model --model \"{res['model_path']}\" --card \"{res['card_path']}\"")
+    return 0
+
+
+def _train_spots(args) -> int:
+    from .spots.net3d.train import DEFAULT_THRESHOLDS, parse_patch, train_spots
+
+    thresholds = (DEFAULT_THRESHOLDS if not args.thresholds else
+                  tuple(float(t) for t in str(args.thresholds).split(",") if t.strip()))
+    res = train_spots(args.cache, args.split_file, args.out, manifest=args.manifest, epochs=args.epochs,
+                      patch=parse_patch(args.patch), seed=args.seed, batch_size=args.batch_size,
+                      steps_per_epoch=args.steps_per_epoch, lr=args.lr, patience=args.patience,
+                      val_every=args.val_every, use_dna=not args.no_dna, device=args.device,
+                      base_channels=args.base_channels, levels=args.levels, thresholds=thresholds,
+                      tile_zyx=parse_patch(args.tile), prep_dir=args.prep_dir, min_free_gb=args.min_free_gb,
+                      wait_minutes=args.wait_minutes, select_tolerance=args.select_tolerance)
+    g = res["gonads"]
+    print(f"\nnet3d: trained on {[r['tag'] for r in g['train']]} ({res['device']}), validated on "
+          f"{[r['tag'] for r in g['val']]}; left out {[r['tag'] for r in g['excluded']]}; test gonads never opened")
+    vb = res.get("val_best") or {}
+    print(f"  selected epoch {res['best_epoch']} of {res['epochs_run']} ({res['stop_reason']}), threshold "
+          f"{res['best_threshold']}: val traced CCC {vb.get('ccc_traced')}, germline CCC {vb.get('ccc_all')}, "
+          f"F1 {vb.get('f1')}")
+    print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
+    print(f"  card  -> {res['card_path']}")
+    print(f"  score it: python scripts/bench_detector.py --backend net3d --params "
+          f"'{{\"net3d\": {{\"model\": \"{Path(res['model_path']).as_posix()}\"}}}}' --split val --out DIR")
     return 0
 
 
