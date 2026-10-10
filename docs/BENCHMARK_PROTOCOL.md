@@ -385,3 +385,25 @@ point.
    per-gonad CCC range 0.5 to 0.8; the split was fixed by the cell structure and the region-growing
    defect, and the margins of section 7 were set by the project lead before this document, not
    derived from those numbers. No competitor and no new method has been scored.
+2. 2026-10-10. Development tuning of the classical detectors on train and val (package D3;
+   `docs/BENCHMARK.md`, "Tuning on train and val"). No test gonad was run or scored for it and no
+   per-gonad test number was looked at. Disclosed: the pooled agreement of the deployed recipe over the
+   nine gonads that had outputs and usable spot truth, three of them test gonads (per-nucleus CCC 0.84,
+   bias +0.77 foci per nucleus, spot F1 0.39), had been computed before this entry with the benchmark
+   harness and was known when the searches were designed; by rule 1 that computation was the first
+   result, and this entry is the first to record it. What the searches did differently from sections 6
+   and 8: (a) the SpotMAX re-tuned competitor was searched over `thresholding_method`
+   (`threshold_triangle`, `threshold_otsu`, `threshold_li`; `threshold_yen` not searched),
+   `effect_size_min`, `spot_radius_um` and `gauss_sigma_um` (`z_merge_gap_um` not searched), 24
+   configurations in two stages, instead of the 60-configuration grid of section 8 item 2, to fit
+   SpotMAX's compute cost; (b) both searches (SpotMAX, and the experimental `log` backend with 55
+   configurations in three stages) ran on the four train gonads with usable spot truth, and only their
+   best configurations (3 for SpotMAX, 5 for `log`) were scored on val, where section 6.4 lists a val
+   score for every configuration and section 6.1 tunes parameter-only competitors on train plus val;
+   the early stop of section 10 was not used; (c) the selection objective was the pooled per-nucleus
+   CCC over the germline nuclei of the deployed masks (end-to-end, Class A+B; the harness's
+   `per_nucleus_all`), with the pooled spot F1 as tie-break, not the traced-subset partition of section
+   5.1; (d) the `log` backend's candidate pre-gate became a config key, `spots.log.pre_gate_sigmas`
+   (code default 3.0, the former constant). Which SpotMAX configuration is the re-tuned competitor of
+   section 7, this search's or one from the section 8 grid, is to be decided and written here before
+   test is scored.

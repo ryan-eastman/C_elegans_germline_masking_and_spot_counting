@@ -303,8 +303,11 @@ memory cost stays small on a full 2600 x 2600 x 90 stack):
    expected focus diameter. Bright blobs give a positive response. Anisotropy is handled by the
    per-axis sigma, not by resampling.
 2. Local maxima: a voxel is a candidate when it is the maximum of the response inside an ellipsoid of
-   radius `min_separation_um` (a physical radius, so z and xy are treated alike), its response is
-   positive and it lies inside the label. A greedy pass in physical coordinates settles ties.
+   radius `min_separation_um` (a physical radius, so z and xy are treated alike), it lies inside the
+   label and its response clears the pre-gate: more than `pre_gate_sigmas` robust standard deviations
+   (1.4826 times the median absolute deviation) of the response over the voxels of that nucleus, and
+   always more than zero. The pre-gate keeps noise maxima of an empty or noisy nucleus out of the
+   flood guard. A greedy pass in physical coordinates settles ties.
 3. Flood guard: `_cap_candidates`, the SpotMAX path's guard, keeps the brightest
    `max_spot_candidates` raw voxels with the same loud warning.
 4. Signal-to-background gate: the raw peak (the brightest voxel of a core ellipsoid of radius half the
@@ -329,6 +332,7 @@ Parameters under `spots.log`, all read with code defaults:
 | `min_separation_um` | half the diameter | minimum distance between two maxima |
 | `annulus_inner_um` | the diameter | inner radius of the local background annulus |
 | `annulus_outer_um` | twice the diameter | outer radius of the local background annulus |
+| `pre_gate_sigmas` | 3.0 | candidate pre-gate in robust standard deviations of the in-nucleus LoG response (0: any positive response); a finite number of at least 0, null means the default |
 
 Shared keys read from the top of the `spots:` section: `merge_z_columns`, `z_merge_gap_um`,
 `z_merge_valley_frac`, `max_spot_candidates` (same code defaults as above). Unknown keys under

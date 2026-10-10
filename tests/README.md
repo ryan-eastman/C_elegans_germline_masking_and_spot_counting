@@ -78,6 +78,15 @@ gonads are built inside the fixtures.
   gonads (the test gonad is never opened, the same seed gives the same weights, the validation scorer
   agrees with the bench harness, and `scripts/bench_detector.py --backend net3d` scores the model).
 
+- `test_bench_tuning.py`: the parameter search runner (`germquant.benchmark.tuning`,
+  `scripts/bench_tune.py`; `docs/BENCHMARK.md`, "Tuning on train and val") and the two tuned profiles.
+  The SpotMAX effect-size filter applied after a run with `effect_size_min` 0 reproduces a run made with
+  that minimum, table for table (SpotMAX when installed); the ranking rule; on the planted-foci gonads of
+  `test_bench_detector.py`, one trial record per parameter set, the same scores and detections as
+  `bench_detector.py`, the process pool, the budget guard, the top-K selection for val and the test
+  guard. `config/profiles/bench_log_tuned.yaml` and `bench_spotmax_tuned.yaml` load, extend
+  `config/config.yaml` and change only `spots:` keys.
+
 ## Markers
 
 Registered in `pyproject.toml` (`[tool.pytest.ini_options] markers`); CI passes `--strict-markers`,
