@@ -585,13 +585,23 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
                "train_s": round(time.time() - t_ep, 1)}
         if dev == "cuda":
             rec["gpu_peak_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
+            rec["gpu_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
         last_path = out / "checkpoints" / "last.pt"
         sha_last = save_model_file(last_path, model, {**meta_base, "epoch": epoch + 1, "git_sha": git_sha})
         rec["last_sha256"] = sha_last
         if (epoch + 1) % max(1, int(val_every)) == 0 or epoch + 1 == int(epochs):
             t_v = time.time()
+            if dev == "cuda":
+                # hand the training batches' cached blocks back before the inference tiles (and the tiles'
+                # blocks back after): the card is shared, and without this the caching allocator holds the
+                # sum of both working sets (about 16 GB measured) instead of the larger one
+                torch.cuda.empty_cache()
             ev = evaluate(model, val_g, thresholds=thresholds, device=dev, tile_zyx=tile_zyx,
                           separation_um=separation_um, assign_max_um=assign_max_um)
+            if dev == "cuda":
+                rec["gpu_val_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
+                torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats()
             if check_harness and harness_check is None:
                 harness_check = [check_against_harness(v, ev["found"][v.tag], ev["best_threshold"], manifest)
                                  for v in val_g]
