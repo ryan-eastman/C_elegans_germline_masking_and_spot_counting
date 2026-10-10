@@ -349,10 +349,11 @@ def test_cli_register_piecewise_and_track_link(tmp_path, capsys):
     assert cli.main(["register", sd, "--mode", "piecewise", "--rigid"]) == 1
     assert cli.main(["register", sd, "--segments", "3"]) == 1                 # --segments needs --mode piecewise
     capsys.readouterr()
-    # the run_manifest.json config supplies the segment count (4); the flag wins over it
+    # the run_manifest.json config supplies the segment count; the flag wins over it
+    (s["out"] / "run_manifest.json").write_text(json.dumps({"config": {"timelapse": {"register": {"piecewise_segments": 2}}}}))
     assert cli.main(["register", sd, "--mode", "piecewise", "--max-step-um", "6"]) == 0
     out = capsys.readouterr().out
-    assert "piecewise registration, 4 segment(s)" in out and "segment 3" in out
+    assert "piecewise registration, 2 segment(s)" in out and "segment 1" in out and "segment 2" not in out
     assert cli.main(["register", sd, "--mode", "piecewise", "--segments", "3", "--margin-um", "4", "--max-step-um", "6"]) == 0
     csv = pd.read_csv(s["out"] / f"{STEM}__register_piecewise.csv")
     assert (csv["n_segments"] == 3).all() and (csv["margin_um"] == 4.0).all() and len(csv) == 3 * 3

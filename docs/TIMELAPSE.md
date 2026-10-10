@@ -383,12 +383,17 @@ uses one reference axis instead.
 frame's most distal labelled nucleus, so `axis_position_um` of a fixed point in the worm moves from frame
 to frame. On the October series at stride 4 a fixed point at x = 100 um sat anywhere from 54 to 83 um
 along the per-frame axis, drifting by -0.05 to -0.09 um per minute, and the refitted-axis velocity read
-about half the true flow (0.087 against 0.174 um per minute on 135 full-length tracks). The noise does not
-average out. `axis_position_fixed_um` therefore applies the FIRST timepoint's axis to every frame: the
-position at a registered point is a local linear fit of the first timepoint's `axis_position_um` over
-its 16 nearest germline nuclei, evaluated at the point (exact where the axis is locally straight,
-extrapolated with the local gradient past the last first-timepoint nucleus). Without axis positions at
-the first timepoint, a centerline is fitted to its nuclei with the axis stage's curve fit instead.
+about half the flow: 0.087 um per minute on the 135 full-length tracks, against 0.160 on the fixed axis at the
+same tracks' raw centroids (the per-frame axis positions come from each frame's raw nuclei table, so the raw
+frame is the like-for-like comparison). The noise does not average out. `axis_position_fixed_um` therefore
+applies the FIRST timepoint's axis to every frame: the position at a registered point is a local linear fit of
+the first timepoint's `axis_position_um` over its 16 nearest germline nuclei, evaluated at the point (exact
+where the axis is locally straight, extrapolated with the local gradient past the last first-timepoint
+nucleus). Without axis positions at the first timepoint, a centerline is fitted to its nuclei with the axis
+stage's curve fit instead. `axis_position_fixed_raw_um` evaluates the same axis at the raw centroid. Note
+which frame each velocity is in ("Which velocity is the flow" above): on that series the GFP rigid registration
+takes most of the flow out, so `axis_velocity_um_per_min` (registered) reads 0.066 where
+`axis_velocity_raw_um_per_min` reads 0.160 (`C:/Users/ryane/live_results/FIRST_LOOK.md`, section 8).
 tests/test_timelapse_tracking.py plants a flipped frame and checks the velocity; tests/test_tranche3_fixes.py
 plants a curved gonad with a jittering per-frame origin and checks that the fixed-axis velocity recovers
 the true flow while the refitted one does not.
@@ -902,12 +907,23 @@ nearly stationary nuclei, which is the point, but the tracks' speeds and `axis_v
 motion relative to the local flow. The flow is the registration (the cumulative displacement per segment) or
 `axis_velocity_raw_um_per_min` ("Which velocity is the flow" above).
 
-Two limits, both seen on the October series (FIRST_LOOK.md section 7): the reference volumes at the default
+On the October series (`C:/Users/ryane/live_results/FIRST_LOOK.md`, sections 7 and 8; proxies only, no hand
+truth yet): at the 3.5 um proximal slide of the stride-2 run (t2 to t3), laptrack continued 0.997 of the germline
+nuclei after the piecewise registration against 0.834 after the rigid GFP one (which broke the distal half) and
+0.891 after the brightfield one (which broke the proximal half), and the median nearest-neighbour residual per
+segment was 0.58 to 0.65 um in all four segments, where the rigid registrations left one end at 1.4 to 1.7 um.
+The per-segment steps agreed with an independent estimate on GFP projections per x quarter. On the 25-timepoint
+stride-4 run the piecewise registration on volumes at every 2nd pixel of the run grid gave 185 full-length
+laptrack tracks against 142 and 144 for the rigid GFP and brightfield registrations on the same volumes (135 and
+137 on the volumes the run kept), and a residual of 0.52 to 0.53 um per segment.
+
+Two limits, both seen on the October series: the reference volumes at the default
 `timelapse.reference_stride` 8 are coarse for a segment crop (on a stride-4 run a reference voxel is 3.47 um,
-about one nucleus, and the segment estimates jump by whole voxels), so keep `timelapse.reference_stride: 2` for
-a series meant for the piecewise registration; and the brightfield cross-check is not a test of the segment
-estimate, because the gonad has texture in transmitted light too, so the brightfield crop over a sliding
-segment partly follows the germline and partly the still body wall.
+about one nucleus; there some segment steps were wrong by 3 to 5 um and the piecewise registration was no
+better than the rigid one), so keep `timelapse.reference_stride: 2` for a series meant for the piecewise
+registration; and the brightfield cross-check is not a test of a sliding segment, because the gonad has texture
+in transmitted light too: on the fine volumes of the stride-2 run the brightfield crops over the two sliding
+proximal segments moved 67 to 93 percent as far as the GFP crops while the whole-field brightfield stayed put.
 
 ### Tests
 
