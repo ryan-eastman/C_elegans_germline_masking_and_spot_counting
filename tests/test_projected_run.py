@@ -233,7 +233,9 @@ def test_the_area_gate_and_the_projection_modes(tmp_path, monkeypatch):
     import tifffile
 
     for mode in ("max", "mean"):
-        res = pipeline.process_image(IMAGE, recipe(**{"segmentation.nuclei.project": mode, "spots.enabled": False}),
+        # project_plane is ignored by the projections: even a selector that plane mode would refuse
+        res = pipeline.process_image(IMAGE, recipe(**{"segmentation.nuclei.project": mode, "spots.enabled": False,
+                                                      "segmentation.nuclei.project_plane": "bogus"}),
                                      tmp_path / mode, prov=None)
         assert f"segment:projected_{mode}" in res["qc_flags"] and "segment:projected_plane" not in res["qc_flags"]
         rec = json.loads((tmp_path / mode / f"{IMAGE_ID}__stages.json").read_text(encoding="utf-8"))
@@ -245,6 +247,19 @@ def test_the_area_gate_and_the_projection_modes(tmp_path, monkeypatch):
                                  tmp_path / "mid", prov=None)
     rec = json.loads((tmp_path / "mid" / f"{IMAGE_ID}__stages.json").read_text(encoding="utf-8"))
     assert rec["segment_projection"] == {"mode": "plane", "plane": "mid", "z": NZ // 2}
+
+
+def test_the_plane_is_resolved_on_the_segmentation_channel(tmp_path, monkeypatch):
+    """The sharpest plane is picked on the channel the segmentation role names, wherever it sits in the file: with
+    the foci channel first, z is still the transmitted channel's focus plane, not the foci channel's sharpest."""
+    stack, _ = yeast_like_stack()
+    assert planar.resolve_plane(stack.data[1], "sharpest") != Z_FOCUS   # channel 0 would give another plane
+    swapped = Stack(data=stack.data[::-1].copy(), spacing=SP, channel_names=["Cy3", "Bright"], path="x.nd2",
+                    spacing_ok=True)
+    patch_reader(monkeypatch, swapped)
+    pipeline.process_image(IMAGE, recipe(**{"spots.enabled": False}), tmp_path / "swapped", prov=None)
+    rec = json.loads((tmp_path / "swapped" / f"{IMAGE_ID}__stages.json").read_text(encoding="utf-8"))
+    assert rec["segment_projection"] == {"mode": "plane", "plane": "sharpest", "z": Z_FOCUS}
 
 
 def test_base_plane_shows_the_segmented_plane(tmp_path, monkeypatch):

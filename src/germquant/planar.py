@@ -72,8 +72,10 @@ def parse_plane_selector(value) -> str | int:
 
 def projection_settings(cfg) -> dict | None:
     """``{"mode", "plane"}`` for a projected run, None for every other run (the code default ``none``).
-    ``plane`` is the parsed segmentation.nuclei.project_plane (code default ``mid``) in mode ``plane`` and
-    None for the projections, which use every plane. An unknown mode or selector raises PlanarConfigError."""
+    ``plane`` is the parsed segmentation.nuclei.project_plane (code default ``mid``) in mode ``plane``. The
+    projections use every plane, so for them the key is not read at all and ``plane`` is None (docs/PLANAR.md:
+    project_plane is ignored by max and mean). An unknown mode, or in mode ``plane`` an unknown selector,
+    raises PlanarConfigError."""
     raw = cfg.get("segmentation.nuclei.project", "none")
     if raw is None or raw is False:           # YAML null, or an unquoted no / off
         return None
@@ -83,8 +85,9 @@ def projection_settings(cfg) -> dict | None:
     if mode not in PROJECT_MODES:
         raise PlanarConfigError(f"segmentation.nuclei.project must be one of {', '.join(PROJECT_MODES)}; "
                                 f"got {raw!r}")
-    plane = parse_plane_selector(cfg.get("segmentation.nuclei.project_plane", "mid"))
-    return {"mode": mode, "plane": plane if mode == "plane" else None}
+    if mode != "plane":
+        return {"mode": mode, "plane": None}
+    return {"mode": mode, "plane": parse_plane_selector(cfg.get("segmentation.nuclei.project_plane", "mid"))}
 
 
 def min_area_setting(cfg) -> float:

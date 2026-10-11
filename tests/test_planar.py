@@ -77,6 +77,12 @@ def test_projection_settings_are_inert_by_default_and_validated():
     with pytest.raises(planar.PlanarConfigError, match="mid, sharpest or a plane index"):
         planar.projection_settings(_Cfg({"segmentation.nuclei.project": "plane",
                                          "segmentation.nuclei.project_plane": "sharp"}))
+    # max and mean use every plane and do not read project_plane, so a stale value cannot fail them
+    for mode in ("max", "mean"):
+        for stale in ("sharp", True, [1, 2]):
+            got = planar.projection_settings(_Cfg({"segmentation.nuclei.project": mode,
+                                                   "segmentation.nuclei.project_plane": stale}))
+            assert got == {"mode": mode, "plane": None}
     assert issubclass(planar.PlanarConfigError, ValueError)
 
 

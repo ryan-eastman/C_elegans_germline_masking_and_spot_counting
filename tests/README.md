@@ -76,6 +76,12 @@ gonads are built inside the fixtures.
   tables with the golden in `golden/synthetic_projected/`, whose `config_hash.txt` sentinel is pinned
   in `golden/default_invariants.json`; it also checks the run's contract and its refusals before any
   pixel is processed. Regenerate that golden with `GERMQUANT_UPDATE_GOLDEN=1`, as for `test_golden.py`.
+- `test_recipe_keys.py`: `germquant.recipe_keys`, the strict checks of the same package's opt-in recipe
+  keys (`require_channel`, `qc.min_nuclei`, `cellpose.object_diameter_um` and the optional SpotMAX
+  keys): no shipped config or profile sets one; every malformed value, a quoted "false" included, is
+  refused with its key named; and `process_image` refuses it before any stage runs or any file is
+  written, also under `method: auto`, where the watershed fallback would otherwise hide a bad Cellpose
+  setting.
 - `test_peak_filter.py`: the exact replica of SpotMAX's minimum-distance peak filter
   (`germquant.spots.peak_filter`, `docs/PERFORMANCE.md`) against the installed SpotMAX function on
   random inputs with tied intensities, duplicate points and boundary distances, its fallback domain,

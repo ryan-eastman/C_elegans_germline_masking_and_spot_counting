@@ -63,14 +63,17 @@ def cellpose_backend(dna, spacing, *, model, diameter_um, device, cfg_section, p
     Two opt-in branches (docs/PLANAR.md), both taken by ``_cellpose_opt_in`` with the same CPU retry:
     ``planar=True`` (a projected or single-plane run hands over one plane, (1, Y, X)) runs the 2D call
     ``nuclei._cellpose_2d``, and ``segmentation.nuclei.cellpose.object_diameter_um`` passes Cellpose
-    diameter = d / dy pixels in the 2D and the 3D call. Without both, the call is exactly today's."""
+    diameter = d / dy pixels in the 2D and the 3D call. Without both, the call is exactly today's: a call
+    with neither ``planar`` nor a ``cellpose:`` mapping in the section runs only the lines that follow the
+    opt-in block."""
     from ..device import select_device
     from . import nuclei  # looked up at call time, so a test can monkeypatch nuclei._cellpose
 
-    diameter_px = object_diameter_px(cfg_section, spacing)
-    if planar or diameter_px is not None:
-        return _cellpose_opt_in(dna, spacing, model=model, diameter_um=diameter_um, device=device,
-                                planar=bool(planar), diameter_px=diameter_px)
+    if planar or (cfg_section or {}).get("cellpose") is not None:
+        diameter_px = object_diameter_px(cfg_section, spacing)
+        if planar or diameter_px is not None:
+            return _cellpose_opt_in(dna, spacing, model=model, diameter_um=diameter_um, device=device,
+                                    planar=bool(planar), diameter_px=diameter_px)
     _ = cfg_section
     try:
         return nuclei._cellpose(dna, spacing, model, diameter_um, device_pref=device)
@@ -85,20 +88,15 @@ def cellpose_backend(dna, spacing, *, model, diameter_um, device, cfg_section, p
 def object_diameter_px(cfg_section: dict | None, spacing) -> float | None:
     """Cellpose's diameter in pixels from ``segmentation.nuclei.cellpose.object_diameter_um`` (a recipe key,
     code default null): d / dy, with dy the pixel size after xy_stride. None when unset, so the Cellpose
-    calls stay exactly today's; a value that is not a positive number raises ValueError. Cellpose 4 then
-    rescales the image by 30 / diameter, for objects outside Cellpose-SAM's native size range."""
-    sub = (cfg_section or {}).get("cellpose")
-    if sub is None:
-        return None
-    if not isinstance(sub, dict):
-        raise ValueError(f"segmentation.nuclei.cellpose must be a mapping of Cellpose keys; got {sub!r}")
-    value = sub.get("object_diameter_um")
-    if value is None:
-        return None
-    d = float(value)
-    if not d > 0:
-        raise ValueError(f"segmentation.nuclei.cellpose.object_diameter_um must be a positive number; got {value!r}")
-    return d / float(spacing[1])
+    calls stay exactly today's. A malformed value (not a positive number, or a ``cellpose:`` entry that is
+    not a mapping) raises ValueError naming the key (germquant.recipe_keys). process_image runs the same
+    check before any stage, because under method auto the segment stage would turn this error into the
+    classical fallback. Cellpose 4 then rescales the image by 30 / diameter, for objects outside
+    Cellpose-SAM's native size range."""
+    from ..recipe_keys import object_diameter_um
+
+    d = object_diameter_um(cfg_section)
+    return None if d is None else d / float(spacing[1])
 
 
 def _cellpose_opt_in(dna, spacing, *, model, diameter_um, device, planar: bool, diameter_px: float | None):

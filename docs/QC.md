@@ -15,7 +15,8 @@ objects; `qc:NO_NUCLEI` (a QC fail) when it has none. A recipe can move the thre
 `qc.min_nuclei` (code default 10, read only when a recipe sets it): a field of cultured cells holds a
 handful of nuclei, so the cultured-cell pack sets 1, and the flag would otherwise mark almost every
 image. No shipped config sets the key, so the C. elegans runs keep the threshold of 10
-(`docs/PLANAR.md`, "Recipe keys for packs").
+(`docs/PLANAR.md`, "Recipe keys for packs"). The value must be a whole number, 0 or more; anything else
+(2.7, -1, `true`, a quoted "10") stops the image before any stage runs, with the key named.
 
 ## Acquisition record
 

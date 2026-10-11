@@ -283,10 +283,14 @@ def process_image(
         sample["image_id"] = f"{sample['image_id']}_t{int(t):03d}"
     # a rerun must never leave an older run's completion marker behind (batch --resume trusts it)
     provenance.clear_done_marker(out_dir, sample["image_id"])
+    # the opt-in recipe keys of tranche 5 (object_diameter_um, require_channel, qc.min_nuclei, the optional
+    # SpotMAX keys) are checked strictly here, so a malformed value fails the image now instead of being read
+    # loosely or swallowed by method auto's watershed fallback; nothing is checked when no such key is set
+    from . import planar, recipe_keys
+
+    recipe_keys.check(cfg)
     # projected runs (segmentation.nuclei.project, docs/PLANAR.md): 3D-only stages and a backend without planar_ok
     # are refused and the plane to segment is resolved here, before any stage runs; None on every other run
-    from . import planar
-
     projection = planar.prepare_projection(cfg, stack, role_to_idx)
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
     # the stage record, never table columns, so no CSV header changes.

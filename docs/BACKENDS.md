@@ -121,7 +121,7 @@ given that keyword, and a projected run that selects it is refused before any pi
 
 | name | implementation |
 |---|---|
-| `cellpose` | `germquant.segment.backends.cellpose_backend`: `nuclei._cellpose` (Cellpose-SAM in 3D, anisotropy from the spacing, the fine-tuned germline model) with the explicit device from `germquant.device` and one retry on the CPU when the accelerator fails (out of memory, an operator Metal cannot run). In a projected run it makes the 2D call, `nuclei._cellpose_2d` (`model.eval(plane, channel_axis=None)`, the same model and retry). Its one key of its own, `segmentation.nuclei.cellpose.object_diameter_um` (default null), passes Cellpose diameter = d / dy pixels in both calls; unset, both calls are exactly the validated ones |
+| `cellpose` | `germquant.segment.backends.cellpose_backend`: `nuclei._cellpose` (Cellpose-SAM in 3D, anisotropy from the spacing, the fine-tuned germline model) with the explicit device from `germquant.device` and one retry on the CPU when the accelerator fails (out of memory, an operator Metal cannot run). In a projected run it makes the 2D call, `nuclei._cellpose_2d` (`model.eval(plane, channel_axis=None)`, the same model and retry). Its one key of its own, `segmentation.nuclei.cellpose.object_diameter_um` (default null), passes Cellpose diameter = d / dy pixels in both calls; unset, both calls are exactly the validated ones. A value that is not a positive number stops the image before any stage, under every method (`germquant.recipe_keys`), because under `method: auto` an error inside the call would only switch the run to the classical fallback |
 | `classical` | `germquant.segment.backends.classical_backend`: `nuclei._classical`, Gaussian smoothing, Li threshold and a distance-transform watershed, all spacing-aware. No model and no GPU; a baseline, not a substitute for the fine-tuned model on crowded pachytene nuclei. It runs unchanged on the one plane of a projected run |
 | `nuclei3d` | EXPERIMENTAL, never the default: `germquant.segment.backends.nuclei3d_backend`, the in-house 3D U-Net of `germquant.segment.nuclei3d` (below) |
 
@@ -373,6 +373,13 @@ makes exactly the SpotMAX calls above:
   and `effect_size_min` are on that scale (as in SpotMAX's own runs); a threshold tuned without
   `sharpen`, such as the RAD-51 value 3.0, does not carry over. The other features stay on the
   unsharpened image.
+
+A `spots.instances` entry can set them for its own instance. `remove_hot_pixels` and `sharpen` take
+`true` or `false`, and `spot_radius_z_um` a positive number; anything else (a quoted "false" included)
+stops the image before any stage, with the key named (`germquant.recipe_keys`). The chain that honours
+them is `germquant.spots.spotmax_options`, reached by a branch at the top of `detect_spots_spotmax`, whose
+own body is not edited; with neutral values (`spot_radius_z_um` equal to `spot_radius_um`, both flags
+false) it gives the default chain's tables.
 
 ### Built-in `log` (experimental classical baseline)
 

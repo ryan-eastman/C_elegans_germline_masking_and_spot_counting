@@ -2,12 +2,15 @@
 default and each pinned to today's call when off:
 
 * Cellpose, mocked: the default 3D call is exactly today's (do_3D=True, z_axis=0, channel_axis=None,
-  anisotropy=dz/dy, no diameter); segmentation.nuclei.cellpose.object_diameter_um adds only diameter = d / dy;
-  the 2D call of a projected run is model.eval(img2d, channel_axis=None), with the same model and CPU retry;
+  anisotropy=dz/dy, no diameter) and a default backend call never enters the opt-in block;
+  segmentation.nuclei.cellpose.object_diameter_um adds only diameter = d / dy; the 2D call of a projected run
+  is model.eval(img2d, channel_axis=None), with the same model and CPU retry;
 * SpotMAX, spied: without the optional keys (spot_radius_z_um, remove_hot_pixels, sharpen) the backend section
   and the preprocess, segmentation, detection and feature calls are exactly today's; with sharpen the detection
   gets the sharpened image and the feature call the unsharpened one plus sharp_spots_image, and the effect size
   is the one SpotMAX computes on the sharpened image; spot_radius_z_um makes the radii (rz, r, r) / spacing;
+  the options chain adds no keyword to the segmentation and detection calls, ranks flood-guard candidates by
+  the raw image and runs the z merge on the unsharpened image, as the default body does;
 * segmentation.nuclei.require_channel fails the image before segmentation when the segmentation role is missing;
 * qc.min_nuclei moves the qc:few_nuclei_<n> threshold only when set.
 """
@@ -116,8 +119,13 @@ def test_object_diameter_adds_only_the_diameter_in_pixels(fake_cellpose, registr
         N.segment_nuclei(dna, (0.4, 0.2, 0.2), method="cellpose", cfg_section=sec, min_volume_um3=0.0)
         assert fake_cellpose.evals[-1]["kw"] == {**TODAY_3D, "anisotropy": 2.0}
     assert B.object_diameter_px({"cellpose": {"object_diameter_um": 3}}, (1.0, 0.2, 0.2)) == pytest.approx(15.0)
+    # the rule is d / dy: a pixel size with dy != dx tells it apart from d / dx (which would give 20)
+    assert B.object_diameter_px({"cellpose": {"object_diameter_um": 4.0}}, (0.3, 0.1, 0.2)) == pytest.approx(40.0)
+    # anything but a positive number is refused with the key named: text (even "4"), a boolean, inf, nan
     for bad in ({"cellpose": {"object_diameter_um": 0}}, {"cellpose": {"object_diameter_um": -2.0}},
-                {"cellpose": 4.0}):
+                {"cellpose": 4.0}, {"cellpose": {"object_diameter_um": "ten"}}, {"cellpose": {"object_diameter_um": "4"}},
+                {"cellpose": {"object_diameter_um": True}}, {"cellpose": {"object_diameter_um": float("inf")}},
+                {"cellpose": {"object_diameter_um": float("nan")}}):
         with pytest.raises(ValueError, match="segmentation.nuclei.cellpose"):
             B.object_diameter_px(bad, (1.0, 0.2, 0.2))
         with pytest.raises(ValueError):
@@ -185,6 +193,29 @@ def test_the_planar_and_diameter_branches_keep_the_cpu_retry(monkeypatch):
     with pytest.raises(ValueError, match="one plane as \\(1, Y, X\\)"):
         B.cellpose_backend(np.zeros((2, 8, 9), np.float32), (0.4, 0.2, 0.2), model="m", diameter_um=3.0,
                            device=None, cfg_section={}, planar=True)
+
+
+def test_a_default_cellpose_call_runs_only_the_old_lines(monkeypatch):
+    """Design R3: without planar and without a cellpose: mapping, cellpose_backend never enters its opt-in block
+    (not even object_diameter_px) and calls nuclei._cellpose exactly as before tranche 5."""
+    calls = []
+
+    def fake_3d(dna, spacing, model, diam, device_pref=None):        # today's signature: no diameter_px
+        calls.append((dna.shape, spacing, model, diam, device_pref))
+        return np.ones(dna.shape, np.int32)
+
+    def opt_in(*args, **kw):
+        raise AssertionError("the opt-in block ran on a default call")
+
+    monkeypatch.setattr(N, "_cellpose", fake_3d)
+    monkeypatch.setattr(B, "object_diameter_px", opt_in)
+    monkeypatch.setattr(B, "_cellpose_opt_in", opt_in)
+    section = load_config(ROOT / "config" / "config.yaml").get("segmentation.nuclei")
+    for sec in (section, {}, None, {"cellpose": None}):
+        out = B.cellpose_backend(np.zeros((3, 8, 9), np.float32), (0.4, 0.2, 0.2), model="m", diameter_um=3.0,
+                                 device="cpu", cfg_section=sec)
+        assert out.shape == (3, 8, 9)
+    assert calls == [((3, 8, 9), (0.4, 0.2, 0.2), "m", 3.0, "cpu")] * 4
 
 
 # ---- SpotMAX: the optional keys --------------------------------------------------------------------------
@@ -265,6 +296,19 @@ PIPELINE_SPOT_ARGS = dict(spot_radius_um=0.3, gauss_sigma_um=0.08, thresholding_
                           max_spot_candidates=30000)
 
 
+def _segmentation_kw(labels, radii) -> dict:
+    """Today's keywords of the spots_semantic_segmentation call (the default body's, pinned literally in
+    test_without_the_optional_keys_the_spotmax_calls_are_todays): the options chain adds none."""
+    return {"lab": labels, "spots_zyx_radii_pxl": radii, "do_try_all_thresholds": False, "return_only_segm": True,
+            "thresholding_method": "threshold_triangle", "use_gpu": False}
+
+
+def _detection_kw(fake, labels, radii) -> dict:
+    """Today's keywords of the spot_detection call."""
+    return {"spots_segmantic_segm": fake.out["spots_semantic_segmentation"], "spots_zyx_radii_pxl": radii,
+            "lab": labels, "return_df": True}
+
+
 def test_without_the_optional_keys_the_backend_section_is_todays(monkeypatch):
     """SPOTMAX_DEFAULTS is not extended, and the spotmax backend hands detect_spots_spotmax exactly the
     resolved SPOTMAX_KEYS for the default config's spots: section (the pipeline's call)."""
@@ -333,8 +377,14 @@ def test_sharpen_feeds_detection_and_gives_the_feature_call_both_images(fake_spo
     _, args, kw = fake_spotmax.call("DoG_spots")                      # SpotMAX core's sharpen_spots on pre
     assert args[0] is pre and _same(args[1], radii)
     _kw_equal(kw, {"use_gpu": False, "lab": labels})
-    assert fake_spotmax.call("spots_semantic_segmentation")[1][0] is sharp
-    assert fake_spotmax.call("spot_detection")[1][0] is sharp
+    # segmentation and detection get the sharpened image with today's keywords, nothing more (no second
+    # sharpening or hot-pixel step inside them)
+    _, args, kw = fake_spotmax.call("spots_semantic_segmentation")
+    assert len(args) == 1 and args[0] is sharp
+    _kw_equal(kw, _segmentation_kw(labels, radii))
+    _, args, kw = fake_spotmax.call("spot_detection")
+    assert len(args) == 1 and args[0] is sharp
+    _kw_equal(kw, _detection_kw(fake_spotmax, labels, radii))
     _, args, kw = fake_spotmax.call("spots_calc_features_and_filter")
     assert args[0] is pre and kw["sharp_spots_image"] is sharp        # the unsharpened image plus the sharp one
     _kw_equal({k: v for k, v in kw.items() if k != "sharp_spots_image"},
@@ -349,12 +399,44 @@ def test_spot_radius_z_and_hot_pixels_reach_every_spotmax_call(fake_spotmax):
                          **PIPELINE_SPOT_ARGS)
     radii = np.array([0.8, 0.3, 0.3]) / np.asarray(sp, float)        # (rz, r, r) / spacing
     np.testing.assert_allclose(radii, [2.0, 1.5, 1.2])
-    _, _, kw = fake_spotmax.call("preprocess_image")
-    assert kw["do_remove_hot_pixels"] is True and _same(kw["spots_zyx_radii_pxl"], radii)
-    for name in ("spots_semantic_segmentation", "spot_detection"):
-        assert _same(fake_spotmax.call(name)[2]["spots_zyx_radii_pxl"], radii)
-    assert _same(fake_spotmax.call("spots_calc_features_and_filter")[1][1], radii)
+    pre = fake_spotmax.out["preprocess_image"]
+    _, args, kw = fake_spotmax.call("preprocess_image")                # hot pixels go here, and only here
+    assert len(args) == 1 and _same(args[0], img.astype("float32"))
+    _kw_equal(kw, {"lab": labels, "gauss_sigma": 0.08 / 0.2, "use_gpu": False, "spots_zyx_radii_pxl": radii,
+                   "do_remove_hot_pixels": True})
+    _, args, kw = fake_spotmax.call("spots_semantic_segmentation")
+    assert len(args) == 1 and args[0] is pre
+    _kw_equal(kw, _segmentation_kw(labels, radii))
+    _, args, kw = fake_spotmax.call("spot_detection")
+    assert len(args) == 1 and args[0] is pre
+    _kw_equal(kw, _detection_kw(fake_spotmax, labels, radii))
+    _, args, kw = fake_spotmax.call("spots_calc_features_and_filter")
+    assert args[0] is pre and _same(args[1], radii) and "sharp_spots_image" not in kw
     assert "DoG_spots" not in [c[0] for c in fake_spotmax.calls]
+
+
+def test_the_options_chain_caps_on_the_raw_image_and_merges_on_pre(fake_spotmax, monkeypatch):
+    """Two choices of the default body that no SpotMAX call shows, kept by the options chain: the flood guard
+    ranks the candidates by the raw image, and the z-split merge tests its valleys on the preprocessed image,
+    not on the sharpened copy. Both helpers are the detect module's own, looked up at call time."""
+    seen = {}
+    real_cap, real_merge = SD._cap_candidates, SD._merge_z_columns
+
+    def cap(df, image, cap_n):
+        seen["cap"] = image
+        return real_cap(df, image, cap_n)
+
+    def merge(df, sp, gap, image, frac):
+        seen["merge"] = image
+        return real_merge(df, sp, gap, image, frac)
+
+    monkeypatch.setattr(SD, "_cap_candidates", cap)
+    monkeypatch.setattr(SD, "_merge_z_columns", merge)
+    img, labels = _two_nuclei()
+    detect_spots_spotmax(img, labels, (0.4, 0.2, 0.2), marker="RAD-51", sharpen=True, **PIPELINE_SPOT_ARGS)
+    assert _same(seen["cap"], img.astype("float32"))
+    assert seen["merge"] is fake_spotmax.out["preprocess_image"]
+    assert seen["merge"] is not fake_spotmax.out["DoG_spots"]
 
 
 def _planted_foci(seed=4):
@@ -470,7 +552,8 @@ def test_require_channel_fails_the_image_before_segmentation(tmp_path, patched_r
 def test_min_nuclei_moves_the_few_nuclei_threshold():
     base = dict(channel_flags=[], axis_flags=[], spots_found=True)
     assert "qc:few_nuclei_5" in qc.qc_flags(n_nuclei=5, **base)[1]           # the validated rule: below 10
-    assert not any("few_nuclei" in f for f in qc.qc_flags(n_nuclei=10, **base)[1])
+    assert "qc:few_nuclei_9" in qc.qc_flags(n_nuclei=9, **base)[1]           # its boundary: 9 is flagged,
+    assert not any("few_nuclei" in f for f in qc.qc_flags(n_nuclei=10, **base)[1])   # 10 is not
     assert qc.qc_flags(n_nuclei=5, **base) == qc.qc_flags(n_nuclei=5, min_nuclei=10, **base)
     assert not any("few_nuclei" in f for f in qc.qc_flags(n_nuclei=5, min_nuclei=3, **base)[1])
     assert not any("few_nuclei" in f for f in qc.qc_flags(n_nuclei=1, min_nuclei=1, **base)[1])

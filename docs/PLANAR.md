@@ -77,7 +77,13 @@ Mac / Linux:
 - an index such as `4`: that plane, counting from 0. An index outside the stack stops the run before
   segmentation with a message that gives the number of planes.
 
+Indices count the planes of the stack as read, after `--z-range`, not the planes of the file; `mid` and
+`sharpest` also look only at those planes. With `--z-range 10 30` (planes 10 to 29 are read) and
+`project_plane: 4`, file plane 14 is segmented. The recorded `segment_projection.z` counts in the same
+way, and `z_range` in `run_manifest.json` and `<image_id>__stages.json` gives the offset.
+
 `max` keeps the image's own data type. `mean` is summed in double precision and handed over as float32.
+Neither reads `project_plane`, so a value left over from a `plane` recipe is ignored.
 
 ### What happens, stage by stage
 
@@ -130,8 +136,11 @@ written, when something in the recipe cannot work on 2D objects. The error (`Pla
 - the segmentation backend does not declare that it can segment one plane (`planar_ok`). `cellpose` and
   `classical` can; the experimental `nuclei3d` cannot. Under `method: classical` the backend is never
   called, so it is not checked;
-- `segmentation.nuclei.project` or `project_plane` holds a value that is not listed above, or the index
-  lies outside the stack.
+- `segmentation.nuclei.project` holds a value that is not listed above, or, in mode `plane`,
+  `project_plane` does or its index lies outside the stack.
+
+A malformed value of one of the recipe keys below stops the run at the same point (see "Recipe keys for
+packs").
 
 ### Limits
 
@@ -175,6 +184,24 @@ that keeps today's behaviour, and none of the shipped configs sets one.
   computes the spot-versus-background effect size on it, as in SpotMAX's own runs, so `effect_size` and
   `effect_size_min` are then on the sharpened scale: a threshold tuned without `sharpen` (the RAD-51
   value 3.0 among them) does not carry over. The other intensity features stay on the unsharpened image.
+  A `spots.instances` entry can set these three keys for its own instance.
+
+These keys are checked strictly in every run that sets one, right after the image is read and before any
+stage runs or any file is written (`germquant.recipe_keys`). A malformed value stops the image with a
+`ValueError` that names the key:
+
+| key | accepted values |
+|---|---|
+| `segmentation.nuclei.require_channel`, `spots.remove_hot_pixels`, `spots.sharpen` | `true`, `false` or null |
+| `qc.min_nuclei` | a whole number, 0 or more, or null |
+| `segmentation.nuclei.cellpose.object_diameter_um`, `spots.spot_radius_z_um` | a positive number of micrometres, or null |
+| `segmentation.nuclei.cellpose` | a mapping (holding `object_diameter_um`), or null |
+
+A quoted value is text, so `require_channel: "false"` is refused rather than read as true. The check also
+runs under `method: classical` and when spots are off, so a typo shows up in a CPU test run of the recipe
+rather than only on the GPU. It matters most for `object_diameter_um`: under `method: auto` an error
+inside the Cellpose call makes the segment stage fall back to the classical watershed, so without this
+check a typo would silently swap Cellpose masks for watershed masks.
 
 ## What does not move
 
@@ -184,6 +211,7 @@ that keeps today's behaviour, and none of the shipped configs sets one.
   (`tests/test_default_invariants.py`) and the synthetic goldens check this.
 - Tests: `tests/test_planar.py` (the selectors, the area gate, the segmentation control flow and the
   refusals), `tests/test_pack_knobs.py` (Cellpose mocked, SpotMAX spied, `require_channel`,
-  `qc.min_nuclei`) and `tests/test_projected_run.py`, which runs a synthetic yeast-like stack through a
-  projected recipe (`tests/fixtures/planar/projected_yeast_like.yaml`) and compares it with the golden in
-  `tests/golden/synthetic_projected/`.
+  `qc.min_nuclei`), `tests/test_recipe_keys.py` (the strict checks of the recipe keys, and that no
+  shipped config sets one) and `tests/test_projected_run.py`, which runs a synthetic yeast-like stack
+  through a projected recipe (`tests/fixtures/planar/projected_yeast_like.yaml`) and compares it with the
+  golden in `tests/golden/synthetic_projected/`.
