@@ -4,6 +4,7 @@
   germquant run   STACK.nd2 --config config/config.yaml --out results/ [--xy-stride 4 --z-range 20 40]
   germquant run   SERIES.nd2 --config config/config.yaml --out results/ --t all|7|0-24 [--resume]
   germquant register results/SERIES [--reference previous|t0] [--upsample 10] [--max-step-um 5] [--channel ROLE] [--rigid]
+  germquant register results/SERIES --mode piecewise [--segments 4] [--margin-um 6] [--taper 0.25]
   germquant batch /nas/folder --config config/config.yaml --out /nas/folder_results
 
 `info` and `run` also take TIFF / OME-TIFF, CZI, LIF and OME-Zarr files when the optional `readers`
@@ -22,12 +23,25 @@ the Imaris spots of the train gonads, selected on the val gonads, never on test:
 
   germquant train-spots --cache DIR --split-file tests/golden/rad51_split.json --out MODELDIR [--epochs N] [--patch Z,Y,X] [--seed S]
 
+and retrained by the frozen recipe of a selected model (no validation, its epoch count and threshold) on
+other train and val gonads, for the leave-one-gonad-out folds and the train-plus-val model:
+
+  germquant train-spots --cache DIR --split-file tests/golden/rad51_split.json --out MODELDIR --recipe-from SELECTEDDIR --train-tags TAG ...
+
+The EXPERIMENTAL nuclei3d 3D nucleus model (docs/BENCHMARK.md, "nuclei3d"), trained on the bench cache against the
+recovered Imaris nucleus masks of the train gonads, selected on the val gonads, never on test:
+
+  germquant train-nuclei3d --cache DIR --split-file tests/golden/rad51_split.json --out MODELDIR [--epochs N] [--seed S]
+
 `register` estimates the drift of a finished series from the reference volumes that loop kept and writes the
-register_shifts table and a report next to the series record; nothing is resampled.
+register_shifts table and a report next to the series record; nothing is resampled. `--mode piecewise` estimates
+one translation per axial segment of the germline instead (the register_piecewise table), for a germline that
+slides inside the worm non-rigidly.
 
 Tracking a finished series (docs/TIMELAPSE.md, "Tracking" and "Validating the linking"):
   germquant track-export   SERIES_DIR --out DIR [--crop germline|all] [--stride 2]   (a Cell-ACDC position folder)
   germquant track-link     SERIES_DIR --backend overlap|overlap_inhouse|laptrack|none [--gap 2] [--max-dist-um 3.0]
+                           [--registration rigid|piecewise]
   germquant track-import   SERIES_DIR --from trackmate|imaris|cellacdc FILE
   germquant track-strips   SERIES_DIR --out DIR [--size-um 8]
   germquant track-validate SERIES_DIR --points hand.csv
@@ -115,13 +129,28 @@ def main(argv: list[str] | None = None) -> int:
     prg.add_argument("--normalization", choices=["none", "phase"], default="none",
                      help="cross-power spectrum normalization: 'none' (plain cross-correlation, the default: exact "
                           "on smooth nuclei at stride 4 to 8) or 'phase' (whitened; for textured volumes)")
-    prg.add_argument("--taper", type=float, default=0.0, metavar="FRACTION",
-                     help="Tukey window fraction applied to both volumes (0 = off, the default; 0.25 tapers the "
-                          "outer eighth of each axis): quiets tissue the field edge cuts, a stationary feature that "
-                          "pulls the estimate towards zero")
+    prg.add_argument("--taper", type=float, default=None, metavar="FRACTION",
+                     help="Tukey window fraction applied to both volumes (0.25 tapers the outer eighth of each axis): "
+                          "quiets tissue the field edge cuts, a stationary feature that pulls the estimate towards zero. "
+                          "Default 0 (off) for --mode rigid; for --mode piecewise the timelapse.register.piecewise_taper "
+                          "key, code default 0.25 (a segment crop always cuts the gonad)")
     prg.add_argument("--rigid", action="store_true",
                      help="EXPERIMENTAL: also fit a rigid rotation (Kabsch) on nucleus centroids linked by nearest "
-                          "neighbour after the translation; stored in the report only, the shift table is unchanged")
+                          "neighbour after the translation; stored in the report only, the shift table is unchanged "
+                          "(--mode rigid only)")
+    prg.add_argument("--mode", choices=["rigid", "piecewise"], default="rigid",
+                     help="rigid: one translation per timepoint, <stem>__register_shifts.csv (default); piecewise: one "
+                          "translation per axial segment of the germline per timepoint, interpolated along the gonad "
+                          "axis for every nucleus, <stem>__register_piecewise.csv (the rigid table is not touched)")
+    prg.add_argument("--segments", type=int, default=None, metavar="K",
+                     help="piecewise: number of segments of equal nucleus count along the axis (default: the "
+                          "timelapse.register.piecewise_segments key, code default 4)")
+    prg.add_argument("--margin-um", type=float, default=None, metavar="UM",
+                     help="piecewise: how far a segment's crop reaches beyond its nuclei in y and x (default: the "
+                          "timelapse.register.piecewise_margin_um key, code default 6.0)")
+    gcfg = prg.add_mutually_exclusive_group(required=False)
+    gcfg.add_argument("--config", help="config yaml for the timelapse.register.* keys (default: the series' run_manifest.json)")
+    gcfg.add_argument("--profile", help="profile name instead of --config")
 
     pt = sub.add_parser("trace", help="draw the pachytene region on each finished image (pop-up); saves the "
                                       "polylines in whole-image microns to the traces file the staging stage reads")
@@ -271,6 +300,71 @@ def main(argv: list[str] | None = None) -> int:
     pts.add_argument("--select-tolerance", type=float, default=0.01,
                      help="configurations whose val traced CCC is within this of the best count as tied and the "
                           "best F1 among them is selected (default 0.01, the protocol's meaningful change)")
+    pts.add_argument("--recipe-from", default=None, metavar="MODELDIR",
+                     help="retrain by the frozen recipe of an earlier model (its training_log.json): its settings, "
+                          "seed and schedule, its selected epoch count and its selected threshold, no validation "
+                          "and no selection; overrides --epochs, --patch, --seed, --batch-size, --steps-per-epoch, "
+                          "--lr, --no-dna, --base-channels, --levels and --tile (protocol sections 6.1 and 6.2)")
+    pts.add_argument("--train-tags", nargs="+", default=None,
+                     help="train on exactly these gonads, in this order (train or val gonads of the split with "
+                          "usable spot truth; never a test gonad); default: the split's train gonads")
+    pts.add_argument("--val-tags", nargs="*", default=None,
+                     help="validate on these gonads; give the option with no tag for none (default: the split's "
+                          "val gonads that are not training gonads; none with --recipe-from)")
+    pts.add_argument("--stop-after-epochs", type=int, default=None,
+                     help="stop after this many epochs; the learning-rate schedule still spans --epochs")
+    pts.add_argument("--threshold", type=float, default=None,
+                     help="the peak threshold stored in model.pt for a run without val gonads")
+
+    ptn3 = sub.add_parser("train-nuclei3d",
+                          help="train the EXPERIMENTAL nuclei3d 3D nucleus model (a residual 3D U-Net with foreground, "
+                               "cell-distance and neighbour heads) on the bench cache against the recovered Imaris "
+                               "nucleus masks of the train gonads, with zero weight inside untraced Cellpose labels; "
+                               "early stopping on the val gonads by the protocol's F1 at IoU 0.5; never touches a test "
+                               "gonad. Writes MODELDIR/model.pt, training_log.json and model_card.json "
+                               "(docs/BENCHMARK.md, nuclei3d)")
+    ptn3.add_argument("--cache", required=True, help="the bench cache root (scripts/bench_cache.py writes it)")
+    ptn3.add_argument("--split-file", required=True,
+                      help="the pre-registered split record with the train / val / test roles "
+                           "(tests/golden/rad51_split.json)")
+    ptn3.add_argument("--out", required=True, metavar="MODELDIR", help="output folder (keep it outside the repository)")
+    ptn3.add_argument("--epochs", type=int, default=40, help="maximum epochs (default 40; early stopping may end sooner)")
+    ptn3.add_argument("--patch", default="48,160,160",
+                      help="training patch Z,Y,X in voxels, multiples of the network's size divisor (4,8,8 for 4 "
+                           "levels) with Y = X (default 48,160,160)")
+    ptn3.add_argument("--seed", type=int, default=0, help="seed of the patch draw, the initialisation and torch (default 0)")
+    ptn3.add_argument("--manifest", default=None,
+                      help="benchmark manifest naming the truth folders (default: "
+                           "germquant.benchmark.detector.DEFAULT_MANIFEST)")
+    ptn3.add_argument("--batch-size", type=int, default=4, help="patches per step (default 4)")
+    ptn3.add_argument("--steps-per-epoch", type=int, default=250, help="steps per epoch (default 250)")
+    ptn3.add_argument("--lr", type=float, default=1e-3, help="AdamW peak learning rate (default 1e-3)")
+    ptn3.add_argument("--warmup-steps", type=int, default=250, help="linear warm-up steps (default 250)")
+    ptn3.add_argument("--patience", type=int, default=8,
+                      help="stop after this many validations without a new best (default 8)")
+    ptn3.add_argument("--val-every", type=int, default=1, help="validate every N epochs (default 1)")
+    ptn3.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto",
+                      help="auto = CUDA when available (default)")
+    ptn3.add_argument("--min-free-gb", type=float, default=0.0,
+                      help="on CUDA, wait until the GPU has this many GB free, polling every 60 s (default 0: no wait)")
+    ptn3.add_argument("--wait-minutes", type=float, default=120.0, help="give up waiting for the GPU after this long")
+    ptn3.add_argument("--prep-dir", default=None,
+                      help="folder of the per-gonad target maps (default MODELDIR/prep); share it between runs")
+    ptn3.add_argument("--base-channels", type=int, default=16, help="width of the first level (default 16)")
+    ptn3.add_argument("--levels", type=int, default=4, help="U-Net levels (default 4)")
+    ptn3.add_argument("--tile", default="96,384,384", help="inference tile Z,Y,X for the validation (default 96,384,384)")
+    ptn3.add_argument("--w-traced-shell", type=float, default=1.0,
+                      help="loss weight of a traced nucleus's own Cellpose label outside its traced mask (background "
+                           "by the truth; default 1, 0 = unknown like an untraced label)")
+    ptn3.add_argument("--fg-threshold", type=float, default=0.5, help="foreground threshold of the validation (default 0.5)")
+    ptn3.add_argument("--h-um", type=float, default=0.4, help="h of the h-maxima seeds in um (default 0.4)")
+    ptn3.add_argument("--neighbour-weight", type=float, default=1.0,
+                      help="how far the neighbour closeness presses the distance map down (default 1)")
+    ptn3.add_argument("--post-grid", default=None,
+                      help="after training, score the selected epoch on val over a grid of the instance-step "
+                           "parameters and keep the best in model.pt, e.g. h_um=0.3,0.4,0.6;fg_threshold=0.4,0.5")
+    ptn3.add_argument("--min-volume-um3", type=float, default=4.0,
+                      help="the size filter of the validation (default 4.0, segmentation.nuclei.min_volume_um3)")
 
     prm = sub.add_parser("register-model",
                          help="add a locally trained model to the model registry (local_models.json next to the "
@@ -303,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         "export-training": lambda: _export_training(args),
         "train-nuclei": lambda: _train_nuclei(args),
         "train-spots": lambda: _train_spots(args),
+        "train-nuclei3d": lambda: _train_nuclei3d(args),
         "register-model": lambda: _register_model(args),
 
         "track-export": lambda: _track_export(args),
@@ -350,6 +445,11 @@ def _add_track_parsers(sub) -> None:
                     help="overlap backends: least intersection over the previous nucleus' volume (default 0.4, Cell-ACDC's)")
     pl.add_argument("--stride", type=int, default=None, help="overlap backends: xy stride of the label grid (default 2)")
     pl.add_argument("--all-nuclei", action="store_true", help="link every label, not only in_germline nuclei")
+    pl.add_argument("--registration", choices=["rigid", "piecewise"], default=None,
+                    help="rigid: subtract each timepoint's shift from <stem>__register_shifts.csv; piecewise: subtract "
+                         "each nucleus's displacement interpolated along the gonad axis from <stem>__register_piecewise.csv "
+                         "(germquant register --mode piecewise). Default: the timelapse.track.registration key, code "
+                         "default rigid")
 
     pi = sub.add_parser("track-import", help="turn a tracker's result (TrackMate CSV / XML, an Imaris points table, a "
                                              "Cell-ACDC tracked segm.npz) into the same two tables, link_source imported:<tool>")
@@ -380,6 +480,10 @@ def _add_track_parsers(sub) -> None:
     pv.add_argument("--points", required=True, help="the completed worksheet: hand_track_id, t_index, z_um, y_um, x_um (raw-frame microns)")
     pv.add_argument("--snap-um", type=float, default=0.0,
                     help="a hand point just outside every label takes the nearest nucleus within this distance (default 0 = off)")
+    pv.add_argument("--set", dest="subset", choices=["all", "constraint", "holdout"], default="all",
+                    help="score only the hand tracks of this role: constraint to compare linking settings while the "
+                         "holdout tracks stay unseen, holdout (or all, the default) to judge the chosen setting once; "
+                         "a subset run writes only <stem>__track_validation_<set>.json")
 
 
 def _track_cfg(args):
@@ -413,13 +517,19 @@ def _track_export(args) -> int:
 def _track_link(args) -> int:
     from .timelapse.track import link_series
 
-    res = link_series(args.series_dir, backend=args.backend, gap=args.gap, max_dist_um=args.max_dist_um,
-                      min_overlap=args.min_overlap, stride=args.stride, germline_only=not args.all_nuclei,
-                      stem=args.stem, cfg=_track_cfg(args))
+    from .timelapse.piecewise import PiecewiseRegistrationMissing
+
+    try:
+        res = link_series(args.series_dir, backend=args.backend, gap=args.gap, max_dist_um=args.max_dist_um,
+                          min_overlap=args.min_overlap, stride=args.stride, germline_only=not args.all_nuclei,
+                          stem=args.stem, cfg=_track_cfg(args), registration=args.registration)
+    except PiecewiseRegistrationMissing as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
     rec = res["record"]
     print(f"{rec['series_id']}: backend {rec['backend']} ({rec['link_source']}): {rec['n_objects']} nucleus-timepoints over "
           f"{len(rec['timepoints'])} timepoint(s) -> {rec['n_tracks']} track(s), {rec['n_full_length']} full length; "
-          f"shifts from {rec['shift_source']}")
+          f"{rec['registration']} registration, shifts from {rec['shift_source']}")
     if rec.get("note"):
         print(f"  note: {rec['note']}")
     flipped = [t for t, s in rec.get("axis_sign_by_t", {}).items() if int(s) < 0]
@@ -455,9 +565,10 @@ def _track_strips(args) -> int:
 def _track_validate(args) -> int:
     from .timelapse.track_validate import format_verdict, validate_tracks
 
-    res = validate_tracks(args.series_dir, args.points, stem=args.stem, cfg=_track_cfg(args), snap_um=args.snap_um)
+    res = validate_tracks(args.series_dir, args.points, stem=args.stem, cfg=_track_cfg(args), snap_um=args.snap_um,
+                          subset=args.subset)
     print(format_verdict(res))
-    print(f"  -> {res['paths'].get('track_validation')}")
+    print(f"  -> {res['paths'].get('track_validation') or res['paths'].get('record')}")
     return 0 if res["verdict"]["pass"] else 2
 
 
@@ -607,12 +718,14 @@ def _batch(args) -> int:
 
     # image-independent provenance, computed once per batch: the segment sub-hash lets --resume notice a
     # retrained model or a Cellpose upgrade (per-image geometry lives in <id>__stages.json / __done.json)
-    from .pipeline import resolve_model_path
+    from .pipeline import resolve_model_path, segment_backend_provenance
     from .stages import stage_hashes as stage_hashes_fn
 
     model_sha = (provenance.file_sha256(resolve_model_path(cfg))
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
-    segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha)["segment"]
+    # the segmentation backend's own provenance ({} on the default run), as process_image hashes it
+    segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
+                                   segment_backend=segment_backend_provenance(cfg))["segment"]
     prov = provenance.write_manifest(out_root, config_hash=cfg.hash, config=cfg.as_dict(),
                                      extra={"n_files": len(files), "input_root": str(root),
                                             "excluded": [str(f) for f, _ in dropped],
@@ -704,13 +817,22 @@ def _restage(args) -> int:
 def _register(args) -> int:
     """``germquant register SERIES_DIR``: the drift of a time-lapse as a shift table (timelapse.register,
     docs/TIMELAPSE.md "Registration"). Exit code 1, with the reason, when the folder is not a series or holds no
-    reference volumes; a timepoint that cannot be registered is a row with an error, not a failure."""
+    reference volumes; a timepoint that cannot be registered is a row with an error, not a failure. ``--mode
+    piecewise`` registers each axial segment of the germline (timelapse.piecewise) instead."""
+    from .timelapse.register import DEFAULTS as RIGID_DEFAULTS
     from .timelapse.register import register_series
 
+    if getattr(args, "mode", "rigid") == "piecewise":
+        return _register_piecewise(args)
+    for opt, given in (("--segments", args.segments), ("--margin-um", args.margin_um)):
+        if given is not None:
+            print(f"ERROR: {opt} applies to --mode piecewise only", file=sys.stderr)
+            return 1
     try:
         res = register_series(args.series_dir, reference=args.reference, upsample=args.upsample,
                               max_step_um=args.max_step_um, channel=args.channel, rigid=args.rigid,
-                              normalization=args.normalization, taper=args.taper)
+                              normalization=args.normalization,
+                              taper=RIGID_DEFAULTS["taper"] if args.taper is None else args.taper)
     except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
@@ -738,6 +860,49 @@ def _register(args) -> int:
         angles = [r["rotation_deg"] for r in rep["rigid"] if r.get("rotation_deg") is not None]
         print(f"  rigid fit (experimental, report only): {len(angles)} step(s) fitted, largest rotation "
               f"{max(angles) if angles else 0.0:.2f} deg")
+    for k, why in rep.get("errors", {}).items():
+        print(f"  t{int(k):03d}: {why}")
+    print(f"  -> {res['table_path']}, {res['report_path']}")
+    return 0
+
+
+def _register_piecewise(args) -> int:
+    """``germquant register SERIES_DIR --mode piecewise``: one translation per axial segment per timepoint
+    (timelapse.piecewise, docs/TIMELAPSE.md "Piecewise registration")."""
+    from .timelapse.piecewise import register_series_piecewise
+
+    if args.reference != "previous":
+        print("ERROR: --mode piecewise registers every timepoint against the previous one (--reference previous)",
+              file=sys.stderr)
+        return 1
+    if args.rigid:
+        print("ERROR: --rigid (the experimental Kabsch fit) applies to --mode rigid only", file=sys.stderr)
+        return 1
+    try:
+        cfg = _track_cfg(args)
+        res = register_series_piecewise(args.series_dir, segments=args.segments, margin_um=args.margin_um,
+                                        taper=args.taper, upsample=args.upsample, max_step_um=args.max_step_um,
+                                        channel=args.channel, normalization=args.normalization, cfg=cfg)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    rep, par = res["report"], res["report"]["parameters"]
+    print(f"\n{res['series_id']}: piecewise registration, {par['segments']} segment(s) along the axis "
+          f"({par['axis_source']}), {rep['n_timepoints']} timepoint(s), {rep['n_registered']} step(s) registered on "
+          f"{par['channel_role']} ({rep['method']}, stride {par['stride']}, upsample {par['upsample_factor']}, "
+          f"margin {par['margin_um']:g} um, taper {par['taper']:g})")
+    for s, q in zip(rep["segments"], rep["quality"]["by_segment"]):
+        cum = rep["cumulative_last_um"][s["segment"]]
+        before, after = q.get("median_before_um"), q.get("median_after_um")
+        qtxt = (f"median nearest-neighbour displacement {before:.2f} -> {after:.2f} um" if before is not None and
+                after is not None else "no quality numbers")
+        dtxt = (f"; {par['cross_check_role']} disagreement {q['median_disagreement_um']:.2f} um"
+                if q.get("median_disagreement_um") is not None else "")
+        print(f"  segment {s['segment']} (axis {s['axis_start_um']:.1f} to {s['axis_end_um']:.1f} um, {s['n_nuclei_t0']} "
+              f"nuclei): cumulative at t{rep['last_t_index']:03d} dz={cum[0]:+.2f} dy={cum[1]:+.2f} dx={cum[2]:+.2f} um; "
+              f"{qtxt}{dtxt}")
+    print(f"  {len(rep['capped'])} segment step(s) capped, {len(rep['brightfield_disagreement'])} above the "
+          f"{par['disagreement_um']:g} um disagreement threshold, {len(rep['filled'])} filled from neighbours")
     for k, why in rep.get("errors", {}).items():
         print(f"  t{int(k):03d}: {why}")
     print(f"  -> {res['table_path']}, {res['report_path']}")
@@ -868,28 +1033,73 @@ def _train_nuclei(args) -> int:
 
 
 def _train_spots(args) -> int:
-    from .spots.net3d.train import DEFAULT_THRESHOLDS, parse_patch, train_spots
+    from .spots.net3d.train import DEFAULT_THRESHOLDS, parse_patch, recipe_from, train_spots
 
     thresholds = (DEFAULT_THRESHOLDS if not args.thresholds else
                   tuple(float(t) for t in str(args.thresholds).split(",") if t.strip()))
-    res = train_spots(args.cache, args.split_file, args.out, manifest=args.manifest, epochs=args.epochs,
-                      patch=parse_patch(args.patch), seed=args.seed, batch_size=args.batch_size,
-                      steps_per_epoch=args.steps_per_epoch, lr=args.lr, patience=args.patience,
-                      val_every=args.val_every, use_dna=not args.no_dna, device=args.device,
-                      base_channels=args.base_channels, levels=args.levels, thresholds=thresholds,
-                      tile_zyx=parse_patch(args.tile), prep_dir=args.prep_dir, min_free_gb=args.min_free_gb,
-                      wait_minutes=args.wait_minutes, select_tolerance=args.select_tolerance)
+    kw = dict(epochs=args.epochs, patch=parse_patch(args.patch), seed=args.seed, batch_size=args.batch_size,
+              steps_per_epoch=args.steps_per_epoch, lr=args.lr, use_dna=not args.no_dna,
+              base_channels=args.base_channels, levels=args.levels, tile_zyx=parse_patch(args.tile),
+              run_epochs=args.stop_after_epochs, fixed_threshold=args.threshold)
+    val_tags = args.val_tags
+    if args.recipe_from:
+        if args.stop_after_epochs is not None or args.threshold is not None:
+            print("REFUSED: --recipe-from fixes the epoch count and the threshold; drop --stop-after-epochs and "
+                  "--threshold")
+            return 2
+        if val_tags:
+            print("REFUSED: --recipe-from trains without validation (the recipe fixes the epoch count and the "
+                  "threshold, nothing is selected); drop --val-tags")
+            return 2
+        recipe_kw, recipe = recipe_from(args.recipe_from)
+        kw.update(recipe_kw)
+        kw["recipe"] = recipe
+        val_tags = []
+    res = train_spots(args.cache, args.split_file, args.out, manifest=args.manifest, patience=args.patience,
+                      val_every=args.val_every, device=args.device, thresholds=thresholds, prep_dir=args.prep_dir,
+                      min_free_gb=args.min_free_gb, wait_minutes=args.wait_minutes,
+                      select_tolerance=args.select_tolerance, train_tags=args.train_tags, val_tags=val_tags, **kw)
     g = res["gonads"]
     print(f"\nnet3d: trained on {[r['tag'] for r in g['train']]} ({res['device']}), validated on "
           f"{[r['tag'] for r in g['val']]}; left out {[r['tag'] for r in g['excluded']]}; test gonads never opened")
     vb = res.get("val_best") or {}
-    print(f"  selected epoch {res['best_epoch']} of {res['epochs_run']} ({res['stop_reason']}), threshold "
-          f"{res['best_threshold']}: val traced CCC {vb.get('ccc_traced')}, germline CCC {vb.get('ccc_all')}, "
-          f"F1 {vb.get('f1')}")
+    if not g["val"]:
+        print(f"  frozen recipe: {res['epochs_run']} epochs ({res['stop_reason']}), threshold {res['best_threshold']}")
+    else:
+        print(f"  selected epoch {res['best_epoch']} of {res['epochs_run']} ({res['stop_reason']}), threshold "
+              f"{res['best_threshold']}: val traced CCC {vb.get('ccc_traced')}, germline CCC {vb.get('ccc_all')}, "
+              f"F1 {vb.get('f1')}")
     print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
     print(f"  card  -> {res['card_path']}")
     print(f"  score it: python scripts/bench_detector.py --backend net3d --params "
           f"'{{\"net3d\": {{\"model\": \"{Path(res['model_path']).as_posix()}\"}}}}' --split val --out DIR")
+    return 0
+
+
+def _train_nuclei3d(args) -> int:
+    from .segment.nuclei3d.infer import parse_zyx
+    from .segment.nuclei3d.train import parse_grid, train_nuclei3d
+
+    res = train_nuclei3d(args.cache, args.split_file, args.out, manifest=args.manifest, epochs=args.epochs,
+                         patch=parse_zyx(args.patch), seed=args.seed, batch_size=args.batch_size,
+                         steps_per_epoch=args.steps_per_epoch, lr=args.lr, warmup_steps=args.warmup_steps,
+                         patience=args.patience, val_every=args.val_every, device=args.device,
+                         base_channels=args.base_channels, levels=args.levels, tile_zyx=parse_zyx(args.tile),
+                         data_cfg={"w_traced_shell": args.w_traced_shell},
+                         post={"fg_threshold": args.fg_threshold, "h_um": args.h_um,
+                               "neighbour_weight": args.neighbour_weight},
+                         grid=parse_grid(args.post_grid), min_volume_um3=args.min_volume_um3,
+                         prep_dir=args.prep_dir, min_free_gb=args.min_free_gb, wait_minutes=args.wait_minutes)
+    g = res["gonads"]
+    print(f"\nnuclei3d: trained on {[r['tag'] for r in g['train']]} ({res['device']}), validated on "
+          f"{[r['tag'] for r in g['val']]}; left out {[r['tag'] for r in g['excluded']]}; test gonads never opened")
+    vb = res.get("val_best") or {}
+    print(f"  selected epoch {res['best_epoch']} of {res['epochs_run']} ({res['stop_reason']}), post {res['post']}: "
+          f"val F1@0.5 {vb.get('f1_iou50')}, AP {vb.get('ap_iou50_95')}, recall {vb.get('recall_iou50')}")
+    print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
+    print(f"  card  -> {res['card_path']}")
+    print(f"  score it: python scripts/benchmark_nuclei3d.py --manifest MANIFEST --split val --coverage protocol "
+          f"--model \"{Path(res['model_path']).as_posix()}\" --out DIR")
     return 0
 
 

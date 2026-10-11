@@ -125,6 +125,20 @@ def spot_backend_provenance(cfg, role_to_idx: dict) -> dict:
     return out
 
 
+def segment_backend_provenance(cfg) -> dict:
+    """The provenance the configured segmentation backend declares (nuclei3d: the model file and its
+    sha256), or ``{}``: for the default cellpose backend and the classical one (no ``provenance``
+    attribute), and whenever ``segmentation.nuclei.method`` is classical (the backend is never called).
+    A non-empty record enters the segment stage sub-hash and run_manifest.json (``segment_backend``); the
+    default run's hashes and manifest are unchanged."""
+    from .segment.backends import backend_provenance
+
+    if str(cfg.get("segmentation.nuclei.method", "auto")) == "classical":
+        return {}
+    return backend_provenance(cfg.get("segmentation.nuclei.backend", "cellpose"),
+                              cfg.get("segmentation.nuclei", {}) or {})
+
+
 def resolve_model_path(cfg):
     """The Cellpose model the config names, resolved against the config's base_dir when it is a relative
     path to an existing file (so a profile outside the repo still finds models/...), or against
@@ -277,12 +291,17 @@ def process_image(
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
     # a non-default spot backend's own provenance (net3d: its model sha256); {} on the default run
     spot_prov = spot_backend_provenance(cfg, role_to_idx)
-    stage_hashes = stage_hashes_fn(cfg, role_to_idx, provenance.tool_versions(), model_sha, spot_backend=spot_prov)
+    # the same for the segmentation backend (nuclei3d: its model sha256); {} on the default run
+    seg_prov = segment_backend_provenance(cfg)
+    stage_hashes = stage_hashes_fn(cfg, role_to_idx, provenance.tool_versions(), model_sha, spot_backend=spot_prov,
+                                   segment_backend=seg_prov)
     run_geometry = {"xy_stride": int(xy_stride), "z_range": list(z_range) if z_range else None,
                     "stage_hashes": stage_hashes, "model_sha256": model_sha,
                     "enabled_stages": [s.name for s in STAGES if stage_enabled(cfg, s.name)]}
     if spot_prov:
         run_geometry["spot_backend"] = spot_prov
+    if seg_prov:
+        run_geometry["segment_backend"] = seg_prov
     if t is not None:
         # the timepoint enters the run geometry (manifest, stage record) and the marker ONLY for a series
         run_geometry["t_index"] = int(t)

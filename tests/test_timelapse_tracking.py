@@ -585,6 +585,34 @@ def test_track_validate_scores_a_perfect_and_a_swapped_hand_set(series, tmp_path
     assert res3["points"].set_index(["hand_track_id", "t_index"])["outcome"].loc[(DROPOUT[0], 3)] == "edge_missing"
 
 
+def test_track_validate_scores_one_role_alone(series, tmp_path):
+    """--set constraint scores the constraint tracks alone (comparing linking settings without the holdout ones)."""
+    pytest.importorskip("laptrack")    # the timelapse extra; CI installs it
+    link_series(series["out"], backend="laptrack")
+    swapped = tmp_path / "swapped.csv"
+    # hand tracks 1 (holdout) and 2 (constraint) exchange nuclei from t=2 on; 3 (holdout) and 4 (constraint) are clean
+    _hand_set(series["ids"], (1, 2, 3, 4), swap={1: 2, 2: 1}).to_csv(swapped, index=False)
+    res_c = validate_tracks(series["out"], swapped, subset="constraint")
+    assert set(res_c["tracks"]["role"]) == {"constraint"} and sorted(res_c["tracks"]["hand_track_id"]) == [2, 4]
+    v = res_c["verdict"]
+    assert v["subset"] == "constraint" and v["n_holdout"] == 0 and not v["pass"]
+    assert v["criteria"]["switches_holdout"]["value"] == 1 and v["criteria"]["switches_holdout"]["set"].startswith("constraint")
+    assert v["criteria"]["linking_recall"]["value"] == pytest.approx(7 / 8)          # hand 2: 3 of 4 edges, hand 4: 4 of 4
+    assert (series["out"] / f"{STEM}__track_validation_constraint.json").exists()
+    assert res_c["paths"] == {"record": str(series["out"] / f"{STEM}__track_validation_constraint.json")}
+    assert "only the constraint hand tracks" in format_verdict(res_c)
+    res_h = validate_tracks(series["out"], swapped, subset="holdout", write=False)
+    assert sorted(res_h["tracks"]["hand_track_id"]) == [1, 3] and res_h["verdict"]["criteria"]["switches_holdout"]["value"] == 1
+    assert validate_tracks(series["out"], swapped, subset="all", write=False)["verdict"]["n_hand_tracks"] == 4
+    clean = tmp_path / "clean.csv"
+    _hand_set(series["ids"], (2, 4)).to_csv(clean, index=False)
+    with pytest.raises(ValueError, match="no holdout hand track"):
+        validate_tracks(series["out"], clean, subset="holdout")
+    with pytest.raises(ValueError, match="subset"):
+        validate_tracks(series["out"], clean, subset="train")
+    assert cli.main(["track-validate", str(series["out"]), "--points", str(clean), "--set", "constraint"]) == 0
+
+
 # ---- the command line --------------------------------------------------------------------------------
 
 def test_cli_track_commands(series, tmp_path, capsys):

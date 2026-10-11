@@ -18,7 +18,9 @@ target timepoint has a hand point), ``switches`` (hand edges where the pipeline'
 another nucleus) and ``edges_missing`` (hand edges the pipeline simply broke). The verdict compares the holdout
 switches, the linking recall and the (pachytene, when zones are known) segmentation recall with the
 thresholds ``timelapse.validate.max_switches_holdout`` (0), ``min_linking_recall`` (0.95) and
-``min_segmentation_recall`` (0.85), every one read with its code default.
+``min_segmentation_recall`` (0.85), every one read with its code default. ``subset="constraint"``
+(``germquant track-validate --set constraint``) scores the constraint tracks alone, which is how linking settings
+are compared without looking at the holdout tracks; switches and linking recall are then judged on them.
 """
 from __future__ import annotations
 
@@ -196,11 +198,19 @@ def read_hand_points(path: str | Path) -> pd.DataFrame:
 # =====================================================================================================
 
 def validate_tracks(series_dir: str | Path, hand_csv: str | Path, *, stem: str | None = None, cfg=None,
-                    snap_um: float = 0.0, write: bool = True) -> dict:
+                    snap_um: float = 0.0, write: bool = True, subset: str | None = None) -> dict:
     """Score the series' track_points against the biologist's hand-followed nuclei (module docstring). Returns
     ``points`` (one row per hand point: the TRACK_VALIDATION columns with the per-track scores repeated),
     ``tracks`` (one row per hand track), ``verdict`` (the thresholds, the measured values and PASS / FAIL per
-    criterion) and the written ``paths``."""
+    criterion) and the written ``paths``.
+
+    ``subset`` ``constraint`` or ``holdout`` scores only the hand tracks of that role (``None`` or ``all``: every
+    track). Use ``constraint`` to compare linking settings, so the holdout tracks stay unseen until the chosen
+    setting is judged on them once. A subset run writes only ``<stem>__track_validation_<subset>.json``; the
+    track_validation table is written by a run over every track."""
+    sub = None if subset in (None, "", "all") else str(subset).strip().lower()
+    if sub is not None and sub not in ROLES:
+        raise ValueError(f"subset must be one of all, {', '.join(ROLES)}; got {subset!r}")
     layout = find_series(series_dir, stem)
     spacing = layout.spacing()
     hand = read_hand_points(hand_csv)
@@ -209,6 +219,10 @@ def validate_tracks(series_dir: str | Path, hand_csv: str | Path, *, stem: str |
     # the role of every hand track: the worksheet's column, else the picks file, else holdout (the strict reading)
     roles = _roles(hand, layout)
     zones = _zones(hand, layout)
+    if sub is not None:
+        hand = hand[hand["hand_track_id"].map(roles) == sub].reset_index(drop=True)
+        if hand.empty:
+            raise ValueError(f"{Path(hand_csv).name}: no {sub} hand track")
     off = ~hand["t_index"].isin(layout.timepoints)
     if off.any():
         log.warning("%s: %d hand point(s) at timepoints not in the series dropped: %s", layout.stem, int(off.sum()),
@@ -291,8 +305,16 @@ def validate_tracks(series_dir: str | Path, hand_csv: str | Path, *, stem: str |
     per_point = per_point.sort_values(["hand_track_id", "t_index"]).reset_index(drop=True)
 
     verdict = _verdict(tracks, hand, cfg)
+    verdict["subset"] = sub or "all"
     paths = {}
-    if write:
+    if write and sub is not None:
+        p_rec = layout.out_dir / f"{layout.stem}__{VALIDATION_RECORD}_{sub}.json"
+        with open(long_path(p_rec), "w", encoding="utf-8") as fh:
+            json.dump({"series_id": layout.stem, "hand_file": str(hand_csv), "subset": sub, "verdict": verdict,
+                       "tracks": json.loads(tracks.to_json(orient="records")), "written": provenance.run_timestamp()},
+                      fh, indent=1, default=str)
+        paths = {"record": str(p_rec)}
+    elif write:
         meta = layout.series_meta()
         cols = list(schema.TRACK_VALIDATION) + [c for c in ("edges_missing", "dominant_time_track_id", "n_edges",
                                                           "n_edges_reproduced", "n_pipeline_edges", "n_pipeline_edges_correct")]
@@ -359,8 +381,14 @@ def _verdict(tracks: pd.DataFrame, hand: pd.DataFrame, cfg) -> dict:
     min_sr = float(cfg_get(cfg, "timelapse.validate.min_segmentation_recall", DEFAULTS["min_segmentation_recall"]))
     hold = tracks[tracks["role"] == "holdout"]
     judged = hold if len(hold) else tracks
-    judged_set = "holdout" if len(hold) else "all (no holdout track)"
-    switches_holdout = int(hold["switches"].sum()) if len(hold) else 0
+    if len(hold):
+        judged_set = "holdout"
+    elif len(tracks) and (tracks["role"] == "constraint").all():
+        judged_set = "constraint (no holdout track scored)"
+    else:
+        judged_set = "all (no holdout track)"
+    # the switches of the holdout tracks; without any (a constraint-only run), of every track scored
+    switches_holdout = int(judged["switches"].sum()) if len(judged) else 0
     lr = _ratio(float(judged["n_edges_reproduced"].sum()), float(judged["n_edges"].sum()))
     lr_all = _ratio(float(tracks["n_edges_reproduced"].sum()), float(tracks["n_edges"].sum()))
     sr_all = _ratio(float(tracks["n_in_label"].sum()), float(tracks["n_points"].sum()))
@@ -372,7 +400,7 @@ def _verdict(tracks: pd.DataFrame, hand: pd.DataFrame, cfg) -> dict:
                for z, g in tracks.groupby(tracks["zone"].fillna("unknown"))}
     crit = {
         "switches_holdout": {"value": switches_holdout, "threshold": max_sw, "rule": "<=",
-                             "pass": switches_holdout <= max_sw, "set": "holdout" if len(hold) else "no holdout track"},
+                             "pass": switches_holdout <= max_sw, "set": judged_set},
         "linking_recall": {"value": lr, "threshold": min_lr, "rule": ">=", "pass": bool(np.isfinite(lr) and lr >= min_lr),
                            "set": judged_set},
         "segmentation_recall": {"value": sr, "threshold": min_sr, "rule": ">=", "pass": bool(np.isfinite(sr) and sr >= min_sr),
@@ -388,8 +416,9 @@ def _verdict(tracks: pd.DataFrame, hand: pd.DataFrame, cfg) -> dict:
 def format_verdict(res: dict) -> str:
     """The printed report of validate_tracks: the per-track table and the PASS / FAIL lines."""
     tracks, v = res["tracks"], res["verdict"]
+    scored = "" if v.get("subset", "all") == "all" else f" (only the {v['subset']} hand tracks are scored)"
     lines = [f"{res['layout'].stem}: {v['n_hand_tracks']} hand track(s), {v['n_hand_points']} point(s), "
-             f"{v['n_holdout']} holdout"]
+             f"{v['n_holdout']} holdout{scored}"]
     cols = ["hand_track_id", "role", "zone", "dominant_time_track_id", "n_points", "n_in_label", "segmentation_recall",
             "linking_recall", "edge_precision", "switches", "edges_missing"]
     with pd.option_context("display.width", 200, "display.max_columns", 20, "display.float_format", "{:.3f}".format):
@@ -401,5 +430,6 @@ def format_verdict(res: dict) -> str:
     lines.append(f"  linking recall over every hand track {v['linking_recall_all']:.3f}; segmentation recall by zone: "
                  + ", ".join(f"{z} {r:.3f}" for z, r in v["segmentation_recall_by_zone"].items()))
     lines.append(f"  edge precision {v['edge_precision_all']:.3f}; switches {v['switches_all']}; missing edges {v['edges_missing_all']}")
-    lines.append(f"VERDICT: {'PASS' if v['pass'] else 'FAIL'}")
+    lines.append(f"VERDICT: {'PASS' if v['pass'] else 'FAIL'}" + ("" if v.get("subset", "all") == "all"
+                                                                   else f" (on the {v['subset']} hand tracks only)"))
     return "\n".join(lines)

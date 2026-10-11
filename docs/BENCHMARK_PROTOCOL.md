@@ -425,3 +425,106 @@ point.
    8cdb710bd2f0fe7acef49c6117d7113ad61e224405960d2847b34c8327a4c4f7, trained at commit 87d77f1 with
    seed 0 (`C:/Users/ryane/germquant_golden/models/net3d_20261010/`). Section 6.1 asks for the selected
    configuration to be retrained on train plus val before test is scored; that has not been done.
+4. 2026-10-10. Package E1: the section 5.1 partition in the harness, leave-one-gonad-out estimates and net3d
+   retrained on train plus val (`docs/BENCHMARK.md`, "Leave-one-gonad-out"). No test gonad was run, scored or
+   looked at, and no test result was computed: no `--final` run was made, `final_runs.jsonl` does not exist,
+   and `docs/FINAL_SCORING.md`, the plan for the one-time test scoring, was not executed. (a) The primary
+   partition of section 5.1 is implemented as written there (`germquant.benchmark.spots.truth_mask_table`; `tm_`
+   columns, `per_truth_nucleus.csv` and the `per_nucleus_truth_masks` blocks of `bench_detector.py`,
+   `bench_tune.py` and `benchmark_spots.py`): the truth masks with fragments below 1000 voxels removed are the
+   nuclei (one 44-voxel label of n2rad51_noHS_male_000 is removed among the train and val gonads; the truth export
+   had already split collided values), every truth spot and every method spot is assigned by the section 5 rule
+   (the spot region R read as the masks dilated by a 3 x 3 x 3 cube, which equals the set of assigned centre
+   voxels), and Pearson r, Lin's CCC, bias and mean absolute error are reported for Class A+B, A and B truth, per
+   gonad and pooled; `bench_detector.py --detector-only` re-runs the spot stage with the truth masks as its nuclei
+   for the detector-only count. The harness's earlier "traced" subset is kept and is not this partition. The
+   spot F1 of section 5.2 (matching restricted to R) is the `spots_truth_masks` block and the `tm_spots_` columns;
+   the whole-field F1 is kept for comparison. Truth check: the section 4.4 check, run with `scripts/check_truth_assignment.py` against the lab's mask-channel
+   assignment (`imaris_mask_label`, Imaris's per-spot maximum of the Masked channel, the value the xlsx coloc counts
+   come from; no xlsx export of these gonads is registered), agrees on 99.35 to 99.99 percent of the spots of all
+   eight train and val gonads. The disagreements are boundary spots (0 to 14 geometric-only and 1 to 22
+   coloc-only per gonad) and spots whose coloc value is a removed mask fragment (0 to 58); only HS_male_002, a
+   region-growing gonad, has spots assigned to two different nuclei (3). No truth-export bug was found. Table:
+   `benchmarks/n2rad51_8666f07/truth_assignment_check_trainval.csv`. The test gonads are checked in the pre-flight
+   of docs/FINAL_SCORING.md.
+   (b) Leave-one-gonad-out over the six train and val gonads with usable spot truth: six folds (for a held-out
+   val gonad the first same-condition train gonad by tag order joins the remaining val gonad), each held-out
+   gonad scored by `bench_detector.py --detector-only` with its fold in the trial record's `note` (trial lines 162
+   to 173 and 214 to 231). net3d: each fold retrained on its five gonads by the frozen recipe of net3d_20261010
+   (its settings, seed and 40-epoch schedule, stopped after the selected 4 epochs, threshold 0.40, no
+   validation); retraining the recipe on its own four train gonads reproduced the selected weights bit for bit.
+   This departs from section 6.2, which selects inside each fold: the recipe's epoch and threshold were chosen on
+   the two designated val gonads, so the two folds that hold one of them out are optimistic for net3d, and its
+   estimate leaves out the variance of its selection. Tuned log and re-tuned SpotMAX: the whole D3 search replayed
+   on each fold's own gonads (its stages, budgets of 55 and 24 sets, finalists and objective, which is the
+   germline partition, not the primary metric); first all 55 log and 24 SpotMAX D3 sets were scored on the two val
+   gonads (lines 97 to 151 and 174 to 197); in the two folds whose train gonads are the three no-heat-shock train
+   gonads the replay left the D3 path, and the sets it called for were run (lines 152 to 161 and 198 to 213). The
+   deployed SpotMAX recipe and the log defaults: their per-gonad scores, re-run with the same harness. Pooled over
+   the six held-out gonads, primary partition (Class A+B, end-to-end), CCC [95 percent cluster-bootstrap
+   interval]: SpotMAX deployed 0.601 [0.499, 0.718], SpotMAX re-tuned 0.742 [0.655, 0.812], log defaults 0.777
+   [0.623, 0.920], log tuned 0.893 [0.818, 0.955], net3d 0.878 [0.834, 0.935]. Paired differences whose interval
+   excludes zero: net3d and the tuned log better than both SpotMAX configurations on every partition, on spot F1
+   with and without Class B and in mean absolute error (net3d minus SpotMAX re-tuned +0.136 [+0.090, +0.204] in
+   primary CCC); the log defaults better than the deployed recipe on every number and than the re-tuned SpotMAX
+   on F1; the re-tuned SpotMAX better than the deployed recipe in mean absolute error only. No difference survives
+   between net3d and the tuned log (-0.015 [-0.084, +0.073]); on the four folds that hold out a train gonad the
+   tuned log leads net3d in germline CCC and F1. These are development estimates; nothing here is a win
+   condition. (c) net3d retrained on the six train and val gonads by the same frozen recipe (protocol section
+   6.1):
+   `C:/Users/ryane/germquant_golden/models/net3d_trainval_20261010/model.pt`, sha256
+   d091b9ef58850783387a4f5aa0fea5ecc9310abc027145771936fecd0de001c0, trained at commit 240cc72, with its
+   `model_card.json`; it is the net3d of `docs/FINAL_SCORING.md` and was not scored. Every choice in (b) and (c) was
+   made after the first result of entry 2 and is post hoc under rule 3. No test result was computed.
+
+5. 2026-10-10. nuclei3d, the in-house 3D nucleus model (package E2; `docs/BENCHMARK.md`, "nuclei3d").
+   No test gonad was run or scored for it, and no metric of any method was computed on a test gonad in
+   this package. (a) The scope rule of section 5.3 is now implemented in the nucleus harness as
+   `coverage="protocol"` (`germquant.benchmark.nuclei3d`; `scripts/benchmark_nuclei3d.py --coverage
+   protocol`): truth fragments under 1000 voxels removed, region C, a prediction in scope with at least
+   half of its volume in C, splits and merges at 20 percent of the truth volume. Until this entry the
+   harness implemented only its earlier rule (the ROI box when present, else the truth bounding box
+   dilated by 2 um; majority splits and merges), which section 4.2 rules out as a record of the traced
+   extent; that rule stays the script's default so earlier outputs reproduce, and every nucleus number of
+   this entry uses the protocol rule. The script now skips test gonads unless `--final` is given with a
+   `--reason`. (b) What was trained: a residual 3D U-Net with foreground, cell-distance and neighbour
+   heads, on the six train gonads (582 traced nuclei; the region growing of the two heat-shock males
+   affects their spots, not their surfaces) against the recovered Imaris masks, with zero loss weight
+   inside untraced deployed Cellpose labels plus a 0.5 um margin; selected on the two val gonads by the
+   pooled section 5.3 F1 at IoU 0.5, then AP, then the earlier epoch, with fixed instance-step parameters
+   during training and then a grid of 24 instance-step configurations for the selected epoch, which kept
+   the training's parameters. 40 configurations were scored on val (16 epochs and the 24 grid points),
+   within the 60 of section 6.4, each listed with its val score in the training log. Frozen model: sha256
+   11920205258dceece3e2bd6053621cbce390177f2baa70b9f40eefc0980bbb83 (epoch 8), trained at commit 02d8389
+   with seed 0 (`C:/Users/ryane/germquant_golden/models/nuclei3d_20261010/`). For comparison the
+   deployed Cellpose labels (the 8666f07 goldens) were scored on the same two val gonads under the same
+   rule. (c) Choices that neither this protocol nor the design fixed, made before training: the region of
+   a traced nucleus's own Cellpose label outside its traced mask has weight 1 and target background (the
+   design's weight rule leaves that region unnamed); a Cellpose label with at least half of its voxels
+   inside traced masks is a traced nucleus's own label; the neighbour closeness reaches 0 at 1 um (power
+   3); the validation runs the instance step only on foreground components that touch region C, which
+   changes no metric. (d) Not done: retraining on train plus val (6.1), leave-one-gonad-out (6.2), the
+   RAD-51 counts on the new masks; W3 is a test-set criterion and has not been evaluated. (e) The
+   design's decisive competitor was run once, without tuning: the deployed Cellpose model fine-tuned on 144
+   slices of the same six train gonads' traced masks (`scripts/export_imaris_training_pairs.py`, untraced
+   nuclei filled with background; `germquant train-nuclei`, 100 epochs; sha256
+   a4334d0016f3ce548c92ddb722011be908c922d576e5d740c1405c714561c38c,
+   `C:/Users/ryane/germquant_golden/models/cellpose_ft_imaris_20261010/`), one configuration scored on the
+   two val gonads by the same rule. On val it ties with nuclei3d (pooled F1 at IoU 0.5 0.974 against
+   0.968, AP 0.590 against 0.582; deployed Cellpose 0.863 and 0.338), a difference far below the 0.03 of
+   section 7, so the design's stop rule is not triggered; `docs/BENCHMARK.md` reports the whole-stack
+   diagnostic in which nuclei3d makes far fewer, larger objects than both Cellpose models (527 against
+   1270 deployed and 1234 fine-tuned on the heat-shock gonad), merging crowded untraced nuclei that the
+   traced-subset metrics cannot see.
+   (f) Disclosed: two output folders of the nucleus harness, `benchmarks/n2rad51_8666f07/nuclei3d` and
+   `nuclei3d_bbox`, were written on 2026-10-10 at 02:47 and 02:49 UTC (20:47 and 20:49 local time on
+   2026-10-09), three minutes after the manifest, under the earlier rule. They hold test gonads: rows for
+   n2rad51_HS_herm_002, n2rad51_HS_male_001 and n2rad51_noHS_herm_002 (deployed Cellpose-SAM nuclei against
+   the recovered masks). They were written by the coordinating session, which ran benchmark_nuclei3d.py and
+   benchmark_spots.py over every gonad with pipeline outputs that evening as the first look at the deployed
+   pipeline; their per-gonad console lines, test gonads included, were displayed in that session and some
+   were reported to the project lead (for example the heat-shock male test gonad's 15.7 against 12.9 foci per
+   nucleus, and per-gonad nucleus F1 lines). By rule 1 these are the first nucleus results on test, and the
+   spot lines extend what entry 2 discloses. They are results of the deployed pipeline only; no method was
+   tuned or selected on them, and nobody in packages D1 to E3 opened their test rows. Each of the folders
+   benchmarks/n2rad51_8666f07/spots, nuclei3d and nuclei3d_bbox now carries a README saying it holds test rows.

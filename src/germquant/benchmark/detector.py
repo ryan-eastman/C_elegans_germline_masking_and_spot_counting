@@ -593,23 +593,32 @@ def backend_cache_arrays(backend: str) -> tuple[str, ...]:
 
 
 def run_backend(tag: str, backend: str = "spotmax", params: dict | None = None, *, cache_root=None,
-                cache: GonadCache | None = None, allow_test: bool = False):
+                cache: GonadCache | None = None, allow_test: bool = False, labels=None):
     """Run spot detection backend ``backend`` on the cached gonad ``tag`` exactly as the pipeline's
     spots stage calls ``detect_spots`` (same image, labels, spacing, marker, keyword parameters from the
     cached spots section with ``params`` overriding, ``backend`` and ``cfg_section``; for a backend that
     asks for further channel roles, ``channels`` with those the cache holds, as the stage passes those
-    the image has). Returns (per_spot, per_nucleus), the two tables of ``detect_spots``. A test gonad
-    is refused unless ``allow_test``."""
+    the image has). Returns (per_spot, per_nucleus), the two tables of ``detect_spots``. ``labels``
+    replaces the cached label image (the detector-only run of protocol section 5 hands the spot stage the
+    truth masks in place of the pipeline's nuclei); it must have the image's shape. A test gonad is
+    refused unless ``allow_test``."""
     from germquant.spots import detect_spots
     from germquant.spots.backends import backend_input_roles
 
     guard_test([tag], allow_test=allow_test, roles={tag: cache.role if cache is not None else None})
     roles = backend_input_roles(backend)
     if cache is None:
-        cache = load_cache(tag, cache_root, arrays=backend_cache_arrays(backend), mmap=False)
+        arrays = backend_cache_arrays(backend)
+        if labels is not None:
+            arrays = tuple(a for a in arrays if a != "labels")
+        cache = load_cache(tag, cache_root, arrays=arrays, mmap=False)
     guard_test([tag], allow_test=allow_test, roles={tag: cache.role})
     foci = cache.foci if cache.foci is not None else cache.array("foci", mmap=False)
-    labels = cache.labels if cache.labels is not None else cache.array("labels", mmap=False)
+    if labels is None:
+        labels = cache.labels if cache.labels is not None else cache.array("labels", mmap=False)
+    elif tuple(np.shape(labels)) != tuple(foci.shape):
+        raise ValueError(f"{tag}: the label image {tuple(np.shape(labels))} does not have the image's shape "
+                         f"{tuple(foci.shape)}")
     section = effective_section(cache.spots_config, params)
     kw = pipeline_spot_kwargs(section)
     extra = {}
@@ -646,18 +655,24 @@ def score(tag: str, per_spot: pd.DataFrame, per_nucleus: pd.DataFrame, *, manife
           cache: GonadCache | None = None, truth=None, truth_labels=None, allow_test: bool = False,
           include_unusable: bool = False, tol_xy_um: float = bs.DEFAULT_TOL_XY_UM,
           tol_z_um: float = bs.DEFAULT_TOL_Z_UM, surface_tol_um: float = bs.DEFAULT_SURFACE_TOL_UM,
-          overlap_frac: float = bs.DEFAULT_OVERLAP_FRAC, traced_rule: str = "auto"):
+          overlap_frac: float = bs.DEFAULT_OVERLAP_FRAC, traced_rule: str = "auto",
+          truth_mask_min_voxels: int = bs.TRUTH_MASK_MIN_VOXELS, detector_only_spots: pd.DataFrame | None = None,
+          return_truth_masks: bool = False):
     """Score one run of a detector on a cached gonad against the truth files the manifest lists.
 
     Reuses ``germquant.benchmark.spots.benchmark_gonad`` with the detector's spots and per-nucleus
     counts in place of the golden ones and the cached label image as our nuclei: Hungarian matching in
     the ``tol_xy_um`` by ``tol_z_um`` cylinder (all expert spots, without Class B, and detector-only in
     the traced nuclei), per-nucleus agreement of the expert spots mapped into our labels with our
-    counts over the germline nuclei and the traced subset. On top of that the per-nucleus agreement
-    with the truth counted from Class A spots only (``class_a_*`` columns; the expert count changes,
-    ours does not, as section 5.1 of the protocol states it). Returns (per-gonad row, per-nucleus
-    table, matched pairs). Refuses a test gonad unless ``allow_test``, and a gonad whose spot truth
-    is unusable unless ``include_unusable``."""
+    counts over the germline nuclei and the harness's traced subset (our nuclei more than half inside a
+    truth mask). On top of that the per-nucleus agreement with the truth counted from Class A spots only
+    (``class_a_*`` columns; the expert count changes, ours does not, as section 5.1 of the protocol states
+    it), and the protocol's section 5.1 primary partition, in which the truth masks are the nuclei
+    (``tm_*`` columns; ``detector_only_spots``, the spot stage re-run with the truth masks as its nuclei,
+    adds the detector-only count, ``tm_det_*``). Returns (per-gonad row, per-nucleus table, matched
+    pairs), and with ``return_truth_masks`` a fourth item, the per-truth-nucleus table of section 5.1 (with
+    ``tag``, ``split`` and ``role``). Refuses a test gonad unless ``allow_test``, and a gonad whose spot
+    truth is unusable unless ``include_unusable``."""
     entries = _entries_by_tag(manifest)
     if tag not in entries:
         raise KeyError(f"{tag} is not in the manifest")
@@ -685,10 +700,12 @@ def score(tag: str, per_spot: pd.DataFrame, per_nucleus: pd.DataFrame, *, manife
     spacing = cache.spacing
     outputs = PipelineOutputs(cache.meta.get("image_id", tag), nuclei, per_spot, None, spacing, "bench cache")
     condition = str(entry.extra.get("condition") or cache.meta.get("condition") or "")
-    row, per_nuc, matches = bs.benchmark_gonad(
+    row, per_nuc, matches, per_tm = bs.benchmark_gonad(
         outputs, truth, labels, spacing, tag=tag, split=condition, truth_labels=truth_labels,
         tol_xy_um=tol_xy_um, tol_z_um=tol_z_um, surface_tol_um=surface_tol_um, overlap_frac=overlap_frac,
-        traced_rule=traced_rule)
+        traced_rule=traced_rule, truth_mask_min_voxels=truth_mask_min_voxels,
+        detector_only_spots=detector_only_spots, return_truth_masks=True)
+    per_tm.insert(2, "role", role)
     row["voxel_source"] = "bench cache"
     row["role"] = role
     row["n_unknown_nucleus_ids"] = len(unknown)
@@ -715,16 +732,20 @@ def score(tag: str, per_spot: pd.DataFrame, per_nucleus: pd.DataFrame, *, manife
             row[f"class_a_{k}_all"] = nan
             row[f"class_a_{k}_traced"] = nan
     per_nuc.insert(2, "role", role)
+    if return_truth_masks:
+        return row, per_nuc, matches, per_tm
     return row, per_nuc, matches
 
 
 def pool_scores(rows: pd.DataFrame, per_nuc: pd.DataFrame, *, n_boot: int = N_BOOT,
-                seed: int = BOOT_SEED) -> dict:
+                seed: int = BOOT_SEED, per_truth_nucleus: pd.DataFrame | None = None) -> dict:
     """Pooled scores over the scored gonads with cluster-bootstrap intervals by gonad: the blocks of
     ``germquant.benchmark.spots.pool`` (by condition in ``by_split`` when both are present) plus the
     per-nucleus agreement with the Class A truth counts (``per_nucleus_all_class_a``,
-    ``per_nucleus_traced_class_a``)."""
-    out = bs.pool(rows, per_nuc, n_boot=n_boot, seed=seed)
+    ``per_nucleus_traced_class_a``) and, with ``per_truth_nucleus`` (the concatenated fourth items of
+    ``score(..., return_truth_masks=True)``), the blocks of the protocol's section 5.1 partition
+    (``per_nucleus_truth_masks`` and its Class A, Class B and detector-only variants)."""
+    out = bs.pool(rows, per_nuc, n_boot=n_boot, seed=seed, per_truth_nucleus=per_truth_nucleus)
 
     def class_a_blocks(r: pd.DataFrame, pn: pd.DataFrame) -> dict:
         if "expert_n_class_a" not in pn.columns or not pn["expert_n_class_a"].notna().any():
@@ -802,16 +823,23 @@ def compare_with_golden(per_spot: pd.DataFrame, per_nucleus: pd.DataFrame, golde
 
 # ------------------------------------------------------------------------------- trial log
 POOLED_KEYS = ("per_nucleus_all", "per_nucleus_traced", "per_nucleus_all_class_a", "per_nucleus_traced_class_a",
-               "spots_all", "spots_without_class_b", "spots_detector_only")
+               "spots_all", "spots_without_class_b", "spots_detector_only", "per_nucleus_truth_masks",
+               "per_nucleus_truth_masks_class_a", "per_nucleus_truth_masks_class_b")
+# pooled blocks that only some runs have (the detector-only count needs --detector-only)
+OPTIONAL_POOLED_KEYS = ("per_nucleus_truth_masks_detector_only",)
 PER_GONAD_KEYS = ("n_our_spots", "n_expert_spots", "ccc_all", "bias_all", "ccc_traced", "bias_traced",
-                  "class_a_ccc_all", "class_a_ccc_traced", "precision", "recall", "f1", "no_b_f1", "det_f1")
+                  "class_a_ccc_all", "class_a_ccc_traced", "precision", "recall", "f1", "no_b_f1", "det_f1",
+                  "tm_n_nuclei", "tm_ccc", "tm_bias", "tm_mae", "tm_class_a_ccc", "tm_class_b_ccc", "tm_det_ccc",
+                  "tm_det_bias")
 
 
 def trial_record(*, backend: str, params: dict, split: str, tags: list[str], pooled: dict,
                  per_gonad: pd.DataFrame, skipped: list, out_dir, manifest, cache_root, n_boot: int,
-                 seed: int, elapsed_s: float, final: bool = False, reason: str | None = None) -> dict:
+                 seed: int, elapsed_s: float, final: bool = False, reason: str | None = None,
+                 note=None) -> dict:
     """One line of trials.jsonl (or final_runs.jsonl): when, which code, which detector and parameters,
-    which gonads, and the pooled metrics with their intervals."""
+    which gonads, and the pooled metrics with their intervals. ``note`` (any JSON value, for example the
+    leave-one-gonad-out fold a run belongs to) is stored as ``note`` when given."""
     from germquant import provenance
 
     versions = provenance.tool_versions()
@@ -825,8 +853,8 @@ def trial_record(*, backend: str, params: dict, split: str, tags: list[str], poo
         "tags": list(tags),
         "skipped": skipped,
         "final": bool(final),
-        "pooled": {k: pooled[k] for k in POOLED_KEYS if k in pooled},
-        "pooled_by_condition": {s: {k: b[k] for k in POOLED_KEYS if k in b}
+        "pooled": {k: pooled[k] for k in POOLED_KEYS + OPTIONAL_POOLED_KEYS if k in pooled},
+        "pooled_by_condition": {s: {k: b[k] for k in POOLED_KEYS + OPTIONAL_POOLED_KEYS if k in b}
                                 for s, b in (pooled.get("by_split") or {}).items()},
         "per_gonad": {str(r["tag"]): {k: r[k] for k in PER_GONAD_KEYS if k in r}
                       for _, r in per_gonad.iterrows()},
@@ -840,6 +868,8 @@ def trial_record(*, backend: str, params: dict, split: str, tags: list[str], poo
     }
     if reason is not None:
         rec["reason"] = reason
+    if note is not None:
+        rec["note"] = note
     return rec
 
 
@@ -866,25 +896,49 @@ def n_final_runs(path, backend: str) -> int:
 
 # ---------------------------------------------------------------------------- one gonad
 def bench_one(tag: str, backend: str, params: dict | None, *, cache_root=None, manifest=None,
-              allow_test: bool = False, score_kwargs: dict | None = None) -> dict:
+              allow_test: bool = False, score_kwargs: dict | None = None, detector_only: bool = False) -> dict:
     """Run and score one gonad (the unit of work of scripts/bench_detector.py; importable, so a process
-    pool can run it). Returns the per-gonad row, the per-nucleus table, the matched pairs and the
-    detector's own per-spot table."""
+    pool can run it). Returns the per-gonad row, the per-nucleus table, the matched pairs, the
+    per-truth-nucleus table of the protocol's section 5.1 partition and the detector's own per-spot
+    table. ``detector_only`` runs the backend a second time with the truth masks (fragments removed) in
+    place of the cached nuclei, protocol section 5's detector-only spots, and scores their count per truth
+    nucleus next to the end-to-end one (``per_spot_detector_only`` and the ``tm_det_`` columns)."""
     t0 = time.time()
     guard_test([tag], allow_test=allow_test)
+    entry = _entries_by_tag(manifest).get(tag) if detector_only else None
+    if detector_only and entry is not None:
+        guard_test([tag], allow_test=allow_test, roles={tag: entry_role(entry)})
     cache = load_cache(tag, cache_root, arrays=backend_cache_arrays(backend), mmap=False)
     per_spot, per_nuc = run_backend(tag, backend, params, cache=cache, allow_test=allow_test)
     t_detect = time.time() - t0
+    kw = dict(score_kwargs or {})
+    det_spots, t_det = None, None
+    if detector_only:
+        if entry is None:
+            raise KeyError(f"{tag} is not in the manifest")
+        truth = load_truth(entry.truth_dir, entry.truth_stem)
+        if truth is None or not truth.has_labels:
+            raise FileNotFoundError(f"{tag}: the detector-only run needs the truth label image")
+        truth_labels = load_labels(truth.labels_path)
+        masks = bs.truth_mask_labels(truth_labels, kw.get("truth_mask_min_voxels", bs.TRUTH_MASK_MIN_VOXELS))
+        t2 = time.time()
+        det_spots, _ = run_backend(tag, backend, params, cache=cache, allow_test=allow_test, labels=masks)
+        t_det = time.time() - t2
+        del masks
+        kw.update(truth=truth, truth_labels=truth_labels)
     cache.foci = None
     cache.dna = None
     t1 = time.time()
-    row, pn, matches = score(tag, per_spot, per_nuc, manifest=manifest, cache=cache, allow_test=allow_test,
-                             **(score_kwargs or {}))
+    row, pn, matches, per_tm = score(tag, per_spot, per_nuc, manifest=manifest, cache=cache, allow_test=allow_test,
+                                     detector_only_spots=det_spots, return_truth_masks=True, **kw)
     row["backend"] = backend
     row["detect_s"] = round(t_detect, 1)
     row["score_s"] = round(time.time() - t1, 1)
     row["n_spots_reconcile"] = bool(int(per_nuc["n_spots"].sum()) == len(per_spot)) if len(per_nuc) else len(per_spot) == 0
-    return {"tag": tag, "row": row, "per_nucleus": pn, "matches": matches, "per_spot": per_spot}
+    if t_det is not None:
+        row["detect_detector_only_s"] = round(t_det, 1)
+    return {"tag": tag, "row": row, "per_nucleus": pn, "matches": matches, "per_spot": per_spot,
+            "per_truth_nucleus": per_tm, "per_spot_detector_only": det_spots}
 
 
 def finite_or_none(x):

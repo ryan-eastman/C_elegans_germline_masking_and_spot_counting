@@ -17,9 +17,10 @@ the loop goes on, as a batch does. Nothing here changes a per-image table or the
 
 For the drift registration (``germquant register``, timelapse.register, docs/TIMELAPSE.md "Registration") the
 loop also keeps, per timepoint, a downsampled copy of the segmentation channel next to the fixed-image file
-set, ``t<NNN>/<image_id>__ref_stride<k>.npy`` (uint16, Z x Y/k x X/k, k = ``timelapse.reference_stride``, code
-default 8), and the brightfield channel the same way as ``<image_id>__ref_brightfield_stride<k>.npy`` when a
-role named brightfield resolves. ``timelapse.keep_reference_volume`` (code default true) switches it off. The
+set, ``t<NNN>/<image_id>__ref_stride<k>.npy`` (uint16, Z x Y/k x X/k; k = ``timelapse.reference_stride`` when
+set, else chosen so the reference pixel is at most ``timelapse.reference_pixel_um``, code default 1.0 um),
+and the brightfield channel the same way as ``<image_id>__ref_brightfield_stride<k>.npy`` when a role named
+brightfield resolves. ``timelapse.keep_reference_volume`` (code default true) switches it off. The
 volumes come out of the stack process_image has already read (its ``on_stack`` callback), so the file is not
 read twice; a fixed image never writes one. Every key is read with a code default.
 """
@@ -47,14 +48,25 @@ SUMMARY_TABLE = "series_summary"
 
 # ---- reference volumes for registration (module docstring; docs/TIMELAPSE.md "Registration") ------------
 BRIGHTFIELD_ROLE = "brightfield"
-REFERENCE_DEFAULTS = {"keep_reference_volume": True, "reference_stride": 8}
+REFERENCE_DEFAULTS = {"keep_reference_volume": True, "reference_stride": 8, "reference_pixel_um": 1.0}
 
 
-def reference_settings(cfg) -> tuple[bool, int]:
-    """``(keep, stride)`` from ``timelapse.keep_reference_volume`` and ``timelapse.reference_stride``, each
-    read with its code default (REFERENCE_DEFAULTS). ValueError for a stride that is not a positive integer."""
+def reference_settings(cfg, run_pixel_um: float | None = None) -> tuple[bool, int]:
+    """``(keep, stride)``: ``timelapse.keep_reference_volume`` (code default true) and the stride k of the
+    reference volumes. An explicit ``timelapse.reference_stride`` is used as given. Otherwise, when the run's
+    xy pixel size is known (``run_pixel_um``: the file's voxel size times the run's xy stride), k is chosen so
+    the reference pixel is at most ``timelapse.reference_pixel_um`` (code default 1.0 um): on the October
+    series the piecewise registration was unreliable on 3.5 um reference pixels (k 8 on a stride-4 run) and
+    sound on 1.7, 0.9 and 0.4 um ones. Without either (no explicit stride and no known pixel size, for example a file whose
+    header has no calibration), k is 8. ValueError for a stride that is not a positive integer."""
     keep = bool(cfg.get("timelapse.keep_reference_volume", REFERENCE_DEFAULTS["keep_reference_volume"]))
-    raw = cfg.get("timelapse.reference_stride", REFERENCE_DEFAULTS["reference_stride"])
+    raw = cfg.get("timelapse.reference_stride")
+    if raw is None:
+        target = float(cfg.get("timelapse.reference_pixel_um", REFERENCE_DEFAULTS["reference_pixel_um"]))
+        if run_pixel_um is not None and run_pixel_um > 0 and target > 0:
+            # the largest k with k * pixel <= target; the epsilon keeps 1.0 / 0.2 at 5 (1.0 // 0.2 is 4.0)
+            return keep, max(1, int(np.floor(target / float(run_pixel_um) + 1e-9)))
+        raw = REFERENCE_DEFAULTS["reference_stride"]
     try:
         stride = int(raw)
     except (TypeError, ValueError) as e:
@@ -296,9 +308,16 @@ def process_series(
     # sub-hash that lets --resume notice a retrained model or a Cellpose upgrade
     model_sha = (provenance.file_sha256(pipeline.resolve_model_path(cfg))
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
-    segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha)["segment"]
+    # the segmentation backend's own provenance ({} on the default run), as process_image hashes it
+    segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
+                                   segment_backend=pipeline.segment_backend_provenance(cfg))["segment"]
     enabled = B.enabled_stage_names(cfg)
-    keep_ref, ref_stride = reference_settings(cfg)
+    # the run's xy pixel for the reference-volume stride; None when the header has no calibration (the nd2
+    # reader then reports a placeholder 1 um spacing with spacing_ok false, which must not pick k)
+    sp = meta.get("spacing")
+    run_pixel_um = (float(sp[2]) * int(xy_stride or 1)
+                    if sp and len(sp) == 3 and float(sp[2]) > 0 and meta.get("spacing_ok") is not False else None)
+    keep_ref, ref_stride = reference_settings(cfg, run_pixel_um)
     prov = provenance.write_manifest(
         out_dir, config_hash=cfg.hash, config=cfg.as_dict(),
         extra={"series_id": stem, "input": str(path), "n_timepoints": n_t, "timepoints_requested": requested,

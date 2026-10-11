@@ -331,11 +331,15 @@ def voxel_shifts(shifts: pd.DataFrame, spacing) -> dict[int, np.ndarray]:
     return {t: np.rint(v / sp).astype(int) for t, v in shift_lookup(shifts).items()}
 
 
-def object_table(layout: SeriesLayout, shifts: pd.DataFrame, *, germline_only: bool = True) -> pd.DataFrame:
+def object_table(layout: SeriesLayout, shifts: pd.DataFrame, *, germline_only: bool = True,
+                 registration=None) -> pd.DataFrame:
     """One row per nucleus per timepoint from the per-timepoint nuclei tables: ``t_index``, ``t_seconds``,
     ``image_id``, ``nucleus_id``, the raw centroid (``z_um``, ``y_um``, ``x_um``), the registered centroid
-    (``zr_um``, ``yr_um``, ``xr_um`` = raw minus the timepoint's cumulative shift) and the measurements the
-    track points carry (JOIN_COLUMNS and the dna / central_element mean intensities when present). With
+    (``zr_um``, ``yr_um``, ``xr_um`` = raw minus the displacement), the displacement itself (``disp_z_um``,
+    ``disp_y_um``, ``disp_x_um``) and the measurements the track points carry (JOIN_COLUMNS and the dna /
+    central_element mean intensities when present). The displacement is the timepoint's cumulative shift from
+    ``shifts`` (the rigid registration), or, when ``registration`` is given (the piecewise registration,
+    timelapse.piecewise.PiecewiseRegistration), each nucleus's own ``registration.displacement(t, raw)``. With
     ``germline_only`` the rows with in_germline False are dropped (a table without the column keeps every
     nucleus, as the germline stage being off means every nucleus is the analysis set)."""
     sh = shift_lookup(shifts)
@@ -354,10 +358,19 @@ def object_table(layout: SeriesLayout, shifts: pd.DataFrame, *, germline_only: b
             "y_um": pd.to_numeric(df["centroid_y_um"], errors="coerce").to_numpy(float),
             "x_um": pd.to_numeric(df["centroid_x_um"], errors="coerce").to_numpy(float),
         })
-        s = sh.get(int(t), np.zeros(3))
-        out["zr_um"] = out["z_um"] - s[0]
-        out["yr_um"] = out["y_um"] - s[1]
-        out["xr_um"] = out["x_um"] - s[2]
+        if registration is None:
+            s = sh.get(int(t), np.zeros(3))
+            out["zr_um"] = out["z_um"] - s[0]
+            out["yr_um"] = out["y_um"] - s[1]
+            out["xr_um"] = out["x_um"] - s[2]
+            d = np.broadcast_to(np.asarray(s, dtype=float), (len(out), 3))
+        else:
+            raw = out[["z_um", "y_um", "x_um"]].to_numpy(float)
+            d = np.asarray(registration.displacement(int(t), raw), dtype=float).reshape(-1, 3)
+            out["zr_um"] = raw[:, 0] - d[:, 0]
+            out["yr_um"] = raw[:, 1] - d[:, 1]
+            out["xr_um"] = raw[:, 2] - d[:, 2]
+        out["disp_z_um"], out["disp_y_um"], out["disp_x_um"] = d[:, 0], d[:, 1], d[:, 2]
         for c in JOIN_COLUMNS:
             if c in df.columns:
                 out[c] = df[c].to_numpy()

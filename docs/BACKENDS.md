@@ -65,7 +65,13 @@ its sha256 in the run manifest as always.
 whole `segmentation` section, so a run with a different backend or different backend keys gets a
 different sub-hash. The manifest's `model_sha256` is still the digest of
 `segmentation.nuclei.cellpose_model`: a backend that keeps its model under that key gets the
-provenance for free, a backend with its own model key should log its own digest.
+provenance for free. A backend with its own model key declares it through an optional attribute of its
+callable, `provenance(cfg_section) -> dict` (added with `nuclei3d`): when the record is not empty the
+pipeline adds it to the segment stage sub-hash and to `run_manifest.json` (`segment_backend`), and
+`germquant batch --resume` and the time-lapse series compute their segment sub-hash the same way. The
+built-in `cellpose` and `classical` declare nothing, so a default run's hashes and manifest are
+unchanged; `germquant.segment.backend_provenance(name, cfg_section)` reads the attribute and never
+raises.
 
 ### The contract
 
@@ -107,6 +113,63 @@ empty label image would run the rest of the pipeline on nothing.
 |---|---|
 | `cellpose` | `germquant.segment.backends.cellpose_backend`: `nuclei._cellpose` (Cellpose-SAM in 3D, anisotropy from the spacing, the fine-tuned germline model) with the explicit device from `germquant.device` and one retry on the CPU when the accelerator fails (out of memory, an operator Metal cannot run) |
 | `classical` | `germquant.segment.backends.classical_backend`: `nuclei._classical`, Gaussian smoothing, Li threshold and a distance-transform watershed, all spacing-aware. No model and no GPU; a baseline, not a substitute for the fine-tuned model on crowded pachytene nuclei |
+| `nuclei3d` | EXPERIMENTAL, never the default: `germquant.segment.backends.nuclei3d_backend`, the in-house 3D U-Net of `germquant.segment.nuclei3d` (below) |
+
+### Built-in `nuclei3d` (experimental in-house 3D model)
+
+Status: EXPERIMENTAL. Selected only by `segmentation.nuclei.backend: nuclei3d` with a model file in
+`segmentation.nuclei.nuclei3d.model`; never the default, and not validated beyond the development
+scores on the train and val gonads in `docs/BENCHMARK.md` ("nuclei3d"). It needs torch. The model is
+trained with `germquant train-nuclei3d`.
+
+The chain:
+
+1. Input: the channel the segment stage hands every backend (DAPI unless the profile says otherwise),
+   normalised per image to (raw - p1) / (p99.9 - p1) with the percentiles of the whole volume read on every
+   fourth voxel in y and x.
+2. A compact residual 3D U-Net (four levels, 16 to 128 channels, an xy-only first pooling for the 1.85
+   anisotropy) gives three maps: the foreground probability, the distance to the boundary of the voxel's own
+   nucleus in um (the cell distance of Scherr et al. 2020) and the closeness of the nearest neighbouring
+   nucleus (1 at a contact, 0 beyond 1 um). Inference is tiled in float32 with an overlap equal to the
+   network's receptive radius, so the result does not depend on the tile size beyond float rounding; the
+   whole field is inferred, never gated by another segmentation.
+3. Instances: the foreground (probability above `fg_threshold`), a seed map S = cell distance x (1 -
+   `neighbour_weight` x neighbour closeness), seeds from the h-maxima of S with `h_um`, and a seeded
+   watershed of -S inside the foreground, per connected component of the foreground (exact, and the memory
+   stays at the size of the largest component).
+4. `segment_nuclei` then applies `segmentation.nuclei.min_volume_um3` and the consecutive relabel, as for
+   every backend.
+
+Keys under `segmentation.nuclei.nuclei3d`, all read with code defaults:
+
+| key | code default | meaning |
+|---|---|---|
+| `model` | none (required) | the model file `germquant train-nuclei3d` wrote (`MODELDIR/model.pt`); an absolute path, or one relative to the working directory |
+| `device` | the stage's `segmentation.nuclei.device` | `auto` (CUDA when available, honours `GERMQUANT_DEVICE`), `cpu` or `cuda`; Apple MPS runs on the CPU (untested) |
+| `tile_zyx` | [96, 384, 384] | inference tile in voxels |
+| `fg_threshold` | the model's own, else 0.5 | foreground probability threshold |
+| `h_um` | the model's own, else 0.4 | h of the h-maxima seeds, in um of the distance map |
+| `neighbour_weight` | the model's own, else 1.0 | how far the neighbour closeness presses the distance map down at contacts (0: the distance map alone) |
+
+`segmentation.nuclei.cellpose_model` and `diameter_um` are not used by this backend (the pipeline still
+resolves and hashes the Cellpose model key as for any backend: a missing file under a path records the
+digest `absent`, while a bare name must be a registered model or a Cellpose built-in such as `cpsam`).
+Under `method: auto` a failure (no model key, a missing file) falls back to the classical
+watershed and `segmentation_method` says `classical`; `method: cellpose` makes it an error. A run records
+`segmentation_method` `nuclei3d` and the model file's sha256 in the segment stage sub-hash and in
+`run_manifest.json` under `segment_backend`. The masks follow the convention of the Imaris surfaces the
+model was trained on, which are tighter than the deployed Cellpose masks (about 1.4 times the Imaris volume),
+so nucleus volumes, perinuclear shells and everything measured in them change with the backend: compare a
+study's two runs stage by stage before using the numbers, and name the backend in the methods text.
+
+```yaml
+extends: config.yaml
+segmentation:
+  nuclei:
+    backend: nuclei3d
+    nuclei3d:
+      model: C:/Users/ryane/germquant_golden/models/nuclei3d_20261010/model.pt
+```
 
 ### Registering a backend in the same process
 

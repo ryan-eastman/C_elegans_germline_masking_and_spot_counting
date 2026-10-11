@@ -18,8 +18,12 @@ A backend is any callable with this signature:
 
 ``segment_nuclei`` applies the minimum-volume filter and the consecutive relabel afterwards, exactly as
 it always has for the Cellpose path, so a backend only produces instance labels. Built-ins: 'cellpose'
-(the Cellpose-SAM path with the explicit device and the CPU retry) and 'classical' (the spacing-aware
-watershed). An installed package adds a backend by declaring an entry point in the group
+(the Cellpose-SAM path with the explicit device and the CPU retry), 'classical' (the spacing-aware
+watershed) and 'nuclei3d' (EXPERIMENTAL: the in-house 3D U-Net of segment/nuclei3d, selected only by
+``segmentation.nuclei.backend: nuclei3d``). A backend callable may carry a ``provenance(cfg_section)``
+attribute; ``backend_provenance`` reads it (nuclei3d: its model file's sha256), and the pipeline adds a
+non-empty record to the segment stage sub-hash and the run manifest, so the default run is unchanged.
+An installed package adds a backend by declaring an entry point in the group
 ``germquant.segment_backends``; the entry point's name is the backend name. A backend that fails to
 load is logged and skipped, never fatal, so a broken plugin cannot stop a run that does not use it.
 """
@@ -73,7 +77,26 @@ def classical_backend(dna, spacing, *, model, diameter_um, device, cfg_section) 
     return nuclei._classical(dna, spacing, diameter_um)
 
 
-_BUILTINS: dict[str, Backend] = {"cellpose": cellpose_backend, "classical": classical_backend}
+def nuclei3d_backend(dna, spacing, *, model, diameter_um, device, cfg_section) -> np.ndarray:
+    """EXPERIMENTAL in-house 3D U-Net (segment/nuclei3d, ``segmentation.nuclei.nuclei3d.model``); never the
+    default. ``model`` (the Cellpose model key) and ``diameter_um`` are unused."""
+    from .nuclei3d.backend import segment_nuclei3d
+
+    _ = (model, diameter_um)
+    return segment_nuclei3d(dna, spacing, device=device, cfg_section=cfg_section)
+
+
+def _nuclei3d_provenance(cfg_section: dict) -> dict:
+    from .nuclei3d.backend import nuclei3d_provenance
+
+    return nuclei3d_provenance(cfg_section)
+
+
+# the model file's sha256 enters the segment stage sub-hash and the run manifest (backend_provenance)
+nuclei3d_backend.provenance = _nuclei3d_provenance
+
+_BUILTINS: dict[str, Backend] = {"cellpose": cellpose_backend, "classical": classical_backend,
+                                 "nuclei3d": nuclei3d_backend}
 _REGISTRY: dict[str, Backend] = dict(_BUILTINS)
 _SOURCES: dict[str, str] = {name: "built-in" for name in _BUILTINS}
 _FAILED: dict[str, str] = {}      # entry points that could not be loaded, name -> reason (for error messages)
@@ -130,6 +153,28 @@ def list_backends() -> list[str]:
     """Sorted names of every available backend (built-ins, registered, installed entry points)."""
     discover_entry_points()
     return sorted(_REGISTRY)
+
+
+def backend_provenance(name: str | None, cfg_section: dict | None) -> dict:
+    """What a backend records about itself before any pixel is read, through the optional
+    ``provenance(cfg_section) -> dict`` attribute of its callable (nuclei3d: its model file and sha256).
+    {} for a backend without the attribute (cellpose, classical), for an unknown name (the segment stage
+    raises its own error) and when the hook returns nothing; a failing hook is logged and recorded as
+    ``provenance_error``, never raised."""
+    try:
+        fn = get_backend(name)
+    except UnknownBackendError:
+        return {}
+    hook = getattr(fn, "provenance", None)
+    if hook is None:
+        return {}
+    key = _normalise(name)
+    try:
+        rec = hook(dict(cfg_section or {}))
+    except Exception as e:  # noqa: BLE001 - provenance is a record, it must not stop a run
+        log.warning("segmentation backend %r: provenance hook failed (%s: %s)", key, type(e).__name__, e)
+        return {"backend": key, "provenance_error": f"{type(e).__name__}: {e}"}
+    return dict(rec) if rec else {}
 
 
 def backend_sources() -> dict[str, str]:

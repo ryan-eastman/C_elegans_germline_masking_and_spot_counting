@@ -188,5 +188,5 @@ def _warn_experimental() -> None:
     if not _warned:
         _warned = True
         log.warning("the 'net3d' spot backend is EXPERIMENTAL: a learned heatmap detector trained on the lab's "
-                    "Imaris spots of four N2 gonads; its counts are not validated and not comparable with the "
-                    "spotmax defaults.")
+                    "Imaris spots of a few N2 gonads (its model card lists them); its counts are not validated and "
+                    "not comparable with the spotmax defaults.")

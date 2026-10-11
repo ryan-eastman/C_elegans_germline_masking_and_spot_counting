@@ -157,9 +157,10 @@ def run_configs(tag: str, backend: str, configs: list[dict], *, cache_root=None,
     ``effect_size_min`` share one detection when ``effect_size_shortcut``, see ``filter_effect_size``),
     then the foci channel is released, the truth is loaded once and every set is scored with
     ``detector.score``. Returns one record per set, in the order given: ``name``, ``params``, ``row``
-    (the per-gonad row of ``bench_detector.py``), ``per_nucleus``, ``matches``, ``per_spot`` and
+    (the per-gonad row of ``bench_detector.py``), ``per_nucleus``, ``matches``, ``per_spot``,
     ``shared_detection`` (the parameter set that was actually run, when the set was derived from a
-    shared SpotMAX run, else None). A test gonad is refused."""
+    shared SpotMAX run, else None) and ``per_truth_nucleus`` (the protocol's section 5.1 partition). A
+    test gonad is refused."""
     bd.guard_test([tag])               # the pre-registered test gonads, before anything is read
     configs = check_configs(configs)
     t_start = time.time()
@@ -217,8 +218,9 @@ def run_configs(tag: str, backend: str, configs: list[dict], *, cache_root=None,
     for c in configs:
         d = detections[c["name"]]
         t = time.time()
-        row, pn, matches = bd.score(tag, d["per_spot"], d["per_nucleus"], manifest=entry_list, cache=cache,
-                                    truth=truth, truth_labels=truth_labels, **(score_kwargs or {}))
+        row, pn, matches, per_tm = bd.score(tag, d["per_spot"], d["per_nucleus"], manifest=entry_list, cache=cache,
+                                            truth=truth, truth_labels=truth_labels, return_truth_masks=True,
+                                            **(score_kwargs or {}))
         row["backend"] = backend
         row["detect_s"] = round(d["detect_s"], 1)
         row["score_s"] = round(time.time() - t, 1)
@@ -226,7 +228,8 @@ def run_configs(tag: str, backend: str, configs: list[dict], *, cache_root=None,
         row["n_spots_reconcile"] = (bool(int(n_nuc["n_spots"].sum()) == len(d["per_spot"])) if len(n_nuc)
                                     else len(d["per_spot"]) == 0)
         out.append({"tag": tag, "name": c["name"], "params": c["params"], "row": row, "per_nucleus": pn,
-                    "matches": matches, "per_spot": d["per_spot"], "shared_detection": d["shared"]})
+                    "matches": matches, "per_spot": d["per_spot"], "shared_detection": d["shared"],
+                    "per_truth_nucleus": per_tm})
         say(f"{c['name']}: ours {row['n_our_spots']}, germline CCC {row['ccc_all']:.3f}, F1 {row['f1']:.3f}")
     say(f"done, {len(configs)} parameter sets in {time.time() - t_start:.0f} s")
     return out
@@ -261,6 +264,8 @@ SUMMARY_FIELDS = [
     ("ccc_all_class_a", "per_nucleus_all_class_a", "ccc"), ("ccc_traced_class_a", "per_nucleus_traced_class_a", "ccc"),
     ("f1", "spots_all", "f1"), ("precision", "spots_all", "precision"), ("recall", "spots_all", "recall"),
     ("no_b_f1", "spots_without_class_b", "f1"), ("det_f1", "spots_detector_only", "f1"),
+    ("tm_ccc", "per_nucleus_truth_masks", "ccc"), ("tm_bias", "per_nucleus_truth_masks", "bias"),
+    ("tm_mae", "per_nucleus_truth_masks", "mae"), ("tm_ccc_class_a", "per_nucleus_truth_masks_class_a", "ccc"),
 ]
 
 
