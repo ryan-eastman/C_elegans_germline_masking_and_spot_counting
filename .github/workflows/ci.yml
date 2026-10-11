@@ -7,6 +7,11 @@
 # accelerator, and tests marked "model" (large model weights) are deselected here, so nothing in this
 # workflow downloads the 1.2 GB nucleus model. The markers are described in tests/README.md.
 #
+# On tranche 5 branches the Linux job also runs the T5 scope check (scripts/t5_scope_check.py), which
+# fails a diff that modifies or deletes a frozen path or changes an existing fence pin
+# (docs/DESIGN_system_packs.md section 11.2). A tranche 5 branch name contains "tranche5" or a path
+# segment that starts with "t5", for example feat/t5-p1.
+#
 # Environment: Python 3.11 (the version the pinned environments target), installed with uv against
 # constraints/ci-cpu-2026-10.txt, which is the validated workstation set minus the CUDA-only packages,
 # with torch and torchvision as CPU wheels from the PyTorch CPU index. astral-sh/setup-uv saves the uv
@@ -90,3 +95,34 @@ jobs:
         # `pytest -q -m "not model" --ignore=tests/test_golden.py`, and record that here. The
         # workstation rehearsal (tests/README.md) fits the budget with everything in.
         run: pytest -q -rs -m "not model" --strict-markers
+
+      - name: T5 scope check (frozen paths and fence pins, tranche 5 branches only)
+        # docs/DESIGN_system_packs.md section 11.2 and gate G3: a tranche 5 diff may not modify or delete
+        # a frozen path (rules R1 and R8, tests/golden/synthetic/, tests/golden/synthetic_4ch/ and
+        # tests/golden/real_manifest.json), delete the fence, or change or remove an existing pin in
+        # tests/golden/default_invariants.json. It runs on tranche 5 branches only, because the RAD-51
+        # work on other branches may legitimately update its own records: a branch, pull request head or
+        # pull request base whose name contains "tranche5", contains a path segment that starts with
+        # "t5" (feat/t5-p1, feat/t5/train-a) or starts with "t5". Every T5 package and integration
+        # branch must be named that way. The step runs after Test, also when Test failed, so neither
+        # result hides the other. It needs only git and the standard library, so one runner is enough.
+        # The checkout above is shallow, so the step first fetches the history that the base needs.
+        # scripts/t5_scope_check.py says how the base is chosen; a pull request is checked at its head
+        # commit, not at the merge commit.
+        if: >-
+          runner.os == 'Linux' && !cancelled() && (
+          contains(github.ref_name, 'tranche5') || contains(github.head_ref, 'tranche5') ||
+          contains(github.base_ref, 'tranche5') || contains(github.ref_name, '/t5') ||
+          contains(github.head_ref, '/t5') || contains(github.base_ref, '/t5') ||
+          startsWith(github.ref_name, 't5') || startsWith(github.head_ref, 't5') ||
+          startsWith(github.base_ref, 't5'))
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            git fetch --no-tags --quiet --unshallow origin
+          fi
+          git fetch --no-tags --quiet origin "+refs/heads/main:refs/remotes/origin/main" || echo "no main branch on origin"
+          head="${{ github.event.pull_request.head.sha || github.sha }}"
+          git cat-file -e "${head}^{commit}" 2>/dev/null || git fetch --no-tags --quiet origin "${head}"
+          python scripts/t5_scope_check.py --head "${head}"

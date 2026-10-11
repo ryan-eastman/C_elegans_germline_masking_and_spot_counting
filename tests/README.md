@@ -45,6 +45,25 @@ gonads are built inside the fixtures.
   real-data comparison (see the environment variables below). The goldens were produced on the
   workstation (Windows, the pinned `constraints/desktop-2026-09.txt` environment) and are checked
   with `check_exact=True`.
+- `test_default_invariants.py`: the tranche 5 fence (`docs/DESIGN_system_packs.md`, section 11.2).
+  It pins today's default behaviour, read from `golden/default_invariants.json`, which was made once
+  at the T5 base commit (bc62476) on the workstation: the config hash of every shipped config and
+  profile, the LF-normalised sha256 of every channel map and Snakemake profile, the literal default
+  stage hashes with every tool version fixed, and three default runs with every tool version fixed
+  (the two synthetic gonads of `test_golden.py`, whose recipe is copied into the fence, and a
+  single-plane image through the bioio branch): the stage hashes each run writes, the provenance key
+  sets, the stage statuses, the qc flags, the output file names, the column list of all twelve tables,
+  the TIF arrays and the montage pixels. It also checks that `batch --resume` accepts the marker each
+  run wrote (segment hash computed as `cli._batch` computes it) and a marker as the base writes it,
+  and the legacy single-plane behaviour. A failing pin means today's behaviour moved: fix the code, not
+  the JSON. A new recipe file arrives with its own pin; existing pins never change, and
+  `scripts/t5_scope_check.py` fails a diff that changes or removes one.
+- `test_t5_scripts.py`: `scripts/t5_scope_check.py` on throwaway git repositories (a frozen file
+  edited, deleted or renamed fails; a new file in a frozen folder passes; the sealed benchmark folder
+  takes no new file; a recorded base that has diverged from main charges only the branch's own
+  changes; the fence files may not be deleted; the pins file is append-only, where a scope may switch
+  between "all" and "workstation") and `scripts/t5_gate.py` (its verdicts with stub steps, the ruff
+  version it picks and the file-list check).
 - `test_peak_filter.py`: the exact replica of SpotMAX's minimum-distance peak filter
   (`germquant.spots.peak_filter`, `docs/PERFORMANCE.md`) against the installed SpotMAX function on
   random inputs with tied intensities, duplicate points and boundary distances, its fallback domain,
@@ -110,6 +129,18 @@ Opt-ins driven by environment variables rather than markers:
 - `GERMQUANT_UPDATE_GOLDEN=1`: `test_synthetic_golden` rewrites the synthetic references instead of
   checking them. Only for a deliberately number-changing step, run from the code that is being
   certified; see the docstring of `test_golden.py` and `scripts/make_goldens.py`.
+- `GERMQUANT_WORKSTATION_PINS=1`: `test_default_invariants.py` enforces the pins marked
+  `"scope": "workstation"` in `golden/default_invariants.json` (today the montage pixels, whose
+  rendering may differ by platform). Without it those tests skip, and the skip reason says whether
+  this machine agrees with the workstation pin. `scripts/t5_gate.py` sets it on the workstation; that
+  script runs ruff (the version CI pins), `pytest -m "not model"`, the scope check and these pins
+  (`--no-workstation` skips them on another machine) and, with `GERMQUANT_GOLDEN` and
+  `GERMQUANT_CANDIDATE` set, the strict real-golden comparison and the file-list check, plus the
+  comparison with an older golden tree when `GERMQUANT_GOLDEN_LEGACY` is set too. It prints one
+  PASS/FAIL table for the PR description; a run that skipped ruff, pytest or the scope check ends
+  INCOMPLETE, and setting only one of the two golden variables is an error. The scope check runs in CI
+  on tranche 5 branches only, so every T5 package and integration branch name must contain `tranche5`
+  or a path segment that starts with `t5` (for example `feat/t5-p1`).
 - `GERMQUANT_TRAIN_SMOKE=1`: `test_training_loop.py::test_real_random_init_training_on_the_cpu` trains a
   randomly initialised Cellpose-SAM network (no weights downloaded) for two epochs on the CPU through
   `train_nuclei` and checks the model file, log and card. It takes about 90 seconds and writes a 1.2 GB

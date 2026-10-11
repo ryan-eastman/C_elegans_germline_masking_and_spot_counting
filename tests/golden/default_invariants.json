@@ -1,0 +1,423 @@
+{
+ "format": 1,
+ "about": "The tranche 5 fence (docs/DESIGN_system_packs.md 11.2), read by tests/test_default_invariants.py. Made once at base_commit on the lab workstation. Pins may be added for new files; existing pins never change (scripts/t5_scope_check.py fails a diff that changes or removes one). scope 'workstation' marks a pin that is enforced only on the workstation (GERMQUANT_WORKSTATION_PINS=1, set by scripts/t5_gate.py).",
+ "base_commit": "bc624761e5326a2b207d95e7140ea6c031f132ae",
+ "made_on": {
+  "platform": "Windows-10-10.0.26200-SP0",
+  "python": "3.11.15",
+  "numpy": "2.4.6",
+  "scipy": "1.17.1",
+  "scikit-image": "0.26.0",
+  "pandas": "3.0.3",
+  "tifffile": "2026.3.3",
+  "matplotlib": "3.11.0",
+  "pillow": "12.2.0",
+  "spotmax": "1.3.1"
+ },
+ "config_hashes": {
+  "config/config.yaml": "84bdda5a5230",
+  "config/config_ccw77.yaml": "2db81a5cee92",
+  "config/config_n2dryice.yaml": "0908054e5db8",
+  "config/profiles/bench_log_tuned.yaml": "3e60d1214451",
+  "config/profiles/bench_spotmax_tuned.yaml": "f84fd405edb0",
+  "config/profiles/ccw77_partition.yaml": "689966d14925",
+  "config/profiles/generic.yaml": "d1470fecc4d5",
+  "config/profiles/live_syp2.yaml": "1ff18698d698",
+  "config/profiles/n2_sc.yaml": "d3a23628a124",
+  "config/profiles/rad51_foci.yaml": "77d5094e2cd2",
+  "config/profiles/segmentation_only.yaml": "80f725befef3"
+ },
+ "golden_sentinels": {
+  "synthetic": "84bdda5a5230",
+  "synthetic_4ch": "37d49f43ac38"
+ },
+ "channel_maps_sha256_lf": {
+  "config/channel_maps/ccw77_dapi_syp_pgl_lamin.yaml": "7dac727682e7fb281cda789950ac9f8f592c47ae98ce4780d135e890466b7844",
+  "config/channel_maps/generic_nuclei_puncta.yaml": "bed5fc8326e45f626257eb9dfbaf9727efacb752b923a88d82b3a00bff0e3855",
+  "config/channel_maps/live_gfp_syp2.yaml": "8618c8b6ecb02f04718b65e9202ada7dc6e8d315a9eecc973c3b41fdb9ac55b6",
+  "config/channel_maps/n2_dapi_syp3_rad51.yaml": "ef9b7fa408d0b113f53f5ac12ad68dfdd40987e2c42f5576c9f955ed202e5570",
+  "config/channel_maps/n2_dapi_syp_rad51_pgl1.yaml": "c040a07a7274c453358f86a4a4e3b1b10c199818e72043d0c72c0d90b130e37c"
+ },
+ "snakemake_profiles_sha256_lf": {
+  "config/profiles/alpine/config.yaml": "d6e55a8d88c6dfde0d5ffdc6ba48ec084daefec333a00a94a65b5cdd9c21c2e1",
+  "config/profiles/slurm/config.yaml": "4be981e64a42a583983024d8fb43640b687a79a3fd037d0cd5bc79aefbca01a3"
+ },
+ "stage_tools": {
+  "read": ["nd2"],
+  "segment": ["cellpose", "torch"],
+  "measure": ["scikit-image"],
+  "signal_qc": ["scipy"],
+  "spots": ["spotmax", "cellacdc", "cupy"],
+  "sc_trace": ["skan", "scikit-image", "scipy"],
+  "granule": ["scikit-image", "scipy"],
+  "coloc": ["scikit-image", "scipy"],
+  "partition": ["scipy"],
+  "granule_tail": ["scipy"]
+ },
+ "default_stage_hashes": {
+  "synthetic": {
+   "channel_names": ["405", "477", "545"],
+   "roles": {
+    "dna": 0,
+    "central_element": 1,
+    "foci": 2,
+    "granule": null
+   },
+   "model_sha": "absent",
+   "hashes": {
+    "read": "93f4ec46f501",
+    "acquisition": "f27afb781c3c",
+    "segment": "a7f02c573aac",
+    "measure": "b6129a5ef618",
+    "signal_qc": "f98dc81707a5",
+    "germline": "20cc8edf50c2",
+    "envelope": "e3e23f207e09",
+    "audit": "e0d07bf5fd3a",
+    "axis": "7d8ff19dbc75",
+    "staging": "9eb668aff6d5",
+    "spots": "01d0e1deff0e",
+    "sc_trace": "161170d1dd50",
+    "granule": "96ffd36cf022",
+    "coloc": "a70ca2ee7f32",
+    "partition": "94252cfd31e0",
+    "granule_tail": "c8cfee1c1578",
+    "qc": "40175a4d610a",
+    "render": "f449510385e0",
+    "write": "55567ed66691"
+   }
+  },
+  "synthetic_4ch": {
+   "channel_names": ["405", "477", "545", "647"],
+   "roles": {
+    "dna": 0,
+    "central_element": 1,
+    "foci": 2,
+    "granule": 3
+   },
+   "model_sha": "absent",
+   "hashes": {
+    "read": "93f4ec46f501",
+    "acquisition": "f27afb781c3c",
+    "segment": "a7f02c573aac",
+    "measure": "b6129a5ef618",
+    "signal_qc": "f98dc81707a5",
+    "germline": "20cc8edf50c2",
+    "envelope": "e3e23f207e09",
+    "audit": "e0d07bf5fd3a",
+    "axis": "7d8ff19dbc75",
+    "staging": "9eb668aff6d5",
+    "spots": "01d0e1deff0e",
+    "sc_trace": "161170d1dd50",
+    "granule": "35314f618f16",
+    "coloc": "a10cdb0a260e",
+    "partition": "31a55dd0204e",
+    "granule_tail": "9eb90a92a740",
+    "qc": "40175a4d610a",
+    "render": "f449510385e0",
+    "write": "55567ed66691"
+   }
+  }
+ },
+ "runs": {
+  "synthetic": {
+   "image_id": "20251105_n2_nohs_HERM_001",
+   "config_hash": "84bdda5a5230",
+   "manifest_keys": ["config", "config_hash", "enabled_stages", "git_sha", "model_sha256", "pipeline_version", "pixi_lock_sha256", "run_timestamp", "stage_hashes", "tool_versions", "xy_stride", "z_range"],
+   "manifest_tool_version_keys": ["bioio", "cellacdc", "cellpose", "cupy", "germquant", "nd2", "numpy", "pandas", "scikit-image", "scipy", "skan", "snakemake", "spotmax", "tifffile", "torch"],
+   "done_marker_keys": ["config_hash", "enabled_stages", "failed_stages", "finished", "image_id", "stage_hashes", "xy_stride", "z_range"],
+   "stage_record_keys": ["complete", "config_hash", "enabled_stages", "image_id", "model_sha256", "stage_hashes", "stages", "xy_stride", "z_range"],
+   "stage_record_stages": ["acquisition", "audit", "axis", "coloc", "envelope", "germline", "granule", "granule_tail", "measure", "partition", "qc", "read", "render", "sc_trace", "segment", "signal_qc", "spots", "staging", "write"],
+   "stage_outcome_keys": ["elapsed_s", "error", "flags", "reason", "status"],
+   "stage_status": {
+    "acquisition": "skipped",
+    "audit": "skipped",
+    "axis": "ran",
+    "coloc": "skipped",
+    "envelope": "skipped",
+    "germline": "ran",
+    "granule": "skipped",
+    "granule_tail": "skipped",
+    "measure": "ran",
+    "partition": "skipped",
+    "qc": "ran",
+    "read": "ran",
+    "render": "ran",
+    "sc_trace": "skipped",
+    "segment": "ran",
+    "signal_qc": "ran",
+    "spots": "ran",
+    "staging": "skipped",
+    "write": "ran"
+   },
+   "enabled_stages": ["read", "segment", "measure", "signal_qc", "germline", "axis", "spots", "granule", "coloc", "qc", "render", "write"],
+   "provenance_values": {
+    "model_sha256": "unused",
+    "xy_stride": 1,
+    "z_range": null,
+    "complete": true,
+    "failed_stages": []
+   },
+   "qc_flags": "axis:orientation_uncertain_density_symmetric;germline:dropped_3_of_28_nuclei;spots:spotmax_n=12",
+   "files": ["<id>__channel_crosstalk.csv", "<id>__channel_crosstalk.parquet", "<id>__coloc.csv", "<id>__coloc.parquet", "<id>__done.json", "<id>__granule_tail.csv", "<id>__granule_tail.parquet", "<id>__granules.csv", "<id>__granules.parquet", "<id>__image_summary.csv", "<id>__image_summary.parquet", "<id>__mask_audit.csv", "<id>__mask_audit.parquet", "<id>__montage.png", "<id>__nuclei.csv", "<id>__nuclei.parquet", "<id>__nuclei_labels.tif", "<id>__partition.csv", "<id>__partition.parquet", "<id>__sc_per_nucleus.csv", "<id>__sc_per_nucleus.parquet", "<id>__sc_tracks.csv", "<id>__sc_tracks.parquet", "<id>__spots.csv", "<id>__spots.parquet", "<id>__spots.tif", "<id>__stages.json", "<id>__zones.csv", "<id>__zones.parquet", "run_manifest.json"],
+   "table_columns": {
+    "nuclei": ["nucleus_id", "volume_um3", "n_voxels", "centroid_z_um", "centroid_y_um", "centroid_x_um", "in_germline", "axis_position_norm", "axis_position_um", "n_spots", "n_granules", "granule_volume_um3", "sc_total_length_um", "sc_n_fragments_lb", "sc_fragmentation_index", "sc_expected_n_tracks", "envelope_volume_um3", "envelope_vol_ratio", "envelope_fallback", "ring_ratio", "shell_over_thr", "has_envelope", "territory_id", "envelope_centroid_z_um", "envelope_centroid_y_um", "envelope_centroid_x_um", "zone", "s_um", "r_um", "is_pachytene", "in_territory", "off_axis_cut_um", "dna_mean_intensity", "dna_max_intensity", "dna_integrated_intensity", "central_element_mean_intensity", "central_element_max_intensity", "central_element_integrated_intensity", "foci_mean_intensity", "foci_max_intensity", "foci_integrated_intensity", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "spots": ["spot_id", "nucleus_id", "marker", "z_um", "y_um", "x_um", "effect_size", "spot_mean_intensity", "detector", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "granules": ["granule_id", "nucleus_id", "marker", "z_um", "y_um", "x_um", "volume_um3", "n_voxels", "granule_mean_intensity", "granule_max_intensity", "overlaps_syp_aggregate", "overlap_frac_syp_aggregate", "nearest_syp_aggregate_um", "overlaps_sc_ribbon", "overlap_frac_sc_ribbon", "nearest_sc_ribbon_um", "detector", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "coloc": ["sc_operand", "region", "region_dilation_um", "region_voxels", "region_volume_um3", "n_granules", "n_granules_overlapping_sc", "frac_granules_overlapping_sc", "overlap_volume_um3", "dice", "jaccard", "frac_sc_in_granules", "frac_granule_in_sc", "manders_m1", "manders_m2", "pearson_r", "mean_granule_to_sc_um", "median_granule_to_sc_um", "sc_mask_voxels", "granule_mask_voxels", "n_random", "overlap_pvalue", "overlap_zscore", "costes_threshold_syp", "costes_threshold_pgl", "partition_coef", "partition_coef_rot", "pc_gran_voxels", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "image_summary": ["n_nuclei", "n_germline_nuclei", "mean_spots", "total_germline_length_um", "qc_pass", "qc_flags", "n_granules", "shell_pearson", "shell_manders_m1", "shell_manders_m2", "partition_coef", "partition_coef_rot", "manders_m1_syp_aggregate", "manders_m2_syp_aggregate", "frac_granules_overlapping_syp_aggregate", "overlap_pvalue_syp_aggregate", "frac_granules_overlapping_sc_ribbon", "mean_sc_total_length_um", "mean_sc_fragmentation_index", "mean_sc_n_fragments_lb", "n_envelope_fallback", "envelope_vol_ratio", "n_no_envelope", "no_envelope_vol_frac", "n_territories", "ring_thr", "n_lamin_candidates", "n_missed_nuclei", "n_missed_unlabelled", "n_zoned_nuclei", "pachytene_length_um", "off_axis_cut_um", "n_early", "n_mid", "n_late", "n_off_axis", "n_territories_on_trace", "partition_coef_whole", "partition_coef_rot_whole", "partition_coef_zshift_whole", "partition_coef_specific_whole", "partition_bg", "partition_coef_early", "partition_coef_specific_early", "partition_coef_mid", "partition_coef_specific_mid", "partition_coef_late", "partition_coef_specific_late", "partition_coef_pach", "partition_coef_specific_pach", "tail_n_granules", "tail_n_no_envelope_dropped", "tail_nuclear_syp", "tail_frac_excess_gt_0.25", "tail_frac_excess_gt_0.5", "tail_frac_excess_gt_1.0", "tail_excess_p50", "tail_excess_p90", "tail_excess_p99", "tail_n_granules_scored", "acquisition_json", "sig_dna_offset", "sig_dna_bg", "sig_dna_bg_source", "sig_dna_noise", "sig_dna_p99", "sig_dna_snr", "sig_dna_sat_frac", "sig_dna_bg_per_ms", "sig_dna_p99_per_ms", "sig_dna_bg_per_ms_pct", "sig_central_element_offset", "sig_central_element_bg", "sig_central_element_bg_source", "sig_central_element_noise", "sig_central_element_p99", "sig_central_element_snr", "sig_central_element_sat_frac", "sig_central_element_bg_per_ms", "sig_central_element_p99_per_ms", "sig_central_element_bg_per_ms_pct", "sig_foci_offset", "sig_foci_bg", "sig_foci_bg_source", "sig_foci_noise", "sig_foci_p99", "sig_foci_snr", "sig_foci_sat_frac", "sig_foci_bg_per_ms", "sig_foci_p99_per_ms", "sig_foci_bg_per_ms_pct", "sig_granule_offset", "sig_granule_bg", "sig_granule_bg_source", "sig_granule_noise", "sig_granule_p99", "sig_granule_snr", "sig_granule_sat_frac", "sig_granule_bg_per_ms", "sig_granule_p99_per_ms", "sig_granule_bg_per_ms_pct", "sig_lamin_offset", "sig_lamin_bg", "sig_lamin_bg_source", "sig_lamin_noise", "sig_lamin_p99", "sig_lamin_snr", "sig_lamin_sat_frac", "sig_lamin_bg_per_ms", "sig_lamin_p99_per_ms", "sig_lamin_bg_per_ms_pct", "partition_syp_snr", "partition_measurable", "segmentation_method", "axis_confidence", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "sc_tracks": ["track_id", "nucleus_id", "channel_role", "marker", "length_um", "n_branches", "n_junctions", "tortuosity", "trace_method", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "sc_per_nucleus": ["nucleus_id", "marker", "n_fragments", "sc_total_length_um", "sc_mean_fragment_um", "sc_median_fragment_um", "sc_longest_fragment_um", "sc_mean_intensity", "sc_fragmentation_index", "expected_n_tracks", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "mask_audit": ["kind", "object_id", "vol_um3", "z_um", "y_um", "x_um", "cov_germ_label", "cov_any_label", "cov_envelope", "ring_shell", "ring_inside", "ring_ratio", "shell_over_thr", "no_envelope", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "zones": ["nucleus_id", "zone", "s_um", "r_um", "is_pachytene", "in_territory", "off_axis_cut_um", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "partition": ["region", "n_granules", "granule_voxels", "outside_voxels", "region_voxels", "bg", "partition_coef", "partition_coef_rot", "partition_coef_zshift", "partition_coef_specific", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "granule_tail": ["granule_id", "excess_n", "syp_excess", "pgl_raw", "pgl_n", "vol_um3", "dist_um", "dmin_um", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "channel_crosstalk": ["role_a", "role_b", "region", "n_voxels", "pearson_r", "slope", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"]
+   },
+   "tif_arrays": {
+    "nuclei_labels.tif": {
+     "shape": [20, 80, 320],
+     "dtype": "int32",
+     "sha256": "e21345eaf40e61409e71ea4276cdd8d74ec06febf08c7228c858cb462bc9f1a4",
+     "scope": "all"
+    },
+    "spots.tif": {
+     "shape": [20, 80, 320],
+     "dtype": "uint16",
+     "sha256": "2bfd01c3451d62bfe77968ab74381c6aedacf8b90fd1cf558d6b781a84e7258c",
+     "scope": "all"
+    }
+   },
+   "montage_pixels": {
+    "shape": [384, 2226, 4],
+    "dtype": "uint8",
+    "sha256": "19e78f35fe518e4d40c95d066240f3391042a8000997116be2ad3b2a9ec73b78",
+    "scope": "workstation"
+   },
+   "run_stage_hashes": {
+    "read": "93f4ec46f501",
+    "acquisition": "f27afb781c3c",
+    "segment": "22ade9e0ce5c",
+    "measure": "b6129a5ef618",
+    "signal_qc": "f98dc81707a5",
+    "germline": "20cc8edf50c2",
+    "envelope": "e3e23f207e09",
+    "audit": "e0d07bf5fd3a",
+    "axis": "7d8ff19dbc75",
+    "staging": "9eb668aff6d5",
+    "spots": "01d0e1deff0e",
+    "sc_trace": "161170d1dd50",
+    "granule": "96ffd36cf022",
+    "coloc": "a70ca2ee7f32",
+    "partition": "94252cfd31e0",
+    "granule_tail": "c8cfee1c1578",
+    "qc": "40175a4d610a",
+    "render": "f449510385e0",
+    "write": "55567ed66691"
+   }
+  },
+  "synthetic_4ch": {
+   "image_id": "20251105_n2_nohs_HERM_001",
+   "config_hash": "37d49f43ac38",
+   "manifest_keys": ["config", "config_hash", "enabled_stages", "git_sha", "model_sha256", "pipeline_version", "pixi_lock_sha256", "run_timestamp", "stage_hashes", "tool_versions", "xy_stride", "z_range"],
+   "manifest_tool_version_keys": ["bioio", "cellacdc", "cellpose", "cupy", "germquant", "nd2", "numpy", "pandas", "scikit-image", "scipy", "skan", "snakemake", "spotmax", "tifffile", "torch"],
+   "done_marker_keys": ["config_hash", "enabled_stages", "failed_stages", "finished", "image_id", "stage_hashes", "xy_stride", "z_range"],
+   "stage_record_keys": ["complete", "config_hash", "enabled_stages", "image_id", "model_sha256", "stage_hashes", "stages", "xy_stride", "z_range"],
+   "stage_record_stages": ["acquisition", "audit", "axis", "coloc", "envelope", "germline", "granule", "granule_tail", "measure", "partition", "qc", "read", "render", "sc_trace", "segment", "signal_qc", "spots", "staging", "write"],
+   "stage_outcome_keys": ["elapsed_s", "error", "flags", "reason", "status"],
+   "stage_status": {
+    "acquisition": "skipped",
+    "audit": "skipped",
+    "axis": "ran",
+    "coloc": "ran",
+    "envelope": "skipped",
+    "germline": "ran",
+    "granule": "ran",
+    "granule_tail": "skipped",
+    "measure": "ran",
+    "partition": "skipped",
+    "qc": "ran",
+    "read": "ran",
+    "render": "ran",
+    "sc_trace": "skipped",
+    "segment": "ran",
+    "signal_qc": "ran",
+    "spots": "ran",
+    "staging": "skipped",
+    "write": "ran"
+   },
+   "enabled_stages": ["read", "segment", "measure", "signal_qc", "germline", "axis", "spots", "granule", "coloc", "qc", "render", "write"],
+   "provenance_values": {
+    "model_sha256": "unused",
+    "xy_stride": 1,
+    "z_range": null,
+    "complete": true,
+    "failed_stages": []
+   },
+   "qc_flags": "axis:orientation_uncertain_density_symmetric;coloc:granules_n=12;spots:spotmax_n=12",
+   "files": ["<id>__channel_crosstalk.csv", "<id>__channel_crosstalk.parquet", "<id>__coloc.csv", "<id>__coloc.parquet", "<id>__done.json", "<id>__granule_tail.csv", "<id>__granule_tail.parquet", "<id>__granules.csv", "<id>__granules.parquet", "<id>__granules_labels.tif", "<id>__image_summary.csv", "<id>__image_summary.parquet", "<id>__mask_audit.csv", "<id>__mask_audit.parquet", "<id>__montage.png", "<id>__nuclei.csv", "<id>__nuclei.parquet", "<id>__nuclei_labels.tif", "<id>__partition.csv", "<id>__partition.parquet", "<id>__sc_per_nucleus.csv", "<id>__sc_per_nucleus.parquet", "<id>__sc_ribbon.tif", "<id>__sc_tracks.csv", "<id>__sc_tracks.parquet", "<id>__spots.csv", "<id>__spots.parquet", "<id>__spots.tif", "<id>__stages.json", "<id>__zones.csv", "<id>__zones.parquet", "run_manifest.json"],
+   "table_columns": {
+    "nuclei": ["nucleus_id", "volume_um3", "n_voxels", "centroid_z_um", "centroid_y_um", "centroid_x_um", "in_germline", "axis_position_norm", "axis_position_um", "n_spots", "n_granules", "granule_volume_um3", "sc_total_length_um", "sc_n_fragments_lb", "sc_fragmentation_index", "sc_expected_n_tracks", "envelope_volume_um3", "envelope_vol_ratio", "envelope_fallback", "ring_ratio", "shell_over_thr", "has_envelope", "territory_id", "envelope_centroid_z_um", "envelope_centroid_y_um", "envelope_centroid_x_um", "zone", "s_um", "r_um", "is_pachytene", "in_territory", "off_axis_cut_um", "dna_mean_intensity", "dna_max_intensity", "dna_integrated_intensity", "central_element_mean_intensity", "central_element_max_intensity", "central_element_integrated_intensity", "foci_mean_intensity", "foci_max_intensity", "foci_integrated_intensity", "granule_mean_intensity", "granule_max_intensity", "granule_integrated_intensity", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "spots": ["spot_id", "nucleus_id", "marker", "z_um", "y_um", "x_um", "effect_size", "spot_mean_intensity", "detector", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "granules": ["granule_id", "nucleus_id", "marker", "z_um", "y_um", "x_um", "volume_um3", "n_voxels", "granule_mean_intensity", "granule_max_intensity", "overlaps_syp_aggregate", "overlap_frac_syp_aggregate", "nearest_syp_aggregate_um", "overlaps_sc_ribbon", "overlap_frac_sc_ribbon", "nearest_sc_ribbon_um", "detector", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "coloc": ["sc_operand", "region", "region_dilation_um", "region_voxels", "region_volume_um3", "n_granules", "n_granules_overlapping_sc", "frac_granules_overlapping_sc", "overlap_volume_um3", "dice", "jaccard", "frac_sc_in_granules", "frac_granule_in_sc", "manders_m1", "manders_m2", "pearson_r", "mean_granule_to_sc_um", "median_granule_to_sc_um", "sc_mask_voxels", "granule_mask_voxels", "n_random", "overlap_pvalue", "overlap_zscore", "costes_threshold_syp", "costes_threshold_pgl", "partition_coef", "partition_coef_rot", "pc_gran_voxels", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "image_summary": ["n_nuclei", "n_germline_nuclei", "mean_spots", "total_germline_length_um", "qc_pass", "qc_flags", "n_granules", "shell_pearson", "shell_manders_m1", "shell_manders_m2", "partition_coef", "partition_coef_rot", "manders_m1_syp_aggregate", "manders_m2_syp_aggregate", "frac_granules_overlapping_syp_aggregate", "overlap_pvalue_syp_aggregate", "frac_granules_overlapping_sc_ribbon", "mean_sc_total_length_um", "mean_sc_fragmentation_index", "mean_sc_n_fragments_lb", "n_envelope_fallback", "envelope_vol_ratio", "n_no_envelope", "no_envelope_vol_frac", "n_territories", "ring_thr", "n_lamin_candidates", "n_missed_nuclei", "n_missed_unlabelled", "n_zoned_nuclei", "pachytene_length_um", "off_axis_cut_um", "n_early", "n_mid", "n_late", "n_off_axis", "n_territories_on_trace", "partition_coef_whole", "partition_coef_rot_whole", "partition_coef_zshift_whole", "partition_coef_specific_whole", "partition_bg", "partition_coef_early", "partition_coef_specific_early", "partition_coef_mid", "partition_coef_specific_mid", "partition_coef_late", "partition_coef_specific_late", "partition_coef_pach", "partition_coef_specific_pach", "tail_n_granules", "tail_n_no_envelope_dropped", "tail_nuclear_syp", "tail_frac_excess_gt_0.25", "tail_frac_excess_gt_0.5", "tail_frac_excess_gt_1.0", "tail_excess_p50", "tail_excess_p90", "tail_excess_p99", "tail_n_granules_scored", "acquisition_json", "sig_dna_offset", "sig_dna_bg", "sig_dna_bg_source", "sig_dna_noise", "sig_dna_p99", "sig_dna_snr", "sig_dna_sat_frac", "sig_dna_bg_per_ms", "sig_dna_p99_per_ms", "sig_dna_bg_per_ms_pct", "sig_central_element_offset", "sig_central_element_bg", "sig_central_element_bg_source", "sig_central_element_noise", "sig_central_element_p99", "sig_central_element_snr", "sig_central_element_sat_frac", "sig_central_element_bg_per_ms", "sig_central_element_p99_per_ms", "sig_central_element_bg_per_ms_pct", "sig_foci_offset", "sig_foci_bg", "sig_foci_bg_source", "sig_foci_noise", "sig_foci_p99", "sig_foci_snr", "sig_foci_sat_frac", "sig_foci_bg_per_ms", "sig_foci_p99_per_ms", "sig_foci_bg_per_ms_pct", "sig_granule_offset", "sig_granule_bg", "sig_granule_bg_source", "sig_granule_noise", "sig_granule_p99", "sig_granule_snr", "sig_granule_sat_frac", "sig_granule_bg_per_ms", "sig_granule_p99_per_ms", "sig_granule_bg_per_ms_pct", "sig_lamin_offset", "sig_lamin_bg", "sig_lamin_bg_source", "sig_lamin_noise", "sig_lamin_p99", "sig_lamin_snr", "sig_lamin_sat_frac", "sig_lamin_bg_per_ms", "sig_lamin_p99_per_ms", "sig_lamin_bg_per_ms_pct", "partition_syp_snr", "partition_measurable", "segmentation_method", "axis_confidence", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "sc_tracks": ["track_id", "nucleus_id", "channel_role", "marker", "length_um", "n_branches", "n_junctions", "tortuosity", "trace_method", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "sc_per_nucleus": ["nucleus_id", "marker", "n_fragments", "sc_total_length_um", "sc_mean_fragment_um", "sc_median_fragment_um", "sc_longest_fragment_um", "sc_mean_intensity", "sc_fragmentation_index", "expected_n_tracks", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "mask_audit": ["kind", "object_id", "vol_um3", "z_um", "y_um", "x_um", "cov_germ_label", "cov_any_label", "cov_envelope", "ring_shell", "ring_inside", "ring_ratio", "shell_over_thr", "no_envelope", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "zones": ["nucleus_id", "zone", "s_um", "r_um", "is_pachytene", "in_territory", "off_axis_cut_um", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "partition": ["region", "n_granules", "granule_voxels", "outside_voxels", "region_voxels", "bg", "partition_coef", "partition_coef_rot", "partition_coef_zshift", "partition_coef_specific", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "granule_tail": ["granule_id", "excess_n", "syp_excess", "pgl_raw", "pgl_n", "vol_um3", "dist_um", "dmin_um", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "channel_crosstalk": ["role_a", "role_b", "region", "n_voxels", "pearson_r", "slope", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"]
+   },
+   "tif_arrays": {
+    "granules_labels.tif": {
+     "shape": [20, 80, 320],
+     "dtype": "int32",
+     "sha256": "36213f3a21537d364a54fe1b8a78c5e9f1db9ffa3b3fa5cc2f60615be8f09302",
+     "scope": "all"
+    },
+    "nuclei_labels.tif": {
+     "shape": [20, 80, 320],
+     "dtype": "int32",
+     "sha256": "c8e28c282186157e0246de44049d68e0d7dd1a80f6e47704f94edea5a6fbc140",
+     "scope": "all"
+    },
+    "sc_ribbon.tif": {
+     "shape": [20, 80, 320],
+     "dtype": "uint8",
+     "sha256": "35c58d307d29fd5986a4cf910f42f856985dd3563cfc867da1417ddea67d7302",
+     "scope": "all"
+    },
+    "spots.tif": {
+     "shape": [20, 80, 320],
+     "dtype": "uint16",
+     "sha256": "2bfd01c3451d62bfe77968ab74381c6aedacf8b90fd1cf558d6b781a84e7258c",
+     "scope": "all"
+    }
+   },
+   "montage_pixels": {
+    "shape": [384, 3345, 4],
+    "dtype": "uint8",
+    "sha256": "71d1d9c8310b8b8212b0bd07fe6d554508a7d6398334a2391506d5a5dc4ab434",
+    "scope": "workstation"
+   },
+   "run_stage_hashes": {
+    "read": "93f4ec46f501",
+    "acquisition": "f27afb781c3c",
+    "segment": "22ade9e0ce5c",
+    "measure": "b6129a5ef618",
+    "signal_qc": "f98dc81707a5",
+    "germline": "20cc8edf50c2",
+    "envelope": "e3e23f207e09",
+    "audit": "e0d07bf5fd3a",
+    "axis": "7d8ff19dbc75",
+    "staging": "9eb668aff6d5",
+    "spots": "01d0e1deff0e",
+    "sc_trace": "161170d1dd50",
+    "granule": "b4e96ae42d0a",
+    "coloc": "8fe52a27754c",
+    "partition": "31a55dd0204e",
+    "granule_tail": "9eb90a92a740",
+    "qc": "40175a4d610a",
+    "render": "f449510385e0",
+    "write": "55567ed66691"
+   }
+  },
+  "single_plane": {
+   "image_id": "20251105_n2_nohs_HERM_001",
+   "config_hash": "84bdda5a5230",
+   "manifest_keys": ["config", "config_hash", "enabled_stages", "git_sha", "model_sha256", "pipeline_version", "pixi_lock_sha256", "run_timestamp", "stage_hashes", "tool_versions", "xy_stride", "z_range"],
+   "manifest_tool_version_keys": ["bioio", "cellacdc", "cellpose", "cupy", "germquant", "nd2", "numpy", "pandas", "scikit-image", "scipy", "skan", "snakemake", "spotmax", "tifffile", "torch"],
+   "done_marker_keys": ["config_hash", "enabled_stages", "failed_stages", "finished", "image_id", "stage_hashes", "xy_stride", "z_range"],
+   "stage_record_keys": ["complete", "config_hash", "enabled_stages", "image_id", "model_sha256", "stage_hashes", "stages", "xy_stride", "z_range"],
+   "stage_record_stages": ["acquisition", "audit", "axis", "coloc", "envelope", "germline", "granule", "granule_tail", "measure", "partition", "qc", "read", "render", "sc_trace", "segment", "signal_qc", "spots", "staging", "write"],
+   "stage_outcome_keys": ["elapsed_s", "error", "flags", "reason", "status"],
+   "stage_status": {
+    "acquisition": "skipped",
+    "audit": "skipped",
+    "axis": "ran",
+    "coloc": "skipped",
+    "envelope": "skipped",
+    "germline": "ran",
+    "granule": "skipped",
+    "granule_tail": "skipped",
+    "measure": "ran",
+    "partition": "skipped",
+    "qc": "ran",
+    "read": "ran",
+    "render": "ran",
+    "sc_trace": "skipped",
+    "segment": "ran",
+    "signal_qc": "ran",
+    "spots": "ran",
+    "staging": "skipped",
+    "write": "ran"
+   },
+   "enabled_stages": ["read", "segment", "measure", "signal_qc", "germline", "axis", "spots", "granule", "coloc", "qc", "render", "write"],
+   "provenance_values": {
+    "model_sha256": "unused",
+    "xy_stride": 1,
+    "z_range": null,
+    "complete": true,
+    "failed_stages": []
+   },
+   "qc_flags": "axis:orientation_uncertain_density_symmetric;qc:no_spots_detected;spots:spotmax_n=0;voxel:UNREADABLE_assumed_isotropic_1um",
+   "files": ["<id>__channel_crosstalk.csv", "<id>__channel_crosstalk.parquet", "<id>__coloc.csv", "<id>__coloc.parquet", "<id>__done.json", "<id>__granule_tail.csv", "<id>__granule_tail.parquet", "<id>__granules.csv", "<id>__granules.parquet", "<id>__image_summary.csv", "<id>__image_summary.parquet", "<id>__mask_audit.csv", "<id>__mask_audit.parquet", "<id>__montage.png", "<id>__nuclei.csv", "<id>__nuclei.parquet", "<id>__nuclei_labels.tif", "<id>__partition.csv", "<id>__partition.parquet", "<id>__sc_per_nucleus.csv", "<id>__sc_per_nucleus.parquet", "<id>__sc_tracks.csv", "<id>__sc_tracks.parquet", "<id>__spots.csv", "<id>__spots.parquet", "<id>__stages.json", "<id>__zones.csv", "<id>__zones.parquet", "run_manifest.json"],
+   "table_columns": {
+    "nuclei": ["nucleus_id", "volume_um3", "n_voxels", "centroid_z_um", "centroid_y_um", "centroid_x_um", "in_germline", "axis_position_norm", "axis_position_um", "n_spots", "n_granules", "granule_volume_um3", "sc_total_length_um", "sc_n_fragments_lb", "sc_fragmentation_index", "sc_expected_n_tracks", "envelope_volume_um3", "envelope_vol_ratio", "envelope_fallback", "ring_ratio", "shell_over_thr", "has_envelope", "territory_id", "envelope_centroid_z_um", "envelope_centroid_y_um", "envelope_centroid_x_um", "zone", "s_um", "r_um", "is_pachytene", "in_territory", "off_axis_cut_um", "dna_mean_intensity", "dna_max_intensity", "dna_integrated_intensity", "central_element_mean_intensity", "central_element_max_intensity", "central_element_integrated_intensity", "foci_mean_intensity", "foci_max_intensity", "foci_integrated_intensity", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "spots": ["spot_id", "nucleus_id", "marker", "z_um", "y_um", "x_um", "effect_size", "spot_mean_intensity", "detector", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "granules": ["granule_id", "nucleus_id", "marker", "z_um", "y_um", "x_um", "volume_um3", "n_voxels", "granule_mean_intensity", "granule_max_intensity", "overlaps_syp_aggregate", "overlap_frac_syp_aggregate", "nearest_syp_aggregate_um", "overlaps_sc_ribbon", "overlap_frac_sc_ribbon", "nearest_sc_ribbon_um", "detector", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "coloc": ["sc_operand", "region", "region_dilation_um", "region_voxels", "region_volume_um3", "n_granules", "n_granules_overlapping_sc", "frac_granules_overlapping_sc", "overlap_volume_um3", "dice", "jaccard", "frac_sc_in_granules", "frac_granule_in_sc", "manders_m1", "manders_m2", "pearson_r", "mean_granule_to_sc_um", "median_granule_to_sc_um", "sc_mask_voxels", "granule_mask_voxels", "n_random", "overlap_pvalue", "overlap_zscore", "costes_threshold_syp", "costes_threshold_pgl", "partition_coef", "partition_coef_rot", "pc_gran_voxels", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "image_summary": ["n_nuclei", "n_germline_nuclei", "mean_spots", "total_germline_length_um", "qc_pass", "qc_flags", "n_granules", "shell_pearson", "shell_manders_m1", "shell_manders_m2", "partition_coef", "partition_coef_rot", "manders_m1_syp_aggregate", "manders_m2_syp_aggregate", "frac_granules_overlapping_syp_aggregate", "overlap_pvalue_syp_aggregate", "frac_granules_overlapping_sc_ribbon", "mean_sc_total_length_um", "mean_sc_fragmentation_index", "mean_sc_n_fragments_lb", "n_envelope_fallback", "envelope_vol_ratio", "n_no_envelope", "no_envelope_vol_frac", "n_territories", "ring_thr", "n_lamin_candidates", "n_missed_nuclei", "n_missed_unlabelled", "n_zoned_nuclei", "pachytene_length_um", "off_axis_cut_um", "n_early", "n_mid", "n_late", "n_off_axis", "n_territories_on_trace", "partition_coef_whole", "partition_coef_rot_whole", "partition_coef_zshift_whole", "partition_coef_specific_whole", "partition_bg", "partition_coef_early", "partition_coef_specific_early", "partition_coef_mid", "partition_coef_specific_mid", "partition_coef_late", "partition_coef_specific_late", "partition_coef_pach", "partition_coef_specific_pach", "tail_n_granules", "tail_n_no_envelope_dropped", "tail_nuclear_syp", "tail_frac_excess_gt_0.25", "tail_frac_excess_gt_0.5", "tail_frac_excess_gt_1.0", "tail_excess_p50", "tail_excess_p90", "tail_excess_p99", "tail_n_granules_scored", "acquisition_json", "sig_dna_offset", "sig_dna_bg", "sig_dna_bg_source", "sig_dna_noise", "sig_dna_p99", "sig_dna_snr", "sig_dna_sat_frac", "sig_dna_bg_per_ms", "sig_dna_p99_per_ms", "sig_dna_bg_per_ms_pct", "sig_central_element_offset", "sig_central_element_bg", "sig_central_element_bg_source", "sig_central_element_noise", "sig_central_element_p99", "sig_central_element_snr", "sig_central_element_sat_frac", "sig_central_element_bg_per_ms", "sig_central_element_p99_per_ms", "sig_central_element_bg_per_ms_pct", "sig_foci_offset", "sig_foci_bg", "sig_foci_bg_source", "sig_foci_noise", "sig_foci_p99", "sig_foci_snr", "sig_foci_sat_frac", "sig_foci_bg_per_ms", "sig_foci_p99_per_ms", "sig_foci_bg_per_ms_pct", "sig_granule_offset", "sig_granule_bg", "sig_granule_bg_source", "sig_granule_noise", "sig_granule_p99", "sig_granule_snr", "sig_granule_sat_frac", "sig_granule_bg_per_ms", "sig_granule_p99_per_ms", "sig_granule_bg_per_ms_pct", "sig_lamin_offset", "sig_lamin_bg", "sig_lamin_bg_source", "sig_lamin_noise", "sig_lamin_p99", "sig_lamin_snr", "sig_lamin_sat_frac", "sig_lamin_bg_per_ms", "sig_lamin_p99_per_ms", "sig_lamin_bg_per_ms_pct", "partition_syp_snr", "partition_measurable", "segmentation_method", "axis_confidence", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "sc_tracks": ["track_id", "nucleus_id", "channel_role", "marker", "length_um", "n_branches", "n_junctions", "tortuosity", "trace_method", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "sc_per_nucleus": ["nucleus_id", "marker", "n_fragments", "sc_total_length_um", "sc_mean_fragment_um", "sc_median_fragment_um", "sc_longest_fragment_um", "sc_mean_intensity", "sc_fragmentation_index", "expected_n_tracks", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "mask_audit": ["kind", "object_id", "vol_um3", "z_um", "y_um", "x_um", "cov_germ_label", "cov_any_label", "cov_envelope", "ring_shell", "ring_inside", "ring_ratio", "shell_over_thr", "no_envelope", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "zones": ["nucleus_id", "zone", "s_um", "r_um", "is_pachytene", "in_territory", "off_axis_cut_um", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "partition": ["region", "n_granules", "granule_voxels", "outside_voxels", "region_voxels", "bg", "partition_coef", "partition_coef_rot", "partition_coef_zshift", "partition_coef_specific", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "granule_tail": ["granule_id", "excess_n", "syp_excess", "pgl_raw", "pgl_n", "vol_um3", "dist_um", "dmin_um", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"],
+    "channel_crosstalk": ["role_a", "role_b", "region", "n_voxels", "pearson_r", "slope", "image_id", "file_path", "genotype", "sex", "germ_cell", "treatment", "replicate", "acquisition_date", "voxel_dz_um", "voxel_dy_um", "voxel_dx_um", "n_channels", "dapi_present", "channel_map_json", "pipeline_version", "git_sha", "config_hash", "run_timestamp"]
+   },
+   "tif_arrays": {
+    "nuclei_labels.tif": {
+     "shape": [60, 200],
+     "dtype": "int32",
+     "sha256": "969720bcfa4f2d78310cd95dcce1b31f7a5da5eb386660c860b6f273a0edc144",
+     "scope": "all"
+    }
+   },
+   "montage_pixels": {
+    "shape": [397, 2226, 4],
+    "dtype": "uint8",
+    "sha256": "bc8b6c17c321a826239679305d55199c4fddb0daedbb7efe5d6827f1b7c2f8e6",
+    "scope": "workstation"
+   },
+   "run_stage_hashes": {
+    "read": "93f4ec46f501",
+    "acquisition": "f27afb781c3c",
+    "segment": "22ade9e0ce5c",
+    "measure": "b6129a5ef618",
+    "signal_qc": "f98dc81707a5",
+    "germline": "20cc8edf50c2",
+    "envelope": "e3e23f207e09",
+    "audit": "e0d07bf5fd3a",
+    "axis": "7d8ff19dbc75",
+    "staging": "9eb668aff6d5",
+    "spots": "01d0e1deff0e",
+    "sc_trace": "161170d1dd50",
+    "granule": "96ffd36cf022",
+    "coloc": "a70ca2ee7f32",
+    "partition": "94252cfd31e0",
+    "granule_tail": "c8cfee1c1578",
+    "qc": "40175a4d610a",
+    "render": "f449510385e0",
+    "write": "55567ed66691"
+   }
+  }
+ },
+ "single_plane": {
+  "flag": "voxel:UNREADABLE_assumed_isotropic_1um",
+  "physical_pixel_sizes": [[null, 0.2, 0.2], [null, null, null]],
+  "spacing": [1.0, 1.0, 1.0],
+  "spacing_ok": false
+ }
+}
