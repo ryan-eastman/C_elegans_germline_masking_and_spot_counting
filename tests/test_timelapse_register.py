@@ -209,6 +209,14 @@ def test_write_reference_volumes(tmp_path):
     cfg.set("timelapse.reference_stride", 0)
     with pytest.raises(ValueError, match="timelapse.reference_stride"):
         reference_settings(cfg)
+    # without an explicit stride, the run's pixel size picks k so the reference pixel is at most 1 um
+    cfg2 = load_config(ROOT / "config" / "config.yaml")
+    assert reference_settings(cfg2, 0.108333) == (True, 9)              # full resolution
+    assert reference_settings(cfg2, 0.216667) == (True, 4)              # xy stride 2
+    assert reference_settings(cfg2, 0.433333) == (True, 2)              # xy stride 4
+    assert reference_settings(cfg2, 1.5) == (True, 1)
+    cfg2.set("timelapse.reference_pixel_um", 2.0)
+    assert reference_settings(cfg2, 0.433333) == (True, 4)
 
 
 # ---- the registration on the synthetic series ----------------------------------------------------------------
@@ -514,6 +522,26 @@ def test_series_loop_keeps_reference_volumes_and_register_runs(tmp_path, patched
     assert res["report"]["parameters"]["reference"] == "previous" and tab.shape[0] == T
     assert list(tab.loc[1:, "reference_t_index"]) == [0, 1] and (tab.loc[1:, "dx_um"] > 0).all()
     assert tab["dy_um"].to_numpy() == pytest.approx([k * DRIFT_PX[0] * GONAD_SPACING[1] for k in range(T)], abs=0.3 * 2 * GONAD_SPACING[1])
+
+
+def test_series_loop_picks_the_reference_stride_from_the_pixel_size(tmp_path, patched_series_reader, monkeypatch):  # noqa: F811
+    """Without timelapse.reference_stride the loop takes k from the run's pixel size and the 1 um target: the
+    synthetic gonad has 0.2 um pixels, so k is 5 at full resolution (1.0 // 0.2 would give 4) and 2 at xy
+    stride 2; a header without calibration (spacing_ok false, placeholder spacing) falls back to k 8."""
+    p = tmp_path / "nostride.yaml"
+    p.write_text(f"extends: {(ROOT / 'config' / 'config.yaml').as_posix()}\nsegmentation:\n  nuclei:\n"
+                 f"    method: classical\n")
+    cfg = load_config(p)
+    assert cfg.get("timelapse.reference_stride") is None
+    r1 = process_series(ND2, cfg, tmp_path / "s1", timepoints="0")
+    assert r1["record"]["reference_stride"] == 5
+    assert (tmp_path / "s1" / "t000" / f"{STEM}_t000__ref_stride5.npy").exists()
+    r2 = process_series(ND2, cfg, tmp_path / "s2", timepoints="0", xy_stride=2)
+    assert r2["record"]["reference_stride"] == 2
+    real = pipeline.read_nd2_metadata
+    monkeypatch.setattr(pipeline, "read_nd2_metadata", lambda *a, **k: {**real(*a, **k), "spacing_ok": False})
+    r3 = process_series(ND2, cfg, tmp_path / "s3", timepoints="0")
+    assert r3["record"]["reference_stride"] == 8
 
 
 def test_series_loop_without_reference_volumes_and_resume_reads_them_back(tmp_path, patched_series_reader, monkeypatch):  # noqa: F811

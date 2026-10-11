@@ -406,6 +406,46 @@ def _spot_voxels(truth_spots: pd.DataFrame, voxel_zyx) -> tuple[np.ndarray, np.n
 
 
 # ----------------------------------------------------------------------------------- one gonad
+def _region_spot_scores(truth_labels, tspots, tz, ty, tx, ours_xyz, truth_xyz, voxel_zyx, *, detector_only_spots,
+                        has_class, min_voxels, tol_xy_um, tol_z_um, max_candidates, max_dense_cells) -> dict:
+    """The section 5.2 spot scores inside R for one gonad (see benchmark_gonad); NaN without truth labels."""
+    out: dict = {}
+    if truth_labels is None:
+        for prefix in ("tm_spots_", "tm_spots_no_b_", "tm_det_spots_"):
+            out.update(_nan_scores(prefix))
+        out["tm_spots_b_recall"] = float("nan")
+        out["tm_spots_n_expert_class_b"] = 0
+        return out
+    lut, _keep, _sizes, _frag = truth_mask_lut(truth_labels, min_voxels)
+    t_in = assign_to_masks(truth_labels, tz, ty, tx, lut=lut) > 0
+    o_in = _assign_xyz(truth_labels, ours_xyz, voxel_zyx, lut) > 0
+    a = match_spots(ours_xyz[o_in], truth_xyz[t_in], tol_xy_um=tol_xy_um, tol_z_um=tol_z_um,
+                    max_candidates=max_candidates, max_dense_cells=max_dense_cells)
+    out.update(_scores(a.n_matched, int(o_in.sum()), int(t_in.sum()), "tm_spots_"))
+    if has_class and len(tspots):
+        b_in = is_class_b(tspots["spot_class"])[t_in]
+        n_b = int(b_in.sum())
+        matched_to_b = int(b_in[a.cols].sum()) if a.n_matched else 0
+        out.update(_scores(a.n_matched - matched_to_b, int(o_in.sum()) - matched_to_b, int(t_in.sum()) - n_b,
+                           "tm_spots_no_b_"))
+        out["tm_spots_n_expert_class_b"] = n_b
+        out["tm_spots_b_recall"] = (matched_to_b / n_b) if n_b else float("nan")
+    else:
+        out.update(_nan_scores("tm_spots_no_b_"))
+        out["tm_spots_n_expert_class_b"] = 0
+        out["tm_spots_b_recall"] = float("nan")
+    if detector_only_spots is not None:
+        det_xyz = (detector_only_spots[["x_um", "y_um", "z_um"]].to_numpy(float) if len(detector_only_spots)
+                   else np.zeros((0, 3)))
+        d_in = _assign_xyz(truth_labels, det_xyz, voxel_zyx, lut) > 0
+        a_d = match_spots(det_xyz[d_in], truth_xyz[t_in], tol_xy_um=tol_xy_um, tol_z_um=tol_z_um,
+                          max_candidates=max_candidates, max_dense_cells=max_dense_cells)
+        out.update(_scores(a_d.n_matched, int(d_in.sum()), int(t_in.sum()), "tm_det_spots_"))
+    else:
+        out.update(_nan_scores("tm_det_spots_"))
+    return out
+
+
 def benchmark_gonad(outputs: PipelineOutputs, truth: Truth, labels, voxel_zyx, *, tag: str = "",
                     split: str = "", truth_labels=None, tol_xy_um: float = DEFAULT_TOL_XY_UM,
                     tol_z_um: float = DEFAULT_TOL_Z_UM, surface_tol_um: float = DEFAULT_SURFACE_TOL_UM,
@@ -514,6 +554,16 @@ def benchmark_gonad(outputs: PipelineOutputs, truth: Truth, labels, voxel_zyx, *
     if detector_only_spots is not None:
         row["n_our_spots_detector_only"] = int(len(detector_only_spots))
 
+    # the protocol's section 5.2 spot matching: method and truth spots whose centre voxel lies in R (the
+    # truth masks, fragments removed, reached by the 3 x 3 x 3 rule of assign_to_masks), one to one in the
+    # anisotropic cylinder; end-to-end (tm_spots_), Class A alone (tm_spots_no_b_: B spots in R and the
+    # method spots matched to them leave both counts), Class B recall (tm_spots_b_recall) and detector-only
+    # (tm_det_spots_). The whole-field scores above (no prefix, no_b_, det_) stay for comparison.
+    row.update(_region_spot_scores(truth_labels, tspots, tz, ty, tx, ours_xyz, truth_xyz, voxel_zyx,
+                                   detector_only_spots=detector_only_spots, has_class=has_class,
+                                   min_voxels=truth_mask_min_voxels, tol_xy_um=tol_xy_um, tol_z_um=tol_z_um,
+                                   max_candidates=max_candidates, max_dense_cells=max_dense_cells))
+
     if a.n_matched:
         d = ours_xyz[a.rows] - truth_xyz[a.cols]
         our_ids = (our_spots["spot_id"].to_numpy() if "spot_id" in our_spots.columns
@@ -599,6 +649,13 @@ def _pool_rows(rows: pd.DataFrame, per_nuc: pd.DataFrame, *, n_boot: int, seed: 
         "spots_all": _detection_block(rows, "", n_boot=n_boot, seed=seed),
         "spots_without_class_b": _detection_block(rows, "no_b_", n_boot=n_boot, seed=seed),
         "spots_detector_only": _detection_block(rows, "det_", n_boot=n_boot, seed=seed),
+        # protocol section 5.2: matching restricted to R (the truth masks); spots_truth_masks is the W2 block
+        "spots_truth_masks": (_detection_block(rows, "tm_spots_", n_boot=n_boot, seed=seed)
+                              if "tm_spots_n_matched" in rows.columns else {"n_gonads": 0}),
+        "spots_truth_masks_class_a": (_detection_block(rows, "tm_spots_no_b_", n_boot=n_boot, seed=seed)
+                                      if "tm_spots_no_b_n_matched" in rows.columns else {"n_gonads": 0}),
+        "spots_truth_masks_detector_only": (_detection_block(rows, "tm_det_spots_", n_boot=n_boot, seed=seed)
+                                            if "tm_det_spots_n_matched" in rows.columns else {"n_gonads": 0}),
         "matching_methods": {str(r["tag"]): str(r["matching_method"]) for _, r in rows.iterrows()},
         "truth_sources": {str(r["tag"]): str(r["truth_source"]) for _, r in rows.iterrows()},
     }

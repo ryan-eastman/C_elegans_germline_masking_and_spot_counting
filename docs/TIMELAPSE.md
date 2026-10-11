@@ -243,7 +243,8 @@ as coordinates only. The shared contract between the time-lapse packages:
   grid by the whole-voxel rounding of its own nucleus's displacement. The export, the import and the strips use
   the rigid table only;
 * the loop keeps a downsampled copy of the segmentation channel per timepoint,
-  `t<NNN>/<id>__ref_stride<k>.npy` (uint16, Z x Y/k x X/k, `timelapse.reference_stride`, code default 8,
+  `t<NNN>/<id>__ref_stride<k>.npy` (uint16, Z x Y/k x X/k; k from `timelapse.reference_stride` or
+  `timelapse.reference_pixel_um`, see "The reference volumes",
   written when `timelapse.keep_reference_volume` is true, which is the default for a series run and never
   for a fixed image). The export and the strips use it as their image; without it they say so (the export
   writes no image, the strips need `--image file`).
@@ -726,16 +727,20 @@ resampled, so every per-timepoint table stays what the fixed-image pipeline woul
 segmentation channel: `t<NNN>/<image_id>__ref_stride<k>.npy`, a uint16 array of shape Z x Y/k x X/k (every
 plane, every k-th row and column of the stack as read, so a run with `--xy-stride 2` and k = 8 keeps every
 16th pixel of the file; a float stack is rounded and clipped). When the channel map resolves a role named
-`brightfield`, that channel is kept the same way as `<image_id>__ref_brightfield_stride<k>.npy`. Two config
-keys, both read with code defaults, so no config file changes:
+`brightfield`, that channel is kept the same way as `<image_id>__ref_brightfield_stride<k>.npy`. Three config
+keys, all read with code defaults, so no config file changes:
 
 | key | code default | meaning |
 |---|---|---|
-| `timelapse.reference_stride` | 8 | k, the xy stride of the reference volumes (4 for a finer estimate at four times the disk space) |
+| `timelapse.reference_stride` | not set | k, the xy stride of the reference volumes, used as given when set |
+| `timelapse.reference_pixel_um` | 1.0 | without `reference_stride`: k is the largest stride whose reference pixel (the file's pixel times the run's xy stride times k) is at most this many microns; k is 8 when the header has no calibration |
 | `timelapse.keep_reference_volume` | true | whether a series run keeps them; a fixed image (`run` without `--t`) never writes one |
 
 The volumes come out of the stack `process_image` has already read (its `on_stack` callback), so the 56 GB
-file is not read twice; at stride 8 the October series costs 18 MB per timepoint per channel. The
+file is not read twice. On the October series (2720 x 2720 pixels of 0.108 um, 76 planes) the default 1 um
+reference pixel gives k 9 on a full-resolution run, 4 at `--xy-stride 2` and 2 at `--xy-stride 4`, so the
+volumes cost 14 to 18 MB per timepoint per channel whatever the run's stride (a fixed k of 8, the code
+default before 2026-10-10, cost 18, 4.4 and 1.1 MB). The
 segmentation channel is the role `segmentation.nuclei.channel` names (code default `dna`), channel 0 when
 that role does not resolve (the segment stage's own fallback). Each timepoint's entry in
 `<stem>__series.json` records them under `reference_volumes`: `stride`, `role`, `channel_index`,
@@ -917,11 +922,14 @@ stride-4 run the piecewise registration on volumes at every 2nd pixel of the run
 laptrack tracks against 142 and 144 for the rigid GFP and brightfield registrations on the same volumes (135 and
 137 on the volumes the run kept), and a residual of 0.52 to 0.53 um per segment.
 
-Two limits, both seen on the October series: the reference volumes at the default
-`timelapse.reference_stride` 8 are coarse for a segment crop (on a stride-4 run a reference voxel is 3.47 um,
-about one nucleus; there some segment steps were wrong by 3 to 5 um and the piecewise registration was no
-better than the rigid one), so keep `timelapse.reference_stride: 2` for a series meant for the piecewise
-registration; and the brightfield cross-check is not a test of a sliding segment, because the gonad has texture
+Two limits, both seen on the October series: reference volumes at a fixed k of 8 are coarse for a segment
+crop on a strided run (on the stride-4 run a reference voxel was 3.47 um, about one nucleus; there some
+segment steps were wrong by 3 to 5 um and the piecewise registration was no better than the rigid one, while
+1.73, 0.87 and 0.43 um voxels all gave the residuals above). That is why k now follows the run's pixel size
+by default (`timelapse.reference_pixel_um`, 1.0 um; "The reference volumes"). A series run before that
+change keeps its k-8 volumes; `germquant run SERIES.nd2 --t all --out ... --resume` under the new default
+writes the finer ones next to them (one read-back per timepoint, no stage runs), or set
+`timelapse.reference_stride: 8` to keep using the old ones. The second limit: the brightfield cross-check is not a test of a sliding segment, because the gonad has texture
 in transmitted light too: on the fine volumes of the stride-2 run the brightfield crops over the two sliding
 proximal segments moved 67 to 93 percent as far as the GFP crops while the whole-field brightfield stayed put.
 

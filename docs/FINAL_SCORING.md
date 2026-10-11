@@ -134,13 +134,16 @@ python -c "import json; m = json.load(open(r'C:/Users/ryane/germquant_golden/866
 python -c "from germquant.provenance import file_sha256; print(file_sha256(r'C:/Users/ryane/germquant_golden/models/net3d_trainval_20261010/model.pt'))"
 # the parameter files are the frozen ones (sha256 as in section 2 and under decision 2)
 Get-FileHash -Algorithm SHA256 C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/*.json
+# protocol section 4.4 on the test gonads: the geometric truth assignment against the lab's mask channel;
+# agreement should match the train and val gonads (99.35 to 99.99 percent, boundary spots only)
+python scripts/check_truth_assignment.py --tags n2rad51_HS_herm_002 n2rad51_HS_male_001 n2rad51_noHS_herm_002 n2rad51_noHS_male_002
 # no test scoring has happened
 Test-Path C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_runs.jsonl   # must be False
 ```
 
-If the golden run of n2rad51_noHS_male_002 was made by a later commit (after the flood fix), the deployed
-competitor on that gonad is not the 8666f07 pipeline; say so in the pre-scoring entry (protocol section 10
-covers a gonad a method cannot process: a row saying so, nothing substituted).
+The golden run of n2rad51_noHS_male_002 was made by the pinned commit 8666f07 (finished 2026-10-10 after 205.5
+minutes in the flooded spot stage), so the deployed competitor on that gonad is the 8666f07 pipeline; the
+check above confirms it. The same gonad rerun by the code with the KD-tree peak filter is byte-identical to it.
 
 ### 4.2 The pre-scoring changelog entry
 
@@ -240,7 +243,8 @@ Reading the win conditions (protocol section 7) from `final/report/logo_paired.c
 * W1 (counts): the row with `pair` = "net3d_trainval - R", `block` = truth_masks, `stat` = ccc: `diff` at least
   0.03 and `lo` above 0 (the paired cluster bootstrap by gonad, 1000 resamples, seed 20251105). The same row
   for "log_tuned - R" says whether the tuned log wins.
-* W2 (spots): `block` = spots_all, `stat` = f1: `diff` not below -0.02 (point estimates; the interval is
+* W2 (spots): `block` = spots_truth_masks (protocol section 5.2: matching restricted to R, the truth masks;
+  spots_all is the whole-field score, kept for comparison only), `stat` = f1: `diff` not below -0.02 (point estimates; the interval is
   reported).
 * W3 does not apply: no method changes the nucleus segmentation.
 * Fragility (section 6.2): for every pair, compare the direction of the test difference with the

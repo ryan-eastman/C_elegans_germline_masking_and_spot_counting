@@ -1144,8 +1144,14 @@ segmentation. `germquant.benchmark.spots` now computes exactly that, next to the
 On the six gonads it covers 676 truth nuclei (train: 88, 107, 143 and 97 for HS_herm_000, noHS_herm_000,
 noHS_male_000 and noHS_male_001; val: 95 and 146 for HS_herm_001 and noHS_herm_001) and assigns 2054 of the
 13158 truth spots (357 of 5152 in HS_herm_000, 162 of 2753 in HS_herm_001: most heat-shock truth spots lie
-outside the traced nuclei). Not done: the check of section 4.4 against the lab's xlsx coloc assignment (no
-xlsx export of these twelve gonads is registered).
+outside the traced nuclei). Truth check: the section 4.4 check, run with `scripts/check_truth_assignment.py` against the lab's mask-channel
+assignment (`imaris_mask_label`, Imaris's per-spot maximum of the Masked channel, the value the xlsx coloc counts
+come from; no xlsx export of these gonads is registered), agrees on 99.35 to 99.99 percent of the spots of all
+eight train and val gonads. The disagreements are boundary spots (0 to 14 geometric-only and 1 to 22
+coloc-only per gonad) and spots whose coloc value is a removed mask fragment (0 to 58); only HS_male_002, a
+region-growing gonad, has spots assigned to two different nuclei (3). No truth-export bug was found. Table:
+`benchmarks/n2rad51_8666f07/truth_assignment_check_trainval.csv`. The test gonads are checked in the pre-flight
+of docs/FINAL_SCORING.md.
 
 ### The folds
 
@@ -1463,7 +1469,8 @@ usable spot truth outside the test set is one of its training gonads.
   -2.33 and -0.77 for SpotMAX re-tuned): one global threshold chosen without heat-shock data undercounts heat shock
   against this truth.
 * No test gonad was scored, and nothing here is a win condition of the protocol. The section 4.4 cross-check of
-  the geometric assignment against the xlsx coloc assignment was not done (no xlsx export of these gonads).
+  the geometric assignment against the lab's mask-channel assignment agrees on 99.35 to 99.99 percent of the
+  spots of the eight train and val gonads (see "Leave-one-gonad-out", truth check).
 
 ## nuclei3d
 

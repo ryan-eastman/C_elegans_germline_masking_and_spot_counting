@@ -437,8 +437,16 @@ point.
    (the spot region R read as the masks dilated by a 3 x 3 x 3 cube, which equals the set of assigned centre
    voxels), and Pearson r, Lin's CCC, bias and mean absolute error are reported for Class A+B, A and B truth, per
    gonad and pooled; `bench_detector.py --detector-only` re-runs the spot stage with the truth masks as its nuclei
-   for the detector-only count. The harness's earlier "traced" subset is kept and is not this partition. Not done:
-   the check of section 4.4 against the xlsx coloc assignment (no xlsx export of these gonads is registered).
+   for the detector-only count. The harness's earlier "traced" subset is kept and is not this partition. The
+   spot F1 of section 5.2 (matching restricted to R) is the `spots_truth_masks` block and the `tm_spots_` columns;
+   the whole-field F1 is kept for comparison. Truth check: the section 4.4 check, run with `scripts/check_truth_assignment.py` against the lab's mask-channel
+   assignment (`imaris_mask_label`, Imaris's per-spot maximum of the Masked channel, the value the xlsx coloc counts
+   come from; no xlsx export of these gonads is registered), agrees on 99.35 to 99.99 percent of the spots of all
+   eight train and val gonads. The disagreements are boundary spots (0 to 14 geometric-only and 1 to 22
+   coloc-only per gonad) and spots whose coloc value is a removed mask fragment (0 to 58); only HS_male_002, a
+   region-growing gonad, has spots assigned to two different nuclei (3). No truth-export bug was found. Table:
+   `benchmarks/n2rad51_8666f07/truth_assignment_check_trainval.csv`. The test gonads are checked in the pre-flight
+   of docs/FINAL_SCORING.md.
    (b) Leave-one-gonad-out over the six train and val gonads with usable spot truth: six folds (for a held-out
    val gonad the first same-condition train gonad by tag order joins the remaining val gonad), each held-out
    gonad scored by `bench_detector.py --detector-only` with its fold in the trial record's `note` (trial lines 162
@@ -510,6 +518,13 @@ point.
    traced-subset metrics cannot see.
    (f) Disclosed: two output folders of the nucleus harness, `benchmarks/n2rad51_8666f07/nuclei3d` and
    `nuclei3d_bbox`, were written on 2026-10-10 at 02:47 and 02:49 UTC (20:47 and 20:49 local time on
-   2026-10-09), three minutes after the manifest, under the earlier rule. This package did not open them,
-   so whether they hold test gonads is not known here; if they do, they are nucleus results of the
-   deployed pipeline on test gonads computed before this entry (rule 1) that no earlier entry records.
+   2026-10-09), three minutes after the manifest, under the earlier rule. They hold test gonads: rows for
+   n2rad51_HS_herm_002, n2rad51_HS_male_001 and n2rad51_noHS_herm_002 (deployed Cellpose-SAM nuclei against
+   the recovered masks). They were written by the coordinating session, which ran benchmark_nuclei3d.py and
+   benchmark_spots.py over every gonad with pipeline outputs that evening as the first look at the deployed
+   pipeline; their per-gonad console lines, test gonads included, were displayed in that session and some
+   were reported to the project lead (for example the heat-shock male test gonad's 15.7 against 12.9 foci per
+   nucleus, and per-gonad nucleus F1 lines). By rule 1 these are the first nucleus results on test, and the
+   spot lines extend what entry 2 discloses. They are results of the deployed pipeline only; no method was
+   tuned or selected on them, and nobody in packages D1 to E3 opened their test rows. Each of the folders
+   benchmarks/n2rad51_8666f07/spots, nuclei3d and nuclei3d_bbox now carries a README saying it holds test rows.

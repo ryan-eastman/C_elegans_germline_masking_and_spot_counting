@@ -262,7 +262,8 @@ def collect_reference_volumes(series_dir: Path, tps: list[dict]) -> dict:
         raise ReferenceVolumesMissing(
             f"{series_dir}: no reference volumes (t<NNN>/<image_id>__ref_stride<k>.npy) next to the {len(tps)} "
             f"timepoint folder(s). `germquant run --t` keeps them when timelapse.keep_reference_volume is true (the "
-            f"code default; timelapse.reference_stride, default 8, is k), so this series was run with the key off "
+            f"code default; k is timelapse.reference_stride when set, else chosen from timelapse.reference_pixel_um), "
+            f"so this series was run with the key off "
             f"or before the volumes existed. Rerun `germquant run SERIES.nd2 --t all --out {series_dir} --resume` "
             f"with the key on: finished timepoints are not reprocessed, only their planes are read back.")
     stride = max(strides, key=lambda k: (strides[k], -k))
