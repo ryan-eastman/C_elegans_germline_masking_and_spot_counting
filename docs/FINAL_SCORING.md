@@ -29,6 +29,11 @@ n2rad51_noHS_male_002.
 * Scoring now means the write-up states that no heat-shock male informed any choice and that the
   heat-shock-male result rests on one test gonad.
 
+Status (2026-10-11, protocol changelog entry 6): the project lead replied "Yes to everything and merged" to the
+message that listed the five decisions. That does not settle this choice by itself. It is read as waiting
+for the re-export, the reading that keeps both options open: no test gonad is scored until he confirms one
+option explicitly.
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not
@@ -63,6 +68,17 @@ The section 8 item 2 grid (thresholding method in otsu, li, triangle, yen; `effe
 on train and val, val score for every configuration, section 6.4), takes several hours of SpotMAX, and would
 replace the D3 search as the re-tuned competitor if the project lead prefers the pre-registered grid.
 
+Status (2026-10-11, protocol changelog entry 6): a choice, which the reply "Yes to everything and merged" does not
+settle by itself. Entry 6 declares the section 8 item 2 grid before it is run: 60 sets
+(`pg_<method>_e<effect size>_z<gap>`, search `prereg_spotmax_grid`) scored on the four usable train gonads and the
+two val gonads, selected on val by the pooled truth-mask CCC rounded to 3 decimals, then the spot F1 inside R,
+then listing order. Recommendation: that selection becomes SpotMAX re-tuned, and by section 7 the reference, once
+the project lead confirms it and the readings of entry 6 (c) and (d); the three D3 rows above stay reported as post
+hoc. The grid contains the otsu row above (`pg_otsu_e4.0_z0.8`, in effect the same set), so if its val score
+reproduces, the selection is that set unless a grid set not scored yet ranks above it on val. The choice is made on
+train and val only (section 5); entry 6 (b) lists what was known before, including a pre-protocol sweep on two
+test gonads.
+
 ### Decision 3. The limit of two test scorings per method family
 
 `scripts/bench_detector.py --final` refuses a third test scoring of the same backend (protocol section 10:
@@ -72,6 +88,10 @@ either. Either accept that (the SpotMAX family is the reference, not a method un
 before scoring that they are two families and give the guard a family label (a code change, declared in the
 pre-scoring changelog entry). This document assumes the first.
 
+Status (2026-10-11, protocol changelog entry 6): accepted as written by the reply "Yes to everything and merged"
+(the question put it as "accept that"); SpotMAX deployed and SpotMAX re-tuned use the two test scorings of the
+`spotmax` family.
+
 ### Decision 4. The competitors of section 8 that do not exist yet
 
 Spotiflow (zero-shot and fine-tuned), RS-FISH, Imaris with one global Quality threshold and the human blind
@@ -79,26 +99,38 @@ subset (section 9) are not implemented. The win conditions compare a new detecto
 only, so they do not block W1 and W2; but each later competitor is then scored after the first results are
 known, which the write-up must say.
 
+Status (2026-10-11, protocol changelog entry 6): accepted as written; these competitors are scored after the first
+test results, and the write-up says so.
+
 ### Decision 5. The post hoc choices that stand
 
 Changelog entry 2 (the D3 searches: germline objective, finalists only on val, the SpotMAX grid not run) and
 entry 3 (net3d's selection rule) are post hoc under protocol rule 3, and so is the leave-one-gonad-out design
 of entry 4. The write-up labels them. Confirm that the methods below are scored as they stand.
 
+Status (2026-10-11, protocol changelog entry 6): accepted with a reading. The choices of entries 2, 3 and 4
+stand and are labelled post hoc, and the methods below are scored as they stand except SpotMAX re-tuned:
+decision 2 leaves that row open, and "the SpotMAX grid not run" no longer holds once entry 6 runs the grid.
+The SpotMAX re-tuned row of section 2 stands only if decision 2 keeps the D3 selection.
+
 ## 2. The frozen methods
 
 | competitor | backend | parameters (`--params` file) | weights | what it is |
 |---|---|---|---|---|
 | SpotMAX deployed | spotmax | `final_params/spotmax_deployed.json`: `{}` (sha256 e3566b3a...) | none | the 8666f07 recipe: the golden runs' `spots:` section, config hash 84bdda5a5230 |
-| SpotMAX re-tuned (D3) | spotmax | `final_params/spotmax_retuned_d3.json` (sha256 67db0cf7...) | none | `threshold_triangle`, radius 0.3 um, smoothing 0.12 um, effect size 3.5 (profile `bench_spotmax_tuned`) |
+| SpotMAX re-tuned (D3 selection; depends on decision 2) | spotmax | `final_params/spotmax_retuned_d3.json` (sha256 67db0cf7...) | none | `threshold_triangle`, radius 0.3 um, smoothing 0.12 um, effect size 3.5 (profile `bench_spotmax_tuned`) |
 | tuned log | log | `final_params/log_tuned.json` (sha256 3a65e844...) | none | diameter 0.5 um, SNR 2.5, pre-gate 2, z merge off (profile `bench_log_tuned`) |
 | net3d (train plus val) | net3d | `final_params/net3d_trainval.json` (sha256 2f9097e6...) | `models/net3d_trainval_20261010/model.pt`, sha256 d091b9ef58850783387a4f5aa0fea5ecc9310abc027145771936fecd0de001c0 (commit 240cc72) | the frozen recipe of net3d_20261010 (epoch 4 of the 40-epoch schedule, threshold 0.40) retrained on the six train and val gonads with usable spot truth (protocol section 6.1) |
 
 `final_params/` is `C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/`; its five files
 (the four above and the decision 2 alternative `spotmax_retuned_primary.json`) were written on 2026-10-10 with the
-sha256 given here and under decision 2. If decision 2 picks another re-tuned configuration, write its file there first
-(`{"thresholding_method": ..., "spot_radius_um": ..., "gauss_sigma_um": ..., "effect_size_min": ...}`), use it
-in step 4.4, and name it in the pre-scoring entry.
+sha256 given here and under decision 2. SpotMAX re-tuned is not frozen until decision 2 is settled: the row above
+is the D3 selection, and the grid selection of protocol changelog entry 6 replaces it if the project lead confirms
+the recommendation. If decision 2 picks another re-tuned configuration, write its file there first
+(`{"thresholding_method": ..., "spot_radius_um": ..., "gauss_sigma_um": ..., "effect_size_min": ...}`; for a grid
+set, its three keys `{"thresholding_method": ..., "effect_size_min": ..., "z_merge_gap_um": ...}`, the
+`selected_params` under `designated` in `prereg_grid/selection.json`), use it in step 4.4, and name it in the
+pre-scoring entry.
 
 ## 3. The order
 
@@ -106,7 +138,9 @@ in step 4.4, and name it in the pre-scoring entry.
 2. The pre-scoring changelog entry (protocol section 10: code commit, config hash and weight sha256 are
    written before test is scored), committed.
 3. SpotMAX deployed, then the golden check of its detections.
-4. SpotMAX re-tuned.
+4. SpotMAX re-tuned: the configuration that decision 2 settles (under the recommendation of protocol changelog
+   entry 6, the grid selection, which must be run, selected, confirmed and written to `final_params/` before
+   step 1).
 5. Tuned log.
 6. net3d (train plus val), on the GPU under the workstation's lock.
 7. The comparison (pooling only) and the win conditions.
@@ -132,7 +166,8 @@ python scripts/bench_cache.py --tags n2rad51_noHS_male_002 --verify-sha256
 python -c "import json; m = json.load(open(r'C:/Users/ryane/germquant_golden/8666f07/n2rad51_noHS_male_002/run_manifest.json')); print(m['git_sha'], m['config_hash'])"
 # the net3d weights are the frozen ones (d091b9ef...)
 python -c "from germquant.provenance import file_sha256; print(file_sha256(r'C:/Users/ryane/germquant_golden/models/net3d_trainval_20261010/model.pt'))"
-# the parameter files are the frozen ones (sha256 as in section 2 and under decision 2)
+# the parameter files are the frozen ones (sha256 as in section 2 and under decision 2; a new file for the
+# grid selection of decision 2 has its sha256 printed here, and the pre-scoring entry names it)
 Get-FileHash -Algorithm SHA256 C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/*.json
 # protocol section 4.4 on the test gonads: the geometric truth assignment against the lab's mask channel;
 # agreement should match the train and val gonads (99.35 to 99.99 percent); there the differences were
@@ -198,7 +233,10 @@ python scripts/bench_detector.py --backend spotmax --params $F/final_params/spot
     --out $F/final/spotmax_retuned
 ```
 
-This is the second and last `--final` run the guard allows for backend `spotmax` (decision 3).
+This is the second and last `--final` run the guard allows for backend `spotmax` (decision 3). The `--params` file
+depends on decision 2: `spotmax_retuned_d3.json` is the D3 selection. If the project lead confirms the grid
+selection of protocol changelog entry 6, its own file (written to `final_params/` first, section 2) takes its place
+here, and the pre-scoring entry names it.
 
 ### 4.5 Tuned log
 
@@ -247,7 +285,9 @@ Reading the win conditions (protocol section 7) from `final/report/logo_paired.c
   for "log_tuned - R" says whether the tuned log wins.
 * W2 (spots): `block` = spots_truth_masks (protocol section 5.2: matching restricted to R, the truth masks;
   spots_all is the whole-field score, kept for comparison only), `stat` = f1: `diff` not below -0.02 (point estimates; the interval is
-  reported).
+  reported). `bench_logo.py report` writes this block only once `logo.DETECTION_BLOCKS` holds it
+  (`"spots_truth_masks": "tm_spots_"`), which it does not at e19a029: add it before the pre-scoring commit
+  (protocol changelog entry 6 (e)).
 * W3 does not apply: no method changes the nucleus segmentation.
 * Fragility (section 6.2): for every pair, compare the direction of the test difference with the
   leave-one-gonad-out difference of docs/BENCHMARK.md ("Leave-one-gonad-out"); a test result whose direction
@@ -255,7 +295,10 @@ Reading the win conditions (protocol section 7) from `final/report/logo_paired.c
   reference: net3d and the tuned log are above both SpotMAX configurations on the truth-mask CCC, the germline
   and traced CCC and spot F1 (the paired intervals exclude zero); net3d against the tuned log shows no
   difference (truth-mask CCC -0.015 [-0.084, +0.073]); SpotMAX re-tuned against deployed shows none except a
-  smaller mean absolute error.
+  smaller mean absolute error. These SpotMAX re-tuned directions are those of the D3 replay; if decision 2 makes
+  the grid selection the re-tuned competitor, its pairs are read from the grid replay of protocol changelog
+  entry 6 (`prereg_grid/logo/report/logo_paired.csv`) instead. Neither has the section 5.2 F1 inside R until the
+  held-out runs are scored again with its columns (entry 6 (e)).
 * Report next to the primary numbers: Class A and Class B truth (truth_masks_class_a; per_gonad.csv
   `tm_class_b_*`), the detector-only count (truth_masks_detector_only), the germline and traced partitions,
   and spot F1 without Class B, every one per gonad and pooled (section 5.4), with the run records of
