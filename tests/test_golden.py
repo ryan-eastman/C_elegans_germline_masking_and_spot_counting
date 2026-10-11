@@ -63,8 +63,9 @@ def _read(p: Path) -> pd.DataFrame:
 
 # The goldens were made on the lab workstation and are compared exactly there. Other CPUs sum in a different
 # vector order, so a correlation or a mean can differ in its last bits (coloc.pearson_r differed by one part
-# in 1e14 between the workstation and the GitHub runners). CI sets GERMQUANT_GOLDEN_RTOL (1e-12) to allow
-# exactly that and nothing more; leave it unset on the workstation so a real change of any size fails.
+# in 1e14 between the workstation and the GitHub runners). CI sets GERMQUANT_GOLDEN_RTOL (1e-12 on ubuntu and
+# windows; 1e-6 on macos-14, where arm64 moves a float32 intensity mean by one float32 step) to allow exactly
+# that and nothing more; leave it unset on the workstation so a real change of any size fails.
 _RTOL_ENV = os.environ.get("GERMQUANT_GOLDEN_RTOL")
 _FLOAT_TOLERANCE = ({"check_exact": False, "rtol": float(_RTOL_ENV), "atol": 0.0} if _RTOL_ENV
                     else {"check_exact": True})

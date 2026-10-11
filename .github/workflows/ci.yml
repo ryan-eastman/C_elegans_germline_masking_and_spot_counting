@@ -43,7 +43,8 @@ env:
   # Cell-ACDC and SpotMAX are Qt applications. Offscreen keeps any Qt import that does happen away
   # from a display on the headless runners; set for the whole job so collection sees it too.
   QT_QPA_PLATFORM: offscreen
-  GERMQUANT_GOLDEN_RTOL: "1e-12"   # runners sum floats in a different vector order than the workstation (tests/README.md)
+  # GERMQUANT_GOLDEN_RTOL is set per platform in the matrix below (golden_rtol): the runners sum floats in a
+  # different vector order than the workstation (tests/README.md).
   # No runner has a GPU. The value -1 (not an empty string, which Windows drops from the
   # environment) hides any CUDA device from torch, so tests/test_gpu.py skips and nothing can touch
   # a card by accident.
@@ -54,16 +55,23 @@ jobs:
     name: ${{ matrix.os }}, Python 3.11
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
+    env:
+      GERMQUANT_GOLDEN_RTOL: ${{ matrix.golden_rtol }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             constraints: constraints/ci-cpu-2026-10.txt
+            golden_rtol: "1e-12"
           - os: windows-latest
             constraints: constraints/ci-cpu-2026-10.txt
+            golden_rtol: "1e-12"
+          # arm64 sums float32 intensity means in another order: one float32 step (about 1e-7 relative) in
+          # nuclei.dna_mean_intensity of the synthetic goldens; the label images are identical (P0 pins).
           - os: macos-14
             constraints: constraints/ci-mac-arm64-2026-10.txt
+            golden_rtol: "1e-6"
     steps:
       - uses: actions/checkout@v7
 
