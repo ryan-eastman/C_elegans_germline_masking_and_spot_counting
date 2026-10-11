@@ -78,7 +78,8 @@ def _check_labels(out, shape, name: str) -> np.ndarray:
     return lab
 
 
-def _cellpose(dna, spacing, model_name, diameter_um, device_pref: str | None = None) -> np.ndarray:
+def _cellpose(dna, spacing, model_name, diameter_um, device_pref: str | None = None,
+              diameter_px: float | None = None) -> np.ndarray:
     """Run Cellpose 3D. NOTE: the Cellpose API has drifted across 3.x -> SAM(4.x). Verify
     against the version pinned for your GPU before the first real run (this path is untested
     on CPU/CI). Two known sensitivities, handled below:
@@ -88,6 +89,9 @@ def _cellpose(dna, spacing, model_name, diameter_um, device_pref: str | None = N
         model loads via `pretrained_model=<path>`.
     method='auto' swallows any failure here and falls back to the classical watershed; only
     method='cellpose' re-raises (see segment_nuclei).
+    `diameter_px` (None by default, so the call below is exactly the validated one) is the opt-in
+    segmentation.nuclei.cellpose.object_diameter_um in pixels (backends.object_diameter_px); when set it is
+    the only addition, diameter = diameter_px, which makes Cellpose rescale the volume by 30 / diameter.
     """
     from cellpose import models
 
@@ -112,11 +116,44 @@ def _cellpose(dna, spacing, model_name, diameter_um, device_pref: str | None = N
     # CLASSIC (non-SAM) Cellpose model, which would need it; none of our models do. See diameter_test.py.
     _ = diameter_um
     kw = {}
+    if diameter_px is not None:      # opt-in object diameter (docs/PLANAR.md); absent on every validated run
+        kw["diameter"] = float(diameter_px)
     # dna is a single-channel (Z, Y, X) volume: Cellpose 4.x (SAM) requires an explicit z_axis
     # (and no channel axis) for a 3-D array, else it raises "z_axis must be specified".
     out = model.eval(dna, do_3D=True, z_axis=0, channel_axis=None, anisotropy=anisotropy, **kw)
     masks = out[0] if isinstance(out, (list, tuple)) else out
     return np.asarray(masks).astype(np.int32)
+
+
+def _cellpose_2d(img2d, model_name, device_pref: str | None = None,
+                 diameter_px: float | None = None) -> np.ndarray:
+    """Cellpose on ONE 2D image, for a projected or single-plane run (docs/PLANAR.md): the model is built
+    exactly as _cellpose builds it (the same explicit device, bfloat16 on CUDA only, the built-in SAM model
+    by default and a fine-tuned file through pretrained_model), then ``model.eval(img2d, channel_axis=None)``
+    runs with no do_3D, z_axis or anisotropy. ``diameter_px`` (the opt-in object diameter) is passed as
+    diameter only when set. Returns the masks as a (1, Y, X) int32 label image. The CPU retry lives in
+    the backend (backends._cellpose_opt_in), as for the 3D call."""
+    from cellpose import models
+
+    from ..device import select_device, torch_device
+
+    img2d = np.asarray(img2d)
+    if img2d.ndim != 2:
+        raise ValueError(f"_cellpose_2d takes one (Y, X) plane; got shape {img2d.shape}")
+    is_builtin_sam = str(model_name).lower() in ("cpsam", "sam", "")
+    dev = select_device(device_pref)
+    kw_model = {"device": torch_device(dev), "gpu": dev != "cpu", "use_bfloat16": dev == "cuda"}
+    if is_builtin_sam:
+        model = models.CellposeModel(**kw_model)
+    else:
+        model = models.CellposeModel(pretrained_model=model_name, **kw_model)
+    log.info("Cellpose device: %s (one 2D plane)", dev)
+    kw = {}
+    if diameter_px is not None:
+        kw["diameter"] = float(diameter_px)
+    out = model.eval(img2d, channel_axis=None, **kw)
+    masks = out[0] if isinstance(out, (list, tuple)) else out
+    return np.asarray(masks).astype(np.int32)[None]
 
 
 def _classical(dna, spacing, diameter_um) -> np.ndarray:

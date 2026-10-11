@@ -32,6 +32,15 @@ SPOTMAX_DEFAULTS = dict(
     spot_radius_um=0.3, gauss_sigma_um=0.08, thresholding_method="threshold_otsu", effect_size_metric=_EFFECT,
     effect_size_min=0.0, merge_z_columns=True, z_merge_gap_um=0.8, z_merge_valley_frac=0.8, max_spot_candidates=30000,
 )
+# optional SpotMAX keys a pack recipe may set (docs/DESIGN_system_packs.md 4.7, docs/BACKENDS.md): the spotmax
+# backend forwards one to detect_spots_spotmax ONLY when the raw spots: section holds it. SPOTMAX_DEFAULTS is
+# not extended, so a default run's backend section and its SpotMAX calls are exactly today's.
+#   spot_radius_z_um   the z radius: radii = (rz, r, r) / spacing instead of r / spacing
+#   remove_hot_pixels  passed to SpotMAX's preprocess_image as do_remove_hot_pixels
+#   sharpen            SpotMAX core's DoG sharpening: detection runs on the sharpened copy of the preprocessed
+#                      image, and the feature step gets that copy as sharp_spots_image (so the effect size is
+#                      on the sharpened scale, as in SpotMAX's own runs) while its image stays the unsharpened one
+SPOTMAX_OPTIONAL_KEYS = ("spot_radius_z_um", "remove_hot_pixels", "sharpen")
 
 
 def detect_spots(
@@ -102,9 +111,17 @@ def detect_spots_spotmax(
     z_merge_gap_um: float = 0.8,
     z_merge_valley_frac: float = 0.8,
     max_spot_candidates: int = 30000,
+    spot_radius_z_um: float | None = None,
+    remove_hot_pixels: bool | None = None,
+    sharpen: bool | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The SpotMAX reference implementation, registered as the ``spotmax`` backend (``detect_spots``
     dispatches here by default; the body is the one the stage always ran, so its outputs are unchanged).
+
+    ``spot_radius_z_um``, ``remove_hot_pixels`` and ``sharpen`` are the optional keys of a pack recipe
+    (SPOTMAX_OPTIONAL_KEYS); None means absent, and only when one is given does the call take the branch at the
+    top, to ``spotmax_options.spotmax_chain_with_options``. Without them the body below runs exactly as it
+    always has.
     Return (per_spot_df, per_nucleus_df). Spots are assigned to the nucleus whose mask they fall
     in; `effect_size_min` (>0) drops spots below that spot-vs-background effect size.
 
@@ -121,6 +138,15 @@ def detect_spots_spotmax(
     square of the candidate count (hours on a flooded gonad, before the candidate cap below is
     reached). The peak step therefore runs with germquant's exact replica of that filter installed
     (spots/peak_filter.py, docs/PERFORMANCE.md); the candidates and every output are unchanged."""
+    if spot_radius_z_um is not None or remove_hot_pixels is not None or sharpen is not None:
+        from .spotmax_options import spotmax_chain_with_options
+
+        return spotmax_chain_with_options(
+            spot_img, labels, spacing, marker=marker, spot_radius_um=spot_radius_um, gauss_sigma_um=gauss_sigma_um,
+            thresholding_method=thresholding_method, effect_size_metric=effect_size_metric,
+            effect_size_min=effect_size_min, merge_z_columns=merge_z_columns, z_merge_gap_um=z_merge_gap_um,
+            z_merge_valley_frac=z_merge_valley_frac, max_spot_candidates=max_spot_candidates,
+            spot_radius_z_um=spot_radius_z_um, remove_hot_pixels=remove_hot_pixels, sharpen=sharpen)
     import spotmax.pipe as P
 
     from .peak_filter import fast_min_distance_filter

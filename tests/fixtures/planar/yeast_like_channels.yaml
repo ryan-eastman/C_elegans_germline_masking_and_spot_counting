@@ -1,0 +1,18 @@
+# Test channel map of the synthetic projected golden (tests/test_projected_run.py, docs/PLANAR.md).
+# A transmitted-light role, which the segment stage segments (segmentation.nuclei.channel), and a foci
+# role counted by the spots stage. As in the yeast map of the outside pack (docs/DESIGN_system_packs.md,
+# section 3.12), the transmitted role binds by name only, with no index fallback: a stack without it is
+# flagged channel:transmitted:MISSING_REQUIRED, and segmentation.nuclei.require_channel then fails the
+# image instead of segmenting channel 0. There is no dna role, so the dna intensity columns are NaN.
+match_by: name
+roles:
+  transmitted:
+    names: ["Bright", "phase", "DIC", "trans"]
+    index: null
+    required: true
+    marker: transmitted
+  foci:
+    names: ["Cy3", "smFISH", "foci"]
+    index: 1
+    required: true
+    marker: smFISH

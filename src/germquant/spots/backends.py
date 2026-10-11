@@ -225,10 +225,13 @@ def _check_name(name: Any) -> None:
 def _spotmax_backend(image, labels, spacing, *, cfg_section: dict, marker: str):
     """The validated default: the SpotMAX chain exactly as detect_spots always ran it. The resolved
     SpotMAX parameters are read from the section (detect_spots overlays its explicit arguments, so the
-    code defaults are the ones detect_spots declares)."""
-    from .detect import SPOTMAX_KEYS, detect_spots_spotmax
+    code defaults are the ones detect_spots declares). The optional keys of a pack recipe
+    (detect.SPOTMAX_OPTIONAL_KEYS: spot_radius_z_um, remove_hot_pixels, sharpen) are forwarded only when the
+    raw section holds them with a value, so a default run calls detect_spots_spotmax exactly as before."""
+    from .detect import SPOTMAX_KEYS, SPOTMAX_OPTIONAL_KEYS, detect_spots_spotmax
 
     kw = {k: cfg_section[k] for k in SPOTMAX_KEYS if k in cfg_section}
+    kw.update({k: cfg_section[k] for k in SPOTMAX_OPTIONAL_KEYS if cfg_section.get(k) is not None})
     return detect_spots_spotmax(image, labels, spacing, marker=marker, **kw)
 
 

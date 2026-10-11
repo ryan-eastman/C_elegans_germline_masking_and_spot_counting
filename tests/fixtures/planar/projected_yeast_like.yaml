@@ -1,0 +1,36 @@
+# Test recipe of the synthetic projected golden (tests/test_projected_run.py, docs/PLANAR.md): a yeast-like
+# two-channel stack, cells segmented on the sharpest plane of the transmitted channel by the classical
+# watershed and copied through z, spots counted in 3D by SpotMAX with the optional keys of a pack recipe.
+# Its shape follows the yeast recipe of docs/DESIGN_system_packs.md section 3.12, scaled to the synthetic
+# pixel size. It is a test file, not a shipped profile: its config_hash is the golden's sentinel
+# (tests/golden/synthetic_projected/config_hash.txt), pinned in tests/golden/default_invariants.json.
+extends: ../../../config/profiles/generic.yaml
+
+io:
+  channel_map: yeast_like_channels.yaml
+
+segmentation:
+  nuclei:
+    method: classical
+    channel: transmitted
+    require_channel: true
+    project: plane
+    project_plane: sharpest
+    min_area_um2: 8.0
+    diameter_um: 4.0
+
+spots:
+  spot_radius_um: 0.3
+  spot_radius_z_um: 1.0
+  gauss_sigma_um: 0.08
+  thresholding_method: threshold_triangle
+  effect_size_min: 2.5
+  remove_hot_pixels: true
+  sharpen: true
+  merge_z_columns: false
+
+qc:
+  min_nuclei: 3
+
+render:
+  scalebar_um: 5

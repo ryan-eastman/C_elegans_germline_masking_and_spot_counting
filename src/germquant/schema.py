@@ -214,6 +214,13 @@ STAGE_TABLES = {
     "signal_qc": ["channel_crosstalk"],
 }
 
+# Columns of runs with 2D objects (projected runs, segmentation.nuclei.project; single-plane runs from P2b;
+# docs/PLANAR.md), declared OUTSIDE TABLES: pipeline._write_tables receives them as extra_declared only in such
+# runs, so they follow the declared columns there and never appear in a 3D run's CSV. area_um2 is the object's
+# pixel count in the 2D labels times dy * dx, equivalent_diameter_um the diameter of the circle of that area;
+# volume_um3 is NA in such runs (a prism copied through z is not a cell volume).
+PLANAR_COLUMNS = {"nuclei": ["area_um2", "equivalent_diameter_um"]}
+
 
 # ---------------------------------------------------------------------------------------------------
 # Time-lapse series tables (docs/DESIGN_timelapse.md section 6, docs/TIMELAPSE.md). One file per SERIES,

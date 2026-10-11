@@ -42,21 +42,24 @@ class Stage:
     default_from: str | None = None   # another stage's key whose value is the default when ours is absent
     legacy_cli_help: str | None = None
     config_sections: tuple[str, ...] = ()   # top-level config sections whose text feeds the stage sub-hash
+    # runs on 2D objects (projected and single-plane runs, germquant.planar.check_planar); outside every hash payload
+    planar_ok: bool = False
 
 
 STAGES: tuple[Stage, ...] = (
     Stage("read", None, True, ("dna",), False, "read the .nd2, resolve channel roles, parse the sample",
-          config_sections=("io", "metadata")),
+          config_sections=("io", "metadata"), planar_ok=True),
     Stage("acquisition", "acquisition.read_exposures", False, (), True,
           "per-channel exposure and laser power from the .nd2 description -> image_summary",
-          config_sections=("acquisition",)),
+          config_sections=("acquisition",), planar_ok=True),
     Stage("segment", None, True, (), False, "Cellpose 3D nucleus segmentation (falls back to classical)",
-          config_sections=("segmentation",)),
-    Stage("measure", None, True, (), False, "3D regionprops + per-role mean intensities per nucleus"),
+          config_sections=("segmentation",), planar_ok=True),
+    Stage("measure", None, True, (), False, "3D regionprops + per-role mean intensities per nucleus",
+          planar_ok=True),
     Stage("signal_qc", "signal_qc.enabled", True, (), True,
           "per-channel background, noise, SNR, saturation and exposure-normalized levels (image_summary sig_*) "
           "and pairwise channel cross-talk in nuclei / perinuclear ring / cytoplasm (channel_crosstalk table); "
-          "its flags are off unless signal_qc.flags.enabled", config_sections=("signal_qc",)),
+          "its flags are off unless signal_qc.flags.enabled", config_sections=("signal_qc",), planar_ok=True),
     Stage("germline", "germline.enabled", True, ("central_element",), True,
           "drop nuclei outside the gonad (SYP-seeded connected component)", config_sections=("germline",)),
     Stage("envelope", "envelope.enabled", False, ("lamin",), True,
@@ -73,7 +76,7 @@ STAGES: tuple[Stage, ...] = (
           "SpotMAX spot counting in the `foci` channel (RAD-51); further instances (COSA-1 crossover foci) "
           "via spots.instances, each on its own channel role with its own table and column",
           legacy_cli_help="segmentation only: skip RAD-51/SpotMAX spot detection (fast, never wedges)",
-          config_sections=("spots",)),
+          config_sections=("spots",), planar_ok=True),
     Stage("sc_trace", "sc.trace.enabled", False, ("central_element",), True,
           "per-nucleus SC tracing: SC length, fragment lower bound, fragmentation index (needs skan)",
           config_sections=("sc",)),
@@ -90,9 +93,10 @@ STAGES: tuple[Stage, ...] = (
     Stage("granule_tail", "granule_tail.enabled", False, ("granule", "central_element"), True,
           "per-granule SYP-3 excess in nuclear units and the lit fraction (no-envelope nuclei dropped)",
           config_sections=("granule_tail", "envelope", "granule")),
-    Stage("qc", None, True, (), False, "QC flags and pass/fail", config_sections=("qc",)),
-    Stage("render", "render.montage", True, (), False, "montage PNG", config_sections=("render",)),
-    Stage("write", None, True, (), False, "tables, label images, masks, manifest", config_sections=("output",)),
+    Stage("qc", None, True, (), False, "QC flags and pass/fail", config_sections=("qc",), planar_ok=True),
+    Stage("render", "render.montage", True, (), False, "montage PNG", config_sections=("render",), planar_ok=True),
+    Stage("write", None, True, (), False, "tables, label images, masks, manifest", config_sections=("output",),
+          planar_ok=True),
 )
 
 BY_NAME: dict[str, Stage] = {s.name: s for s in STAGES}

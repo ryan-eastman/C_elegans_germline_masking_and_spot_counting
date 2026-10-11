@@ -47,7 +47,9 @@ shipped config says `channel: dna` and the key is read with that code default, s
 their goldens segment the DAPI channel exactly as before. A profile for a stain-free live series names
 another role (`config/profiles/live_syp2.yaml` says `central_element`, the GFP::SYP-2 channel;
 `docs/TIMELAPSE.md`, "Segmenting without DAPI"). When the named role does not resolve in an image the
-stage falls back to channel 0 and flags `segment:no_<role>_channel_using_first_channel`. The montage's
+stage falls back to channel 0 and flags `segment:no_<role>_channel_using_first_channel`. A recipe that
+sets `segmentation.nuclei.require_channel: true` (code default false; every outside pack sets it) fails
+the image instead, before segmentation, with a message that names the role. The montage's
 outline panel sits on the same channel. A backend therefore receives "the channel to segment", which is
 the DNA channel unless the profile says otherwise; its first argument keeps the name `dna` for
 compatibility.
@@ -107,12 +109,20 @@ Raise on failure rather than return an empty image: under `method: auto` the pip
 back to the classical watershed and says so in the log and in `segmentation_method`, whereas an
 empty label image would run the rest of the pipeline on nothing.
 
+One optional attribute extends the contract for 2D objects (`docs/PLANAR.md`): a backend that can
+segment one plane sets `planar_ok = True` on its callable. In a projected run
+(`segmentation.nuclei.project`) it then receives the plane as a (1, Y, X) array with the extra keyword
+`planar=True` and returns (1, Y, X) labels; the area gate (`segmentation.nuclei.min_area_um2`) and the
+relabel follow, and the labels are copied through the stack. A backend without the attribute is never
+given that keyword, and a projected run that selects it is refused before any pixel is processed
+(`germquant.planar.check_planar`). `cellpose` and `classical` declare it, `nuclei3d` does not.
+
 ### The built-ins
 
 | name | implementation |
 |---|---|
-| `cellpose` | `germquant.segment.backends.cellpose_backend`: `nuclei._cellpose` (Cellpose-SAM in 3D, anisotropy from the spacing, the fine-tuned germline model) with the explicit device from `germquant.device` and one retry on the CPU when the accelerator fails (out of memory, an operator Metal cannot run) |
-| `classical` | `germquant.segment.backends.classical_backend`: `nuclei._classical`, Gaussian smoothing, Li threshold and a distance-transform watershed, all spacing-aware. No model and no GPU; a baseline, not a substitute for the fine-tuned model on crowded pachytene nuclei |
+| `cellpose` | `germquant.segment.backends.cellpose_backend`: `nuclei._cellpose` (Cellpose-SAM in 3D, anisotropy from the spacing, the fine-tuned germline model) with the explicit device from `germquant.device` and one retry on the CPU when the accelerator fails (out of memory, an operator Metal cannot run). In a projected run it makes the 2D call, `nuclei._cellpose_2d` (`model.eval(plane, channel_axis=None)`, the same model and retry). Its one key of its own, `segmentation.nuclei.cellpose.object_diameter_um` (default null), passes Cellpose diameter = d / dy pixels in both calls; unset, both calls are exactly the validated ones. A value that is not a positive number stops the image before any stage, under every method (`germquant.recipe_keys`), because under `method: auto` an error inside the call would only switch the run to the classical fallback |
+| `classical` | `germquant.segment.backends.classical_backend`: `nuclei._classical`, Gaussian smoothing, Li threshold and a distance-transform watershed, all spacing-aware. No model and no GPU; a baseline, not a substitute for the fine-tuned model on crowded pachytene nuclei. It runs unchanged on the one plane of a projected run |
 | `nuclei3d` | EXPERIMENTAL, never the default: `germquant.segment.backends.nuclei3d_backend`, the in-house 3D U-Net of `germquant.segment.nuclei3d` (below) |
 
 ### Built-in `nuclei3d` (experimental in-house 3D model)
@@ -348,6 +358,28 @@ Parameters, read from the top of the `spots:` section with the pipeline's code d
 `spot_radius_um` 0.3, `gauss_sigma_um` 0.08, `thresholding_method` threshold_triangle,
 `effect_size_metric` spot_vs_backgr_effect_size_glass, `effect_size_min` 3.0, `merge_z_columns` true,
 `z_merge_gap_um` 0.8, `z_merge_valley_frac` 0.8, `max_spot_candidates` 30000.
+
+Three optional keys for pack recipes (`germquant.spots.detect.SPOTMAX_OPTIONAL_KEYS`) are forwarded to
+the chain only when the `spots:` section sets them; they have no code default, so a run without them
+makes exactly the SpotMAX calls above:
+
+* `spot_radius_z_um`: the z radius, so SpotMAX's radii become (rz, r, r) / spacing instead of r / spacing;
+* `remove_hot_pixels`: passed to SpotMAX's `preprocess_image` as `do_remove_hot_pixels`;
+* `sharpen`: SpotMAX's own sharpening, as its core runs it. The preprocessed image (hot pixels removed,
+  smoothed) is kept; its difference-of-Gaussians copy (`spotmax.filters.DoG_spots` with the radii and the
+  nucleus labels) feeds the semantic segmentation and the peak detection, and goes to the feature step as
+  `sharp_spots_image` while the feature step's image stays the unsharpened one. SpotMAX computes the
+  spot-versus-background effect size on the sharpened image, so with `sharpen` the `effect_size` column
+  and `effect_size_min` are on that scale (as in SpotMAX's own runs); a threshold tuned without
+  `sharpen`, such as the RAD-51 value 3.0, does not carry over. The other features stay on the
+  unsharpened image.
+
+A `spots.instances` entry can set them for its own instance. `remove_hot_pixels` and `sharpen` take
+`true` or `false`, and `spot_radius_z_um` a positive number; anything else (a quoted "false" included)
+stops the image before any stage, with the key named (`germquant.recipe_keys`). The chain that honours
+them is `germquant.spots.spotmax_options`, reached by a branch at the top of `detect_spots_spotmax`, whose
+own body is not edited; with neutral values (`spot_radius_z_um` equal to `spot_radius_um`, both flags
+false) it gives the default chain's tables.
 
 ### Built-in `log` (experimental classical baseline)
 
