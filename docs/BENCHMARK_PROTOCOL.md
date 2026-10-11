@@ -741,3 +741,79 @@ point.
    n2rad51_HS_herm_001, where the grid procedure picked a triangle set (held-out CCC 0.472 against 0.734). If he
    picks another set, the pre-scoring entry records it and its reason as post hoc (entry 6 (a)). Decision 1 is
    unchanged: nothing is scored on test until he confirms one of its options.
+
+8. 2026-10-11. Decision 2 of `docs/FINAL_SCORING.md` is settled. The project lead confirmed the recommendation of
+   entries 6 and 7, and the grid selection `pg_otsu_e4.0_z0.8` is frozen as SpotMAX re-tuned. No test gonad was
+   run, scored or opened for this entry ((f) discloses a rerun of the deployed pipeline that is not part of it): no
+   `--final` run was made, `final_runs.jsonl` does not exist, and no record of `trials.jsonl` names a test gonad.
+   No test result was computed. The test numbers seen before it are the deployed pipeline's (entries 1, 2 and
+   5 (f)) and those of the pre-protocol sweep of entry 6 (b), which include otsu settings on two test gonads. The
+   set frozen here is the one the val rule of entry 6 (d) selected; that sweep plays no part in the rule, and the
+   reference is not chosen on test numbers (`docs/FINAL_SCORING.md`, section 5).
+   (a) The reply. The message he answered asked him to merge PR #10, which holds entries 6 and 7, and to reply
+   "grid" for decision 2 or name another setting. Earlier messages that day, and entry 7 (c) and (g), had put the
+   heat-shock undercount to him. His reply, on 2026-10-11 at 10:01 MDT (16:01 UTC), begins "Grid sure". The rest of
+   it leaves where the outside system packs of the tranche-5 design live to what makes the most sense and to
+   convention, which is not part of this protocol, and ends by saying it was merged, without naming a pull request.
+   PR #10 had been merged as bc62476 at 10:00:42 MDT, 46 seconds before the reply. The messages that asked for
+   "grid" did not list the readings of entry 6 (c) and (d) that the recommendation rests on. Entry 7 (g) and the
+   description of PR #10, the pull request he merged, put them to him in writing, as his to confirm or override:
+   selection on the val gonads only, the rounding and tie-breaks, the failure rule, the budget counted for the grid
+   alone, and the early stop read as not applying to a fixed grid. They are read as confirmed with the
+   recommendation. That is a reading of the two words "Grid sure", not his words. The recommendation was declared
+   before the grid ran (entry 6 (a)), for the reason entry 7 (g) gives: section 8 item 2 defines SpotMAX re-tuned
+   as this grid chosen by the val rule. He confirmed it after the results of entry 7 had been sent to him (the
+   message of 04:46 MDT and PR #10). The readings stay post hoc under rule 3, as entry 6 (f) labels them, and those
+   that can be recomputed do not change the set (entry 7 (g)).
+   (b) The reference. SpotMAX re-tuned is now the grid selection: `threshold_otsu`, `effect_size_min` 4.0 and
+   `z_merge_gap_um` 0.8, with every other `spots:` key at its deployed value (entry 6 (b)). By section 7 it is the
+   SpotMAX reference, since it is the better of the two on val: truth-mask CCC 0.822 against 0.556 for the deployed
+   recipe, which is one of the 60 sets, so the grid selection cannot rank below it there (entry 6 (d)). That
+   comparison is in sample, because the set was chosen on those two gonads (entry 7 (d) gives the out-of-sample
+   estimate). SpotMAX deployed and SpotMAX re-tuned are both to be scored on test and reported, as section 7 asks.
+   The 24 D3 and 12 E1 SpotMAX sets, the D3 selection and entry 2's alternative among them, stay exploratory and
+   post hoc: reported, and not candidates (entry 6 (d)). Entry 6 (a) left to decision 2 the D3 row of SpotMAX
+   re-tuned and "the SpotMAX grid not run" of decision 5; the grid has run, and its selection replaces that row.
+   (c) The parameter file, written at 10:07 MDT, after the reply:
+   `C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/spotmax_retuned_grid.json`, sha256
+   919c4ab57b83b7602d4412836c916dd33130f0d0e1738fdd5a5d2bf891d21fdf. It holds exactly the three keys of the
+   `selected_params` under `designated` in `G/selection.json` (G as in entry 6 (f)), in the format of the other
+   files of `final_params/`. Laid over the golden `spots:` section (`detector.effective_section`), it gives the
+   same section as `spotmax_retuned_primary.json`, the file of the D3 set `smS1_otsu_r0.3_g0.08_e4`. The two files
+   run the same SpotMAX configuration under different parameter hashes: dc085381... for the new file, the hash of
+   this set in the grid's trial records and held-out runs (trial lines 245 and 305; 352 and 354 to 357), and
+   35d0c2a3... for `spotmax_retuned_primary.json`. The grid's own file is the one scored, since the D3 sets are not
+   candidates. The two D3 files, `spotmax_retuned_d3.json` and `spotmax_retuned_primary.json`, stay in
+   `final_params/` unchanged and are not scored. `docs/FINAL_SCORING.md` records the settlement and names the new
+   file (sections 1 to 4).
+   (d) The heat-shock caveat. The selection undercounts both heat-shock hermaphrodites of train and val: 1.73 foci
+   per truth nucleus where the truth has 4.06 on n2rad51_HS_herm_000, and 0.94 against 1.71 on n2rad51_HS_herm_001,
+   a val gonad, in sample (entry 7 (c)). The deployed recipe, also to be scored on test, overcounts both, and on
+   n2rad51_HS_herm_000 it is better in CCC (0.843 against 0.587) and in F1 inside R (0.635 against 0.401). Every
+   grid set misses one of the two by at least 1.7 foci per truth nucleus, a finding computed after the run (entry 7
+   (g)). Two of the four test gonads are heat-shocked, and no heat-shock male informed the choice. If the reference
+   undercounts them too, it is weak on half the test set, which makes W1 and W2 easier to meet. W1 and W2 are
+   evaluated exactly as section 7 states them. The caveat changes no win condition; the write-up reports it next to
+   them.
+   (e) What does not change, and what is still open. The reply does not mention decision 1, which is still read as
+   waiting for the re-export of the two heat-shock males (entry 6 (a)): nothing is scored on test until the project
+   lead confirms one of its options. A re-export would add two folds to the leave-one-gonad-out estimate and leave
+   this selection as it is (entry 6 (c)). Decision 3: SpotMAX deployed and SpotMAX re-tuned, now this file, use the
+   two test scorings that the guard allows the `spotmax` family. Decision 4 stands as entry 6 records it, and so
+   does decision 5, with the row it left to decision 2 now the grid selection ((b)). Not settled by the reply:
+   section 10 says that if W1 fails "the SpotMAX reference stays deployed", and the reference is now the grid
+   selection, which the pipeline does not run (it runs the 8666f07 recipe). Which SpotMAX setting the pipeline
+   keeps in that case is for the project lead to settle before test is scored, and the pre-scoring entry records
+   it. Also still to be written into the pre-scoring entry before test is scored (section 10;
+   `docs/FINAL_SCORING.md`, section 4.2): the code commit; the config hash; the sha256 of the parameter files, this
+   one among them, and of the net3d weights; and one line for each of decisions 1 to 5, with the option of
+   decision 1 that the project lead confirms.
+   (f) Disclosed, as entry 6 (g) did for tranches 1 to 4: at 10:03 MDT, after the reply, the tranche-5 baseline of
+   the real goldens started (`C:/Users/ryane/germquant_golden/run_t5_baseline.ps1`, log
+   `C:/Users/ryane/germquant_golden/t5_baseline.log`). It reruns the deployed pipeline at bc62476 on all 23 tags of
+   `tests/golden/real_manifest.json`, the four test gonads among them (the 14th, 17th, 20th and 22nd in its order),
+   and compares each output only with its pinned 8666f07 output (`scripts/regression_diff.py`); it then repeats two
+   tags, neither a test gonad, as a determinism check. It opens no truth file and computes no metric against truth.
+   Its log prints the pipeline's own nucleus and spot counts, numbers the pinned 8666f07 goldens already hold. By
+   11:05 MDT, when this entry was committed, it had finished two of the 23 tags and had reached no test gonad. It
+   tests the code of the deployed pipeline, not a method under development, and nothing is tuned or selected on it.
