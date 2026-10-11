@@ -45,9 +45,12 @@ nucleus: one row of the nuclei table is one nucleus.
 `germline_nuclei_combined` (release asset, sha256 e4e32320...8f57, 1,218,646,375 bytes; card:
 `models/germline_nuclei_combined.card.json`): a June 2026 Cellpose-SAM fine-tune on 48 real hand-labelled
 germline nucleus slices plus about 49 synthetic slices. Fetch it with `germquant get-model` or
-`germquant pack fetch-models celegans_germline`. Its base weights are not recorded; the file dates point to
-cpsam_v2, and the card records the tensor-by-tensor comparison with both cached bases (method, and the result
-once it has been run on the workstation; until then the base reads "not determined").
+`germquant pack fetch-models celegans_germline`. The training run did not record its base weights, so they
+were compared tensor by tensor with both cached Cellpose bases (scripts/compare_base_weights.py, on the
+workstation CPU, 2026-10-11): the fine-tuned weights lie at a relative distance of 0.006 from cpsam_v2 and
+0.243 from cpsam (v1), about 39 times farther, so the card names cpsam_v2 (sha256 0f1cc3f7...c667) as the base,
+which the file dates also suggest. The card records the method, the numbers per base and the rule (the closest
+base must cover at least 90% of the tensors and the next one must be at least 2 times farther).
 
 Licence: Cellpose-SAM weights are BSD-3-Clause, but Cellpose's own training data include CC BY-NC sets, so a
 model fine-tuned from them inherits that question for commercial use.

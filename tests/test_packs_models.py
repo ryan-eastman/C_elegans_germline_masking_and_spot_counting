@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 
 import numpy as np
@@ -194,6 +195,9 @@ def test_pin_check_compares_with_the_spec_digest(pack_env, monkeypatch):  # noqa
         MR.check_model_pin(TINYNET, "f5055f8a" + "0" * 56)                     # right prefix, wrong digest
     with pytest.raises(MR.ModelPinError, match="does not start"):
         MR.check_model_pin(TINYNET, "absent")
+    # a pinned name no pack declares: 8 hex digits alone pin nothing, so it is refused
+    with pytest.raises(MR.ModelPinError, match="no installed or built-in pack declares it"):
+        MR.check_model_pin("ghost@0123abcd", "0123abcd" + "f" * 56)
 
 
 def test_pack_names_are_reserved(pack_env, tmp_path):  # noqa: F811
@@ -201,10 +205,116 @@ def test_pack_names_are_reserved(pack_env, tmp_path):  # noqa: F811
     f.write_bytes(b"w" * 10)
     with pytest.raises(ValueError, match="reserved for pack models"):
         MR.register_local_model(f, name="mymodel@0123abcd")
+    rec = MR.register_local_model(f, name="lab@v2")                  # an '@' alone is not the pack form
+    assert rec["name"] == "lab@v2" and MR.resolve_registered("lab@v2") == f.resolve()
     assert MR.is_pack_model_name("cpsam_v2@0f1cc3f7") and not MR.is_pack_model_name("cpsam_v2")
-    assert not MR.is_pack_model_name("models/x@0123abcd")
+    assert not MR.is_pack_model_name("models/x@0123abcd") and not MR.is_pack_model_name("lab@v2")
     for builtin in MR.CELLPOSE_BUILTIN_NAMES + tuple(MR.MODELS):
         assert not MR.is_pack_model_name(builtin)
+
+
+def test_fetch_discards_a_wrong_blob_already_in_the_store(pack_env, monkeypatch):  # noqa: F811
+    use_fixture_packs(monkeypatch)
+    blob = _blob(pack_env)
+    blob.parent.mkdir(parents=True)
+    blob.write_bytes(TINYNET_BYTES.replace(b"tinynet", b"tinyNET"))            # the right size, other bytes
+    res = packs.fetch_pack_models("test_pack", "with_model", download=False)
+    assert res[0]["status"] == "missing" and not blob.exists()                 # discarded, never kept
+    assert any(t.startswith("store: sha256") for t in res[0]["tried"])
+
+
+def test_a_candidate_of_the_wrong_size_is_never_hashed(pack_env, monkeypatch, tmp_path):  # noqa: F811
+    from germquant import datafetch
+
+    use_fixture_packs(monkeypatch)
+    (pack_env.cache / "tinynet").write_bytes(TINYNET_BYTES[:-1])
+    longer = tmp_path / "longer.bin"
+    longer.write_bytes(TINYNET_BYTES + b"x")
+    hashed = []
+    real = datafetch.sha256_file
+    monkeypatch.setattr(datafetch, "sha256_file", lambda p, *a, **k: hashed.append(str(p)) or real(p, *a, **k))
+    res = packs.fetch_pack_models("test_pack", "with_model", {TINYNET: longer}, download=False)
+    assert res[0]["status"] == "missing" and hashed == []                      # the size failed first
+    assert any("63 bytes, expected 64" in t for t in res[0]["tried"])
+    assert any("65 bytes, expected 64" in t for t in res[0]["tried"])
+
+
+def test_check_blob_verifies_when_the_store_cannot_keep_a_record(pack_env, monkeypatch, caplog):  # noqa: F811
+    from germquant.packs import blobs as BL
+
+    use_fixture_packs(monkeypatch)
+    # a short store root: a folder named like the record, two sha256 deep, passes Windows' 248-character
+    # limit for folders only from a short path
+    with tempfile.TemporaryDirectory(prefix="gqm") as short:
+        monkeypatch.setenv("GERMQUANT_MODELS", short)
+        blob = BL.blobs_dir() / TINYNET_SHA / "tinynet"
+        blob.parent.mkdir(parents=True)
+        blob.write_bytes(TINYNET_BYTES)
+        rec = BL.record_path(TINYNET_SHA)
+        rec.mkdir()                                   # the record cannot be written (as on a read-only store)
+        spec = packs.find_pack("test_pack").model(TINYNET)
+        assert BL.check_blob(spec)["state"] == "verified"
+        assert "could not save the verification record" in caplog.text
+        assert not rec.with_name(rec.name + ".part").exists()                   # no stale partial record
+        st = packs.pack_status("test_pack", recipe="with_model")
+        assert st["models"][0]["state"] == "verified" and not any("tinynet" in b["what"] for b in st["blockers"])
+        assert packs.fetch_pack_models("test_pack", "with_model", download=False)[0]["status"] == "present"
+        monkeypatch.setenv("GERMQUANT_MODELS", str(pack_env.models))
+
+
+def test_cellpose_backend_first_call_is_the_old_line(monkeypatch):
+    """Rule R3: on success cellpose_backend makes exactly the old call, once, and returns its labels as they
+    are; nothing else runs (no device lookup, no record). Only a CPU retry records "cpu"."""
+    from germquant import device
+
+    calls = []
+    labels = np.ones((2, 4, 4), np.int32)
+
+    def fake_cellpose(dna, spacing, model, diam, device_pref=None):
+        calls.append((model, diam, device_pref))
+        if device_pref != "cpu" and fail_first:
+            raise RuntimeError("CUDA out of memory")
+        return labels
+
+    def no_lookup(*a, **k):
+        raise AssertionError("the success path looked up the device")
+
+    monkeypatch.setattr(N, "_cellpose", fake_cellpose)
+    monkeypatch.setattr(device, "select_device", no_lookup)
+    device.record_segment_device(None)
+    fail_first = False
+    dna = np.zeros((2, 4, 4), np.float32)
+    out = SB.cellpose_backend(dna, (1.0, 0.2, 0.2), model="models/m", diameter_um=3.0, device="cuda", cfg_section={})
+    assert out is labels and calls == [("models/m", 3.0, "cuda")] and device.segment_device_used() is None
+    monkeypatch.undo()
+    monkeypatch.setattr(N, "_cellpose", fake_cellpose)
+    monkeypatch.setattr(device, "available", lambda: {"cuda": True, "mps": False})
+    monkeypatch.delenv("GERMQUANT_DEVICE", raising=False)
+    calls.clear()
+    fail_first = True
+    out = SB.cellpose_backend(dna, (1.0, 0.2, 0.2), model="models/m", diameter_um=3.0, device="cuda", cfg_section={})
+    assert out is labels and [c[2] for c in calls] == ["cuda", "cpu"] and device.segment_device_used() == "cpu"
+    device.record_segment_device(None)
+
+
+def test_train_base_refuses_a_local_entry_with_a_pack_name_but_other_weights(pack_env, monkeypatch, tmp_path):  # noqa: F811
+    from germquant.segment import training as TR
+
+    use_fixture_packs(monkeypatch)
+    reg = MR.local_registry_path()
+    reg.parent.mkdir(parents=True, exist_ok=True)
+    other, good = tmp_path / "other_weights", tmp_path / "good_weights"
+    other.write_bytes(b"z" * 64)
+    good.write_bytes(TINYNET_BYTES)
+    for path in (other, good):                        # entries written before the name was reserved
+        reg.write_text(json.dumps({"format": 1, "models": {TINYNET: {"path": str(path), "size": 64}}}),
+                       encoding="utf-8")
+        if path is other:
+            with pytest.raises(MR.ModelPinError, match="does not start with its pin f5055f8a"):
+                TR._resolve_base(TINYNET)
+        else:
+            assert TR._resolve_base(TINYNET) == {"name": TINYNET, "kind": "registered", "path": str(good),
+                                                 "sha256": TINYNET_SHA}
 
 
 def test_run_records_the_blob_digest_and_the_segment_device(pack_env, monkeypatch, tmp_path):  # noqa: F811

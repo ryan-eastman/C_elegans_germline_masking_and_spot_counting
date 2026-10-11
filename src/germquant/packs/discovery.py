@@ -282,8 +282,13 @@ def resolve_recipe(ref: str, project: str | Path | None = None) -> Path:
     pid, version, recipe = parse_ref(ref)
     if not pid or recipe is None:
         raise FileNotFoundError(f"{ref!r} is not <id>@<version>/<recipe>")
-    pack = find_pack(f"{pid}@{version}" if version else pid, project)
-    path = recipe_profile_path(pack, pack.recipe(recipe))
+    pack = find_pack(f"{pid}@{version}" if version else pid, project)   # its error names the packs available
+    available = f"Packs available: {', '.join(available_refs(discover(project))) or 'none'}"
+    try:
+        r = pack.recipe(recipe)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"{e}. {available}") from None
+    path = recipe_profile_path(pack, r)
     if not path.is_file():
-        raise FileNotFoundError(f"pack {pack.ref} recipe {recipe!r}: profile {path} is missing")
+        raise FileNotFoundError(f"pack {pack.ref} recipe {recipe!r}: profile {path} is missing. {available}")
     return path

@@ -45,13 +45,17 @@ def _finite(v):
     return v
 
 
+HOW = ("python scripts/compare_base_weights.py --write (CPU only: the three files are read with torch.load on the "
+       "CPU; it writes this record and rebuilds the pack's SHA256SUMS)")
+
+
 def update_card(card_path: Path, rec: dict, base_paths: dict[str, Path]) -> dict:
     """Write the comparison record into the card (and the base's name and digest when it is determined)."""
     card = json.loads(card_path.read_text(encoding="utf-8"))
     base = card.setdefault("base_model", {})
     comp = _finite({"method": rec["method"], "result": rec["result"], "separation_ratio": rec["separation_ratio"],
                     "separation_required": rec["separation_required"], "min_coverage": rec["min_coverage"],
-                    "bases": rec["bases"]})
+                    "bases": rec["bases"], "how": HOW})
     base["comparison"] = comp
     if rec["result"] != "not determined":
         base["name"] = rec["result"]

@@ -520,7 +520,8 @@ whether a pack can run without loading anything.
 - `germquant.models_registry.resolve_model_name(name, expect_sha256=None)`: the helper a third-party
   backend calls for its own model key. It returns the file a registered local or release model points at,
   or, for a pinned pack model `<name>@<8 hex>`, the verified file in the model store, after the pin check
-  (the file's sha256 must start with the 8 hex digits and equal the pack's digest). With `expect_sha256`
+  (the file's sha256 must start with the 8 hex digits and equal the pack's digest; a name of that form that no
+  installed pack declares is refused). With `expect_sha256`
   the file's digest must equal it. A pack model whose file is missing raises FileNotFoundError naming
   `germquant pack fetch-models <pack>`.
 - The pack rule: a pack recipe sets `segmentation.nuclei.method: cellpose` (with whatever backend it names)

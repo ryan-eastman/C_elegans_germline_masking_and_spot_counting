@@ -2,15 +2,17 @@
 
 validate_card accepts every card train_nuclei writes today (model_size; size only as an alias in a
 pack-written card) and marks model_file and base_model.path as non-portable; lint refuses a recipe key that
-is neither set by config.yaml nor on the allow-list, a deny-listed key such as spots.channel, and the other
-outside-recipe faults; the C. elegans card records the base-weight comparison, its method and its result; the
-comparison itself is checked on small fake state dicts (the real 1.2 GB run is a workstation step).
+is neither set by config.yaml nor on the allow-list, a deny-listed key such as spots.channel, a tunable the
+recipe does not set or that is not a scalar, and the other outside-recipe faults; the C. elegans card records
+the base-weight comparison, its method and its result (cpsam_v2, from the run on the workstation CPU); the
+comparison itself is checked on small fake state dicts.
 """
 from __future__ import annotations
 
 import hashlib
 import importlib.util
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -143,6 +145,10 @@ def test_lint_refuses_a_misspelt_key_and_a_deny_listed_key(tmp_path):
     ("config/profiles/basic.yaml", lambda t: t + "# caf\u00e9\n", "not ASCII"),
     ("README.md", lambda t: t + "\u2014 dash\n", "an en or em dash"),
     ("config/profiles/basic.yaml", lambda t: t + "qc:\n  exclusions_file: C:/Users/x/excl.json\n", "machine path"),
+    ("pack.yaml", lambda t: t.replace("{key: spots.log.min_snr", "{key: spots.no_such_key", 1),
+     "recipe basic: tunable spots.no_such_key is not set by the recipe"),
+    ("pack.yaml", lambda t: t.replace("{key: spots.log.min_snr", "{key: spots.log", 1),
+     "recipe basic: tunable spots.log is not a scalar"),
 ])
 def test_lint_outside_recipe_rules(tmp_path, rel, transform, needle):
     pack = _edited(tmp_path, rel, transform)
@@ -249,7 +255,18 @@ def test_compare_files_and_the_card_writer_on_tiny_torch_files(tmp_path):
 
 def test_celegans_card_records_the_comparison_method_and_result():
     card = json.loads((CELEGANS_PACK / "models" / "germline_nuclei_combined.card.json").read_text(encoding="utf-8"))
-    comp = card["base_model"]["comparison"]
-    assert "tensor-by-tensor" in comp["method"] and comp["result"] in ("pending", "not determined", "cpsam_v2", "cpsam")
-    assert card["base_model"]["name"] in ("not determined", "cpsam_v2", "cpsam")
+    base = card["base_model"]
+    comp = base["comparison"]
+    assert "tensor-by-tensor" in comp["method"] and comp["result"] in ("not determined", "cpsam_v2", "cpsam")
+    assert base["name"] == comp["result"]                     # the card names exactly what the comparison found
+    if comp["result"] != "not determined":
+        want = base["candidates"][comp["result"]].get("sha256")
+        assert re.fullmatch(r"[0-9a-f]{64}", base["sha256"]) and want in (None, base["sha256"])
+        assert comp["separation_ratio"] >= comp["separation_required"]
+        assert comp["bases"][comp["result"]]["coverage"] >= comp["min_coverage"]
+    # the run on the workstation (scripts/compare_base_weights.py --write, CPU, 2026-10-11) named cpsam_v2,
+    # about 39 times closer than cpsam (v1)
+    assert comp["result"] == "cpsam_v2"
+    assert base["sha256"] == "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667"
+    assert "compare_base_weights.py --write" in comp["how"]
     assert "CC BY-NC" in card["licence_note"] and card["model_sha256"] == MR.MODELS["germline_nuclei_combined"]["sha256"]

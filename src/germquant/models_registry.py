@@ -137,9 +137,9 @@ def register_local_model(model: str | Path, card: str | Path | None = None, name
     name = str(name or card_data.get("name") or model_path.name).strip()
     if not name or any(ch in name for ch in "/\\") or name in (".", ".."):
         raise ValueError(f"model name {name!r} must be a bare name (no path separators)")
-    if "@" in name:
+    if is_pack_model_name(name):
         raise ValueError(f"{name!r}: names of the form <name>@<8 hex> are reserved for pack models "
-                         f"(docs/PACKS.md); pick a name without '@'")
+                         f"(docs/PACKS.md); pick another name")
     if name in MODELS:
         raise ValueError(f"{name!r} is a release model; pick another name for a local model")
     if name.lower() in CELLPOSE_BUILTIN_NAMES:
@@ -200,9 +200,10 @@ def resolve_registered(name: str, base_dir: str | Path | None = None) -> Path | 
 def check_model_pin(name: str, sha256: str, *, spec_sha256: str | None = None) -> None:
     """Refuse weights that a ``<name>@<8 hex>`` value does not pin: their sha256 must start with the suffix
     and equal the digest of the installed pack's model spec (``spec_sha256``, else looked up in the installed
-    packs; when no installed pack declares the name, only the suffix is checked). Any other name passes. A
-    local registry entry is checked like any other file, so a wrong local entry is caught here (pack status
-    never looks at the local registry). Raises ModelPinError."""
+    and built-in packs). A name of that form that no pack declares is refused too: 8 hex digits alone do not
+    pin a file, and the form is reserved for packs. Any other name passes. A local registry entry is checked
+    like any other file, so a wrong local entry is caught here (pack status never looks at the local
+    registry). Raises ModelPinError."""
     m = PACK_MODEL_RE.fullmatch(str(name).strip())
     if not m:
         return
@@ -217,7 +218,11 @@ def check_model_pin(name: str, sha256: str, *, spec_sha256: str | None = None) -
 
         found = find_model_spec(name)
         spec_sha256 = found[1].sha256 if found else None
-    if spec_sha256 and got != str(spec_sha256).lower():
+    if not spec_sha256:
+        raise ModelPinError(f"model {name!r} has the pinned form <name>@<8 hex>, but no installed or built-in pack "
+                            f"declares it, so its full digest cannot be checked: install the pack that ships it "
+                            f"(germquant pack install), or name the model without '@<8 hex>'")
+    if got != str(spec_sha256).lower():
         raise ModelPinError(f"model {name!r} resolved to weights with sha256 {got[:12]}..., but the pack spec pins "
                             f"{str(spec_sha256)[:12]}...: the file is not the pinned model")
 

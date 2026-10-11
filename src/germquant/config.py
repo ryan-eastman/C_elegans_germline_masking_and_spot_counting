@@ -175,14 +175,6 @@ def _legacy_extends_candidates(path: Path, base_dir: Path, ext: str) -> list[Pat
     return [base_dir / "config" / ext_p, base_dir / ext_p, path.parent / ext_p]
 
 
-def _is_file(p: Path) -> bool:
-    """Path.is_file, False for a name the platform cannot even stat (a ``pack:`` value on Windows)."""
-    try:
-        return p.is_file()
-    except (OSError, ValueError):
-        return False
-
-
 def builtin_roots() -> list[Path]:
     """The engine's own roots, searched for the built-in packs (``<root>/packs/<id>/pack.yaml``) and by the
     bare-name extends fallback: the checkout that holds this package (provenance._repo_root, taken only when
@@ -228,8 +220,8 @@ def _resolve_extends_ex(path: Path, base_dir: Path, ext: str) -> tuple[Path, boo
 
     The error lists every candidate tried and the packs available."""
     cand = _legacy_extends_candidates(path, base_dir, ext)
-    for c in cand:
-        if _is_file(c) and c.resolve() != path.resolve():
+    for c in cand:                    # exactly today's test: Path.is_file raises where it always raised (R4)
+        if c.is_file() and c.resolve() != path.resolve():
             return c, False
     tried = [str(c) for c in cand]
     if ext.startswith(PACK_EXTENDS_PREFIX):
@@ -248,7 +240,7 @@ def _resolve_extends_ex(path: Path, base_dir: Path, ext: str) -> tuple[Path, boo
         for root in builtin_roots():
             for c in (root / "config" / ext_p, root / "config" / "profiles" / ext_p):
                 tried.append(str(c))
-                if _is_file(c) and c.resolve() != path.resolve():
+                if c.is_file() and c.resolve() != path.resolve():
                     log.info("%s: extends %r resolved to %s (built-in root %s)", path, ext, c, root)
                     return c, True
     raise FileNotFoundError(f"{path}: extends {ext!r} not found (tried {tried}); packs available: "

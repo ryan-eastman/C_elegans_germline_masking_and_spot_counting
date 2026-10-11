@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -36,6 +38,8 @@ SOURCE_TYPES = ("cellpose_cache", "url", "release")
 SKIP_DIRS = frozenset({"__pycache__"})
 SKIP_NAMES = frozenset({".DS_Store"})
 SKIP_SUFFIXES = (".pyc", ".pyo", ".pyd")
+# where an outside recipe lives (design 3.2): config/profiles/ anchors its relative paths to the pack folder
+PACK_PROFILE_RE = re.compile(r"^config/profiles/[^/]+\.ya?ml$")
 
 
 class PackFormatError(ValueError):
@@ -72,19 +76,52 @@ def skipped(rel_parts: tuple[str, ...]) -> bool:
     return name in SKIP_NAMES or name.endswith(SKIP_SUFFIXES)
 
 
+def is_link(path: Path) -> bool:
+    """Whether ``path`` is a symlink or a Windows directory junction. Python 3.11 reports a junction as neither
+    a symlink nor a link (Path.is_symlink, os.path.islink) and walks into it, and creating one needs no
+    privilege, so a junction inside a pack would pull files from outside it into the sums and an install."""
+    p = Path(path)
+    try:
+        if p.is_symlink():
+            return True
+        isjunction = getattr(os.path, "isjunction", None)            # Python 3.12 and later
+        if isjunction is not None:
+            return bool(isjunction(p))
+        if os.name == "nt":
+            return getattr(os.lstat(p), "st_reparse_tag", 0) == stat.IO_REPARSE_TAG_MOUNT_POINT
+    except OSError:
+        return False
+    return False
+
+
+def _walk(folder: Path) -> tuple[list[str], list[str]]:
+    """(files, links): sorted relative paths (forward slashes) of the plain files under ``folder`` (junk and
+    SHA256SUMS left out) and of the symlinks and junctions, which are never followed."""
+    files, links = [], []
+    for dirpath, dirnames, filenames in os.walk(folder, followlinks=False):
+        d = Path(dirpath)
+        for name in list(dirnames):
+            if is_link(d / name):
+                dirnames.remove(name)                  # never walked into: its files are not the pack's
+                links.append((d / name).relative_to(folder).as_posix())
+        for name in filenames:
+            rel = (d / name).relative_to(folder)
+            if skipped(rel.parts) or rel.as_posix() == SUMS_FILE:
+                continue
+            (links if is_link(d / name) else files).append(rel.as_posix())
+    return sorted(files), sorted(links)
+
+
 def pack_files(folder: Path) -> list[str]:
-    """Sorted relative paths (forward slashes) of every file of the pack that SHA256SUMS covers: every file
-    except SHA256SUMS itself and junk."""
-    folder = Path(folder)
-    out = []
-    for p in folder.rglob("*"):
-        if p.is_dir():
-            continue
-        rel = p.relative_to(folder)
-        if skipped(rel.parts) or rel.as_posix() == SUMS_FILE:
-            continue
-        out.append(rel.as_posix())
-    return sorted(out)
+    """Sorted relative paths (forward slashes) of every file of the pack that SHA256SUMS covers: every plain
+    file except SHA256SUMS itself and junk. Symlinks and junctions are neither listed nor followed
+    (pack_links names them, and verify_sums reports them)."""
+    return _walk(Path(folder))[0]
+
+
+def pack_links(folder: Path) -> list[str]:
+    """Relative paths of the symlinks and Windows junctions inside a pack folder (a pack holds plain files only)."""
+    return _walk(Path(folder))[1]
 
 
 def build_sums_text(folder: Path) -> str:
@@ -126,13 +163,15 @@ def sums_sha256(folder: Path) -> str | None:
 
 def verify_sums(folder: Path) -> list[str]:
     """Problems with SHA256SUMS: missing or malformed, a listed file missing or changed, an unlisted file
-    present, a path that is not a plain relative path. Empty when the pack matches its sums."""
+    present, a path that is not a plain relative path, a symlink or junction inside the pack. Empty when the
+    pack matches its sums."""
     folder = Path(folder)
     try:
         sums = read_sums(folder)
     except PackFormatError as e:
         return [str(e)]
-    problems = []
+    files, links = _walk(folder)
+    problems = [f"{rel}: a symlink or junction; a pack holds plain files only" for rel in links]
     for rel, want in sorted(sums.items()):
         pp = PurePosixPath(rel)
         if pp.is_absolute() or ".." in pp.parts or "\\" in rel or re.match(r"^[A-Za-z]:", rel):
@@ -141,9 +180,11 @@ def verify_sums(folder: Path) -> list[str]:
         f = folder / rel
         if not f.is_file():
             problems.append(f"{rel}: listed in {SUMS_FILE} but missing")
+        elif any(rel == ln or rel.startswith(ln + "/") for ln in links):
+            continue                                   # reached through a link: reported above
         elif file_digest(f, rel) != want:
             problems.append(f"{rel}: content differs from {SUMS_FILE}")
-    for rel in pack_files(folder):
+    for rel in files:
         if rel not in sums:
             problems.append(f"{rel}: not listed in {SUMS_FILE} (run `germquant pack build-sums`)")
     return problems
@@ -311,9 +352,10 @@ def validation_record_passes(folder: Path, rel: str | None) -> tuple[bool, str]:
 def validate_manifest(data: dict, folder: Path | None = None) -> list[str]:
     """Problems with a pack.yaml (format 1). Refused: an unknown format major; a pack id, recipe id or model
     name that breaks its pattern; a model without sha256 and size, or whose 8-hex name suffix differs from the
-    start of its sha256; a release model that is not the registry's; status validated (or validated: true)
-    without a passing validation record (checked when ``folder`` is given). Recipe chains and tunables are
-    checked by packs.check_pack, which loads the recipes."""
+    start of its sha256; a release model that is not the registry's; an outside recipe (root: pack) whose
+    profile is not config/profiles/<recipe>.yaml, the layout that anchors its relative paths to the pack folder
+    (config._base_dir_for); status validated (or validated: true) without a passing validation record (checked
+    when ``folder`` is given). The tunables need the recipes loaded: packs.validate_pack checks them."""
     from ..models_registry import MODELS, PACK_MODEL_RE
 
     probs: list[str] = []
@@ -417,6 +459,9 @@ def validate_manifest(data: dict, folder: Path | None = None) -> list[str]:
         elif not _is_plain_relative(prof):
             probs.append(f"recipe {rid!r}: profile {prof!r} must be a relative path (inside the pack, or under the "
                          f"engine config root for root: checkout)")
+        elif root == "pack" and not PACK_PROFILE_RE.fullmatch(prof):
+            probs.append(f"recipe {rid!r}: profile {prof!r} must be config/profiles/<recipe>.yaml inside the pack "
+                         f"(that layout anchors the recipe's relative paths to the pack folder)")
         if str(r.get("dims", "3d")) not in DIMS:
             probs.append(f"recipe {rid!r}: dims {r.get('dims')!r} is not one of {DIMS}")
         status = str(r.get("status", "provisional"))

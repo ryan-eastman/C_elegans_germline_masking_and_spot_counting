@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -28,10 +29,14 @@ from germquant.config import load_config
 _PROBE = ("import sys, atexit\n"
           "atexit.register(lambda: sys.stderr.write('HEAVY=' + ','.join(m for m in {heavy!r} if m in sys.modules)"
           " + '\\n'))\n")
+# reading an image header through bioio imports dask.array, and dask imports CuPy whenever CuPy is installed:
+# CI has no CuPy, so the image probes also refuse bioio and dask.array themselves
+READERS = ("bioio", "dask.array")
+EXAMPLE = FIXTURE_PACKS / "test_pack" / "example" / "test_pack_synthetic.ome.tif"
 
 
-def _heavy_after(code: str, **env) -> tuple[str, subprocess.CompletedProcess]:
-    full = _PROBE.format(heavy=HEAVY) + code
+def _heavy_after(code: str, heavy=HEAVY, **env) -> tuple[str, subprocess.CompletedProcess]:
+    full = _PROBE.format(heavy=tuple(heavy)) + code
     r = subprocess.run([PYTHON, "-c", full], capture_output=True, text=True, timeout=300,
                        env=subprocess_env(**env), cwd=ROOT)
     m = re.search(r"HEAVY=(.*)", r.stderr)
@@ -69,6 +74,65 @@ def test_python_m_germquant_packs_list_json_stays_free_of_torch(tmp_path):
     listing = json.loads(r.stdout)
     assert listing["builtin_root_found"] is True
     assert {"celegans_germline", "test_pack"} <= {p["id"] for p in listing["packs"]}
+
+
+def test_shallow_check_with_an_image_stays_free_of_torch_and_cupy(tmp_path):
+    """Gate G6 with an image: the expects check reads the TIFF header with tifffile, never through bioio (whose
+    dask import loads CuPy before torch where CuPy is installed, the cuBLAS hazard of rule R5)."""
+    code = ("import germquant.packs as P, importlib.util\n"
+            f"st = P.pack_status('test_pack', image={str(EXAMPLE)!r})\n"
+            "if importlib.util.find_spec('bioio') is not None:\n"
+            "    assert st['usable'] and st['warnings'] == [], st\n")
+    heavy, r = _heavy_after(code, heavy=HEAVY + READERS, GERMQUANT_PACKS=FIXTURE_PACKS,
+                            GERMQUANT_MODELS=tmp_path / "models")
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert heavy == "", f"a shallow pack_status with an image loaded {heavy}"
+
+
+def test_python_m_germquant_packs_check_with_an_image_stays_free_of_torch_and_cupy(tmp_path):
+    code = ("import runpy, sys\n"
+            f"sys.argv = ['germquant.packs', 'check', 'test_pack', '--image', {str(EXAMPLE)!r}, '--json']\n"
+            "try:\n"
+            "    runpy.run_module('germquant.packs', run_name='__main__', alter_sys=True)\n"
+            "except SystemExit as e:\n"
+            "    print('EXIT', e.code, file=sys.stderr)\n")
+    heavy, r = _heavy_after(code, heavy=HEAVY + READERS, GERMQUANT_PACKS=FIXTURE_PACKS,
+                            GERMQUANT_MODELS=tmp_path / "models")
+    assert r.returncode == 0 and re.search(r"EXIT (0|2)\b", r.stderr), r.stderr[-2000:]
+    assert json.loads(r.stdout)["pack"] == "test_pack"
+    assert heavy == "", f"python -m germquant.packs check --image loaded {heavy}"
+
+
+def test_deep_check_imports_torch_before_any_backend(tmp_path):
+    """Gate G6: a deep check imports germquant.pipeline (torch) before it loads any backend, so torch claims
+    cuBLAS before CuPy, SpotMAX or Cellpose can. Each backend load is wrapped to record what was imported by
+    then, and sys.modules keeps the order in which imports started."""
+    if importlib.util.find_spec("torch") is None:
+        pytest.skip("torch is not installed here")
+    code = ("import json, sys\n"
+            "import germquant.packs as P\n"
+            "from germquant.segment import backends as SB\n"
+            "from germquant.spots import backends as SPB\n"
+            "assert 'torch' not in sys.modules and 'germquant.pipeline' not in sys.modules\n"
+            "loads = []\n"
+            "for mod in (SB, SPB):\n"
+            "    def wrap(name, _orig=mod.get_backend):\n"
+            "        loads.append([name, 'germquant.pipeline' in sys.modules, 'torch' in sys.modules])\n"
+            "        return _orig(name)\n"
+            "    mod.get_backend = wrap\n"
+            "st = P.pack_status('test_pack', deep=True)\n"
+            "order = list(sys.modules)\n"
+            "print(json.dumps({'device': st['device'], 'usable': st['usable'], 'loads': loads,\n"
+            "                  'pos': {m: order.index(m) for m in ('torch', 'cupy', 'spotmax', 'cellpose', 'dask')\n"
+            "                          if m in sys.modules}}))\n")
+    _, r = _heavy_after(code, GERMQUANT_PACKS=FIXTURE_PACKS, GERMQUANT_MODELS=tmp_path / "models")
+    assert r.returncode == 0, r.stderr[-2000:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["usable"] and out["device"] in ("cpu", "cuda", "mps")
+    assert [name for name, _, _ in out["loads"]] == ["classical", "log"]          # the basic recipe's backends
+    assert all(pipe and torch for _, pipe, torch in out["loads"]), out["loads"]    # the pipeline came first
+    pos = out["pos"]
+    assert "torch" in pos and all(pos["torch"] < p for m, p in pos.items() if m != "torch"), pos
 
 
 def test_malformed_pack_does_not_break_a_generic_run(pack_env, monkeypatch, tmp_path):  # noqa: F811

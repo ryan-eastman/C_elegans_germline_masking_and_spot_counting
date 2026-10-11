@@ -28,19 +28,47 @@
   "source": "config/config.yaml (segmentation.nuclei comment) and docs; not recomputed for this card"
  },
  "base_model": {
-  "name": "not determined",
+  "name": "cpsam_v2",
   "kind": "cellpose_builtin",
   "path": null,
-  "sha256": null,
+  "sha256": "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667",
   "candidates": {
-   "cpsam_v2": {"sha256": "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667", "size": 1233586851},
-   "cpsam": {"size": 1233587898}
+   "cpsam_v2": {
+    "sha256": "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667",
+    "size": 1233586851
+   },
+   "cpsam": {
+    "size": 1233587898
+   }
   },
   "date_evidence": "File dates point to cpsam_v2: it was cached on 2026-06-12, the model is dated 2026-06-13, the training script builds CellposeModel(gpu=True), whose default in Cellpose 4.2.x is cpsam_v2, and the cpsam (v1) cache file dates from 2026-09-24. Dates do not prove the base.",
   "comparison": {
    "method": "tensor-by-tensor comparison of the fine-tuned state dict with each candidate base state dict (germquant.packs.basecheck): bit-identical tensors and the relative L2 distance ||model - base|| / ||base|| over the tensors the two share with the same shape; the closest base is named only when it covers at least 90% of the model's tensors and the next base is at least 2 times farther",
-   "result": "pending",
-   "how": "python scripts/compare_base_weights.py --write (on the workstation, CPU only; it writes the result here and rebuilds SHA256SUMS)"
+   "result": "cpsam_v2",
+   "separation_ratio": 38.84641026954613,
+   "separation_required": 2.0,
+   "min_coverage": 0.9,
+   "bases": {
+    "cpsam_v2": {
+     "n_model_tensors": 350,
+     "n_shared": 348,
+     "n_shape_mismatch": 0,
+     "n_identical": 1,
+     "coverage": 0.9942857142857143,
+     "relative_distance": 0.006248293707959144,
+     "median_tensor_distance": 0.003596490154538361
+    },
+    "cpsam": {
+     "n_model_tensors": 350,
+     "n_shared": 348,
+     "n_shape_mismatch": 0,
+     "n_identical": 1,
+     "coverage": 0.9942857142857143,
+     "relative_distance": 0.24272378086400456,
+     "median_tensor_distance": 0.04486881740366451
+    }
+   },
+   "how": "python scripts/compare_base_weights.py --write (CPU only: the three files are read with torch.load on the CPU; it writes this record and rebuilds the pack's SHA256SUMS)"
   }
  },
  "licence_note": "Cellpose-SAM weights are BSD-3-Clause; Cellpose's own training data is distributed under a non-commercial (CC BY-NC) licence, so a model fine-tuned from cpsam inherits that question for commercial use (README, License)."

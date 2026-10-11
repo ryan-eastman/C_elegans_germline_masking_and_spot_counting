@@ -96,8 +96,9 @@ def test_pack_form_resolves_and_unknown_names_list_candidates(pack_env, monkeypa
     assert cfg.get("spots.log.min_snr") == 3.0 and cfg.get("segmentation.nuclei.method") == "classical"
     base = load_config(TEST_PACK / "config" / "profiles" / "basic.yaml")
     assert cfg.hash != base.hash and cfg.anchors["portable"] is True
-    for bad, needle in (("pack:nope@0.1.0/basic", r"Packs available: .*test_pack@0\.1\.0"),
-                        ("pack:test_pack@0.1.0/nope", "its recipes: basic, with_model"),
+    for bad, needle in (("pack:nope@0.1.0/basic", r"tried \[.*Packs available: .*test_pack@0\.1\.0"),
+                        ("pack:test_pack@0.1.0/nope",
+                         r"tried \[.*its recipes: basic, with_model\. Packs available: .*test_pack@0\.1\.0"),
                         ("nothing_like_this.yaml", r"tried \[.*nothing_like_this.yaml.*packs available")):
         p = tmp_path / "bad.yaml"
         p.write_text(f"extends: {bad}\n", encoding="ascii")
@@ -147,6 +148,30 @@ def test_edited_test_pack_recipe_hashes_alike_under_two_roots(pack_env, monkeypa
         seen.append((cfg.hash, _hashes(cfg), cfg.get("io.channel_map")))
     assert seen[0][2] != seen[1][2]
     assert seen[0][0] == seen[1][0] and seen[0][1] == seen[1][1]
+
+
+def test_portability_is_inherited_through_a_two_level_chain(pack_env, monkeypatch, tmp_path):  # noqa: F811
+    """top.yaml extends mid.yaml next to it (today's rule), and mid.yaml extends pack:... (a new form): top's
+    chain went through a new form too, so its stage hashes use the relative paths and agree across roots."""
+    study = tmp_path / "study"
+    study.mkdir()
+    (study / "mid.yaml").write_text("extends: pack:test_pack@0.1.0/basic\nspots:\n  log:\n    min_snr: 3.0\n",
+                                    encoding="ascii")
+    top = study / "top.yaml"
+    top.write_text("extends: mid.yaml\nsegmentation:\n  nuclei:\n    min_volume_um3: 3.0\n", encoding="ascii")
+    got, new_form = C._resolve_extends_ex(top, C._base_dir_for(top), "mid.yaml")
+    assert got == study / "mid.yaml" and new_form is False                     # found by today's rule
+    seen = []
+    for name in ("ra", "rb with space"):
+        root = tmp_path / name
+        copy_pack(TEST_PACK, root / "test_pack" / "0.1.0")
+        monkeypatch.setenv("GERMQUANT_PACKS", str(root))
+        packs.refresh()
+        cfg = load_config(top)
+        assert cfg.anchors["portable"] is True and cfg.get("spots.log.min_snr") == 3.0
+        seen.append((cfg.hash, _hashes(cfg), cfg.get("io.channel_map")))
+    assert seen[0][2] != seen[1][2]                                            # the absolute paths differ ...
+    assert seen[0][0] == seen[1][0] and seen[0][1] == seen[1][1]               # ... the hashes do not
 
 
 def test_absolute_extends_overlay_keeps_todays_stage_hashes(tmp_path):

@@ -405,7 +405,14 @@ def _resolve_base(base: str) -> dict:
         return {"name": "none", "kind": "random_init", "path": None, "sha256": None}
     reg = resolve_registered(b)
     if reg is not None:
-        return {"name": b, "kind": "registered", "path": str(reg), "sha256": _sha256(reg)}
+        sha = _sha256(reg)
+        from ..models_registry import check_model_pin, is_pack_model_name
+
+        if is_pack_model_name(b):
+            # a local entry under a pinned pack name (written before the form was reserved) must hold the pinned
+            # weights, as on the run path (docs/DESIGN_system_packs.md, section 3.5); ModelPinError otherwise
+            check_model_pin(b, sha)
+        return {"name": b, "kind": "registered", "path": str(reg), "sha256": sha}
     p = Path(b)
     if p.is_file():
         return {"name": b, "kind": "file", "path": str(p.resolve()), "sha256": _sha256(p)}

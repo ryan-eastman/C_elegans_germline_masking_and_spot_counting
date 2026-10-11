@@ -26,9 +26,12 @@ List what this engine finds, read a pack's card, and check that a recipe can run
 
 `pack check` names everything that stops a recipe and how to fix it: a missing Python package (with the extra
 to install), a model that is not in the model store, an engine outside the pack's version range, a pack file
-that no longer matches its checksums. It exits with code 2 when the recipe cannot run. With `--image FILE` it
-also checks the readers extra and warns when the image's pixel size or z step lies outside what the pack
-expects. `--deep` also loads the pipeline and the backends and reports the device (CUDA, Apple Metal or CPU).
+that no longer matches its checksums, a tunable (a setting the parameter form offers) that the recipe does not
+set. It exits with code 2 when the recipe cannot run or the pack is not found. With `--image FILE` it also checks the readers extra and warns when
+the image's pixel size or z step lies outside what the pack expects; it reads .nd2 and TIFF headers itself, and
+for a CZI, LIF or OME-Zarr file it says the size was not checked, because reading those headers loads the
+readers. `--deep` also loads the pipeline and the backends, reports the device (CUDA, Apple Metal or CPU) and
+reads any image header.
 
 Fetch the models a recipe needs, then run it:
 
@@ -105,8 +108,11 @@ Install a pack someone sends you (a folder or a zip):
     germquant pack install budding_yeast-1.0.0.zip
 
 Install checks every file against the pack's SHA256SUMS and refuses archives with paths that leave the pack
-folder, symlinks, non-ASCII recipe files and a copy of a built-in pack. An installed version never changes: the
-same version with other content is refused (`--replace` is for pack developers only).
+folder, symlinks and Windows junctions, non-ASCII recipe and channel-map files, a tunable that the recipe does not
+set, and a copy of a built-in pack. Junk (`.DS_Store`, `__pycache__`, compiled Python, a zip's `__MACOSX`
+folder) is never copied. An installed version never changes: the same version with other content is refused, and
+so is a reinstall over an installed copy whose files no longer match its SHA256SUMS (`--replace` is for pack
+developers, and reinstalls such a copy).
 
 ## Models
 
@@ -132,8 +138,10 @@ either changed, so a GUI can check packs often.
 
 When a run starts, a model named `<name>@<8 hex>` must resolve to weights whose sha256 starts with those 8 hex
 digits and equals the pack's digest, wherever the file came from, or the run stops before any pixel is
-processed. A model the pack declares but the store lacks stops the run with the fetch-models command to run. A
-recipe run with `segmentation.nuclei.method: classical` never loads its model, so it needs none.
+processed; a name of that form that no installed pack declares is refused too, because 8 hex digits alone do not
+pin a file. `germquant train-nuclei --base` applies the same check. A model the pack declares but the store lacks
+stops the run with the fetch-models command to run. A recipe run with `segmentation.nuclei.method: classical`
+never loads its model, so it needs none.
 
 Third-party backends resolve their own model keys the same way with
 `germquant.models_registry.resolve_model_name(name, expect_sha256=None)` (docs/BACKENDS.md).
@@ -177,7 +185,11 @@ The layout (docs/DESIGN_system_packs.md, section 3.2):
       validation/<recipe>.json          validation records, written only by the benchmark tool
 
 tests/fixtures/packs/test_pack is a complete small example; scripts/make_test_pack.py shows how its generated
-files were made, and `germquant.packs.authoring` writes a frozen base from a profile.
+files were made, and `germquant.packs.authoring` writes a frozen base from a profile. Recipes must sit at
+`config/profiles/<recipe>.yaml` (the place that anchors their relative paths, such as the channel map, to the
+pack folder), and every tunable a recipe lists must be a setting the recipe already has, with a single value:
+the parameter form is built from the tunables (`packs.validate_pack` checks both, and install refuses a pack that
+fails them).
 
 Steps:
 

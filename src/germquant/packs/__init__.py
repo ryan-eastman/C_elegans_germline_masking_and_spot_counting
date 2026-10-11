@@ -51,6 +51,7 @@ from .format import (
 from .install import PackInstallError, install_pack, vendor
 from .lint import lint_pack
 from .status import engine_files_problems, pack_status
+from .validate import tunable_problems, validate_pack
 
 __all__ = [
     "MANIFEST", "SUMS_FILE", "Discovery", "ModelPinError", "ModelSpec", "Pack", "PackFormatError",
@@ -60,8 +61,8 @@ __all__ = [
     "find_model_spec", "find_pack", "install_pack", "install_root", "lint_pack", "list_packs", "load_pack",
     "load_pack_folder", "model_location", "no_builtin_root_message", "pack_record", "pack_roots", "pack_status",
     "parse_ref", "recipe_profile_path", "refresh", "resolve_pack_model", "resolve_recipe", "sums_sha256",
-    "use_project", "user_packs_dir", "validate_manifest", "vendor", "verify_pack", "verify_sums",
-    "version_info", "version_line", "write_sums",
+    "tunable_problems", "use_project", "user_packs_dir", "validate_manifest", "validate_pack", "vendor",
+    "verify_pack", "verify_sums", "version_info", "version_line", "write_sums",
 ]
 
 

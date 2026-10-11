@@ -1,10 +1,11 @@
 """`germquant pack lint DIR [--previous ZIP]` (docs/DESIGN_system_packs.md, section 3.7).
 
 Every pack: ASCII text files only (so no em or en dashes); no config/config.yaml inside the pack (it would
-shadow a bare ``extends: config.yaml``); each recipe's expected_config_hash equals its computed hash;
-SHA256SUMS is current; pack: lines are versioned; no absolute or machine path in a recipe, a channel map, a
-card or pack.yaml; every card agrees with its model spec (models_registry.validate_card); a root: checkout
-pack's engine-file digests are current.
+shadow a bare ``extends: config.yaml``); each recipe's expected_config_hash equals its computed hash; every
+tunable is a key the recipe sets, with a scalar value (what packs.validate_pack refuses); SHA256SUMS is
+current; pack: lines are versioned; no absolute or machine path in a recipe, a channel map, a card or
+pack.yaml; every card agrees with its model spec (models_registry.validate_card); a root: checkout pack's
+engine-file digests are current.
 
 Outside recipes (root: pack) also:
 
@@ -120,11 +121,6 @@ def _get(d: dict, dotted: str, default=None):
     return node
 
 
-def _has(d: dict, dotted: str) -> bool:
-    sentinel = object()
-    return _get(d, dotted, sentinel) is not sentinel
-
-
 def _string_leaves(obj, path: str = ""):
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -178,6 +174,7 @@ def lint_pack(folder: str | Path, previous: str | Path | None = None) -> dict:
     from ..models_registry import validate_card
     from .discovery import engine_root_for, recipe_profile_path
     from .status import engine_files_problems
+    from .validate import tunable_problems
 
     folder = Path(folder)
     problems: list[str] = []
@@ -260,12 +257,7 @@ def lint_pack(folder: str | Path, previous: str | Path | None = None) -> dict:
         if cfg.hash != r.expected_config_hash:
             problems.append(f"recipe {r.id}: expected_config_hash {r.expected_config_hash} but it hashes to {cfg.hash}")
         merged = cfg.as_dict()
-        for t in r.tunables or []:
-            key = str(t.get("key", ""))
-            if not _has(merged, key):
-                problems.append(f"recipe {r.id}: tunable {key} is not set by the recipe")
-            elif isinstance(_get(merged, key), (dict, list)):
-                problems.append(f"recipe {r.id}: tunable {key} is not a scalar")
+        problems += tunable_problems(r, merged)                     # what validate_pack refuses
         if pack.root == "checkout":
             continue
         problems += [f"recipe {r.id}: {p}" for p in _outside_rules(pack, r, path, merged, known)]

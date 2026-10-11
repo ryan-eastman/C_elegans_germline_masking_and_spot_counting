@@ -75,17 +75,32 @@ def write_record(spec: ModelSpec, path: Path, *, source: str | None = None, pack
     p = record_path(spec.sha256)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.part")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(rec, fh, indent=1)
-    os.replace(tmp, p)
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(rec, fh, indent=1)
+        os.replace(tmp, p)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)                # left only when the write or the rename failed
+        except OSError:
+            pass
     return rec
+
+
+def _save_record(spec: ModelSpec, path: Path, **kw) -> None:
+    """write_record for a file already verified: a model store that cannot be written (a read-only
+    $GERMQUANT_MODELS on a cluster or in a container) only costs a re-hash next time, never the check."""
+    try:
+        write_record(spec, path, **kw)
+    except OSError as e:
+        log.warning("could not save the verification record of %s (%s); it is re-hashed next time", path, e)
 
 
 def check_blob(spec: ModelSpec, *, path: Path | None = None, rehash: bool = True) -> dict:
     """The state of a model's weights: ``missing``, ``wrong_size``, ``trusted`` (size and mtime match the
-    verification record, not re-hashed), ``verified`` (re-hashed and equal; the record is refreshed),
-    ``mismatch`` (re-hashed and different) or, with ``rehash=False`` and no matching record, ``unverified``
-    (present with the right size). Returns ``{"state", "path", "detail"}``."""
+    verification record, not re-hashed), ``verified`` (re-hashed and equal; the record is refreshed when the
+    store can be written), ``mismatch`` (re-hashed and different) or, with ``rehash=False`` and no matching
+    record, ``unverified`` (present with the right size). Returns ``{"state", "path", "detail"}``."""
     from ..datafetch import sha256_file
 
     p = Path(path) if path is not None else model_location(spec)
@@ -103,7 +118,7 @@ def check_blob(spec: ModelSpec, *, path: Path | None = None, rehash: bool = True
     got = sha256_file(p)
     if got != spec.sha256:
         return {"state": "mismatch", "path": str(p), "detail": f"sha256 {got[:12]}..., expected {spec.sha256[:12]}..."}
-    write_record(spec, p)
+    _save_record(spec, p)
     return {"state": "verified", "path": str(p), "detail": "sha256 checked now"}
 
 
@@ -208,7 +223,7 @@ def _fetch_one(pack: Pack, spec: ModelSpec, from_file: Path | None, *, download:
     tried: list[str] = []
     st = check_blob(spec)
     if st["state"] in ("trusted", "verified"):
-        write_record(spec, loc, packs=[pack.ref], verified=st["state"] == "verified")
+        _save_record(spec, loc, packs=[pack.ref], verified=st["state"] == "verified")
         say(f"{spec.name}: already in the store ({loc})")
         return {"name": spec.name, "status": "present", "path": str(loc), "detail": st["detail"], "tried": tried}
     if st["state"] in ("wrong_size", "mismatch"):

@@ -422,7 +422,7 @@ def process_image(
     if pack_record:
         from .device import record_segment_device
 
-        record_segment_device(None)           # cellpose_backend records the device it ran on (pack runs report it)
+        record_segment_device(None)           # cellpose_backend records "cpu" after a CPU retry (pack runs report it)
     labels, seg_method = run_stage("segment", _segment, flags=flags, outcomes=outcomes, fatal=True)
     n_nuclei = int(labels.max())
 
@@ -1049,9 +1049,15 @@ def process_image(
         rec = {name: oc.as_dict() for name, oc in outcomes.items()}
         post_run = {}
         if pack_record:
-            from .device import segment_device_used
+            from .device import segment_device_used, select_device
 
-            post_run = {"post_run": {"segment_device_used": segment_device_used()}}
+            dev = segment_device_used()              # "cpu" after a CPU retry (cellpose_backend), else None
+            if dev is None and seg_method == "cellpose":
+                try:                                 # the first call ran on the device Cellpose was given
+                    dev = select_device(cfg.get("segmentation.nuclei.device"), quiet=True)
+                except Exception:  # noqa: BLE001 - a record only
+                    dev = None
+            post_run = {"post_run": {"segment_device_used": dev}}
         try:
             with open(long_path(out_dir / f"{sample['image_id']}__stages.json"), "w", encoding="utf-8") as fh:
                 json.dump({"image_id": sample["image_id"], "config_hash": cfg.hash, "complete": complete,

@@ -38,6 +38,8 @@ def test_both_shipped_manifests_are_valid():
     (lambda d: d["recipes"][0].update(dims="4d"), "dims"),
     (lambda d: d["recipes"][0].update(profile="../outside.yaml"), "relative path"),
     (lambda d: d["recipes"][0].update(profile="C:/abs/x.yaml"), "relative path"),
+    (lambda d: d["recipes"][0].update(profile="recipes/basic.yaml"), "must be config/profiles/<recipe>.yaml"),
+    (lambda d: d["recipes"][0].update(profile="config/profiles/sub/basic.yaml"), "must be config/profiles/<recipe>"),
     (lambda d: d["models"][0].pop("sha256"), "sha256 missing"),
     (lambda d: d["models"][0].pop("size"), "size missing"),
     (lambda d: d["models"][0].update(name="tinynet@00000000"), "is not the start of its sha256"),
@@ -54,6 +56,19 @@ def test_validate_manifest_refuses(edit, needle):
     edit(data)
     probs = F.validate_manifest(data, TEST_PACK)
     assert any(needle in p for p in probs), probs
+
+
+def test_validate_pack_refuses_faulty_tunables_after_the_manifest(tmp_path):
+    assert packs.validate_pack(TEST_PACK) == [] and packs.validate_pack(CELEGANS_PACK) == []
+    bad = copy_pack(TEST_PACK, tmp_path / "t" / "test_pack", edit=lambda d: d["recipes"][1].update(
+        tunables=[{"key": "spots.log.min_snr"}, {"key": "segmentation.nuclei"}, {"key": "spots.typo_key"}]))
+    probs = packs.validate_pack(bad)
+    assert probs == ["recipe with_model: tunable segmentation.nuclei is not a scalar",
+                     "recipe with_model: tunable spots.typo_key is not set by the recipe"]
+    assert packs.validate_pack(packs.load_pack(bad)) == probs                    # a Pack or a folder
+    assert F.validate_manifest(_manifest(bad), bad) == []                        # the manifest alone cannot tell
+    broken = copy_pack(TEST_PACK, tmp_path / "u" / "test_pack", edit=lambda d: d.update(id="Bad-Id"))
+    assert any("pack id" in p for p in packs.validate_pack(broken))
 
 
 def test_validated_needs_a_passing_record(tmp_path):

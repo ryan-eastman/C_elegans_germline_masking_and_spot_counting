@@ -2,7 +2,7 @@
 
   germquant pack list [--all] [--json]
   germquant pack show ID[@VER] [--recipe R] [--json]
-  germquant pack check ID[@VER] [--recipe R] [--image FILE] [--deep] [--json]     (exit 2 when unusable)
+  germquant pack check ID[@VER] [--recipe R] [--image FILE] [--deep] [--json]     (exit 2 when unusable or unknown)
   germquant pack fetch-models ID[@VER] [--recipe R] [--from-file NAME=PATH ...]
   germquant pack install SRC [--replace]
   germquant pack verify ID|DIR
@@ -155,7 +155,16 @@ def _show(args) -> int:
 def _check(args) -> int:
     from . import packs as P
 
-    st = P.pack_status(args.pack, recipe=args.recipe, image=args.image, deep=args.deep)
+    try:
+        st = P.pack_status(args.pack, recipe=args.recipe, image=args.image, deep=args.deep)
+    except FileNotFoundError as e:              # an unknown pack is unusable too: exit 2, as for any blocker
+        if args.json:
+            _print(json.dumps({"pack": args.pack, "recipe": args.recipe, "usable": False,
+                               "blockers": [{"what": str(e), "fix": "germquant pack list"}], "warnings": []},
+                              indent=1))
+        else:
+            print(f"ERROR: {e}\n      fix: germquant pack list", file=sys.stderr)
+        return 2
     if args.json:
         _print(json.dumps(st, indent=1, default=str))
         return 0 if st["usable"] else 2

@@ -16,37 +16,15 @@ from __future__ import annotations
 import contextlib
 import os
 import tempfile
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from .io.ome_header import ome_fields as _ome_fields
+
 TABLES = ("nuclei", "spots", "image_summary")
 VOLATILE = ["git_sha", "run_timestamp", "pipeline_version", "file_path", "config_hash"]
-
-
-def _ome_fields(xml_text: str | None) -> tuple[list[str], tuple[float | None, float | None, float | None]]:
-    """(channel names, (PhysicalSizeZ, Y, X)) from OME-XML; namespaces ignored."""
-    if not xml_text:
-        return [], (None, None, None)
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
-        return [], (None, None, None)
-    pixels = next((el for el in root.iter() if el.tag.endswith("Pixels")), None)
-    if pixels is None:
-        return [], (None, None, None)
-    names = [str(ch.get("Name", "")) for ch in pixels.iter() if ch.tag.endswith("}Channel") or ch.tag == "Channel"]
-
-    def num(key):
-        try:
-            v = float(pixels.get(key))
-            return v if np.isfinite(v) and v > 0 else None
-        except (TypeError, ValueError):
-            return None
-
-    return names, (num("PhysicalSizeZ"), num("PhysicalSizeY"), num("PhysicalSizeX"))
 
 
 def _to_czyx(data: np.ndarray, axes: str, t: int | None) -> np.ndarray:

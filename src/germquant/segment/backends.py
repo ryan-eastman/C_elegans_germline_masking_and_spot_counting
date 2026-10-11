@@ -54,24 +54,24 @@ def cellpose_backend(dna, spacing, *, model, diameter_um, device, cfg_section) -
     """The Cellpose-SAM path: ``nuclei._cellpose`` with the explicit device from ``germquant.device``
     (honours ``$GERMQUANT_DEVICE``) and one retry on the CPU when the accelerator fails (out of memory,
     an operator Metal cannot run). ``cfg_section`` is unused: every Cellpose knob is an argument. The
-    device Cellpose finally ran on goes to ``germquant.device.SEGMENT_DEVICE_USED`` (a record only; the
-    calls are unchanged)."""
-    from ..device import record_segment_device, select_device
+    first call is the old line exactly (rule R3); only after a CPU retry is "cpu" recorded in
+    ``germquant.device.SEGMENT_DEVICE_USED``, which a pack run reports as post_run.segment_device_used."""
+    from ..device import select_device
     from . import nuclei  # looked up at call time, so a test can monkeypatch nuclei._cellpose
 
     _ = cfg_section
     try:
-        labels = nuclei._cellpose(dna, spacing, model, diameter_um, device_pref=device)
+        return nuclei._cellpose(dna, spacing, model, diameter_um, device_pref=device)
     except Exception as e:  # accelerator trouble: the same model on the CPU first
         if select_device(device) == "cpu":
             raise
         log.warning("Cellpose failed on %s (%s: %s); retrying on the CPU.", select_device(device),
                     type(e).__name__, e)
         labels = nuclei._cellpose(dna, spacing, model, diameter_um, device_pref="cpu")
-        record_segment_device("cpu")
+        from ..device import record_segment_device
+
+        record_segment_device("cpu")              # the device Cellpose finally ran on (a record only)
         return labels
-    record_segment_device(select_device(device, quiet=True))
-    return labels
 
 
 def classical_backend(dna, spacing, *, model, diameter_um, device, cfg_section) -> np.ndarray:

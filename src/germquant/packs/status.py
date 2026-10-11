@@ -4,17 +4,22 @@ The shallow check imports nothing heavy (no torch, Cellpose, SpotMAX or CuPy):
 
 * the engine version lies inside requires.germquant;
 * the pack's files match its SHA256SUMS, and a root: checkout pack's engine files match their digests;
-* the recipe loads and its config hash equals expected_config_hash;
+* the recipe loads, its config hash equals expected_config_hash, and each of its tunables is a key it sets,
+  with a scalar value (packs.validate_pack);
 * each needed backend name is declared (the built-ins plus entry-point names read from metadata), and each
   needed module is found by importlib.util.find_spec (the built-in cellpose name is always declared, so the
   module check is what greys a pack in an environment without Cellpose or torch);
 * each model is present with the right size; its sha256 is verified when its size or mtime differs from its
   verification record, and trusted otherwise;
 * the readers extra is present when the input is not an .nd2;
-* with an image given, its pixel size and z step fall inside ``expects`` (a warning, never a block).
+* with an image given, its pixel size and z step fall inside ``expects`` (a warning, never a block). The
+  shallow check reads only an .nd2 header (the nd2 package) or a TIFF header (tifffile,
+  io.ome_header): bioio would import dask.array, and dask imports CuPy whenever CuPy is installed, before
+  torch. A CZI, LIF or OME-Zarr header is left to the deep check, with a warning saying so.
 
-``deep`` imports germquant.pipeline first (torch before CuPy), then loads the backends and reports the device
-that will run, with a warning when the recipe recommends an accelerator and none is present.
+``deep`` imports germquant.pipeline first (torch before CuPy), then loads the backends, reports the device
+that will run, with a warning when the recipe recommends an accelerator and none is present, and reads the
+image header the shallow check left.
 """
 from __future__ import annotations
 
@@ -67,27 +72,59 @@ def engine_files_problems(pack: Pack) -> list[str]:
     return out
 
 
-def _expects_warnings(pack: Pack, image) -> tuple[list[dict], dict | None]:
-    from ..io import read_image_metadata
+def _read_header(image, *, deep: bool = False) -> dict | None:
+    """The image header _expects_warnings compares, or None when only the deep check may read it. An .nd2 goes
+    through io.read_image_metadata (read_nd2_metadata: the nd2 package reads the header without dask or bioio)
+    and a TIFF through io.ome_header.read_tiff_header (tifffile only). bioio imports dask.array, and dask
+    imports CuPy whenever CuPy is installed, before torch (rule R5, gate G6), so another format is read only
+    with ``deep``, which the deep check passes after it has imported the pipeline (torch first)."""
+    from ..io.formats import image_format
+    from ..io.ome_header import is_tiff, read_tiff_header
 
+    if deep or image_format(image) == "nd2":
+        from ..io import read_image_metadata
+
+        return read_image_metadata(image)
+    if is_tiff(image):
+        return read_tiff_header(image)
+    return None
+
+
+def _expects_warnings(pack: Pack, image, *, deep: bool = False) -> tuple[list[dict], dict | None]:
+    """``(warnings, pending)``: the image's pixel size and z step against the pack's ``expects`` (warnings
+    only; nothing is read when the pack expects nothing). ``pending`` is the warning that says the header was
+    left to the deep check (see _read_header), else None."""
+    from ..io.formats import image_suffix
+
+    exp = pack.data.get("expects") or {}
+    exp = exp if isinstance(exp, dict) else {}
+    checks = [(key, what) for key, what in (("pixel_um", "pixel size"), ("z_step_um", "z step")) if exp.get(key)]
+    if not checks:
+        return [], None
     try:
-        meta = read_image_metadata(image)
+        meta = _read_header(image, deep=deep)
     except Exception as e:  # noqa: BLE001 - the header is advisory here
         return [{"what": f"could not read the header of {image}: {type(e).__name__}: {e}",
                  "fix": "check the file and the readers extra"}], None
-    out = []
+    if meta is None:
+        pending = {"what": f"the pixel size and z step of {Path(image).name} were not checked: without --deep, pack "
+                           f"check reads .nd2 and TIFF headers only (a {image_suffix(image)} header needs the readers, "
+                           f"which load dask and, where installed, CuPy)",
+                   "fix": f"run `germquant pack check {pack.ref} --image FILE --deep`, which reads it after loading "
+                          f"the pipeline"}
+        return [pending], pending
+    if not meta.get("spacing_ok", True):
+        return [], None
     dz, dy, dx = (float(v) for v in meta.get("spacing", (float("nan"),) * 3))
-    exp = pack.data.get("expects") or {}
-    checks = (("pixel_um", dy, "pixel size"), ("z_step_um", dz, "z step"))
-    for key, val, what in checks:
-        rng = exp.get(key)
-        if not rng or not meta.get("spacing_ok", True):
-            continue
-        lo, hi = float(rng[0]), float(rng[1])
+    values = {"pixel_um": dy, "z_step_um": dz}
+    out = []
+    for key, what in checks:
+        lo, hi = float(exp[key][0]), float(exp[key][1])
+        val = values[key]
         if not lo <= val <= hi:
             out.append({"what": f"the image's {what} {val:.4g} um lies outside the pack's expected range "
                                 f"[{lo:g}, {hi:g}] um", "fix": "check that this pack suits the image (a warning only)"})
-    return out, meta
+    return out, None
 
 
 def pack_status(pack, recipe: str | None = None, image=None, deep: bool = False) -> dict:
@@ -97,6 +134,7 @@ def pack_status(pack, recipe: str | None = None, image=None, deep: bool = False)
     from ..config import load_config
     from .blobs import check_blob
     from .discovery import find_pack, recipe_profile_path
+    from .validate import tunable_problems
 
     blockers: list[dict] = []
     warnings: list[dict] = []
@@ -138,6 +176,10 @@ def pack_status(pack, recipe: str | None = None, image=None, deep: bool = False)
         cfg = None
         blockers.append({"what": f"recipe {r.id} does not load: {type(e).__name__}: {e}",
                          "fix": "reinstall the pack, or check its extends chain (germquant pack verify)"})
+    if cfg is not None:
+        for prob in tunable_problems(r, cfg.as_dict()):             # what packs.validate_pack refuses
+            blockers.append({"what": prob, "fix": "use a corrected pack version (germquant pack lint names every "
+                                                  "faulty tunable)"})
 
     from ..segment.backends import declared_backend_names as seg_declared
     from ..spots.backends import declared_backend_names as spot_declared
@@ -166,6 +208,7 @@ def pack_status(pack, recipe: str | None = None, image=None, deep: bool = False)
             blockers.append({"what": f"model {mname} is not usable: {st['detail']} ({st['path']})",
                              "fix": f"germquant pack fetch-models {p.id}"
                                     + (f" --recipe {r.id}" if len(p.recipes) > 1 else "")})
+    pending = None
     if image is not None:
         from ..io.formats import image_format
 
@@ -178,22 +221,26 @@ def pack_status(pack, recipe: str | None = None, image=None, deep: bool = False)
             blockers.append({"what": f"{Path(image).name} is not an .nd2 and the readers extra is not installed",
                              "fix": _install_fix("bioio")})
         elif fmt is not None:
-            w, _meta = _expects_warnings(p, image)
+            w, pending = _expects_warnings(p, image)
             warnings.extend(w)
     if deep and not blockers:
-        _deep_check(p, r, cfg, out)
+        _deep_check(p, r, cfg, out, image=image, pending=pending)
     out["usable"] = not blockers
     return out
 
 
-def _deep_check(pack: Pack, recipe, cfg, out: dict) -> None:
-    """Import the pipeline first (torch before CuPy, the cuBLAS load order), load the needed backends and
-    report the device that will run."""
+def _deep_check(pack: Pack, recipe, cfg, out: dict, *, image=None, pending: dict | None = None) -> None:
+    """Import the pipeline first (torch before CuPy, the cuBLAS load order), load the needed backends, report
+    the device that will run, and read the image header the shallow check left (``pending``)."""
     import germquant.pipeline  # noqa: F401  (side effect: torch claims cuBLAS before any backend import)
 
     from ..device import select_device
     from ..segment.backends import get_backend as get_seg
     from ..spots.backends import get_backend as get_spot
+
+    if pending is not None:                        # torch is loaded now, so the readers may load CuPy after it
+        out["warnings"].remove(pending)
+        out["warnings"].extend(_expects_warnings(pack, image, deep=True)[0])
 
     for name in recipe.need("segment_backends"):
         try:

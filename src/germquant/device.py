@@ -18,9 +18,11 @@ log = logging.getLogger(__name__)
 
 _CHOICES = ("auto", "cuda", "mps", "cpu")
 
-# The device Cellpose actually ran on in this context, after any CPU retry (segment.backends.cellpose_backend
-# fills it; None when Cellpose did not run). process_image resets it before the segment stage and writes it to
-# <image_id>__stages.json as post_run.segment_device_used, for pack runs only (docs/DESIGN_system_packs.md 3.10).
+# "cpu" when Cellpose had to retry on the CPU in this context (segment.backends.cellpose_backend sets it on that
+# path only, so its first call stays the old line, rule R3), else None. For pack runs only, process_image resets
+# it before the segment stage and writes post_run.segment_device_used to <image_id>__stages.json: this value
+# after a retry, else the device the Cellpose call was given (select_device), else None when Cellpose did not
+# make the labels (docs/DESIGN_system_packs.md 3.10).
 SEGMENT_DEVICE_USED: contextvars.ContextVar[str | None] = contextvars.ContextVar("germquant_segment_device_used",
                                                                                  default=None)
 

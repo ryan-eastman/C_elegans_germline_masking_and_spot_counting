@@ -18,6 +18,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     payload = PAYLOAD
     cut_first_at: int | None = None          # send this many bytes of the first full GET, then drop the connection
     ignore_range = False
+    range_from_zero = False                  # answer a Range request with 206 but the whole file (bytes 0-...)
     log: list = []
 
     def log_message(self, *a):                # quiet
@@ -29,7 +30,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         type(self).log.append((self.path, rng))
         start = 0
         if rng and not type(self).ignore_range:
-            start = int(rng.split("=", 1)[1].split("-", 1)[0])
+            start = 0 if type(self).range_from_zero else int(rng.split("=", 1)[1].split("-", 1)[0])
             self.send_response(206)
             self.send_header("Content-Range", f"bytes {start}-{len(data) - 1}/{len(data)}")
         else:
@@ -48,9 +49,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 
 @contextmanager
-def serve(payload=PAYLOAD, cut_first_at=None, ignore_range=False):
+def serve(payload=PAYLOAD, cut_first_at=None, ignore_range=False, range_from_zero=False):
     handler = type("H", (_Handler,), {"payload": payload, "cut_first_at": cut_first_at,
-                                      "ignore_range": ignore_range, "log": []})
+                                      "ignore_range": ignore_range, "range_from_zero": range_from_zero, "log": []})
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
@@ -97,3 +98,14 @@ def test_a_server_that_ignores_range_is_read_from_the_start(tmp_path):
     with serve(ignore_range=True) as (url, h):
         D.download(url, dest, size=len(PAYLOAD), sha256=SHA)
     assert dest.read_bytes() == PAYLOAD
+
+
+def test_a_206_that_starts_elsewhere_is_read_from_the_start(tmp_path):
+    """A server that answers the Range request with 206 but Content-Range bytes 0-...: appending would double
+    the first bytes, so the download starts again from byte 0 and the file comes out whole."""
+    dest = tmp_path / "blob"
+    D.part_path(dest).write_bytes(PAYLOAD[:1000])
+    with serve(range_from_zero=True) as (url, h):
+        D.download(url, dest, size=len(PAYLOAD), sha256=SHA)
+        assert h.log[-1] == ("/blob", "bytes=1000-")
+    assert dest.read_bytes() == PAYLOAD and not D.part_path(dest).exists()

@@ -1,12 +1,15 @@
 """`germquant pack install` and packs.vendor (docs/DESIGN_system_packs.md, sections 3.7 and 3.8).
 
 Install takes a folder or a zip and writes ``<packs root>/<id>/<version>/``. It refuses absolute paths, drive
-letters, ``..`` components and backslashes in archive names (zip-slip), symlinks, a missing or wrong
-SHA256SUMS (a listed file missing or changed, an unlisted file present), non-ASCII hashed files (the recipe
-and channel-map YAML under config/, decoded as cp1252 by the config hash, rule R9) and a collision with a
-built-in id and version (a built-in cannot be shadowed). An installed version is immutable: the same version
-with a different SHA256SUMS is refused unless --replace (pack developers only); the same content installed
-again is a no-op. Nothing from a pack is ever executed.
+letters, ``..`` components and backslashes in archive names (zip-slip), symlinks and Windows junctions, a
+pack that packs.validate_pack faults (the manifest, and tunables the recipe does not set), a missing or wrong
+SHA256SUMS (a listed file missing or changed, an unlisted file present), non-ASCII hashed files (every YAML
+file of the pack, and each recipe's extends chain and channel map inside the pack, which the config hash
+decodes as cp1252, rule R9) and a collision with a built-in id and version (a built-in cannot be shadowed).
+Junk (caches, compiled Python, .DS_Store, a zip's __MACOSX folder) is never copied. An installed version is
+immutable: the same version with a different SHA256SUMS is refused unless --replace (pack developers only);
+the same content installed again is a no-op once the installed copy still verifies. Nothing from a pack is
+ever executed.
 
 vendor copies one pack version through the same checks into a folder of the caller's choice (a project's
 packs/), so a project keeps the exact version it was made with when the engine moves on (section 3.8).
@@ -22,11 +25,24 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from .format import MANIFEST, Pack, PackFormatError, load_pack_folder, read_sums, skipped, sums_sha256, verify_sums
+from .format import (
+    MANIFEST,
+    SKIP_DIRS,
+    Pack,
+    PackFormatError,
+    is_link,
+    load_pack_folder,
+    pack_files,
+    read_sums,
+    skipped,
+    sums_sha256,
+    verify_sums,
+)
 
 log = logging.getLogger(__name__)
 
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
+_MACOS_FORK_DIR = "__MACOSX"           # resource forks a macOS zip adds next to the files
 
 
 class PackInstallError(ValueError):
@@ -53,8 +69,18 @@ def _is_symlink_entry(info: zipfile.ZipInfo) -> bool:
     return stat.S_ISLNK(mode)
 
 
+def _junk_entry(pp: PurePosixPath, is_dir: bool) -> bool:
+    """An archive entry that is never extracted: junk (format.skipped) or anything in a __MACOSX folder."""
+    if _MACOS_FORK_DIR in pp.parts:
+        return True
+    if is_dir:
+        return any(part in SKIP_DIRS for part in pp.parts)
+    return skipped(pp.parts)
+
+
 def extract_zip(src: Path, dest: Path) -> None:
-    """Extract a pack archive into ``dest`` after checking every entry name; refuses symlink entries."""
+    """Extract a pack archive into ``dest`` after checking every entry name; refuses symlink entries and leaves
+    junk (caches, compiled Python, .DS_Store, __MACOSX) behind, as a folder install does."""
     with zipfile.ZipFile(src) as zf:
         infos = zf.infolist()
         for info in infos:                       # check everything before writing anything
@@ -64,6 +90,8 @@ def extract_zip(src: Path, dest: Path) -> None:
         root = dest.resolve()
         for info in infos:
             pp = PurePosixPath(info.filename)
+            if _junk_entry(pp, info.is_dir()):
+                continue
             target = (dest / Path(*pp.parts)).resolve()
             if root != target and root not in target.parents:
                 raise PackInstallError(f"archive entry {info.filename!r} would land outside the pack folder")
@@ -76,16 +104,17 @@ def extract_zip(src: Path, dest: Path) -> None:
 
 
 def _copy_folder(src: Path, dest: Path) -> None:
-    """Copy a pack folder, refusing symlinks anywhere in it and leaving junk (caches, .DS_Store) behind."""
+    """Copy a pack folder, refusing symlinks and Windows junctions anywhere in it (format.is_link; os.walk
+    would walk into a junction) and leaving junk (caches, .DS_Store) behind."""
     for dirpath, dirnames, filenames in os.walk(src, followlinks=False):
         d = Path(dirpath)
         for name in list(dirnames):
-            if (d / name).is_symlink():
-                raise PackInstallError(f"{d / name}: a symlink; refused")
+            if is_link(d / name):
+                raise PackInstallError(f"{d / name}: a symlink or junction; refused")
         for name in filenames:
             f = d / name
-            if f.is_symlink():
-                raise PackInstallError(f"{f}: a symlink; refused")
+            if is_link(f):
+                raise PackInstallError(f"{f}: a symlink or junction; refused")
             rel = f.relative_to(src)
             if skipped(rel.parts):
                 continue
@@ -104,8 +133,32 @@ def _pack_folder_in(tree: Path) -> Path:
     raise PackInstallError(f"no {MANIFEST} at the top of the archive or folder")
 
 
+def _hashed_text_files(folder: Path, pack: Pack) -> list[Path]:
+    """The files of the pack that a config hash reads (rule R9): every .yaml or .yml file it ships, and each
+    loadable recipe's extends-chain files and channel map that lie inside the pack, whatever their suffix."""
+    from .discovery import recipe_profile_path
+    from .lint import _chain_files, _inside
+    from .validate import load_recipe_config
+
+    root = folder.resolve()
+    files = {(root / rel) for rel in pack_files(root) if PurePosixPath(rel).suffix.lower() in (".yaml", ".yml")}
+    for r in pack.recipes:
+        try:
+            chain = _chain_files(recipe_profile_path(pack, r))
+            cfg = load_recipe_config(pack, r)
+        except Exception:  # noqa: BLE001 - a recipe that does not load is pack status's and lint's to report
+            continue
+        cm = Path(str(cfg.get("io.channel_map")))
+        for f in [*chain, cm if cm.is_absolute() else cfg.base_dir / cm]:
+            if f.is_file() and _inside(f, root):
+                files.add(f.resolve())
+    return sorted(files)
+
+
 def check_installable(folder: Path) -> Pack:
     """The Pack in ``folder`` if it may be installed; PackInstallError otherwise."""
+    from .validate import validate_pack
+
     try:
         pack = load_pack_folder(folder, source="path")
     except PackFormatError as e:
@@ -119,13 +172,15 @@ def check_installable(folder: Path) -> Pack:
     bad = verify_sums(folder)
     if bad:
         raise PackInstallError("SHA256SUMS does not match: " + "; ".join(bad[:5]) + (" ..." if len(bad) > 5 else ""))
-    for p in sorted((folder / "config").rglob("*")) if (folder / "config").is_dir() else []:
-        if p.is_file() and p.suffix.lower() in (".yaml", ".yml"):
-            try:
-                p.read_bytes().decode("ascii")
-            except UnicodeDecodeError as e:
-                raise PackInstallError(f"{p.relative_to(folder).as_posix()}: byte {e.start} is not ASCII; hashed "
-                                       f"recipe files must be ASCII (rule R9)") from e
+    for p in _hashed_text_files(folder, pack):
+        try:
+            p.read_bytes().decode("ascii")
+        except UnicodeDecodeError as e:
+            raise PackInstallError(f"{p.relative_to(folder.resolve()).as_posix()}: byte {e.start} is not ASCII; "
+                                   f"hashed recipe files must be ASCII (rule R9)") from e
+    faults = validate_pack(pack)
+    if faults:
+        raise PackInstallError("the pack has faults: " + "; ".join(faults))
     return pack
 
 
@@ -145,8 +200,8 @@ def install_pack(src: str | Path, *, replace: bool = False, target: str | Path |
         tree = Path(tmp) / "src"
         tree.mkdir()
         if src.is_dir():
-            if src.is_symlink():
-                raise PackInstallError(f"{src}: a symlink; refused")
+            if is_link(src):
+                raise PackInstallError(f"{src}: a symlink or junction; refused")
             _copy_folder(src, tree)
         elif zipfile.is_zipfile(src):
             extract_zip(src, tree)
@@ -162,10 +217,15 @@ def install_pack(src: str | Path, *, replace: bool = False, target: str | Path |
         dest = root / pack.id / pack.version
         if dest.exists():
             same = sums_sha256(dest) is not None and sums_sha256(dest) == sums_sha256(folder)
-            if same and not verify_sums(dest):
+            damaged = verify_sums(dest) if same else []
+            if same and not damaged:
                 log.info("%s is already installed at %s", pack.ref, dest)
                 refresh()
                 return load_pack_folder(dest, source="installed")
+            if not replace and damaged:
+                raise PackInstallError(f"{pack.ref} is installed at {dest}, but that copy no longer matches its "
+                                       f"SHA256SUMS ({damaged[0]}); an installed version is immutable: pass --replace "
+                                       f"to install it again")
             if not replace:
                 raise PackInstallError(f"{pack.ref} is already installed at {dest} with other content; an installed "
                                        f"version is immutable (give the pack a new version, or pass --replace)")
