@@ -110,7 +110,8 @@ def parse_args(argv=None):
     ap.add_argument("--device", default="auto", help="--model and --cellpose-model: auto, cuda or cpu")
     ap.add_argument("--tile", default="96,384,384", help="--model: inference tile Z,Y,X")
     ap.add_argument("--min-volume-um3", type=float, default=4.0,
-                    help="--model: the size filter (segmentation.nuclei.min_volume_um3, 4.0 in config/config.yaml)")
+                    help="--model and --cellpose-model: the size filter (segmentation.nuclei.min_volume_um3, 4.0 in "
+                         "config/config.yaml)")
     ap.add_argument("--fg-threshold", type=float, default=None, help="--model: override the model's foreground threshold")
     ap.add_argument("--h-um", type=float, default=None, help="--model: override the model's h (um)")
     ap.add_argument("--neighbour-weight", type=float, default=None, help="--model: override the model's neighbour weight")

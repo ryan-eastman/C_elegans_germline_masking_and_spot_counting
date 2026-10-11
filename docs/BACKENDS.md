@@ -152,8 +152,9 @@ Keys under `segmentation.nuclei.nuclei3d`, all read with code defaults:
 | `neighbour_weight` | the model's own, else 1.0 | how far the neighbour closeness presses the distance map down at contacts (0: the distance map alone) |
 
 `segmentation.nuclei.cellpose_model` and `diameter_um` are not used by this backend (the pipeline still
-resolves and hashes the Cellpose model file, as for any backend, so it must exist or be a built-in name such
-as `cpsam`). Under `method: auto` a failure (no model key, a missing file) falls back to the classical
+resolves and hashes the Cellpose model key as for any backend: a missing file under a path records the
+digest `absent`, while a bare name must be a registered model or a Cellpose built-in such as `cpsam`).
+Under `method: auto` a failure (no model key, a missing file) falls back to the classical
 watershed and `segmentation_method` says `classical`; `method: cellpose` makes it an error. A run records
 `segmentation_method` `nuclei3d` and the model file's sha256 in the segment stage sub-hash and in
 `run_manifest.json` under `segment_backend`. The masks follow the convention of the Imaris surfaces the
