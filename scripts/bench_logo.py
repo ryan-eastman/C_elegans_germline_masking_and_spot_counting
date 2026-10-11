@@ -2,7 +2,8 @@
 docs/BENCHMARK.md, "Leave-one-gonad-out"). Train and val gonads only; a test gonad is never opened.
 
     python scripts/bench_logo.py folds
-    python scripts/bench_logo.py select --backend log|spotmax --runs DIR ... --out FILE
+    python scripts/bench_logo.py select --backend log|spotmax --runs DIR ... --out FILE [--search d3|prereg-grid]
+    python scripts/bench_logo.py grid-configs --out FILE
     python scripts/bench_logo.py heldout --detector NAME --backend B (--params JSON | --selection FILE)
         --out-root DIR [--tags TAG ...]
     python scripts/bench_logo.py net3d-fold --held-out TAG --recipe-from MODELDIR --models-root DIR
@@ -16,6 +17,19 @@ select       replays the D3 search of a tuned classical detector on every fold's
              (germquant.benchmark.logo.replay_log_search / replay_spotmax_search) from the bench_tune.py
              and bench_detector.py run folders given with --runs, and writes the selected parameter set of
              every fold, or the parameter sets and gonads still to be run (exit code 3).
+             --search prereg-grid (backend spotmax; --search d3, the D3 replay, is the default) applies the
+             rule of the pre-registered SpotMAX grid instead (protocol section 8 item 2, sections 6.1 and
+             6.4; germquant.benchmark.logo.replay_grid). On every fold and on the designated split (the
+             split's own train and val gonads), all 60 sets are ranked on the selection gonads by the
+             primary metric (the truth-mask CCC rounded to 3 decimals, then the spot F1 inside R, then the
+             grid's order) and the best is selected. The file has the layout of a D3 selection, which
+             heldout --selection reads, plus "search", "configs" (the grid), "designated" (the designated
+             split's selection) and "to_run" (the missing pairs merged by set). Exit code 3 as above; a
+             score without the truth-mask counts is missing too. Run folders that disagree, or a fold
+             without selection gonads, are refused (exit code 2).
+grid-configs writes the 60 sets of the pre-registered SpotMAX grid
+             (germquant.benchmark.logo.prereg_spotmax_grid) as a configuration file for
+             scripts/bench_tune.py --configs.
 heldout      scores the held-out gonad of every fold (or of --tags) with scripts/bench_detector.py
              --detector-only: one run, one trial record (with a "note" naming the fold) and one output folder
              <out-root>/<tag>/ per gonad. --params gives one parameter set for every fold (the deployed
@@ -83,6 +97,8 @@ def cmd_folds(args) -> int:
 
 
 def cmd_select(args) -> int:
+    if args.search == "prereg-grid":
+        return select_prereg_grid(args)
     idx = logo.index_runs(args.runs, backend=args.backend)
     replay = logo.replay_log_search if args.backend == "log" else logo.replay_spotmax_search
     folds = _folds(args)
@@ -103,6 +119,72 @@ def cmd_select(args) -> int:
     Path(args.out).write_text(json.dumps(jsonable(out), indent=1) + "\n", encoding="utf-8")
     print(f"-> {args.out}")
     return 0 if not missing else 3
+
+
+def select_prereg_grid(args) -> int:
+    """``select --search prereg-grid``: the rule of the pre-registered SpotMAX grid (protocol sections 6.1,
+    6.4 and 8 item 2) on every fold and on the designated split, written in the layout of the D3 replay.
+    Run folders that disagree, a fold without selection gonads, and a fold where no set has a finite
+    truth-mask CCC are refused (exit code 2); nothing is written then."""
+    if args.backend != "spotmax":
+        print("REFUSED: --search prereg-grid is the SpotMAX grid of protocol section 8 item 2 (--backend spotmax)")
+        return 2
+    configs = logo.prereg_spotmax_grid()
+    out = {"backend": args.backend, "search": args.search, "runs": [str(r) for r in args.runs],
+           "objective": logo.PRIMARY_OBJECTIVE_TEXT, "configs": configs, "folds": []}
+    missing = []
+
+    def replay(label: str, unit: dict) -> dict:
+        r = logo.replay_grid(idx, configs, unit["train"], unit["val"])
+        if r["complete"]:
+            ccc, f1 = r["val_objective"][r["selected"]]
+            print(f"{label}: val {unit['val']} -> selected {r['selected']} (val truth-mask CCC {ccc:.3f}, "
+                  f"F1 inside R {f1:.3f}; {r['n_sets']} sets)")
+        else:
+            print(f"{label}: val {unit['val']} -> incomplete: {len(r['missing'])} sets lack a score with the "
+                  "truth-mask counts on a val gonad")
+            missing.extend({**m, "fold": label, "stage": r["stage"]} for m in r["missing"])
+        return r
+
+    try:
+        folds = _folds(args)
+        idx = logo.index_runs(args.runs, backend="spotmax", truth_masks=True)
+        for f in folds:
+            out["folds"].append({**f, **replay(f["held_out"], f)})
+        designated = logo.designated_split(folds)
+        out["designated"] = {**designated, **replay("designated", designated)}
+    except ValueError as err:
+        print(f"REFUSED: {err}")
+        return 2
+    out["complete"] = not missing
+    out["missing"] = missing
+    to_run: dict[str, set] = {}
+    for m in missing:
+        to_run.setdefault(m["name"], set()).update(m["tags"])
+    out["to_run"] = [{"name": c["name"], "params": c["params"], "tags": sorted(to_run[c["name"]])}
+                     for c in configs if c["name"] in to_run]
+    if out["to_run"]:
+        per_tag: dict[str, int] = {}
+        for m in out["to_run"]:
+            for t in m["tags"]:
+                per_tag[t] = per_tag.get(t, 0) + 1
+        print("still to run: " + ", ".join(f"{t} ({n} sets)" for t, n in sorted(per_tag.items())))
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out).write_text(json.dumps(jsonable(out), indent=1) + "\n", encoding="utf-8")
+    print(f"-> {args.out}")
+    return 0 if not missing else 3
+
+
+def cmd_grid_configs(args) -> int:
+    configs = logo.prereg_spotmax_grid()
+    doc = {"backend": "spotmax", "search": logo.PREREG_SPOTMAX_SEARCH,
+           "source": "germquant.benchmark.logo.prereg_spotmax_grid, docs/BENCHMARK_PROTOCOL.md section 8 item 2",
+           "configs": configs}
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
+    print(f"{len(configs)} parameter sets of the pre-registered SpotMAX grid -> {out}")
+    return 0
 
 
 def _common_bench_args(args) -> list[str]:
@@ -289,6 +371,11 @@ def parse_args(argv=None):
     s.add_argument("--backend", required=True, choices=["log", "spotmax"])
     s.add_argument("--runs", nargs="+", required=True, help="bench_tune.py / bench_detector.py output folders")
     s.add_argument("--out", required=True)
+    s.add_argument("--search", default="d3", choices=["d3", "prereg-grid"],
+                   help="d3: replay the D3 search (default); prereg-grid: the pre-registered SpotMAX grid "
+                        "(protocol section 8 item 2)")
+    g = sub.add_parser("grid-configs")
+    g.add_argument("--out", required=True, help="JSON file for scripts/bench_tune.py --configs")
     h = sub.add_parser("heldout")
     h.add_argument("--detector", required=True, help="a name for the detector (the report's row label)")
     h.add_argument("--backend", required=True)
@@ -330,8 +417,8 @@ def parse_args(argv=None):
 def main(argv=None) -> int:
     args = parse_args(argv)
     os.environ.setdefault("TQDM_DISABLE", "1")
-    return {"folds": cmd_folds, "select": cmd_select, "heldout": cmd_heldout, "net3d-fold": cmd_net3d_fold,
-            "net3d-folds": cmd_net3d_folds, "report": cmd_report}[args.cmd](args)
+    return {"folds": cmd_folds, "select": cmd_select, "grid-configs": cmd_grid_configs, "heldout": cmd_heldout,
+            "net3d-fold": cmd_net3d_fold, "net3d-folds": cmd_net3d_folds, "report": cmd_report}[args.cmd](args)
 
 
 if __name__ == "__main__":

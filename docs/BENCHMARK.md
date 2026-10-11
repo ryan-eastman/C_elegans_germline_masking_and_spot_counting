@@ -1481,6 +1481,81 @@ usable spot truth outside the test set is one of its training gonads.
   the geometric assignment against the lab's mask-channel assignment agrees on 99.35 to 99.99 percent of the
   spots of the eight train and val gonads (see "Leave-one-gonad-out", truth check).
 
+### The pre-registered SpotMAX grid (code only, not run)
+
+Decision 2 of `docs/FINAL_SCORING.md` offers the grid of protocol section 8 item 2 in place of the D3 search as
+the re-tuned SpotMAX competitor. The code for it is in place. None of it has been run, so there are no results.
+
+`germquant.benchmark.logo.prereg_spotmax_grid` lists the 60 sets in the protocol's order: `thresholding_method`
+(otsu, li, triangle, yen), then `effect_size_min` (2.0 to 4.0 in steps of 0.5), then `z_merge_gap_um` (0.6, 0.8,
+1.0). A set changes only those three keys. Every other `spots:` key keeps the golden run's value, so
+`pg_tri_e3.0_z0.8` is the deployed recipe.
+
+The rule is that of sections 6.1 and 6.4. Every set is scored on the selection gonads, and the best on the
+primary metric is selected. There is no train stage, so every set is a finalist. There is no early stop either:
+all 60 sets are ranked. `primary_objective_on` is the primary metric, pooled as `bench_detector.py` pools it. It
+is the truth-mask CCC of section 5.1 (Class A+B truth, end-to-end counts; the `per_nucleus_truth_masks` block)
+over the pooled nuclei of the selection gonads, rounded to three decimals. Ties go to the spot F1 inside R of
+section 5.2 (`spots_truth_masks`), then to the grid's order. A NaN value ranks last.
+
+`select_grid` ranks the sets and lists the (set, gonad) pairs still to run. A pair is still to run when it has
+no score, or when its run folder lacks the truth-mask counts (per_truth_nucleus.csv or the `tm_spots_`
+columns). So a set is never passed over only because a folder lacks them. `replay_grid` applies the rule to one
+fold's selection gonads (its val gonads from `logo_folds`). The run index reads the truth-mask counts only when
+it is built with `index_runs(..., truth_masks=True)`. The D3 replay therefore reads and returns exactly what it
+did before.
+
+`bench_logo.py grid-configs` writes the 60 sets as a `bench_tune.py --configs` file. `bench_logo.py select
+--backend spotmax --search prereg-grid` applies the rule on every fold and on the designated split, from the run
+folders given with `--runs`. The designated split is the split's own train and val gonads with usable spot
+truth (`designated_split`). The selection file has the layout of the D3 selection files, plus `search`, the grid
+(`configs`), the designated split's selection (`designated`) and the missing pairs merged by set (`to_run`).
+`heldout --selection` reads it as it reads a D3 selection. While any pair is missing, `select` exits with
+code 3. Run folders that disagree, or a fold without selection gonads, are refused with code 2.
+
+On each gonad SpotMAX runs once per method and z gap: 12 runs, since the five effect sizes share one
+detection. The train scores do not enter the designated split's choice. The folds use those of two train
+gonads: in the two folds that hold out a val gonad, n2rad51_HS_herm_000 or n2rad51_noHS_herm_000 takes that
+gonad's place. `select` run on the val folder alone lists exactly these two under `to_run`.
+n2rad51_noHS_male_000 and n2rad51_noHS_male_001 are never a selection gonad, so the planned train run scores
+them for the record only. Adding `--tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000` to that run would save 24
+of the plan's 72 SpotMAX runs and change no selection. A SpotMAX worker peaks at 10.4 to 12.1 GB of working set
+(see `scripts/bench_detector.py` above), and the workstation has 63 GB. The commands therefore use two workers,
+as the D3 SpotMAX stages did (E1 used one). Raise `--jobs` only when the free memory allows about 12 GB per
+worker; it changes no score.
+
+**What is known before the run.** Nine grid sets are the same SpotMAX configuration as D3 S1 sets: methods otsu,
+li and triangle at effect sizes 2.0, 3.0 and 4.0 with z gap 0.8 (for example `pg_otsu_e4.0_z0.8` and
+`smS1_otsu_r0.3_g0.08_e4`). Their effective `spots:` sections are identical (`detector.effective_section`), but
+they are recorded under another `params_sha256` because the keys differ. E1 scored every D3 set on the two val
+gonads under the primary partition. The detection and scoring code have not changed since then, apart from the
+new inside-R columns. So the nine sets check the run: their val truth-mask CCC should equal E1's
+(`logo_e1/val_scoring/spotmax/summary.csv`). One of them, otsu at effect size 4.0, reached 0.822 there, and the
+deployed recipe, also one of the nine, reached 0.556 (decision 2 of `docs/FINAL_SCORING.md`). If the run
+reproduces E1, the designated grid choice therefore has a val truth-mask CCC of at least 0.822.
+
+**How the code reads section 6.1.** Section 6.1 says that parameter-only competitors are tuned on train plus
+val by the grid rule of 6.4. Here every set gets a val score (6.4), and the set with the best val score is
+frozen. Train scores are used only where a train gonad takes a held-out val gonad's place in a fold.
+
+The planned run, with `$G = "C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/prereg_grid"` and `$L`
+the `logo_e1` folder:
+
+```powershell
+python scripts/bench_logo.py grid-configs --out $G/configs.json
+python scripts/bench_tune.py --backend spotmax --configs $G/configs.json --split val --search prereg_spotmax_grid `
+    --stage val --budget 60 --jobs 2 --chunks 4 --out-root $G/val
+python scripts/bench_tune.py --backend spotmax --configs $G/configs.json --split train --search prereg_spotmax_grid `
+    --stage train --budget 60 --jobs 2 --chunks 4 --out-root $G/train
+python scripts/bench_logo.py select --backend spotmax --search prereg-grid --runs $G/val $G/train `
+    --out $G/selection.json
+python scripts/bench_logo.py heldout --detector spotmax_grid --backend spotmax --selection $G/selection.json `
+    --out-root $G/logo/heldout/spotmax_grid
+python scripts/bench_logo.py report --heldout net3d=$L/heldout/net3d log_tuned=$L/heldout/log_tuned `
+    log_defaults=$L/heldout/log_defaults spotmax_retuned=$L/heldout/spotmax_retuned `
+    spotmax_deployed=$L/heldout/spotmax_deployed spotmax_grid=$G/logo/heldout/spotmax_grid --out $G/logo/report
+```
+
 ## nuclei3d
 
 `germquant.segment.nuclei3d` is an EXPERIMENTAL in-house 3D nucleus segmentation model, phase 2 of
@@ -1852,7 +1927,17 @@ D3 stage generators, the staged replay on a synthetic score index (stage by stag
 selection following val among the finalists), the index refusing two disagreeing scores of one gonad, and
 `bench_logo.py folds`, `heldout` and `report` end to end on the planted gonads (one trial record per held-out
 gonad with its fold, the pooled truth-mask CCC equal to the concatenated tables, the paired difference, `report
---tags` from one folder or per-gonad folders).
+--tags` from one folder or per-gonad folders). The pre-registered SpotMAX grid: its 60 sets, their order and
+names, the deployed recipe among them and only `spots:` keys changed; the primary objective equal to the point
+estimates `detector.pool_scores` gives over the same gonads (a gonad without truth nuclei or with NaN counts
+inside R included) and to `bench_tune.py`'s own pooling of the folders it writes (log backend); the truth-mask
+counts in the run index (read only on request, refused when two runs disagree); the grid rule (the rounding, the
+F1 and order tie-breaks, NaN values last, no selection while a pair is missing or lacks the truth-mask counts, no
+test gonad); each fold's own selection gonads on the real split; and `grid-configs` and `select --search
+prereg-grid` end to end (a file `bench_tune.py` accepts, exit code 3 while pairs are missing, a selection that
+`heldout --selection` reads, the D3 replay unchanged). On the real split's folds, `to_run` merges the two
+substitutes of the val folds, the substitutes alone complete the selection, and disagreeing folders or a split
+without val gonads are refused with exit code 2.
 
 `tests/test_net3d_recipe.py`: the frozen recipe. Retraining by `--recipe-from` on the selected model's own
 gonads gives the selected checkpoint bit for bit with the same learning rates, the card and the log record the
