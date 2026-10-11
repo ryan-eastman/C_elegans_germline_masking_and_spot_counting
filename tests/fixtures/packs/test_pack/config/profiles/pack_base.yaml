@@ -1,0 +1,86 @@
+audit:
+  enabled: false
+axis:
+  enabled: false
+  qc_confidence_min: 0.35
+coloc:
+  costes: false
+  enabled: false
+  n_random: 100
+  object_overlap_min_frac: 0.0
+  region: perinuclear_shell
+  region_dilation_um: 1.0
+  sc_operand: both
+  use_lamin_shell: true
+envelope:
+  enabled: false
+germline:
+  enabled: false
+  link_radius_um: 12.0
+  method: syp_seeded_cc
+  min_seed_frac: 0.1
+  size_frac: 0.1
+  syp_percentile: 25
+granule:
+  enabled: false
+  gauss_sigma_um: 0.1
+  max_volume_um3: 8.0
+  min_volume_um3: 0.03
+  thresholding_method: threshold_triangle
+granule_tail:
+  enabled: false
+io:
+  channel_map: config/channel_maps/test_dna_foci.yaml
+  exclude_patterns: []
+  input_glob: '**/*.nd2'
+metadata:
+  defaults:
+    genotype: unknown
+    replicate: NA
+    sex: unknown
+    treatment: unknown
+  filename_regex: (?!x)x
+output:
+  formats:
+  - csv
+  - parquet
+  write_label_images: true
+  write_spots_image: true
+partition:
+  enabled: false
+qc:
+  germline_outlier_factor: 1000000000.0
+  min_nuclei: 1
+render:
+  montage: true
+  scalebar_um: 10
+sc:
+  enabled: true
+  ridge_hyst_high_pct: 80
+  ridge_hyst_low_pct: 45
+  ridge_sigmas_um:
+  - 0.15
+  - 0.25
+  - 0.4
+  trace:
+    enabled: false
+segmentation:
+  nuclei:
+    cellpose_model: cpsam
+    channel: dna
+    diameter_um: 3.0
+    method: auto
+    min_volume_um3: 4.0
+spots:
+  effect_size_metric: spot_vs_backgr_effect_size_glass
+  effect_size_min: 3.0
+  enabled: true
+  gauss_sigma_um: 0.08
+  max_spot_candidates: 30000
+  merge_z_columns: true
+  spot_radius_um: 0.3
+  thresholding_method: threshold_triangle
+  z_merge_gap_um: 0.8
+  z_merge_valley_frac: 0.8
+staging:
+  enabled: false

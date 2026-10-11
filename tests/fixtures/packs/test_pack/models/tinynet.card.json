@@ -1,0 +1,15 @@
+{
+ "name": "tinynet",
+ "what": "A stand-in for a Cellpose model in the test pack: 64 bytes of ASCII text, not weights. It lets pack status, fetch-models and the pin check run without a real model. The bytes are stand_in_content followed by one line feed.",
+ "kind": "cellpose",
+ "dims": "3d",
+ "pixel_um": 0.2,
+ "object_kind": "nucleus",
+ "model_file": "tinynet",
+ "model_sha256": "f5055f8a6946f334fd56be6114357cd425374bed9f367e4b90f8553538b195c8",
+ "model_size": 64,
+ "base_model": {"name": "none", "kind": "stand_in", "path": null, "sha256": null},
+ "source_url": null,
+ "stand_in_content": "germquant test pack: tinynet stand-in weights, not a real model",
+ "licence_note": "MIT; a text stand-in. Real Cellpose-derived cards state that the Cellpose training data include CC BY-NC sets."
+}

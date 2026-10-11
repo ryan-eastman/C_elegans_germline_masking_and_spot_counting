@@ -20,12 +20,26 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 log = logging.getLogger(__name__)
+
+# A pack model name: <name>@<first 8 hex of its sha256> (docs/DESIGN_system_packs.md, section 3.5). The form is
+# reserved for packs: register_local_model refuses it, and a value of this form resolves only to weights whose
+# sha256 starts with the suffix and equals the pack spec's digest (check_model_pin).
+PACK_MODEL_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]{0,63})@([0-9a-f]{8})$")
+
+
+class ModelPinError(RuntimeError):
+    """A ``<name>@<8 hex>`` model value resolved to weights with another digest than its pin."""
+
+
+def is_pack_model_name(name) -> bool:
+    return isinstance(name, str) and PACK_MODEL_RE.fullmatch(name.strip()) is not None
 
 REPO = "ryan-eastman/C_elegans_germline_masking_and_spot_counting"
 
@@ -123,6 +137,9 @@ def register_local_model(model: str | Path, card: str | Path | None = None, name
     name = str(name or card_data.get("name") or model_path.name).strip()
     if not name or any(ch in name for ch in "/\\") or name in (".", ".."):
         raise ValueError(f"model name {name!r} must be a bare name (no path separators)")
+    if "@" in name:
+        raise ValueError(f"{name!r}: names of the form <name>@<8 hex> are reserved for pack models "
+                         f"(docs/PACKS.md); pick a name without '@'")
     if name in MODELS:
         raise ValueError(f"{name!r} is a release model; pick another name for a local model")
     if name.lower() in CELLPOSE_BUILTIN_NAMES:
@@ -176,6 +193,118 @@ def resolve_registered(name: str, base_dir: str | Path | None = None) -> Path | 
         if p.is_file():
             return p
     return None
+
+
+# ---- pack models, the pin check and model cards (docs/DESIGN_system_packs.md, sections 3.5 and 3.6) --------------
+
+def check_model_pin(name: str, sha256: str, *, spec_sha256: str | None = None) -> None:
+    """Refuse weights that a ``<name>@<8 hex>`` value does not pin: their sha256 must start with the suffix
+    and equal the digest of the installed pack's model spec (``spec_sha256``, else looked up in the installed
+    packs; when no installed pack declares the name, only the suffix is checked). Any other name passes. A
+    local registry entry is checked like any other file, so a wrong local entry is caught here (pack status
+    never looks at the local registry). Raises ModelPinError."""
+    m = PACK_MODEL_RE.fullmatch(str(name).strip())
+    if not m:
+        return
+    got = str(sha256 or "").lower()
+    if not got.startswith(m.group(2)):
+        raise ModelPinError(f"model {name!r} resolved to weights with sha256 {got[:12] or 'absent'}..., which does "
+                            f"not start with its pin {m.group(2)}: the file is not the pinned model (check the "
+                            f"local model registry and $GERMQUANT_MODELS; `germquant pack fetch-models` fetches "
+                            f"the pinned weights)")
+    if spec_sha256 is None:
+        from .packs.blobs import find_model_spec       # lazy: packs imports this module
+
+        found = find_model_spec(name)
+        spec_sha256 = found[1].sha256 if found else None
+    if spec_sha256 and got != str(spec_sha256).lower():
+        raise ModelPinError(f"model {name!r} resolved to weights with sha256 {got[:12]}..., but the pack spec pins "
+                            f"{str(spec_sha256)[:12]}...: the file is not the pinned model")
+
+
+def resolve_model_name(name: str, expect_sha256: str | None = None, base_dir: str | Path | None = None) -> Path:
+    """The file a model NAME resolves to: the public helper a third-party backend calls for its own model key
+    (docs/BACKENDS.md). A registered local or release model with its file on disk (resolve_registered), else a
+    pack model ``<name>@<8 hex>``, which resolves to the verified blob of an installed pack's model spec. A pack
+    name is always pin-checked (check_model_pin), and with ``expect_sha256`` the file's sha256 must equal it.
+    FileNotFoundError when nothing resolves (a declared pack model whose blob is missing names
+    ``germquant pack fetch-models <pack>``); ModelPinError or ValueError on a digest mismatch."""
+    key = str(name).strip()
+    path = resolve_registered(key, base_dir)
+    if path is None and is_pack_model_name(key):
+        from .packs.blobs import resolve_pack_model
+
+        path = resolve_pack_model(key)
+    if path is None:
+        raise FileNotFoundError(f"model {key!r} is not a registered model with its file on disk "
+                                f"({local_registry_path(base_dir)}) and not a pack model <name>@<8 hex>")
+    sha = None
+    if is_pack_model_name(key):
+        from .provenance import file_sha256
+
+        sha = file_sha256(path)
+        check_model_pin(key, sha)
+    if expect_sha256:
+        if sha is None:
+            from .provenance import file_sha256
+
+            sha = file_sha256(path)
+        if sha != str(expect_sha256).lower():
+            raise ValueError(f"model {key!r} at {path} has sha256 {sha[:12]}..., expected {str(expect_sha256)[:12]}...")
+    return Path(path)
+
+
+CARD_NON_PORTABLE = ("model_file", "base_model.path")
+
+
+def _is_machine_path(value) -> bool:
+    """An absolute path of any platform (C:/..., \\\\server\\share, /home/...), which a published card must not hold."""
+    if not isinstance(value, str) or not value.strip():
+        return False
+    v = value.strip()
+    return PureWindowsPath(v).is_absolute() or v.startswith(("\\\\", "//")) or (
+        PurePosixPath(v).is_absolute() and "://" not in v)
+
+
+def validate_card(card, spec: dict | None = None, *, pack_written: bool = False) -> dict:
+    """Check a model card against its spec, using the keys ``germquant train-nuclei`` actually writes
+    (segment/training.py: name, model_file, model_sha256, model_size, base_model, ...), so every card written
+    today passes. ``size`` is accepted for ``model_size`` only in a pack-written card (``pack_written``).
+    ``spec`` is a pack model spec (name, sha256, size): the card must carry the same digest and size, and a
+    name that is the spec's name or its part before ``@``. ``model_file`` and ``base_model.path`` hold
+    absolute machine paths in a train_nuclei card: they are reported in ``non_portable`` (pack derive rewrites
+    them), not as problems. Returns ``{"ok", "problems", "non_portable"}``."""
+    if not isinstance(card, dict):
+        return {"ok": False, "problems": ["the card is not a JSON object"], "non_portable": []}
+    problems: list[str] = []
+    name = str(card.get("name") or "").strip()
+    if not name:
+        problems.append("no name")
+    sha = str(card.get("model_sha256") or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", sha):
+        problems.append("model_sha256 is not a 64-hex sha256")
+    size = card.get("model_size")
+    if size is None and pack_written:
+        size = card.get("size")
+    if size is None:
+        problems.append("no model_size" + (" (or size)" if pack_written else ""))
+    elif isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+        problems.append(f"model_size {size!r} is not a positive integer")
+    if spec:
+        spec_name = str(spec.get("name", ""))
+        if name and name not in (spec_name, spec_name.split("@")[0]):
+            problems.append(f"the card names {name!r}, the spec {spec_name!r}")
+        if spec.get("sha256") and sha != str(spec["sha256"]).lower():
+            problems.append(f"the card's model_sha256 {sha[:12]}... differs from the spec's {str(spec['sha256'])[:12]}...")
+        if spec.get("size") is not None and size is not None and size != spec.get("size"):
+            problems.append(f"the card's model_size {size} differs from the spec's {spec.get('size')}")
+    non_portable = []
+    if _is_machine_path(card.get("model_file")):
+        non_portable.append("model_file")
+    base = card.get("base_model")
+    if isinstance(base, dict) and _is_machine_path(base.get("path")):
+        non_portable.append("base_model.path")
+    return {"ok": not problems, "problems": problems, "non_portable": non_portable}
 
 
 def get_model(name: str = "germline_nuclei_combined", base_dir: str | Path | None = None, *, force: bool = False,

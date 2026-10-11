@@ -53,19 +53,25 @@ class UnknownBackendError(LookupError):
 def cellpose_backend(dna, spacing, *, model, diameter_um, device, cfg_section) -> np.ndarray:
     """The Cellpose-SAM path: ``nuclei._cellpose`` with the explicit device from ``germquant.device``
     (honours ``$GERMQUANT_DEVICE``) and one retry on the CPU when the accelerator fails (out of memory,
-    an operator Metal cannot run). ``cfg_section`` is unused: every Cellpose knob is an argument."""
-    from ..device import select_device
+    an operator Metal cannot run). ``cfg_section`` is unused: every Cellpose knob is an argument. The
+    device Cellpose finally ran on goes to ``germquant.device.SEGMENT_DEVICE_USED`` (a record only; the
+    calls are unchanged)."""
+    from ..device import record_segment_device, select_device
     from . import nuclei  # looked up at call time, so a test can monkeypatch nuclei._cellpose
 
     _ = cfg_section
     try:
-        return nuclei._cellpose(dna, spacing, model, diameter_um, device_pref=device)
+        labels = nuclei._cellpose(dna, spacing, model, diameter_um, device_pref=device)
     except Exception as e:  # accelerator trouble: the same model on the CPU first
         if select_device(device) == "cpu":
             raise
         log.warning("Cellpose failed on %s (%s: %s); retrying on the CPU.", select_device(device),
                     type(e).__name__, e)
-        return nuclei._cellpose(dna, spacing, model, diameter_um, device_pref="cpu")
+        labels = nuclei._cellpose(dna, spacing, model, diameter_um, device_pref="cpu")
+        record_segment_device("cpu")
+        return labels
+    record_segment_device(select_device(device, quiet=True))
+    return labels
 
 
 def classical_backend(dna, spacing, *, model, diameter_um, device, cfg_section) -> np.ndarray:
@@ -153,6 +159,20 @@ def list_backends() -> list[str]:
     """Sorted names of every available backend (built-ins, registered, installed entry points)."""
     discover_entry_points()
     return sorted(_REGISTRY)
+
+
+def declared_backend_names() -> list[str]:
+    """Sorted names of every backend this environment declares, WITHOUT loading any: the built-ins, the
+    ones registered in this process and the entry-point names read from the installed packages' metadata
+    (importlib.metadata; no module is imported, so nothing pulls in torch or CuPy). pack status checks a
+    pack's needed backends with it (docs/DESIGN_system_packs.md, section 5.1). A declared entry point may
+    still fail to load when it is used; get_backend reports that."""
+    names = set(_REGISTRY)
+    try:
+        names |= {str(ep.name).strip() for ep in _iter_entry_points()}
+    except Exception as e:  # noqa: BLE001 - a damaged installation must not stop a listing
+        log.warning("could not read the %r entry points (%s: %s)", ENTRY_POINT_GROUP, type(e).__name__, e)
+    return sorted(n for n in names if n)
 
 
 def backend_provenance(name: str | None, cfg_section: dict | None) -> dict:

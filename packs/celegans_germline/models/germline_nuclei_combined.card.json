@@ -1,0 +1,47 @@
+{
+ "name": "germline_nuclei_combined",
+ "what": "Cellpose-SAM fine-tuned on real hand-labelled germline nuclei plus synthetic nuclei (June 2026): the recommended nucleus model, used by every validated run. Runs at native scale (diameter is ignored for cpsam-derived models).",
+ "kind": "release",
+ "dims": "3d",
+ "pixel_um": null,
+ "pixel_um_note": "not recorded in the release record",
+ "object_kind": "nucleus",
+ "model_file": "germline_nuclei_combined",
+ "model_sha256": "e4e32320cfc321a145ccbc0c52138eded50e37b87130f34bae2296c88b148f57",
+ "model_size": 1218646375,
+ "date": "2026-06-13",
+ "release_tag": "model-germline_nuclei_combined-v1",
+ "source_url": "https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting/releases/download/model-germline_nuclei_combined-v1/germline_nuclei_combined",
+ "training": {
+  "script": "scripts/train_nucleus_model_combined.py",
+  "data": "48 real hand-labelled germline nucleus slices (data/train_kohler) plus about 49 synthetic slices (every 4th of 198, data/train_nuclei), about 1:1",
+  "holdout": "real held-out slices (data/train_kohler/test)",
+  "epochs": 150,
+  "learning_rate": 1e-05,
+  "weight_decay": 0.1,
+  "batch_size": 8,
+  "network": "CellposeModel(gpu=True).net: Cellpose's default network and weights at training time"
+ },
+ "holdout_metrics": {
+  "f1_iou50_real_heldout": 0.98,
+  "stock_cpsam_f1_iou50_real_heldout": 0.87,
+  "source": "config/config.yaml (segmentation.nuclei comment) and docs; not recomputed for this card"
+ },
+ "base_model": {
+  "name": "not determined",
+  "kind": "cellpose_builtin",
+  "path": null,
+  "sha256": null,
+  "candidates": {
+   "cpsam_v2": {"sha256": "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667", "size": 1233586851},
+   "cpsam": {"size": 1233587898}
+  },
+  "date_evidence": "File dates point to cpsam_v2: it was cached on 2026-06-12, the model is dated 2026-06-13, the training script builds CellposeModel(gpu=True), whose default in Cellpose 4.2.x is cpsam_v2, and the cpsam (v1) cache file dates from 2026-09-24. Dates do not prove the base.",
+  "comparison": {
+   "method": "tensor-by-tensor comparison of the fine-tuned state dict with each candidate base state dict (germquant.packs.basecheck): bit-identical tensors and the relative L2 distance ||model - base|| / ||base|| over the tensors the two share with the same shape; the closest base is named only when it covers at least 90% of the model's tensors and the next base is at least 2 times farther",
+   "result": "pending",
+   "how": "python scripts/compare_base_weights.py --write (on the workstation, CPU only; it writes the result here and rebuilds SHA256SUMS)"
+  }
+ },
+ "licence_note": "Cellpose-SAM weights are BSD-3-Clause; Cellpose's own training data is distributed under a non-commercial (CC BY-NC) licence, so a model fine-tuned from cpsam inherits that question for commercial use (README, License)."
+}

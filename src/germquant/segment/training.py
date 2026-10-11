@@ -409,8 +409,15 @@ def _resolve_base(base: str) -> dict:
     p = Path(b)
     if p.is_file():
         return {"name": b, "kind": "file", "path": str(p.resolve()), "sha256": _sha256(p)}
-    from ..models_registry import CELLPOSE_BUILTIN_NAMES, known_models
+    from ..models_registry import CELLPOSE_BUILTIN_NAMES, is_pack_model_name, known_models
 
+    if is_pack_model_name(b):
+        # a pinned pack model (cpsam_v2@0f1cc3f7): the verified blob of an installed pack's model spec, checked
+        # against its pin (docs/DESIGN_system_packs.md, section 3.5); only reached where the lines below raise
+        from ..models_registry import resolve_model_name
+
+        path = resolve_model_name(b)
+        return {"name": b, "kind": "pack", "path": str(path), "sha256": _sha256(path)}
     if b in known_models():
         raise FileNotFoundError(f"--base {b!r} is a registered model but its file is missing; fetch or register it first")
     if b.lower() not in CELLPOSE_BUILTIN_NAMES:

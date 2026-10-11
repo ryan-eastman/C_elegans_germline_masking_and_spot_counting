@@ -1,0 +1,11 @@
+spot_id,nucleus_id,marker,z_um,y_um,x_um,effect_size,spot_mean_intensity,detector,image_id,genotype,sex,germ_cell,treatment,replicate,acquisition_date,voxel_dz_um,voxel_dy_um,voxel_dx_um,n_channels,dapi_present,channel_map_json
+0,1,foci,3.0,2.999848782700741,3.0003024345985185,39.20944546557323,1383.6,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"
+1,1,foci,3.0,4.200090922867101,4.399878769510532,38.43925249371995,1380.8,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"
+2,2,foci,3.0,3.0000286286859437,9.400229029487546,39.08018849201179,1458.2,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"
+3,2,foci,3.0,4.199571673329526,10.799885779554542,40.676275682719,1461.8,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"
+4,3,foci,3.0,3.4003249830737987,15.399675016926203,39.01114570349631,1538.0,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"
+5,3,foci,3.0,4.599918896999189,16.800054068667208,39.04259738166191,1541.6,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"
+6,4,foci,3.0,8.600410730329868,5.400025670645618,39.62210350566465,1619.2,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"
+7,4,foci,3.0,9.8,6.79948671885025,38.30951997650336,1620.6,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"
+8,5,foci,3.0,8.600024390243902,12.60019512195122,38.781030941801916,1702.0,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"
+9,5,foci,3.0,9.800220318237455,14.000122399020809,39.253552830263644,1696.0,log,test_pack_synthetic,unknown,unknown,unknown,unknown,,,0.5,0.2,0.2,2,True,"{""dna"": 0, ""foci"": 1}"

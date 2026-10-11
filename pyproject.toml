@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "germquant"
-version = "0.1.0"
+version = "0.2.0.dev0"
 description = "Reproducible 3D quantification of the C. elegans meiotic germline from confocal .nd2 z-stacks"
 readme = "README.md"
 # 3.11 is the floor the pinned envs (pixi.toml, environment.yml) target; the code uses
@@ -23,6 +23,7 @@ dependencies = [
   "matplotlib>=3.7",
   "dask>=2023.1",
   "tifffile>=2023.7",
+  "packaging>=21",        # system packs: the engine range in pack.yaml (requires.germquant)
 ]
 
 [project.optional-dependencies]
