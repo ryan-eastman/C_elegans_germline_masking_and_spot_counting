@@ -7,7 +7,8 @@
   germquant register results/SERIES --mode piecewise [--segments 4] [--margin-um 6] [--taper 0.25]
   germquant batch /nas/folder --config config/config.yaml --out /nas/folder_results
   germquant run   STACK.nd2 --pack celegans_germline [--recipe rad51_foci] --out results/   (a system pack)
-  germquant pack  list | show | check | fetch-models | install | verify | build-sums | lint | golden
+  germquant pack  list | show | check | fetch-models | fetch-example | install | verify | build-sums | lint | golden
+  germquant assemble --channels A.tif B.tif --names Bright Cy3 --spacing DZ DY DX --out X.ome.tif
   germquant --version
 
 System packs (docs/PACKS.md) bundle the recipes and pinned models for one kind of sample; `--pack ID[@VER]`
@@ -395,9 +396,10 @@ def main(argv: list[str] | None = None) -> int:
     prm.add_argument("--name", help="registry name (default: the card's name, else the file name)")
 
     _add_track_parsers(sub)
-    from . import cli_packs
+    from . import cli_assemble, cli_packs
 
     cli_packs.add_parsers(sub)                     # germquant pack ... (docs/PACKS.md)
+    cli_assemble.add_parsers(sub)                  # germquant assemble (one TIFF per channel -> one OME-TIFF)
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
@@ -405,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
 
     return {
         "pack": lambda: cli_packs.dispatch(args),
+        "assemble": lambda: cli_assemble.dispatch(args),
         "info": lambda: _info(args.nd2),
         "run": lambda: _run(args),
         "batch": lambda: _batch(args),

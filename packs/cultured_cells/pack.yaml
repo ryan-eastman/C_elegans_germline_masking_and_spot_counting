@@ -1,0 +1,97 @@
+# The cultured cells pack (docs/PACKS.md; docs/DESIGN_system_packs.md, section 3.12). Version 0.1.0 is
+# provisional: its settings are starting values, not yet tuned, and no recipe is validated (README.md says what
+# that means). The recipes extend the pack's own frozen pack_base.yaml, never config/config.yaml, so a change to
+# the engine's config files never moves this pack's config hashes.
+format: 1
+id: cultured_cells
+version: 0.1.0
+title: "Cultured cells: nuclei and DNA repair foci"
+summary: "Nuclei from the DNA stain, gamma-H2AX and 53BP1 foci counted per nucleus in 3D."
+system: {organism: "human and other mammalian cell lines and primary cultures", sample: "fixed cells, immunofluorescence", imaging: "confocal or widefield z-stacks"}
+object_kind: nucleus
+maintainer: "Cahoon lab"
+licence: MIT
+citation: {text: "Eastman R. et al. germquant cultured cells pack, version 0.1.0 (provisional), with Cellpose-SAM (Pachitariu et al. 2025) and SpotMAX (Padovani et al. 2026).", doi: null, cff: CITATION.cff}
+requires: {germquant: ">=0.2.0.dev0,<0.3", extras: [gpu, spots, readers]}
+root: pack
+expects: {pixel_um: [0.04, 0.35], z_step_um: [0.1, 1.0]}
+recipes:
+  - id: nuclei_foci
+    title: "Nuclei on the DNA projection, foci in 3D"
+    profile: config/profiles/nuclei_foci.yaml
+    dims: projected
+    default: true
+    status: provisional
+    validated: false
+    expected_config_hash: "e4999390162b"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: [spotmax]
+      models: ["cpsam_v2@0f1cc3f7"]
+      modules: [cellpose, torch, spotmax]
+      accelerator: optional
+    tunables:
+      - {key: spots.effect_size_min, label: "Focus strength threshold", type: float, min: 0.5, max: 10}
+      - {key: spots.spot_radius_um, label: "Focus radius (xy)", type: float, unit: um, min: 0.05, max: 1.0}
+      - {key: segmentation.nuclei.project, label: "Projection to segment", type: choice, choices: [max, mean]}
+      - {key: segmentation.nuclei.min_area_um2, label: "Smallest nucleus", type: float, unit: um2, min: 0.0, max: 200.0}
+    validation: null
+  - id: nuclei_foci_3d
+    title: "Nuclei in 3D, foci in 3D (GPU recommended)"
+    profile: config/profiles/nuclei_foci_3d.yaml
+    dims: 3d
+    default: false
+    status: provisional
+    validated: false
+    expected_config_hash: "42993a5ca8f7"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: [spotmax]
+      models: ["cpsam_v2@0f1cc3f7"]
+      modules: [cellpose, torch, spotmax]
+      accelerator: recommended
+    tunables:
+      - {key: spots.effect_size_min, label: "Focus strength threshold", type: float, min: 0.5, max: 10}
+      - {key: spots.spot_radius_um, label: "Focus radius (xy)", type: float, unit: um, min: 0.05, max: 1.0}
+      - {key: segmentation.nuclei.min_volume_um3, label: "Smallest nucleus", type: float, unit: um3, min: 0.0, max: 1000.0}
+    validation: null
+models:
+  - name: "cpsam_v2@0f1cc3f7"
+    kind: cellpose
+    file_name: cpsam_v2
+    sha256: 0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667
+    size: 1233586851
+    sources:
+      - {type: cellpose_cache, name: cpsam_v2}
+      - {type: url, url: "https://huggingface.co/mouseland/cellpose-sam/resolve/7c61431b5fbb078f3296754bd15d9f51b320f837/cpsam_v2"}
+    card: models/cpsam_v2.card.json
+    licence: "weights BSD-3-Clause; training data includes CC BY-NC sets"
+examples:
+  - {id: synthetic, image: example/cultured_synthetic.ome.tif}
+  # DeepFoci part 1 (Zenodo record 4067741, CC BY 4.0), the foci detection validation subset: one member,
+  # valid/data_258.tif, read out of the 10.2 GB zip with HTTP range requests (the zip is ZIP64; members are
+  # stored, method 0). Checked on the first download (2026-10-11), see `checked` below. The field holds two
+  # nuclei; expect gives the ranges a run of nuclei_foci lands in (a CPU run gave 2 nuclei and 55 gamma-H2AX
+  # foci per nucleus).
+  - id: deepfoci_valid_258
+    recipe: nuclei_foci
+    base_url: "https://zenodo.org/api/records/4067741/files/"
+    sources:
+      - {path: "foci_detection_validation_subset.zip/content", member: "valid/data_258.tif", zip_size: 10214754062,
+         crc32: "f3aa48ab", size: 145468367, sha256: "29d35a589984b23510edcfff02065bf1eeef0e29c78638df0e570bd067af1754"}
+    assemble:
+      axes: ZYXC
+      channels: [53BP1, gH2AX, DAPI]
+      spacing_zyx_um: [0.3, 0.0647, 0.0647]
+      crop: {y: [224, 704], x: [128, 1024]}
+    pixels_sha256: "327463f4a651f421acc358da3c532d90c6f1cb8b7cf9a642ea54d0e6665228d6"
+    licence: "CC BY 4.0"
+    attribution: "Vicar T et al. 2021, Computational and Structural Biotechnology Journal 19:6465-6480 (DeepFoci); data by Vicar T, Gumulec J and Falk M, Zenodo, doi 10.5281/zenodo.4067741 (CC BY 4.0)"
+    expect: {n_objects: [1, 3], spots_per_object: [35, 80]}
+    checked:
+      date: "2026-10-11"
+      member: "valid/data_258.tif, 145468367 bytes, stored (method 0) in a ZIP64 archive of 122 entries; its CRC-32 f3aa48ab matched"
+      page_order: "48 pages, not the 50 planes the record describes; each page is 1010 x 1362 pixels with 3 uint16 samples (RGB, contiguous, LZW, written by MATLAB), so the declared axes are ZYXC"
+      channel_order: "samples R, G, B are 53BP1, gamma-H2AX and DAPI: the paper's Figure 1 shows DAPI blue, gamma-H2AX green and 53BP1 red, the authors' code stacks 53BP1, gH2AX, DAPI, and sample 2 is the nuclear stain in the image itself"
+      voxel_size: "the file carries no calibration; xy 0.0647 um from the paper (90.0 x 67.2 um for 1392 x 1040 pixels) and z 0.3 um, the documented step; background noise shows no correlation between neighbouring rows or planes, so the 1010 x 1362 x 48 stacks are crops of the acquisitions, not resampled"
+      crop: "y 224 to 703 and x 128 to 1023 hold both nuclei of the field with a margin of 70 pixels or more"

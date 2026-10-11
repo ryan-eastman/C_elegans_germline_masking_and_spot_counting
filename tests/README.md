@@ -167,6 +167,25 @@ gonads are built inside the fixtures.
   - `test_packs_cli.py` and `test_datafetch.py`: the command surface and the resumable downloader (a
     server that answers a Range request from another byte is read again from the start).
 
+- The outside packs and example fetching (tranche 5 package P3):
+  - `test_outside_packs.py`: `packs/cultured_cells` and `packs/budding_yeast` load, verify and lint clean,
+    are provisional with `validated: false`, carry the design's starting values and the QC settings of a field
+    that is not a gonad (no deny-listed key, `expected_from_germ_cell: false` on every spots instance), and
+    their channel maps bind as specified (no index fallback for the yeast transmitted role); the recipe
+    goldens pass with an empty model store, an edit of a `pack_base.yaml` fails them, edits of a scratch
+    copy of generic.yaml and config.yaml move no outside pack hash, a misspelt key in a `pack_base.yaml` fails
+    lint, and a stack without a transmitted channel fails the yeast recipe with the require_channel message;
+    the cards say what is provisional and which scale effect_size is on;
+  - `test_datafetch_zip.py`: one member of a remote zip by HTTP Range requests (classic and ZIP64 archives
+    written by hand and by Python's zipfile; stored, deflated and bzip2 members), size, sha256 and CRC-32
+    refusals, resume after a broken transfer, deflate64, LZMA, zstd and encrypted members refused with the
+    method named, and a server that ignores Range refused;
+  - `test_assemble.py`: `germquant assemble` and germquant.assemble (per-channel files, a single plane,
+    channels as samples like DeepFoci, channels alternating page by page, crops, refusals) and pixels_sha256;
+  - `test_pack_examples.py`: `pack fetch-example` against a local stand-in server (plain files and a zip
+    member), the record beside the image, nothing downloaded twice, wrong pins refused with nothing wrong
+    kept, the torch-free entry in a fresh interpreter, `check_expect`, and the example-spec rules.
+
 ## Markers
 
 Registered in `pyproject.toml` (`[tool.pytest.ini_options] markers`); CI passes `--strict-markers`,

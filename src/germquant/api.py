@@ -36,7 +36,7 @@ from .io import (
     read_stack,
 )
 from .models_registry import get_model, known_models, register_local_model
-from .packs import fetch_pack_models, find_pack, install_pack, list_packs, load_pack, pack_status
+from .packs import fetch_example, fetch_pack_models, find_pack, install_pack, list_packs, load_pack, pack_status
 from .pipeline import process_image, resolve_model_path, spot_instances
 from .provenance import read_done_marker
 from .segment import segment_nuclei
@@ -96,6 +96,7 @@ __all__ = [
     "load_pack",
     "pack_status",
     "fetch_pack_models",
+    "fetch_example",
     "install_pack",
     "list_segment_backends",
     "list_spot_backends",

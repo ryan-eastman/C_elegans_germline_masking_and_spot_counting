@@ -1,0 +1,53 @@
+cff-version: 1.2.0
+message: "If you use the cultured cells pack of germquant, please cite the software as below, and the methods its recipes run (Cellpose-SAM and SpotMAX). If you use the DeepFoci example image, also cite Vicar et al. 2021 and the deposit (CC BY 4.0 asks for attribution)."
+title: "germquant: cultured cells pack"
+version: 0.1.0
+type: software
+license: MIT
+repository-code: "https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting"
+authors:
+  - family-names: "Eastman"
+    given-names: "Ryan"
+references:
+  - type: article
+    title: "Cellpose-SAM: superhuman generalization for cellular segmentation"
+    authors:
+      - family-names: "Pachitariu"
+        given-names: "Marius"
+      - family-names: "Rariden"
+        given-names: "Michael"
+      - family-names: "Stringer"
+        given-names: "Carsen"
+    year: 2025
+    notes: "bioRxiv preprint; the segmentation model of the recipes (weights cpsam_v2, BSD-3-Clause)"
+  - type: article
+    title: "SpotMAX: a generalist framework for multi-dimensional automatic spot detection and quantification"
+    authors:
+      - family-names: "Padovani"
+        given-names: "Francesco"
+    year: 2026
+    journal: "Science Advances"
+    notes: "the focus detection of the recipes"
+  - type: article
+    title: "DeepFoci: Deep learning-based algorithm for fast automatic analysis of DNA double-strand break ionizing radiation-induced foci"
+    authors:
+      - family-names: "Vicar"
+        given-names: "Tomas"
+    year: 2021
+    journal: "Computational and Structural Biotechnology Journal"
+    volume: 19
+    start: 6465
+    end: 6480
+    notes: "the study behind the real example's data"
+  - type: data
+    title: "Annotated DNA Double Strand Break Ionizing Radiation-Induced Foci (gH2AX 53BP1) Confocal Microscopy, pt. 1"
+    authors:
+      - family-names: "Vicar"
+        given-names: "Tomas"
+      - family-names: "Gumulec"
+        given-names: "Jaromir"
+      - family-names: "Falk"
+        given-names: "Martin"
+    doi: "10.5281/zenodo.4067741"
+    license: CC-BY-4.0
+    notes: "the source of the real example deepfoci_valid_258 (one member of the validation subset, fetched, never redistributed)"

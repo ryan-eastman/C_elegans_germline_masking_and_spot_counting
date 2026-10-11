@@ -1,4 +1,4 @@
-"""``python -m germquant.packs list|show|check|fetch-models|install|verify|build-sums|lint|--version``.
+"""``python -m germquant.packs list|show|check|fetch-models|fetch-example|install|verify|build-sums|lint|--version``.
 
 The torch-free entry (docs/DESIGN_system_packs.md, sections 3.9 and 8.1): it imports neither germquant.cli
 nor germquant.pipeline, so listing packs and checking them never loads torch, Cellpose, SpotMAX or CuPy. The

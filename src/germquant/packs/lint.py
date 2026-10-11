@@ -5,7 +5,8 @@ shadow a bare ``extends: config.yaml``); each recipe's expected_config_hash equa
 tunable is a key the recipe sets, with a scalar value (what packs.validate_pack refuses); SHA256SUMS is
 current; pack: lines are versioned; no absolute or machine path in a recipe, a channel map, a card or
 pack.yaml; every card agrees with its model spec (models_registry.validate_card); a root: checkout pack's
-engine-file digests are current.
+engine-file digests are current; a local example image exists and stays under 2 MB (a real image is fetched by
+`germquant pack fetch-example`, never shipped), and a real example's base_url is https.
 
 Outside recipes (root: pack) also:
 
@@ -51,6 +52,7 @@ WORM_SWITCHES = ("germline.enabled", "envelope.enabled", "audit.enabled", "axis.
                  "sc.trace.enabled", "granule.enabled", "coloc.enabled", "partition.enabled", "granule_tail.enabled")
 NEUTRAL_REGEX = "(?!x)x"
 FRAMING_OFF_MIN = 1.0e6
+EXAMPLE_MAX_BYTES = 2_000_000          # a pack's own (synthetic) example; real images are fetched (design 3.2, 6.9)
 EN_DASH, EM_DASH = chr(0x2013), chr(0x2014)      # refused in pack text (kept out of this source)
 # config.yaml carries these, but nothing reads them (the spots stage always counts the foci role)
 DENY_KEYS = frozenset({"spots.channel", "project", "axis.method", "output.dir"})
@@ -203,6 +205,18 @@ def lint_pack(folder: str | Path, previous: str | Path | None = None) -> dict:
     for path_rel, value in _string_leaves(pack.data):              # pack.yaml
         if _machine_path(value):
             problems.append(f"pack.yaml {path_rel}: a machine path {value!r}")
+    for ex in pack.data.get("examples") or []:                       # a local example stays tiny (design 3.2)
+        if isinstance(ex, dict) and ex.get("sources") and not str(ex.get("base_url", "")).startswith("https://"):
+            problems.append(f"example {ex.get('id')!r}: base_url {ex.get('base_url')!r} is not https (plain http to "
+                            f"this machine is for tests only)")
+        if not isinstance(ex, dict) or not ex.get("image"):
+            continue
+        img = folder / str(ex["image"])
+        if not img.is_file():
+            problems.append(f"example {ex.get('id')!r}: {ex['image']} is missing")
+        elif img.stat().st_size >= EXAMPLE_MAX_BYTES:
+            problems.append(f"example {ex.get('id')!r}: {ex['image']} is {img.stat().st_size:,} bytes; a pack's own "
+                            f"example stays under {EXAMPLE_MAX_BYTES:,} (real images are fetched, never shipped)")
     for spec in pack.models:                                         # cards
         if not spec.card:
             warnings.append(f"model {spec.name}: no card")

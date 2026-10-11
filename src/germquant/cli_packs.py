@@ -4,6 +4,7 @@
   germquant pack show ID[@VER] [--recipe R] [--json]
   germquant pack check ID[@VER] [--recipe R] [--image FILE] [--deep] [--json]     (exit 2 when unusable or unknown)
   germquant pack fetch-models ID[@VER] [--recipe R] [--from-file NAME=PATH ...]
+  germquant pack fetch-example ID[@VER] [--example NAME] [--out DIR] [--no-download] [--json]
   germquant pack install SRC [--replace]
   germquant pack verify ID|DIR
   germquant pack build-sums DIR
@@ -48,6 +49,15 @@ def add_pack_commands(psub, *, light: bool = False) -> None:
                     help="a local copy of model NAME, checked by size and sha256 (repeatable)")
     pf.add_argument("--no-download", action="store_true", help="never download (the store, cache and files only)")
 
+    pe = psub.add_parser("fetch-example", help="fetch a pack's real example image (public data, checked by size, "
+                                               "sha256 and pixels_sha256) and assemble it into one OME-TIFF")
+    pe.add_argument("pack", metavar="ID[@VER]")
+    pe.add_argument("--example", default=None, help="the example's id (default: the pack's first real example)")
+    pe.add_argument("--out", default=None, help="the examples folder (default: $GERMQUANT_EXAMPLES, else the "
+                                                "per-user folder); the image goes to <out>/<pack>/<example>/")
+    pe.add_argument("--no-download", action="store_true", help="never download (use files already in --out)")
+    pe.add_argument("--json", action="store_true", help="print the example's record as JSON")
+
     pi = psub.add_parser("install", help="install a pack folder or zip into the first $GERMQUANT_PACKS folder "
                                          "(else the per-user folder) as <id>/<version>/")
     pi.add_argument("src")
@@ -80,8 +90,8 @@ def add_pack_commands(psub, *, light: bool = False) -> None:
 
 def add_parsers(sub) -> None:
     """The `germquant pack` group (cli.main calls this once)."""
-    pk = sub.add_parser("pack", help="system packs: list, show, check, fetch-models, install, verify, build-sums, "
-                                     "lint, golden (docs/PACKS.md)")
+    pk = sub.add_parser("pack", help="system packs: list, show, check, fetch-models, fetch-example, install, verify, "
+                                     "build-sums, lint, golden (docs/PACKS.md)")
     psub = pk.add_subparsers(dest="pack_cmd", required=True)
     add_pack_commands(psub)
 
@@ -145,6 +155,11 @@ def _show(args) -> int:
             _print(f"      models: {', '.join(r.need('models'))}")
     for m in p.models:
         _print(f"  model {m.name} ({m.kind}, {m.size} bytes, sha256 {m.sha256[:12]}...)")
+    for ex in P.list_examples(p):
+        where = (f"{ex['image']}, in the pack" if ex["kind"] == "local"
+                 else f"fetched with `germquant pack fetch-example {p.id} --example {ex['id']}`; licence "
+                      f"{ex.get('licence')}; {ex.get('attribution')}")
+        _print(f"  example {ex['id']} (for recipe {ex['recipe']}): {where}")
     cit = d.get("citation") or {}
     if cit.get("text"):
         _print(f"  cite: {cit['text']}")
@@ -204,6 +219,31 @@ def _fetch_models(args) -> int:
     if not res:
         _print("  nothing to fetch: the recipe needs no model")
     return 1 if missing else 0
+
+
+def _fetch_example(args) -> int:
+    from . import packs as P
+    from .assemble import AssembleError
+    from .datafetch import DownloadError, RangeNotSupported, ZipMemberError
+
+    pack = P.find_pack(args.pack)
+    say = (lambda *a: None) if args.json else _print
+    try:
+        rec = P.fetch_example(pack, args.example, args.out, download=not args.no_download, say=say)
+    except (P.ExampleError, DownloadError, RangeNotSupported, ZipMemberError, AssembleError, OSError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        _print(json.dumps(rec, indent=1, default=str))
+        return 0
+    _print(f"{pack.ref} example {rec['id']} ({rec['status']}): {rec['image']}")
+    if rec.get("licence"):
+        _print(f"  licence {rec['licence']}; {rec.get('attribution')}")
+    recipe = f" --recipe {rec['recipe']}" if rec["recipe"] != pack.default_recipe().id else ""
+    _print(f"  run it: germquant run \"{rec['image']}\" --pack {pack.ref}{recipe} --out RESULTS_FOLDER")
+    if rec.get("expect"):
+        _print("  expected: " + "; ".join(f"{k} in [{v[0]:g}, {v[1]:g}]" for k, v in rec["expect"].items()))
+    return 0
 
 
 def _install(args) -> int:
@@ -272,8 +312,9 @@ def _golden(args) -> int:
     return 1 if bad else 0
 
 
-HANDLERS = {"list": _list, "show": _show, "check": _check, "fetch-models": _fetch_models, "install": _install,
-            "verify": _verify, "build-sums": _build_sums, "lint": _lint, "golden": _golden}
+HANDLERS = {"list": _list, "show": _show, "check": _check, "fetch-models": _fetch_models,
+            "fetch-example": _fetch_example, "install": _install, "verify": _verify, "build-sums": _build_sums,
+            "lint": _lint, "golden": _golden}
 
 
 def dispatch(args) -> int:
@@ -286,8 +327,8 @@ def dispatch(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """``python -m germquant.packs``: the torch-free entry (list, show, check, fetch-models, install, verify,
-    build-sums, lint, --version)."""
+    """``python -m germquant.packs``: the torch-free entry (list, show, check, fetch-models, fetch-example,
+    install, verify, build-sums, lint, --version)."""
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--version" in argv:
         from . import packs as P
