@@ -74,6 +74,9 @@ _FLOAT_TOLERANCE = ({"check_exact": False, "rtol": float(_RTOL_ENV), "atol": 0.0
 # tolerance mode the spots table is put in coordinate order on both sides first; the workstation keeps the
 # exact row-by-row check, and every value is still compared.
 _ORDER_KEYS = {"spots": ["z_um", "y_um", "x_um"]}
+# spot_id numbers the spots in detection order, so two swapped spots also swap their ids: in CI tolerance mode
+# it is compared as a set of ids (the same ids, each once) instead of row by row.
+_ORDINAL_COLUMNS = {"spots": {"spot_id"}}
 
 
 def _canonical(df: pd.DataFrame, table: str) -> pd.DataFrame:
@@ -111,6 +114,9 @@ def test_synthetic_golden(tmp_path, request, name):
         assert len(got) == len(ref), f"{t}: row count {len(got)} vs {len(ref)}"
         for col in ref.columns:
             a, b = got[col], ref[col]
+            if _RTOL_ENV and col in _ORDINAL_COLUMNS.get(t, ()):
+                assert sorted(a.astype(float)) == sorted(b.astype(float)), f"{t}.{col}: not the same set of ids"
+                continue
             if pd.api.types.is_numeric_dtype(b):
                 pd.testing.assert_series_equal(a.astype(float), b.astype(float), check_names=False,
                                                obj=f"{t}.{col}", **_FLOAT_TOLERANCE)
