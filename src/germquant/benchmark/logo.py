@@ -554,7 +554,12 @@ POOL_BLOCKS = {
     "germline": ("per_nucleus", "expert_n", "ours_n"),
     "traced": ("per_nucleus_traced", "expert_n", "ours_n"),
 }
-DETECTION_BLOCKS = {"spots_all": "", "spots_without_class_b": "no_b_", "spots_detector_only": "det_"}
+DETECTION_BLOCKS = {"spots_all": "", "spots_without_class_b": "no_b_", "spots_detector_only": "det_",
+                    # protocol section 5.2, matching restricted to R (the truth masks); W2 reads spots_truth_masks.
+                    # A detector whose held-out tables predate these columns (commit e19a029) has no payload for
+                    # them, so the block is left out of its pooled numbers and of every pair it is in.
+                    "spots_truth_masks": "tm_spots_", "spots_truth_masks_class_a": "tm_spots_no_b_",
+                    "spots_truth_masks_detector_only": "tm_det_spots_"}
 
 
 @dataclass
@@ -644,10 +649,11 @@ def paired(a: Heldout, b: Heldout, tags, *, n_boot: int = bd.N_BOOT, seed: int =
 
 def per_gonad_table(h: Heldout) -> pd.DataFrame:
     """The headline held-out numbers per gonad: truth-mask (section 5.1) CCC, bias and MAE (end-to-end, and
-    the detector-only CCC when measured), germline and traced CCC, spot F1 with and without Class B."""
+    the detector-only CCC when measured), germline and traced CCC, spot F1 with and without Class B, and the
+    section 5.2 spot F1 inside R when the held-out tables have it."""
     cols = ["tag", "split", "role", "tm_n_nuclei", "tm_ccc", "tm_bias", "tm_mae", "tm_class_a_ccc", "tm_det_ccc",
             "ccc_all", "bias_all", "ccc_traced", "bias_traced", "f1", "precision", "recall", "no_b_f1", "det_f1",
-            "n_our_spots", "n_expert_spots"]
+            "tm_spots_f1", "tm_spots_no_b_f1", "tm_det_spots_f1", "n_our_spots", "n_expert_spots"]
     keep = [c for c in cols if c in h.per_gonad.columns]
     return h.per_gonad[keep].copy()
 

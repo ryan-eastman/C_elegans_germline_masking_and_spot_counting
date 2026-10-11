@@ -346,6 +346,7 @@ def cmd_report(args) -> int:
     (out / "logo_report.json").write_text(json.dumps(jsonable(doc), indent=1) + "\n", encoding="utf-8")
     for n, blocks in pooled.items():
         tm, g, f1 = blocks.get("truth_masks"), blocks.get("germline"), blocks.get("spots_all")
+        f1r = blocks.get("spots_truth_masks")
 
         def fmt(rec, stat):
             if not rec:
@@ -353,7 +354,8 @@ def cmd_report(args) -> int:
             s = rec["stats"][stat]
             return f"{s['point']:.3f} [{s['lo']:.3f}, {s['hi']:.3f}]"
 
-        print(f"{n}: truth masks CCC {fmt(tm, 'ccc')} | germline CCC {fmt(g, 'ccc')} | F1 {fmt(f1, 'f1')}")
+        print(f"{n}: truth masks CCC {fmt(tm, 'ccc')} | germline CCC {fmt(g, 'ccc')} | F1 {fmt(f1, 'f1')} | "
+              f"F1 inside R {fmt(f1r, 'f1')}")
     print(f"-> {out}")
     return 0
 

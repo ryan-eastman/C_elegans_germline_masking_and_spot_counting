@@ -204,8 +204,23 @@ def test_bench_logo_heldout_and_report(planted_bench, capsys):  # noqa: F811
     assert tm["n_nuclei"] == len(ptn) == 12
     assert tm["stats"]["ccc"]["point"] == pytest.approx(stats.lin_ccc(ptn["expert_n"], ptn["ours_n"]))
     for k in ("germline", "traced", "truth_masks_class_a", "truth_masks_detector_only", "spots_all",
-              "spots_without_class_b"):
+              "spots_without_class_b", "spots_truth_masks", "spots_truth_masks_class_a",
+              "spots_truth_masks_detector_only"):
         assert k in doc["pooled"]["log_snr3"], k
+    # the section 5.2 F1 inside R pools the per-gonad tm_spots_ counts like the whole-field F1 pools its own
+    pgd = pd.concat([pd.read_csv(b["root"] / "heldout" / "log_defaults" / t / "per_gonad.csv")
+                     for t in doc["held_out_gonads"]])
+    m, o, e = (int(pgd[f"tm_spots_{c}"].sum()) for c in ("n_matched", "n_ours", "n_expert"))
+    f1r = doc["pooled"]["log_defaults"]["spots_truth_masks"]["stats"]["f1"]["point"]
+    assert f1r == pytest.approx(2 * m / (o + e))
+    assert "spots_truth_masks" in doc["paired"]["log_defaults - log_snr3"]
+    # held-out tables written before the tm_spots_ columns existed give no payload: the block is left out
+    from germquant.benchmark import logo as lg
+    old = lg.load_heldout("old", [b["root"] / "heldout" / "log_defaults" / t for t in doc["held_out_gonads"]])
+    old.per_gonad = old.per_gonad[[c for c in old.per_gonad.columns if not c.startswith(("tm_spots_", "tm_det_spots_"))]]
+    assert old.payloads("spots_truth_masks", doc["held_out_gonads"]) == []
+    pooled_old = lg.pool_heldout(old, doc["held_out_gonads"], n_boot=50)
+    assert "spots_truth_masks" not in pooled_old and "spots_all" in pooled_old
     pair = doc["paired"]["log_defaults - log_snr3"]["truth_masks"]["ccc"]
     assert pair["diff"]["point"] == pytest.approx(pair["a"] - pair["b"])
     pg = pd.read_csv(out / "logo_per_gonad.csv")
