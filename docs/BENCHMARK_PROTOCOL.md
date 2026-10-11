@@ -640,3 +640,104 @@ point.
    counts for those gonads, numbers the 8666f07 goldens of entry 1 already hold. These reruns test the code of
    the deployed pipeline, not a method under development, and nothing was tuned or selected on them; no
    earlier entry recorded them.
+
+7. 2026-10-11. The SpotMAX grid of entry 6, run as that entry declares it, and the section 5.2 F1 inside R added to
+   the leave-one-gonad-out pairs (`docs/BENCHMARK.md`, "Results of the pre-registered SpotMAX grid", which gives
+   every number). No test gonad was run, scored or opened for this entry: no `--final` run was made,
+   `final_runs.jsonl` does not exist, and no record of `trials.jsonl` names a test gonad. No test result was
+   computed.
+   (a) The run. Commit abc49ca, which holds entry 6 (committed at 00:59:15 MDT on 2026-10-11), on a clean tree,
+   with the planned commands of `docs/BENCHMARK.md` as written (a driver ran them in order with
+   `CUDA_VISIBLE_DEVICES=-1`), from 00:59:51 to 02:18:22 MDT; every step exited with code 0 (`G/run.log`, with G as
+   in entry 6 (f)). Trial lines 232 to 351 hold the grid (60 val and 60 train records, 60 distinct sets under
+   `prereg_spotmax_grid`, the effect-size shortcut on and complete in every record, SpotMAX 1.3.1) and lines 352 to
+   357 the six held-out runs, all at abc49ca without `-dirty`. No run failed, so the failure rule of entry 6 (c)
+   was not used. The counts of entry 6 (d) are as it gave them: 60 distinct grid sets, and with the D3 and E1 sets
+   96 named SpotMAX sets, 87 distinct in effect, 77 of those on val. Counted per competitor, that is over the 60 of
+   section 6.4; counting the grid alone is the reading of entry 6 (d) that the project lead is to confirm. The grid
+   sets equal in effect to earlier sets are exactly the nine of entry 6 (b). `bench_tune.py` ranks the sets by its
+   own germline rule in its console summary and in the rank columns of its summary.csv (val: `pg_otsu_e3.0_z0.8`
+   first, the selection 10th), and names that objective in its trial records; that order selects nothing, and the
+   selection is `select_grid`'s (`G/selection.json`).
+   (b) The checks of entry 6 (c) all passed. `pg_tri_e3.0_z0.8` leaves the golden `spots:` section unchanged and
+   gives the golden spot tables on all six gonads (`detector.compare_with_golden`, parquet and CSV: every compared
+   column, and no per-nucleus count different). The nine sets of entry 6 (b) give their earlier tables, on val
+   those of E1 (lines 174 to 184) and on train those of D3 stage S1 (lines 54 to 64), in every common column but
+   `detect_s` and `score_s`. Each held-out run of entry 6 (e), made without the shortcut, equals the grid run of
+   its set on its gonad in every table, apart from the run times and the detector-only columns that the grid does
+   not compute. One of them (`pg_tri_e4.0_z1.0` on n2rad51_HS_herm_001) is the first such check of a 1.0 um gap;
+   li, yen and the 0.6 um gap still rest on the order of steps alone. The E1 held-out runs of the deployed recipe
+   and of the otsu set (lines 214, 215 and 220 to 225), also made without the shortcut, equal the grid's tables
+   too. Three train runs reached the candidate cap (`threshold_li` on n2rad51_noHS_herm_000, one per z gap; 32720
+   candidates, 2720 dropped). The warning names no set; the order of the run log places it. They were scored as
+   they are, so the 15 li train counts on that gonad are floors. No val run and no held-out run reached the cap.
+   (c) The selection of entry 6 (d) is `pg_otsu_e4.0_z0.8` (`threshold_otsu`, `effect_size_min` 4.0,
+   `z_merge_gap_um` 0.8): val truth-mask CCC 0.822 (0.822104 unrounded), val F1 inside R 0.612. `pg_otsu_e4.0_z1.0`
+   ties it on both keys with byte-identical detections on all six gonads, and listing order decides. Every set has
+   a score on both val gonads, and no value is undefined. The unrounded CCC picks the same set; it reorders ranks 3
+   to 5 and three triangle pairs tied at three decimals. The deployed recipe ranks 23rd of 60 (0.556). Reported
+   only: `select_grid` on the six train and val gonads pooled picks the same set (CCC 0.747), and the early stop of
+   section 10, read as in entry 6 (d), would have stopped at the 20th set, `pg_li_e2.5_z0.8` (best so far 0.822
+   against 0.815 before the last ten), with the same selection. The selection's train scores, as entry 6 (b) asks:
+   pooled over the four train gonads CCC 0.711 [0.621, 0.791] (4th of 60 there; `pg_tri_e4.0_z0.8` leads with
+   0.736) and bias +0.40 foci per truth nucleus. That pooled bias combines -2.33 on n2rad51_HS_herm_000 (CCC 0.587;
+   the deployed recipe +0.91, CCC 0.843) with +0.72 to +1.38 on the three train gonads without heat shock. On the
+   val gonads, in sample: -0.77 on n2rad51_HS_herm_001 (the deployed recipe +3.79) and +0.30 on
+   n2rad51_noHS_herm_001. Put plainly, the selection undercounts both heat-shock hermaphrodites (1.73 foci per
+   truth nucleus where the truth has 4.06, and 0.94 against 1.71) and overcounts the four gonads without heat
+   shock. The deployed recipe overcounts all six; on n2rad51_HS_herm_000 it is better in CCC (0.843 against 0.587)
+   and in F1 inside R (0.635 against 0.401). If the selection is confirmed as SpotMAX re-tuned, it is the reference
+   of section 7 (val CCC 0.822 against 0.556 for the deployed recipe, in sample). The D3 candidates, post hoc
+   (entry 2), on the same val score: the D3 selection 0.695 and entry 2's alternative 0.723; the best D3 set is the
+   selection in effect.
+   (d) Leave-one-gonad-out, as entry 6 (e) declares it: every fold selection equals `G/selection.json`. Five folds
+   select `pg_otsu_e4.0_z0.8`. The fold that holds out n2rad51_HS_herm_001 selects on n2rad51_noHS_herm_001 and
+   n2rad51_HS_herm_000 and picks `pg_tri_e4.0_z1.0` (0.766), which overcounts the held-out gonad (bias +2.84).
+   Pooled over the six held-out gonads, the grid procedure reaches a truth-mask CCC of 0.684 [0.551, 0.788] and an
+   F1 inside R of 0.603 [0.512, 0.655]. In the pairs with it, net3d and the tuned log are better in truth-mask,
+   germline and traced CCC, truth-mask mean absolute error and both spot F1 (truth-mask CCC +0.194 and +0.209, F1
+   inside R +0.255 and +0.245). The log defaults are better on every spot F1 and on no CCC, bias or mean absolute
+   error. The D3 procedure is ahead on the point estimates of both primary numbers. Its F1 inside R (+0.024
+   [+0.002, +0.041]), its detector-only CCC (+0.041 [+0.011, +0.074]) and its detector-only mean absolute error
+   (-0.210 [-0.348, -0.088]) have intervals that exclude zero; its truth-mask CCC (+0.058 [-0.028, +0.177]) does
+   not. The deployed recipe differs in no CCC (truth masks -0.083 [-0.197, +0.079]) and not in the F1 inside R
+   (+0.011 [-0.046, +0.085]); it has the larger bias and mean absolute error and the higher whole-field F1. These
+   are development estimates; nothing here is a win condition.
+   (e) The F1 inside R in the pairs, which entry 6 (e) said needs the block added and the held-out runs of entry 4
+   scored again. Commit ca8537d adds `spots_truth_masks`, `spots_truth_masks_class_a` and
+   `spots_truth_masks_detector_only` to `logo.DETECTION_BLOCKS` and changes only `logo.py`, `bench_logo.py` and
+   `tests/test_bench_logo.py`; a held-out folder without the `tm_spots_` columns is left out of those blocks. It
+   was prepared during the train run, after the val run had written every val score (01:23:14 MDT;
+   `G/logo/net3d_rescore_selection.json` was written at 01:25:12). It entered the tree only after the grid's report
+   (02:18:22): every grid record and that report carry abc49ca without `-dirty`. It was committed at 02:19:08 MDT.
+   The five detectors of entry 4 (b) were then run again on their held-out gonads at ca8537d, with the same
+   parameter sets and fold models (trial lines 358 to 387; 02:19:10 to 02:29:59 MDT, then the report until
+   02:30:19; `G/rescore.log`). All 30 runs equal their E1 originals (lines 162 to 173 and 214 to 231) in every
+   result column of every table and in their spot tables and parameter hashes; only the run times differ. The six
+   net3d re-run records do not carry the fold model sha256 that E1's records carry; the fold model files, hashed
+   after the run, match lines 226 to 231. The report over them (`G/logo/report_f1R`) equals the E1 report in all
+   145 pooled and 290 paired rows and the abc49ca report (`G/logo/report`) in all 174 and 435, and adds the F1
+   inside R. Nothing in (e) changes a method, a metric or a selection.
+   (f) Deviations from entry 6: none in the grid, the rule, the data or the scoring. Two things that entry 6 left
+   open are recorded here. The driver ran every step without stopping, so the checks of (c) were made from the
+   files afterwards: they confirmed the selection instead of gating each step (the held-out check needs the
+   held-out runs in any case), and none failed. The code, the 30 re-runs and the report of (e) are not steps of
+   entry 6, which named them as needed; they change no method, metric definition, data or selection.
+   (g) Decision 2 stays the project lead's. He confirms or overrides the recommendation of entry 6 and its readings
+   of (c) and (d): selection on the val gonads only, the rounding and tie-breaks, the failure rule, the budget
+   counted for the grid alone, and the early stop read as not applying to a fixed grid. Entry 6 made these readings
+   before the run, and he has not confirmed them yet. The readings that can be recomputed do not change the set:
+   the six-gonad pick, the unrounded CCC and the 20 sets before the early stop all give `pg_otsu_e4.0_z0.8`, the
+   tie-breaks only put it before a byte-identical set, and no run failed. The recommendation of entry 6 is kept,
+   for him to confirm or override. Section 8 item 2 defines SpotMAX re-tuned as this grid chosen by the val rule.
+   The grid ran and selected as declared, and every check passed. The selection is the set entry 6 expected, with
+   the heat-shock undercount that decision 2 already named. Another set chosen now would be chosen after these
+   results. What the results add for his choice: the undercount on both heat-shock hermaphrodites, known from the
+   held-out runs of entry 4 (b), reproduces. Computed after the run, and not declared in entry 6: every grid set
+   misses one of the two by at least 1.7 foci per truth nucleus. Out of sample the grid procedure's truth-mask CCC
+   (0.684) lies between the deployed recipe's (0.601) and the D3 procedure's (0.742), and neither difference
+   excludes zero. The D3 procedure is ahead of it on the F1 inside R and on the detector-only CCC and mean absolute
+   error, with intervals that exclude zero (see (d)). The largest per-gonad difference is the fold that holds out
+   n2rad51_HS_herm_001, where the grid procedure picked a triangle set (held-out CCC 0.472 against 0.734). If he
+   picks another set, the pre-scoring entry records it and its reason as post hoc (entry 6 (a)). Decision 1 is
+   unchanged: nothing is scored on test until he confirms one of its options.

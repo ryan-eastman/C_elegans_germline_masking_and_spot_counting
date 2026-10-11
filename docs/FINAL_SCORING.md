@@ -1,6 +1,6 @@
 # Final scoring: the one-time test scoring of the RAD-51 detectors
 
-Written 2026-10-10 (package E1). **Nothing in this document has been run.** It is the plan for the one test
+Written 2026-10-10 (package E1). **No step of this plan has been run.** It is the plan for the one test
 scoring that `docs/BENCHMARK_PROTOCOL.md` allows per method family (sections 7, 8 and 10): the decisions to
 take first, the frozen methods, the exact commands in order, how the win conditions are read, and the
 changelog text to append before and after. No test gonad was scored, run or looked at while it was written.
@@ -79,6 +79,27 @@ reproduces, the selection is that set unless a grid set not scored yet ranks abo
 train and val only (section 5); entry 6 (b) lists what was known before, including a pre-protocol sweep on two
 test gonads.
 
+Status (2026-10-11, protocol changelog entry 7): still the project lead's choice. The grid ran as entry 6 declared
+it, on train and val only, and every check of entry 6 (c) passed. Its selection is `pg_otsu_e4.0_z0.8`
+(`threshold_otsu`, effect size 4.0, z gap 0.8), in effect the otsu row of the table above: val truth-mask CCC 0.822
+against 0.556 for the deployed recipe (rank 23 of 60). By section 7 it is the reference once he confirms it and the
+readings of entry 6 (c) and (d); the readings that can be recomputed (val only, rounding, early stop) leave the set
+unchanged. Its scores per gonad show the heat-shock concern above: truth-mask bias -2.33 on the train gonad
+n2rad51_HS_herm_000 (CCC 0.587; the deployed recipe +0.91, CCC 0.843) and -0.77 on the val gonad
+n2rad51_HS_herm_001, against +0.72 to +1.38 on the three train gonads without heat shock and +0.30 on the val gonad
+n2rad51_noHS_herm_001. Computed after the run: every grid set misses one of the two heat-shock hermaphrodites by at
+least 1.7 foci per truth nucleus. Two of the four test gonads are heat-shocked, and no heat-shock male informed
+this choice. If the selection undercounts them as it undercounts both heat-shock hermaphrodites here, it is a weak
+reference on half the test set, which makes W1 and W2 easier to meet. In the leave-one-gonad-out estimate the grid
+procedure reaches a truth-mask CCC of 0.684 [0.551, 0.788], against 0.601 for the deployed recipe and 0.742 for the
+D3 procedure, and neither difference excludes zero. The D3 procedure is ahead on the F1 inside R (+0.024 [+0.002,
++0.041]) and on the detector-only CCC (+0.041 [+0.011, +0.074]) and mean absolute error (-0.210 [-0.348, -0.088]),
+intervals that exclude zero (docs/BENCHMARK.md, "Results of the pre-registered SpotMAX grid"). The recommendation
+of entry 6 is kept: section 8 item 2 defines SpotMAX re-tuned as this grid chosen by the val rule, the grid ran and
+selected as declared, and the selection is the set entry 6 expected, with the heat-shock undercount this decision
+already named. Another set chosen now would be chosen after these results. If he picks another set, the pre-scoring
+entry records it and its reason as post hoc.
+
 ### Decision 3. The limit of two test scorings per method family
 
 `scripts/bench_detector.py --final` refuses a third test scoring of the same backend (protocol section 10:
@@ -126,7 +147,13 @@ The SpotMAX re-tuned row of section 2 stands only if decision 2 keeps the D3 sel
 (the four above and the decision 2 alternative `spotmax_retuned_primary.json`) were written on 2026-10-10 with the
 sha256 given here and under decision 2. SpotMAX re-tuned is not frozen until decision 2 is settled: the row above
 is the D3 selection, and the grid selection of protocol changelog entry 6 replaces it if the project lead confirms
-the recommendation. If decision 2 picks another re-tuned configuration, write its file there first
+the recommendation. The grid selected `pg_otsu_e4.0_z0.8` (entry 7): `threshold_otsu`, `effect_size_min` 4.0 and
+`z_merge_gap_um` 0.8, the `selected_params` under `designated` in `prereg_grid/selection.json`. Laid over the
+golden `spots:` section (`detector.effective_section`), these three keys give the same section as
+`spotmax_retuned_primary.json`: the two parameter sets run the same SpotMAX configuration under different parameter
+hashes. A confirmed grid selection still gets its own three-key file, as below: `spotmax_retuned_primary.json`
+belongs to a D3 set, and entry 6 (d) makes the D3 sets non-candidates once the grid is confirmed. If decision 2
+picks another re-tuned configuration, write its file there first
 (`{"thresholding_method": ..., "spot_radius_um": ..., "gauss_sigma_um": ..., "effect_size_min": ...}`; for a grid
 set, its three keys `{"thresholding_method": ..., "effect_size_min": ..., "z_merge_gap_um": ...}`, the
 `selected_params` under `designated` in `prereg_grid/selection.json`), use it in step 4.4, and name it in the
@@ -139,8 +166,8 @@ pre-scoring entry.
    written before test is scored), committed.
 3. SpotMAX deployed, then the golden check of its detections.
 4. SpotMAX re-tuned: the configuration that decision 2 settles (under the recommendation of protocol changelog
-   entry 6, the grid selection, which must be run, selected, confirmed and written to `final_params/` before
-   step 1).
+   entry 6, the grid selection `pg_otsu_e4.0_z0.8`, run and selected as entry 7 records, which must still be
+   confirmed and written to `final_params/` before step 1).
 5. Tuned log.
 6. net3d (train plus val), on the GPU under the workstation's lock.
 7. The comparison (pooling only) and the win conditions.
@@ -285,9 +312,11 @@ Reading the win conditions (protocol section 7) from `final/report/logo_paired.c
   for "log_tuned - R" says whether the tuned log wins.
 * W2 (spots): `block` = spots_truth_masks (protocol section 5.2: matching restricted to R, the truth masks;
   spots_all is the whole-field score, kept for comparison only), `stat` = f1: `diff` not below -0.02 (point estimates; the interval is
-  reported). `bench_logo.py report` writes this block only once `logo.DETECTION_BLOCKS` holds it
-  (`"spots_truth_masks": "tm_spots_"`), which it does not at e19a029: add it before the pre-scoring commit
-  (protocol changelog entry 6 (e)).
+  reported). `logo.DETECTION_BLOCKS` holds this block since commit ca8537d (`"spots_truth_masks": "tm_spots_"`,
+  with `spots_truth_masks_class_a` and `spots_truth_masks_detector_only`), so `bench_logo.py report` pools and
+  pairs it; a held-out folder without the `tm_spots_` columns (written before commit e19a029) is left out of these
+  blocks (protocol changelog entry 7). If `logo_paired.csv` has no spots_truth_masks row for a pair, W2 cannot be
+  read for it: stop and record it.
 * W3 does not apply: no method changes the nucleus segmentation.
 * Fragility (section 6.2): for every pair, compare the direction of the test difference with the
   leave-one-gonad-out difference of docs/BENCHMARK.md ("Leave-one-gonad-out"); a test result whose direction
@@ -296,9 +325,16 @@ Reading the win conditions (protocol section 7) from `final/report/logo_paired.c
   and traced CCC and spot F1 (the paired intervals exclude zero); net3d against the tuned log shows no
   difference (truth-mask CCC -0.015 [-0.084, +0.073]); SpotMAX re-tuned against deployed shows none except a
   smaller mean absolute error. These SpotMAX re-tuned directions are those of the D3 replay; if decision 2 makes
-  the grid selection the re-tuned competitor, its pairs are read from the grid replay of protocol changelog
-  entry 6 (`prereg_grid/logo/report/logo_paired.csv`) instead. Neither has the section 5.2 F1 inside R until the
-  held-out runs are scored again with its columns (entry 6 (e)).
+  the grid selection the re-tuned competitor, its pairs are read from the grid replay of protocol changelog entries
+  6 and 7 instead. Both replays, with the section 5.2 F1 inside R for every pair, are in
+  `prereg_grid/logo/report_f1R/logo_paired.csv` (docs/BENCHMARK.md, "Results of the pre-registered SpotMAX grid").
+  There net3d and the tuned log are above all three SpotMAX configurations on the F1 inside R (+0.221 to +0.255,
+  the intervals exclude zero) and better than the grid procedure on every CCC, the truth-mask mean absolute error
+  (lower) and both spot F1. On the F1 inside R no difference survives between net3d and the tuned log (+0.010
+  [-0.058, +0.094]) or between SpotMAX re-tuned and deployed (+0.014 [-0.073, +0.069]). The grid procedure minus
+  the deployed recipe (the report lists "spotmax_deployed - spotmax_grid", with the opposite sign): truth-mask CCC
+  +0.083 [-0.079, +0.197], F1 inside R -0.011 [-0.085, +0.046], mean absolute error -1.016 [-1.518, -0.344],
+  whole-field F1 -0.049 [-0.098, -0.005].
 * Report next to the primary numbers: Class A and Class B truth (truth_masks_class_a; per_gonad.csv
   `tm_class_b_*`), the detector-only count (truth_masks_detector_only), the germline and traced partitions,
   and spot F1 without Class B, every one per gonad and pooled (section 5.4), with the run records of
