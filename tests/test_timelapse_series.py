@@ -91,7 +91,9 @@ def test_parse_timepoints():
 # ---- schema -------------------------------------------------------------------------------------------
 
 def test_series_tables_are_separate_and_use_time_track_id():
-    assert set(schema.SERIES_TABLES) == {"register_shifts", "track_points", "tracks", "track_validation", "series_summary"}
+    # append-only: the five tables of the first time-lapse tranche, then register_piecewise (2026-10-10)
+    assert list(schema.SERIES_TABLES) == ["register_shifts", "track_points", "tracks", "track_validation", "series_summary",
+                                          "register_piecewise"]
     assert not set(schema.SERIES_TABLES) & set(schema.TABLES)
     assert schema.SERIES_SUMMARY[:2] == ["t_index", "t_seconds"]
     for name in ("track_points", "tracks", "track_validation"):

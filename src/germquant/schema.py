@@ -304,6 +304,11 @@ TRACKS = [
     # timepoint's centerline, track.fixed_axis_positions); this is the slope on the per-frame refitted axis,
     # which reads low when the frame's axis origin moves (kept for comparison).
     "axis_velocity_refit_um_per_min",
+    # appended 2026-10-10 (piecewise registration): the slope of the fixed-axis position of the RAW centroids
+    # (the microscope frame), which does not depend on the registration. Under the piecewise registration the
+    # registered frame follows the germline's own flow, so axis_velocity_um_per_min is the motion relative to
+    # that flow and this column is the flow; it includes any drift of the whole sample.
+    "axis_velocity_raw_um_per_min",
 ]
 
 # track_validation (written by `germquant track-validate`): one row per hand-followed point. The point is
@@ -324,10 +329,37 @@ TRACK_VALIDATION = [
     "n_points", "n_in_label", "segmentation_recall", "linking_recall", "edge_precision", "switches", "role",
 ]
 
+# register_piecewise (written by `germquant register --mode piecewise`, timelapse.piecewise): one row per
+# timepoint per axial segment. The germline of the origin timepoint is split into n_segments segments of equal
+# nucleus count along the fixed axis (axis_start_um to axis_end_um, centre axis_centre_um = the median axis
+# position of its n_nuclei_t0 origin nuclei); each segment's translation against the previous frame is the
+# phase correlation of its reference-volume crop (crop_y0..crop_y1, crop_x0..crop_x1 in reference voxels,
+# every plane), capped like a rigid step; filled is true when the segment's own estimate failed (error says
+# why) and the step was interpolated from the other segments. dz/dy/dx_um is the segment's cumulative
+# displacement to the origin; a nucleus takes the displacement interpolated linearly between the segment
+# centres at its own axis position, and its registered coordinate is the raw centroid minus that. The
+# brightfield_* columns are the same crop on the brightfield volume (the cross-check, never capped) and
+# quality_*_um the median nearest-neighbour displacement of the segment's n_nuclei nuclei against the
+# reference frame before and after the registration. Microns in the raw frame.
+REGISTER_PIECEWISE = [
+    "t_index", "t_seconds", "image_id", "reference_t_index", "origin_t_index", "channel_role",
+    "segment", "n_segments", "axis_start_um", "axis_end_um", "axis_centre_um", "n_nuclei_t0",
+    "dz_um", "dy_um", "dx_um",
+    "step_dz_um", "step_dy_um", "step_dx_um", "capped", "filled",
+    "brightfield_step_dz_um", "brightfield_step_dy_um", "brightfield_step_dx_um",
+    "brightfield_dz_um", "brightfield_dy_um", "brightfield_dx_um",
+    "brightfield_disagreement_um", "disagreement_flag",
+    "n_nuclei", "quality_before_um", "quality_after_um",
+    "crop_y0", "crop_y1", "crop_x0", "crop_x1",
+    "error", "xy_stride", "upsample_factor", "method", "taper", "margin_um",
+]
+
 SERIES_TABLES = {
     "register_shifts": REGISTER_SHIFTS,
     "track_points": TRACK_POINTS,
     "tracks": TRACKS,
     "track_validation": TRACK_VALIDATION,
     "series_summary": SERIES_SUMMARY,
+    # appended 2026-10-10
+    "register_piecewise": REGISTER_PIECEWISE,
 }

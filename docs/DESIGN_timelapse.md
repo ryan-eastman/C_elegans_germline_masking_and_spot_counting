@@ -38,6 +38,11 @@ After phase 1: n_germline_nuclei per timepoint, the bleaching curve, SC length a
 
 0 (0.5 wk): local copies, map, profile, channel-key lever, goldens re-diffed, t0 montage. 1 (1): reader, loop, markers, CLI, synthetic golden, 50 timepoints overnight. 2 (2, overlaps 3): export-training, 30 corrected slices, training, model card, rerun. 3 (1): register. 4 (2): export, overlap tracker, laptrack, importers, series tables, strips. 5 (1.5): hand set, track-validate, tuning, first_look.py, docs/TIMELAPSE.md. 6 (1, conditional): level-2 registration or btrack if acceptance fails. Eight weeks, nine with the conditional.
 
+Note added 2026-10-10: the first real series showed a germline that slides inside a still worm non-rigidly, so
+phase 6 became a piecewise registration along the gonad axis (one translation per axial segment, interpolated
+for every nucleus; `germquant register --mode piecewise`, `track-link --registration piecewise`), ahead of the
+hand set's verdict; see docs/TIMELAPSE.md "Piecewise registration".
+
 ## 10. Risks
 
 Segmentation without DAPI is the critical path; population numbers per timepoint are the fallback. Packed rows: golden nearest-neighbour spacing is 3.3 to 4.7 um median, 1.2 um at the 10th percentile; flag cutoffs above 0.7 x nn_median_um. Never a full-resolution 4D array (56 GB); cap exports near 2 GB. Qt stays out of .venv; torch backends import after germquant.pipeline. Axis sign can flip between frames; align to t0, test with a deliberate flip. Build the hand set before tuning or it stops being blind.

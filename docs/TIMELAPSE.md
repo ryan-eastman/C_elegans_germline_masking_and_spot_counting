@@ -2,9 +2,12 @@
 
 Status: the reader ("Reading one timepoint"), the series loop with its resume logic and command line switch
 ("Running a series"), the live GFP::SYP-2 profile and the nucleus training loop ("Segmenting without DAPI"),
-the drift registration ("Registration"), the tracking exchange ("Tracking") and the biologist validation
-("Validating the linking") are implemented and tested on synthetic series; none of it has run on the lab's
-real series yet. The design is [DESIGN_timelapse.md](DESIGN_timelapse.md).
+the drift registration ("Registration") and its piecewise variant along the gonad axis ("Piecewise
+registration"), the tracking exchange ("Tracking") and the biologist validation ("Validating the linking") are
+implemented and tested on synthetic series. The first real series (the October 2026 DLW93 hermaphrodite) has
+been run through the loop, the registration, the linking and the piecewise registration (results and their
+limits in `C:/Users/ryane/live_results/FIRST_LOOK.md`); the hand-followed validation set has been picked but not
+yet followed, so no linking result is validated. The design is [DESIGN_timelapse.md](DESIGN_timelapse.md).
 Nothing on this page changes a fixed image: its id, its tables, its stage record and its completion marker
 are byte for byte what they were, and tests/test_golden.py still gates that.
 
@@ -202,7 +205,7 @@ requested timepoint: `t_index`, `t_seconds`, `image_id`, `out_dir`, `status` don
 
 ## Series tables
 
-`schema.SERIES_TABLES` declares five tables, one file per series, written next to the timepoint folders
+`schema.SERIES_TABLES` declares six tables, one file per series, written next to the timepoint folders
 as `<stem>__<table>.csv` (and `.parquet`). They live outside `schema.TABLES` on purpose: the stage
 tests force every `TABLES` entry through `process_image`, and a timepoint folder holds exactly the
 fixed-image file set. The schema rule is the same, append only. Every row carries `SERIES_META`
@@ -215,9 +218,10 @@ is `time_track_id`; `track_id` already means an SC fragment in `sc_tracks`.
 |---|---|---|---|
 | `series_summary` | this package (`process_series`) | requested timepoint | `t_index`, `t_seconds`, `image_id`, `n_nuclei`, `n_germline_nuclei`, `mean_spots`, `qc_pass`, `qc_flags`, `elapsed_s`, then `sig_<role>_bg` and `sig_<role>_snr` for each channel role the series resolves (the signal_qc stage's background and signal-to-noise), then `SERIES_META` |
 | `register_shifts` | registration package (`germquant register`) | timepoint | the step against the reference frame and the accumulated shift to t0 in microns, the brightfield cross-check and its disagreement flag, whether the step was capped, the median nearest-neighbour displacement before and after, stride, upsample factor, method |
-| `track_points` | `germquant track-link` / `track-import` | nucleus per timepoint | `time_track_id`, `t_index`, `t_seconds`, `image_id`, `nucleus_id`, the raw centroid (`z_um`, `y_um`, `x_um`), the registered centroid (`reg_z_um`, `reg_y_um`, `reg_x_um` and, appended, the shared-contract names `zr_um`, `yr_um`, `xr_um`), the step from the track's previous point (`step_um` and its components), `is_gap`, `link_source`; then the nucleus measurements joined on `(image_id, nucleus_id)` as extras (`volume_um3`, `in_germline`, `axis_position_um`, `axis_position_aligned_um`, the `dna` / `central_element` mean intensities, `central_element_mean_intensity_norm`, the `sc_*` columns when the sc_trace stage ran) |
-| `tracks` | `germquant track-link` / `track-import` | track | `n_points`, `n_gaps`, `t_start`, `t_end`, `is_full_length`, `path_length_um`, `net_displacement_um`, `speed_um_per_min`, `axis_velocity_um_per_min` (signed, after the t0 sign alignment), `intensity_slope_raw_per_min`, `intensity_slope_norm_per_min`, `sc_length_change_um`, `link_source`; appended: `t_first`, `t_last`, `mean_step_um`, `intensity_slope_raw`, `intensity_slope_norm` (the contract names of the same numbers) |
+| `track_points` | `germquant track-link` / `track-import` | nucleus per timepoint | `time_track_id`, `t_index`, `t_seconds`, `image_id`, `nucleus_id`, the raw centroid (`z_um`, `y_um`, `x_um`), the registered centroid (`reg_z_um`, `reg_y_um`, `reg_x_um` and, appended, the shared-contract names `zr_um`, `yr_um`, `xr_um`), the step from the track's previous point (`step_um` and its components), `is_gap`, `link_source`; then as extras the displacement that was subtracted (`disp_z_um`, `disp_y_um`, `disp_x_um`: raw = registered + displacement), the nucleus measurements joined on `(image_id, nucleus_id)` (`volume_um3`, `in_germline`, `axis_position_um`, `axis_position_aligned_um`, the `dna` / `central_element` mean intensities, `central_element_mean_intensity_norm`, the `sc_*` columns when the sc_trace stage ran) and the fixed-axis positions `axis_position_fixed_um` (registered) and `axis_position_fixed_raw_um` (raw) |
+| `tracks` | `germquant track-link` / `track-import` | track | `n_points`, `n_gaps`, `t_start`, `t_end`, `is_full_length`, `path_length_um`, `net_displacement_um`, `speed_um_per_min`, `axis_velocity_um_per_min` (signed, after the t0 sign alignment), `intensity_slope_raw_per_min`, `intensity_slope_norm_per_min`, `sc_length_change_um`, `link_source`; appended: `t_first`, `t_last`, `mean_step_um`, `intensity_slope_raw`, `intensity_slope_norm` (the contract names of the same numbers), `axis_velocity_refit_um_per_min` (the per-frame axis), `axis_velocity_raw_um_per_min` (the fixed axis at the raw centroids, independent of the registration) |
 | `track_validation` | `germquant track-validate` | hand-followed point | the biologist's point in raw-frame microns, the label it lands in (`nucleus_id`, NA = segmentation miss) and that label's `time_track_id`, the `outcome` (linked, segmentation_miss, switch, edge_missing, unlinked), the `validation_set` and `zone`; appended, repeated on every point of the hand track: `n_points`, `n_in_label`, `segmentation_recall`, `linking_recall`, `edge_precision`, `switches`, `role` (`drop_duplicates("hand_track_id")` is the per-track table) |
+| `register_piecewise` | `germquant register --mode piecewise` | timepoint per axial segment | the segment (`segment`, `n_segments`, its extent `axis_start_um` to `axis_end_um` on the origin's fixed axis, its centre `axis_centre_um`, `n_nuclei_t0`), the cumulative displacement `dz_um`, `dy_um`, `dx_um` and the step `step_d*_um` with `capped` and `filled`, the brightfield cross-check of the same crop, the per-segment quality numbers, the crop box; see "Piecewise registration" |
 
 ## Tracking
 
@@ -232,6 +236,12 @@ as coordinates only. The shared contract between the time-lapse packages:
   **registered coordinate is the raw centroid minus the cumulative shift of its timepoint**. Without the
   table the series is treated as already aligned (zero shifts) and every record says so (`shift_source`
   `none`). Label images are placed on the registered grid by the whole-voxel rounding of the shift;
+* `germquant register --mode piecewise` writes `<stem>__register_piecewise.csv` instead: a cumulative
+  displacement per axial segment of the germline per timepoint. With `track-link --registration piecewise` a
+  **registered coordinate is the raw centroid minus the displacement interpolated along the gonad axis at the
+  nucleus's own axis position** ("Piecewise registration" below), and each label is placed on the registered
+  grid by the whole-voxel rounding of its own nucleus's displacement. The export, the import and the strips use
+  the rigid table only;
 * the loop keeps a downsampled copy of the segmentation channel per timepoint,
   `t<NNN>/<id>__ref_stride<k>.npy` (uint16, Z x Y/k x X/k, `timelapse.reference_stride`, code default 8,
   written when `timelapse.keep_reference_volume` is true, which is the default for a series run and never
@@ -281,13 +291,22 @@ germline crop at stride 2 is about 45 MB per timepoint before compression.
 ### Linking: `germquant track-link`
 
 ```
-germquant track-link results/SERIES --backend overlap|overlap_inhouse|laptrack|none [--gap 2] [--max-dist-um 3.0] [--min-overlap 0.4] [--stride 2] [--all-nuclei]
+germquant track-link results/SERIES --backend overlap|overlap_inhouse|laptrack|none [--gap 2] [--max-dist-um 3.0] [--min-overlap 0.4] [--stride 2] [--all-nuclei] [--registration rigid|piecewise]
 ```
 
 links the germline nuclei (`--all-nuclei`: every label) across the timepoints on disk and writes
 `<stem>__track_points.csv` and `<stem>__tracks.csv` (and `.parquet`) next to the timepoint folders, plus
-`<stem>__track_link.json` with the backend, its parameters, the shift source, the counts and the axis sign
-per timepoint. The backends:
+`<stem>__track_link.json` with the backend, its parameters, the registration and shift source, the counts and
+the axis sign per timepoint.
+
+`--registration` (key `timelapse.track.registration`, code default `rigid`) picks the registered frame the
+backends link in. `rigid` subtracts each timepoint's cumulative shift from `<stem>__register_shifts.csv` (zero
+shifts without the table, `shift_source` `none`). `piecewise` subtracts each nucleus's own displacement,
+interpolated along the gonad axis from `<stem>__register_piecewise.csv` (`germquant register --mode
+piecewise`; the command stops with exit code 1 and says so when the table is missing); the overlap backends then
+move each label by the whole-voxel rounding of its own displacement (`backend_info.placement` in the record),
+and the record carries `registration_info` (the segments, the origin, the timepoints with an estimate). The
+backends:
 
 * `overlap` (default): Cell-ACDC's own overlap tracker, run headless. `cellacdc.trackers.CellACDC.
   CellACDC_tracker.track_frame`, the function Cell-ACDC's tracker loop calls, is called frame by frame on the
@@ -319,10 +338,13 @@ on a track's first point), `is_gap` (True on a point that follows one or more mi
 track), `link_source` (the backend, `imported:<tool>`, or `none` for a nucleus without a track), then the
 nucleus measurements joined on `(image_id, nucleus_id)`: `volume_um3`, `n_voxels`, `in_germline`,
 `axis_position_norm`, `axis_position_um`, `zone`, `n_spots`, the `sc_*` columns, `dna_mean_intensity` and
-`central_element_mean_intensity` when the nuclei table has them, plus two derived columns:
-`axis_position_aligned_um` (the axis position after the sign alignment below) and
+`central_element_mean_intensity` when the nuclei table has them, plus the derived columns
+`axis_position_aligned_um` (the axis position after the sign alignment below),
 `central_element_mean_intensity_norm` (the SYP mean divided by the median over the germline nuclei of the
-same timepoint, the bleaching-free quantity).
+same timepoint, the bleaching-free quantity), `axis_position_fixed_um` and `axis_position_fixed_raw_um` (the
+first timepoint's axis at the registered and at the raw centroid, "One reference axis" below) and `disp_z_um`,
+`disp_y_um`, `disp_x_um` (the displacement subtracted from the raw centroid: the timepoint's cumulative shift
+under the rigid registration, the nucleus's own interpolated displacement under the piecewise one).
 
 **tracks** has one row per track: `n_points`, `n_gaps` (timepoints missing inside the span), `t_start` /
 `t_first`, `t_end` / `t_last`, `is_full_length` (a point at every timepoint on disk), `path_length_um`,
@@ -330,12 +352,22 @@ same timepoint, the bleaching-free quantity).
 `axis_velocity_um_per_min` (the least-squares slope of `axis_position_fixed_um` against minutes, signed:
 positive is towards the proximal end in t0's orientation; see "One reference axis" below),
 `axis_velocity_refit_um_per_min` (the same slope on `axis_position_aligned_um`, the per-frame axis; kept
-for comparison), `intensity_slope_raw_per_min` /
+for comparison), `axis_velocity_raw_um_per_min` (the slope of `axis_position_fixed_raw_um`: the motion along
+the gonad in the microscope frame, whatever the registration; it includes any drift of the whole sample, and a
+z jump of the whole field moves it a little through the axis fit), `intensity_slope_raw_per_min` /
 `intensity_slope_raw` (the slope of `central_element_mean_intensity`) and `intensity_slope_norm_per_min` /
 `intensity_slope_norm` (the slope of the median-normalised intensity; the control baseline for the
 heat-shock series), `sc_length_change_um` (last minus first `sc_total_length_um` within the track, NA
 without the sc_trace stage), `link_source`. Minutes come from the recorded `t_seconds`, else `t * period_s`,
 else the timepoint index.
+
+**Which velocity is the flow.** Every geometric column of the tracks (steps, path length, net displacement,
+speed, `axis_velocity_um_per_min`) is measured in the registered frame the linking used. A rigid registration
+on GFP follows the mean motion of the germline, so these columns are the motion relative to that mean; a
+piecewise registration follows the germline segment by segment, so they are the motion relative to the local
+flow (small by construction: that is why it links better). The flow itself is then
+`axis_velocity_raw_um_per_min`, or the cumulative displacement per segment in `<stem>__register_piecewise.csv`.
+On a series where the worm does not drift (the brightfield stays put), the raw frame is the worm's frame.
 
 **Axis sign alignment.** The axis stage orients each timepoint on its own, with a heuristic (the small,
 dense nuclei are distal), and that orientation can flip between frames. For every timepoint the nuclei
@@ -351,12 +383,17 @@ uses one reference axis instead.
 frame's most distal labelled nucleus, so `axis_position_um` of a fixed point in the worm moves from frame
 to frame. On the October series at stride 4 a fixed point at x = 100 um sat anywhere from 54 to 83 um
 along the per-frame axis, drifting by -0.05 to -0.09 um per minute, and the refitted-axis velocity read
-about half the true flow (0.087 against 0.174 um per minute on 135 full-length tracks). The noise does not
-average out. `axis_position_fixed_um` therefore applies the FIRST timepoint's axis to every frame: the
-position at a registered point is a local linear fit of the first timepoint's `axis_position_um` over
-its 16 nearest germline nuclei, evaluated at the point (exact where the axis is locally straight,
-extrapolated with the local gradient past the last first-timepoint nucleus). Without axis positions at
-the first timepoint, a centerline is fitted to its nuclei with the axis stage's curve fit instead.
+about half the flow: 0.087 um per minute on the 135 full-length tracks, against 0.160 on the fixed axis at the
+same tracks' raw centroids (the per-frame axis positions come from each frame's raw nuclei table, so the raw
+frame is the like-for-like comparison). The noise does not average out. `axis_position_fixed_um` therefore
+applies the FIRST timepoint's axis to every frame: the position at a registered point is a local linear fit of
+the first timepoint's `axis_position_um` over its 16 nearest germline nuclei, evaluated at the point (exact
+where the axis is locally straight, extrapolated with the local gradient past the last first-timepoint
+nucleus). Without axis positions at the first timepoint, a centerline is fitted to its nuclei with the axis
+stage's curve fit instead. `axis_position_fixed_raw_um` evaluates the same axis at the raw centroid. Note
+which frame each velocity is in ("Which velocity is the flow" above): on that series the GFP rigid registration
+takes most of the flow out, so `axis_velocity_um_per_min` (registered) reads 0.066 where
+`axis_velocity_raw_um_per_min` reads 0.160 (`C:/Users/ryane/live_results/FIRST_LOOK.md`, section 8).
 tests/test_timelapse_tracking.py plants a flipped frame and checks the velocity; tests/test_tranche3_fixes.py
 plants a curved gonad with a jittering per-frame origin and checks that the fixed-axis velocity recovers
 the true flow while the refitted one does not.
@@ -422,13 +459,17 @@ texture, one frame per timepoint.
 | `timelapse.track.strip_size_um` | 8.0 | track-strips (`--size-um`) |
 | `timelapse.track.strip_planes` | 3 | track-strips (`--planes`) |
 | `timelapse.track.strip_tile_px` | 64 | track-strips (tile side in output pixels) |
+| `timelapse.track.registration` | `rigid` | track-link (`--registration`) |
+| `timelapse.register.piecewise_segments` | 4 | register `--mode piecewise` (`--segments`) |
+| `timelapse.register.piecewise_margin_um` | 6.0 | register `--mode piecewise` (`--margin-um`) |
+| `timelapse.register.piecewise_taper` | 0.25 | register `--mode piecewise` (`--taper`) |
 
 A command line flag wins over the key; the key wins over the code default. No shipped config file names
 any of them, so every config hash is unchanged.
 
-From code: `germquant.timelapse.export_cellacdc`, `link_series`, `import_tracks`, `track_strips`, and
-`find_series` / `load_shifts` / `object_table` in `germquant.timelapse.layout` for reading a series folder
-and its registered coordinates.
+From code: `germquant.timelapse.export_cellacdc`, `link_series` (with `registration=`), `import_tracks`,
+`track_strips`, `register_series_piecewise` and `load_piecewise`, and `find_series` / `load_shifts` /
+`object_table` in `germquant.timelapse.layout` for reading a series folder and its registered coordinates.
 
 ## Validating the linking
 
@@ -462,7 +503,7 @@ also be an Imaris points export renamed to those five columns.
 ### 2. Score the linking: `germquant track-validate`
 
 ```
-germquant track-validate results/SERIES --points <stem>__validation_picks.csv [--snap-um 0.3]
+germquant track-validate results/SERIES --points <stem>__validation_picks.csv [--snap-um 0.3] [--set all|constraint|holdout]
 ```
 
 Every hand point is looked up in that timepoint's label image. A point outside every label is a
@@ -491,9 +532,16 @@ that no track covers). The verdict, printed and written to `<stem>__track_valida
 
 | criterion | threshold (key, code default) | judged on |
 |---|---|---|
-| switches | `timelapse.validate.max_switches_holdout`, 0 | the holdout tracks |
+| switches | `timelapse.validate.max_switches_holdout`, 0 | the holdout tracks (the tracks scored when none is holdout) |
 | linking recall | `timelapse.validate.min_linking_recall`, 0.95 | pooled over the holdout tracks (all tracks when none is marked holdout) |
 | segmentation recall | `timelapse.validate.min_segmentation_recall`, 0.85 | the pachytene zone when the hand set has zones, else all points |
+
+`--set constraint` scores only the constraint tracks (`--set holdout` only the holdout ones; `all`, the default,
+every track): that is how linking settings (a backend, the rigid or the piecewise registration, a cutoff) are
+compared while the holdout tracks stay unseen; the chosen setting is then judged once with `--set all` (or
+`holdout`). A subset run judges the switches and the linking recall on the tracks it scores, prints which set it
+scored, and writes only `<stem>__track_validation_<set>.json`; the `track_validation` table is written by a run
+over every track.
 
 The exit code is 0 on PASS and 2 on FAIL (an error is 1). `<stem>__track_validation.csv` holds one row per
 hand point (schema `track_validation`: the point, the label it landed in and its track, the outcome, the
@@ -505,8 +553,9 @@ closing is the next thing to try, and the strips show what happened at any flagg
 
 tests/test_timelapse_tracking.py scores a perfect hand set (every metric 1, PASS), a set where two hand
 tracks exchange nuclei half way (one switch each, recall 3/4, FAIL) and a set with a point in the background
-(a segmentation miss that leaves the linking recall at 1), and checks that a fragmented track is a missing
-edge, not a switch.
+(a segmentation miss that leaves the linking recall at 1), checks that a fragmented track is a missing
+edge, not a switch, and that `--set constraint` scores the constraint tracks alone (their switch and recall,
+the subset record, the refusal of a set the hand file does not hold).
 
 ## Segmenting without DAPI: the training loop
 
@@ -799,6 +848,83 @@ consumes the rotation yet, it is the diagnostic the design asked for before deci
 is needed (DESIGN_timelapse.md section 4). A pure translation fits to about 0 degrees; a planted 3 degree
 turn per step is recovered within 0.5 degree on the synthetic series.
 
+### Piecewise registration (`--mode piecewise`)
+
+```
+germquant register results/SERIES --mode piecewise [--segments 4] [--margin-um 6] [--taper 0.25] [--channel ROLE] [--max-step-um 5] [--upsample 10]
+germquant track-link results/SERIES --backend laptrack --registration piecewise
+```
+
+Why: on the first real series the worm does not drift (the brightfield steps are 0.17 um or less), but the
+germline slides inside it non-rigidly, the proximal half up to 3.6 um per 5 minutes while the distal end
+barely moves. One translation per frame cannot describe that; registering on GFP breaks the distal links, on
+brightfield the proximal ones (`C:/Users/ryane/live_results/FIRST_LOOK.md`, section 7).
+
+What it does (`germquant.timelapse.piecewise`):
+
+1. At the origin (the first timepoint with a reference volume) the germline nuclei are placed on the fixed axis
+   of the tracks ("One reference axis": the origin's `axis_position_um` smoothed by a local linear fit over the
+   16 nearest nuclei; a fitted centerline when the axis stage did not run) and split into K segments of equal
+   nucleus count (K = `--segments`, key `timelapse.register.piecewise_segments`, code default 4; at least 5
+   nuclei per segment). A segment's centre is the median axis position of its nuclei.
+2. For every later timepoint and every segment, the translation between the previous registrable frame and this
+   one is estimated exactly as a rigid step is (the same `displacement`: plain cross-correlation by default,
+   upsampled peak refinement to 1/`--upsample` of a reference voxel, the same `--max-step-um` cap with the
+   direction kept and the `capped` flag), on a crop of the two reference volumes: the y and x extent of the
+   segment's origin nuclei moved to where the segment sat in the previous frame, widened by `--margin-um` (key
+   `timelapse.register.piecewise_margin_um`, 6.0 um), every plane in z. The crop is mean-subtracted and tapered
+   with a Tukey window (`--taper`, key `timelapse.register.piecewise_taper`, 0.25), because a crop always cuts
+   the gonad where the segment ends and an untapered cut edge pulls the estimate towards zero. The reference
+   frame is always the previous one (`--reference t0` is refused). The steps are accumulated per segment.
+3. A segment whose own estimate fails (a crop that left the field, a flat volume) takes the step interpolated
+   from the other segments and is flagged `filled` with the reason in `error`; a timepoint where every segment
+   fails is a set of rows with an error, and the chain continues from the last registrable frame.
+4. The other kept volume (brightfield when GFP is registered) is registered on the same crops as the
+   cross-check, never capped: `brightfield_step_d*_um`, `brightfield_d*_um`, `brightfield_disagreement_um` and
+   `disagreement_flag` (above 1 um) per segment.
+5. A nucleus at axis position a gets the displacement D(t, a) interpolated linearly between the segment centres
+   (constant beyond the outermost centres), and its registered coordinate is its raw centroid minus D(t, a).
+   Because a is the nucleus's position on the origin's axis after registration, it is found by a fixed-point
+   iteration (it converges in a few steps; the displacement varies slowly along the axis). Nothing is resampled.
+
+`<stem>__register_piecewise.csv` (and `.parquet`), one row per timepoint per segment, the declared columns of
+`schema.REGISTER_PIECEWISE` then `SERIES_META`: `t_index`, `t_seconds`, `image_id`, `reference_t_index`,
+`origin_t_index`, `channel_role`, `segment`, `n_segments`, `axis_start_um`, `axis_end_um`, `axis_centre_um`,
+`n_nuclei_t0`, the cumulative displacement `dz_um`, `dy_um`, `dx_um` (positive = the segment moved by that
+much in the raw frame), the step `step_dz_um`, `step_dy_um`, `step_dx_um`, `capped`, `filled`, the brightfield
+columns, `n_nuclei` and `quality_before_um` / `quality_after_um` (the median nearest-neighbour displacement of
+the segment's nuclei at this timepoint against the reference frame's, raw and after the registration of both
+frames), the crop box `crop_y0`, `crop_y1`, `crop_x0`, `crop_x1` in reference voxels, `error`, `xy_stride`,
+`upsample_factor`, `method`, `taper`, `margin_um`. `<stem>__register_piecewise_report.json` holds the
+parameters, the segments, the per-step and per-segment summaries, the capped, disagreeing and filled segment
+steps, the errors, the quality medians per segment and the cumulative displacement at the last timepoint. The
+rigid `<stem>__register_shifts.csv` is not touched; `track-link --registration piecewise` reads the piecewise
+table (`load_piecewise`), rebuilding the fixed axis from the origin's nuclei table exactly as the registration
+built it.
+
+What the registered frame means here: it follows the germline itself, segment by segment. Linking in it sees
+nearly stationary nuclei, which is the point, but the tracks' speeds and `axis_velocity_um_per_min` are then the
+motion relative to the local flow. The flow is the registration (the cumulative displacement per segment) or
+`axis_velocity_raw_um_per_min` ("Which velocity is the flow" above).
+
+On the October series (`C:/Users/ryane/live_results/FIRST_LOOK.md`, sections 7 and 8; proxies only, no hand
+truth yet): at the 3.5 um proximal slide of the stride-2 run (t2 to t3), laptrack continued 0.997 of the germline
+nuclei after the piecewise registration against 0.834 after the rigid GFP one (which broke the distal half) and
+0.891 after the brightfield one (which broke the proximal half), and the median nearest-neighbour residual per
+segment was 0.58 to 0.65 um in all four segments, where the rigid registrations left one end at 1.4 to 1.7 um.
+The per-segment steps agreed with an independent estimate on GFP projections per x quarter. On the 25-timepoint
+stride-4 run the piecewise registration on volumes at every 2nd pixel of the run grid gave 185 full-length
+laptrack tracks against 142 and 144 for the rigid GFP and brightfield registrations on the same volumes (135 and
+137 on the volumes the run kept), and a residual of 0.52 to 0.53 um per segment.
+
+Two limits, both seen on the October series: the reference volumes at the default
+`timelapse.reference_stride` 8 are coarse for a segment crop (on a stride-4 run a reference voxel is 3.47 um,
+about one nucleus; there some segment steps were wrong by 3 to 5 um and the piecewise registration was no
+better than the rigid one), so keep `timelapse.reference_stride: 2` for a series meant for the piecewise
+registration; and the brightfield cross-check is not a test of a sliding segment, because the gonad has texture
+in transmitted light too: on the fine volumes of the stride-2 run the brightfield crops over the two sliding
+proximal segments moved 67 to 93 percent as far as the GFP crops while the whole-field brightfield stayed put.
+
 ### Tests
 
 tests/test_timelapse_register.py builds a synthetic series of 16 gaussian nuclei and a brightfield channel
@@ -814,6 +940,23 @@ every step; that a series without reference volumes fails with a message naming
 three-timepoint gonad of test_timelapse_series.py, that `germquant run --t all` writes the volumes next to
 the fixed-image file set and records them, that a fixed image writes none, that `--resume` reads missing
 volumes back without running a stage, and that `germquant register` runs on the loop's output.
+
+tests/test_timelapse_piecewise.py plants the non-rigid flow of the October series on a synthetic gonad: 60
+nuclei in two jittered rows along x, a brightfield body that does not move, and a shear flow along the axis
+(each nucleus moves u = U s / L per timepoint, 0 at the distal end and U = 4.6 um at the proximal end, more than
+half the 4 um spacing). It checks the segment layout (equal counts, centres), the interpolation (linear between
+centres, constant beyond) and the fixed-point registration on a straight axis; that each segment's step is the
+shear at its centre within 0.3 um and the cumulative displacement within 0.3 um per step; that the brightfield
+cross-check reads zero and flags exactly the sliding segments; that the per-segment residual after
+registration is under 0.35 um and under half the raw one; that the interpolated displacement of every nucleus
+follows the planted flow (within 0.3 um per step between the outermost centres, within the clamp error beyond
+them); that laptrack after the rigid registration joins different nuclei (at least 8 wrong links; 75 on this
+series) while after the piecewise registration all 60 tracks are full length with no wrong link, for laptrack
+and for the overlap rule on per-nucleus shifted labels; that the raw-frame axis velocity of every track equals
+its planted flow while the registered-frame one stays small; the command line (`--mode piecewise`, the
+options it refuses, the segment count from the series' run_manifest.json and from `--segments`,
+`--registration piecewise` without the table exits 1, the default stays rigid); the missing-volume and
+too-few-nuclei errors; and that `register_piecewise` is appended last to `schema.SERIES_TABLES`.
 
 ## What stays unchanged
 
