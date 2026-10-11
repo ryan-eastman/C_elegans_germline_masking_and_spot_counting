@@ -2069,14 +2069,16 @@ All docs use plain language, Windows and Mac command pairs as in the README, and
 ## 14. Open questions
 
 For the project lead:
-- O1. Merge feat/tranche4 and feat/spotmax-grid into main before T5 starts (section 1.6)? They are stacked:
-  spotmax-grid contains tranche4. Proposed order: merge tranche4 into main; retarget the spotmax-grid PR to main,
-  rebasing it if tranche4 was squash-merged; merge it; check both heads with
-  `git merge-base --is-ancestor <head> main` before P0 pins the base.
+- O1. Decided 2026-10-11: both are merged (PR #9 at 65b494e, PR #10 at bc62476, merge commits, no rebase), and
+  `git merge-base --is-ancestor` confirmed both heads in main. The T5 base is bc62476, whose tree equals the
+  spotmax-grid head 3fcb4b5; feat/tranche5 has merged main.
 - O2. Point the plugin venv and the engine .venv at the same checkout (main), and set one shared
   $GERMQUANT_MODELS on the workstation?
-- O3. Should the outside packs live in the engine repository as built-ins, or in their own repository from the
-  start?
+- O3. Decided 2026-10-11: the project lead left it to convention. The built-in packs (celegans_germline,
+  cultured_cells, budding_yeast and the test pack) live in the engine repository under packs/, versioned and
+  tested with the engine, as section 3.8 describes; packs made by others install from their own folders or
+  distributions through $GERMQUANT_PACKS and the entry-point group. That is the usual split for a tool at this
+  stage: shipped defaults with the code, community content outside it.
 - O4. Add the readers extra to CI (bioio paths tested in CI, at some install time), or rely on the tifffile seam
   plus workstation tests?
 - O5. Fix the cpsam drift in generic.yaml in the planned hash-bump release (number-changing for generic-profile
