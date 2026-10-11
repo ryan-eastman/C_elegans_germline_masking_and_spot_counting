@@ -101,9 +101,19 @@ one), `--traced-rule auto|overlap|centroid|none`, `--max-candidates` and `--max-
 Hungarian budgets, below), `--n-boot 1000`, `--seed 0`, `--truth auto|files|ims`, `--write-matches`
 (adds `per_spot_matches.csv`).
 
-Options of `benchmark_nuclei3d.py`: `--split`, `--coverage auto|roi|bbox|none` (the coverage region
-of the partial-annotation rule), `--dilate-um 2.0`, `--majority-frac 0.5` (splits and merges),
-`--max-dense-cells`, `--n-boot`, `--seed`.
+Options of `benchmark_nuclei3d.py`: `--split`, `--tags`, `--group-by split|condition` (what the
+per-gonad `split` column and the pooling by split hold), `--coverage auto|roi|bbox|none|protocol` (the
+coverage region of the partial-annotation rule; `protocol` is the pre-registered rule, below),
+`--dilate-um 2.0`, `--majority-frac 0.5` (splits and merges of the box rules), the protocol's parameters
+`--min-truth-voxels 1000`, `--coverage-xy-um 1.0`, `--coverage-z-planes 1`, `--scope-frac 0.5` and
+`--split-frac 0.2`, `--max-dense-cells`, `--n-boot`, `--seed`. Which prediction is scored: by default the
+pipeline's own `<image>__nuclei_labels.tif` (for the goldens, the deployed Cellpose-SAM labels);
+`--pred-dir DIR` scores `DIR/<tag>__labels.tif`; `--model MODEL.pt` runs the nuclei3d model (below) through
+`segment_nuclei` on the cached DAPI channel (`--cache-root`, `--device`, `--tile`, `--min-volume-um3 4.0`,
+and `--fg-threshold`, `--h-um`, `--neighbour-weight` to override the model's instance parameters) and
+writes the labels to `<out>/labels/<tag>__labels.tif`, so `--pred-dir` can score them again. A test gonad
+(the pre-registered split's, or one the manifest calls test) is skipped and listed under `skipped` unless
+`--final` is given with a `--reason`.
 
 A gonad whose outputs or truth are missing is skipped, not fatal: it is listed under `skipped` in
 `pooled.json` with the reason. The exit code is 0 when at least one gonad was scored.
@@ -204,6 +214,21 @@ reported so the rule can be judged. Keep in mind that the ROI box holds nuclei t
 (the truth is threshold-curated inside the box), so precision inside the box is a lower bound; recall
 of the traced nuclei is the number to trust.
 
+**The pre-registered rule (`--coverage protocol`).** `docs/BENCHMARK_PROTOCOL.md` (section 5.3), written
+after the rule above, defines the scope differently, and a nucleus score reported under the protocol uses
+this mode (`coverage_rule` starts with `protocol_`). Truth labels of fewer than 1000 voxels are removed
+first (`n_truth_fragments_removed`, `truth_fragments_removed`; none of the eight train and val gonads has
+one but n2rad51_noHS_male_000, whose 44-voxel label is removed); region C is the union of the remaining
+truth masks dilated by 1.0 um in xy and one plane in z (an exact cylindrical dilation); a prediction is
+in scope when at least half of its voxels lie in C, and out-of-scope predictions are ignored
+(`n_pred_ignored_outside_coverage`), so the ROI box is never used. Splits and merges count in-scope
+predictions that cover at least 20 percent of a truth nucleus's volume (`split_rule`
+`in_scope_cover_0.2_of_truth`): a truth nucleus with two or more such predictions is split, a prediction
+covering two or more truth nuclei is a merge. Matching, AP, recall and the z-extent error are the same as
+above. On the deployed labels of the two val gonads the two rules disagree a lot: the ROI box of
+n2rad51_HS_herm_001 holds 142 unmatched Cellpose nuclei that the protocol leaves out of scope (table
+under "nuclei3d").
+
 **Scores.** `f1_iou50` with `precision_iou50`, `recall_iou50`, `tp_iou50`, `fp_iou50`, `fn_iou50`
 (TP are matched pairs, FP the counted predictions left unmatched, FN the truth objects left unmatched);
 `ap_iou50_95`, the mean over the ten thresholds 0.50, 0.55, ..., 0.95 of TP / (TP + FP + FN) (the
@@ -222,11 +247,15 @@ error is the predicted z span minus the truth z span and a span is `(zmax - zmin
 `coverage_max_zyx`, `n_splits`, `n_merges`, the per-threshold `tp_iouNN` / `fp_iouNN` / `fn_iouNN` /
 `f1_iouNN`, `precision_iou50`, `recall_iou50`, `mean_matched_iou_iou50`, `ap_iou50_95`,
 `matching_method`, `n_z_pairs`, the three `z_extent_error_*_um`, `voxel_dz_um`, `voxel_dy_um`,
-`voxel_dx_um`, `voxel_source`, `roi_box`, `elapsed_s`.
+`voxel_dx_um`, then (appended with the protocol mode) `z_extent_error_mean_slices`,
+`z_extent_error_mean_abs_slices`, `split_rule`, `n_truth_fragments_removed`, `truth_fragments_removed`,
+and from the script `voxel_source`, `roi_box`, `elapsed_s`, `pred_source`, `role` (plus `segment_s`,
+`labels_file` and `segmentation_method` with `--model`).
 
 `per_nucleus.csv`, one row per TRUTH nucleus: `tag`, `split`, `truth_label`, `truth_voxels`,
 `truth_volume_um3`, `truth_z_span_um`, `matched_iou50`, `pred_label` (0 when unmatched), `iou`,
-`pred_voxels`, `pred_z_span_um`, `z_extent_error_um`, `n_pred_majority_inside`, `is_split`.
+`pred_voxels`, `pred_z_span_um`, `z_extent_error_um`, `n_pred_majority_inside`, `is_split` (under the
+active split rule), `n_pred_split_rule` (the count that rule uses), `z_extent_error_slices`.
 
 `pooled.json`: `n_gonads`, `tags`, summed `n_pred`, `n_pred_counted`,
 `n_pred_ignored_outside_coverage`, `n_truth`, `tp_iou50`, `fp_iou50`, `fn_iou50`; `precision_iou50`,
@@ -1436,6 +1465,311 @@ usable spot truth outside the test set is one of its training gonads.
 * No test gonad was scored, and nothing here is a win condition of the protocol. The section 4.4 cross-check of
   the geometric assignment against the xlsx coloc assignment was not done (no xlsx export of these gonads).
 
+## nuclei3d
+
+`germquant.segment.nuclei3d` is an EXPERIMENTAL in-house 3D nucleus segmentation model, phase 2 of
+`docs/DESIGN_inhouse_components.md` (Component 2): a compact residual 3D U-Net with three heads, trained on
+the lab's recovered Imaris nucleus masks with a partial-annotation loss, whose instances come from the
+h-maxima of its distance map and a seeded watershed. It is the segmentation backend `nuclei3d` (never the
+default; `docs/BACKENDS.md` has its keys), it is trained with `germquant train-nuclei3d`, and it is scored
+with `scripts/benchmark_nuclei3d.py` under the protocol's scope rule (`--coverage protocol`, "The nucleus
+benchmark" above). Everything here is development on the train and val gonads of
+`docs/BENCHMARK_PROTOCOL.md`: the training code never opens a test gonad (every gonad it loads passes the
+test guard first), the benchmark script skips test gonads unless `--final`, and no metric of any method
+was computed on a test gonad in this package.
+
+### What it learns from
+
+* Train: all six train gonads, n2rad51_HS_herm_000 (88 traced nuclei), HS_male_000 (64), HS_male_002 (82),
+  noHS_herm_000 (107), noHS_male_000 (144) and noHS_male_001 (97): 582 traced nuclei. The two heat-shock
+  males were exported with Imaris spot region growing, which ruins their spot truth (protocol section 4.1)
+  but leaves their nucleus surfaces intact, so unlike net3d this model trains on them.
+* Val (early stopping, model selection and the instance-step grid): n2rad51_HS_herm_001 (95 traced nuclei)
+  and noHS_herm_001 (146), both hermaphrodites.
+* The truth: `<stem>__imaris_labels.tif` of each gonad (`docs/IMARIS_TRUTH.md`), every surface-matched
+  label kept whatever its size. The traced masks hold 5,780 to 31,560 voxels per nucleus on the train and
+  val gonads (median 11,300 to 19,700 per gonad) and span 14 to 32 planes in z (2.8 to 6.4 um; the axial
+  blur makes them about as tall as they are wide), except one 44-voxel label in noHS_male_000.
+* The deployed Cellpose-SAM labels of the golden runs (the bench cache's `labels.npy`) decide only where the
+  loss is silent; no target value comes from them.
+* Input: the DAPI channel of the bench cache, normalised per gonad to (raw - p1) / (p99.9 - p1) with the
+  percentiles of the whole stack on every fourth voxel in y and x (p1 is 87 to 89 on every train and val
+  gonad, p99.9 471 to 756).
+
+### Targets, loss region and weights (`nuclei3d/data.py`)
+
+* A deployed Cellpose label with at least half of its voxels inside traced masks is the traced nucleus's
+  own label; every other label is an untraced nucleus. On the six train gonads, of the 743 Cellpose labels
+  that touch a traced mask, 152 have less than 5 percent of their voxels inside one, 7 between 5 and 20
+  percent, none between 20 and 40, 16 between 40 and 50 (treated as untraced, the safe side for a label
+  that merges a traced nucleus with an untraced one) and 568 at least half; a matched pair puts about 0.7
+  there, since the Cellpose masks are about 1.4 times the Imaris volume.
+* Classes and loss weights: traced (inside a traced mask) weight 1, target foreground; shell (inside a
+  traced nucleus's own Cellpose label, outside its mask) weight 1, target background; ignore (inside an
+  untraced Cellpose label or within 0.5 um of one, an exact ellipsoidal dilation, and outside every traced
+  mask) weight 0; background (everything else, where neither a traced mask nor a Cellpose label is
+  present) weight 1. The shell's weight is a choice the design's rule did not settle (it names traced
+  masks, background outside every Cellpose label and the untraced labels): the annotator traced that
+  nucleus and its surface ends at the mask, so the truth calls the shell background, and teaching it
+  teaches the Imaris boundary. `--w-traced-shell 0` makes it unknown instead; that variant was not
+  trained. Sampled on every fourth voxel in y and x, the train gonads are 93.7 to 97.6 percent background,
+  1.9 to 5.9 percent ignore, 0.19 to 0.37 percent traced and 0.09 to 0.13 percent shell.
+* Targets inside a traced mask (0 everywhere else): foreground 1; the cell distance, the Euclidean
+  distance (with the voxel size) from the voxel to the nearest voxel outside its own nucleus, the edge of
+  the stack counting as outside (at most 1.74 um on noHS_male_000); the neighbour closeness
+  (1 - d / 1.0 um) ** 3 clipped to [0, 1], d the distance to the nearest voxel of another nucleus (another
+  traced mask, or a Cellpose label that holds less than half of this mask, standing in for untraced
+  neighbours), which tops out at 0.71 at a contact (d is at least one voxel) and reaches 0 at 1 um. On
+  noHS_male_000, 101 of the 144 traced nuclei have a neighbour within 1 um.
+* Loss: per voxel, the binary cross-entropy of the foreground logit plus the squared error of the cell
+  distance (um) plus the squared error of the neighbour closeness, times the weight, summed over the batch
+  and divided by its summed weight.
+* Patches of 48 x 160 x 160 voxels (9.6 x 17.3 x 17.3 um, a whole nucleus deep), four per step; a gonad
+  drawn uniformly, then the centre: a traced nucleus (probability 0.6, plus up to a third of the patch), a
+  germline nucleus of the golden run (0.3, plus up to half the patch) or anywhere in the stack; a patch may
+  hang over the stack's edge by a quarter (zero input, zero weight there). Augmentation: y and x flips, a
+  y/x transpose and a log-uniform gain of 0.8 to 1.25. Each sample draws from its own generator seeded with
+  (seed, epoch, index). The target maps are computed once per gonad (18 to 30 s) into the prep folder.
+
+### The network (`nuclei3d/model.py`)
+
+The encoder and decoder of net3d, reused: four levels of one residual block each (two 3 x 3 x 3
+convolutions, batch normalisation, SiLU; 16, 32, 64 and 128 channels), an xy-only first pooling (1 x 2 x
+2) and 2 x 2 x 2 after it, transposed-convolution upsampling, and a 1 x 1 x 1 head with three outputs
+(foreground logit with its bias starting at -2, cell distance, neighbour closeness); 1,421,475 parameters,
+a receptive radius of at most 30 voxels in z and 58 in y and x.
+
+### Training, validation and selection (`nuclei3d/train.py`)
+
+AdamW (learning rate 1e-3, weight decay 1e-4), 250 warm-up steps then a cosine decay to 5 percent over the
+maximum of 30 epochs of 250 steps, bf16 autocast on CUDA, seeds for python, numpy and torch and the
+deterministic settings of net3d (two CPU runs with the same seed give identical weights, tested).
+
+After every epoch both val gonads go through the backend's own path on the whole stack: tiled float32
+inference, the instance step with fixed parameters (foreground 0.5, h 0.4 um, neighbour weight 1), the
+pipeline's size filter (4 um3), then `germquant.benchmark.nuclei3d.benchmark_gonad` with the protocol's
+scope rule. Only the foreground components that touch region C go through the instance step, which
+changes no metric (a component that never touches C can only produce out-of-scope predictions) and saves
+time; the counts of all predictions in the training log cover those components only. The two gonads are
+pooled by summing TP, FP and FN at every IoU threshold. Selection: the best pooled F1 at IoU 0.5 (the
+protocol's primary nucleus metric), then the best pooled AP, then the earlier epoch; early stopping after
+8 validations without a new best. Every epoch's weights are kept with their sha256. For the selected epoch,
+the instance step is then scored on the same two gonads over a grid of h (0.2, 0.4, 0.6, 0.8 um), the
+foreground threshold (0.4, 0.5, 0.6) and the neighbour weight (0, 1), 24 configurations, chosen by the same
+rule and written into `model.pt`. Together with the validated epochs these are the configurations the
+protocol's tuning budget counts (section 6.4, at most 60).
+
+### The instance step and inference (`nuclei3d/infer.py`)
+
+The whole stack is inferred in float32 tiles of 96 x 384 x 384 voxels overlapping by the receptive radius,
+each tile contributing its core, so the result does not depend on the tiling beyond float rounding
+(tested); no tile is skipped and no other segmentation gates the inference. Foreground: probability above
+the threshold. Seed map: S = cell distance x (1 - neighbour weight x closeness), 0 outside the foreground.
+Seeds: the h-maxima of S (skimage, full connectivity), each connected group one seed. A seeded watershed
+of -S inside the foreground (face connectivity), per connected component of the foreground in its bounding
+box, which is exact and keeps the memory at the largest component. The pipeline's `_drop_small` follows in
+`segment_nuclei`.
+
+### Running it
+
+```powershell
+$env:PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"
+germquant train-nuclei3d --cache C:/Users/ryane/germquant_golden/bench_cache `
+    --split-file tests/golden/rad51_split.json --out C:/Users/ryane/germquant_golden/models/nuclei3d_20261010 `
+    --epochs 30 --steps-per-epoch 250 --batch-size 4 --patch 48,160,160 --seed 0 --patience 8 `
+    --post-grid "h_um=0.2,0.4,0.6,0.8;fg_threshold=0.4,0.5,0.6;neighbour_weight=0,1" `
+    --prep-dir C:/Users/ryane/germquant_golden/models/nuclei3d_prep --device cuda
+python scripts/benchmark_nuclei3d.py --manifest <manifest> --split val --coverage protocol --group-by condition `
+    --seed 20251105 --model C:/Users/ryane/germquant_golden/models/nuclei3d_20261010/model.pt --device cuda `
+    --out <dir>
+```
+
+Other options of `train-nuclei3d`: `--lr`, `--warmup-steps`, `--val-every`, `--base-channels`, `--levels`,
+`--tile`, `--w-traced-shell`, `--fg-threshold`, `--h-um`, `--neighbour-weight` (the instance step of the
+validation), `--min-volume-um3`, `--manifest`, `--min-free-gb`, `--wait-minutes`. Outputs in MODELDIR:
+`model.pt` (the selected epoch's weights with the instance-step parameters), `training_log.json` (settings,
+gonads, every epoch's losses, timing, memory, checkpoint sha256 and validation, the selection, the grid),
+`model_card.json` and `checkpoints/`.
+
+### First training run and its val scores (2026-10-10)
+
+The model: `C:/Users/ryane/germquant_golden/models/nuclei3d_20261010/model.pt`, sha256
+`11920205258dceece3e2bd6053621cbce390177f2baa70b9f40eefc0980bbb83` (5,735,871 bytes), trained by commit
+02d8389 with seed 0 (21:31 to 22:45 UTC, 4458 s on the RTX 5090, of which 1553 s were the instance-step
+grid). It ran 16 epochs and stopped early (no new best in 8 validations); the selected epoch is 8, with the
+learning rate still at 0.87 of its peak. The grid kept the training's own instance-step parameters
+(foreground 0.5, h 0.4 um, neighbour weight 1). 40 configurations were scored on val in all (16 epochs, 24
+grid points), within the protocol's budget of 60. Timing: 56 to 57 s per training epoch (5.0 GB of GPU
+memory allocated, 7.2 GB reserved), 114 to 162 s per validation of both gonads (13.4 to 13.7 GB reserved during
+the inference): 29 to 33 s of inference per gonad, 14 to 45 s for the instance step and 6 to 8 s for the scoring. The
+console log is `train_console.log` next to the model; a one-epoch smoke run of the same code on the real
+data, made before it, is kept in `C:/Users/ryane/germquant_golden/models/nuclei3d_work/dryrun/`.
+
+Pooled val scores by epoch (protocol rule, F1 at IoU 0.5 / AP over 0.5 to 0.95; the per-gonad F1 of the
+heat-shock and the no-heat-shock hermaphrodite after the bar):
+
+| epoch | 1 | 2 | 3 | 4 | 5 | 6 | 7 | **8** | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| F1 | 0.895 | 0.940 | 0.895 | 0.915 | 0.940 | 0.872 | 0.904 | **0.968** | 0.956 | 0.908 | 0.960 | 0.947 | 0.891 | 0.940 | 0.956 | 0.923 |
+| AP | 0.437 | 0.502 | 0.531 | 0.571 | 0.570 | 0.529 | 0.472 | **0.582** | 0.583 | 0.500 | 0.602 | 0.622 | 0.548 | 0.597 | 0.596 | 0.586 |
+| F1, HS_herm_001 | 0.879 | 0.844 | 0.747 | 0.790 | 0.857 | 0.720 | 0.821 | **0.923** | 0.906 | 0.802 | 0.900 | 0.888 | 0.774 | 0.872 | 0.917 | 0.828 |
+| F1, noHS_herm_001 | 0.905 | 0.997 | 0.979 | 0.986 | 0.990 | 0.956 | 0.952 | **0.997** | 0.986 | 0.969 | 0.997 | 0.983 | 0.959 | 0.983 | 0.979 | 0.979 |
+
+The no-heat-shock gonad is at 0.95 to 0.997 from epoch 2 on; the heat-shock gonad swings between 0.72 and
+0.92 from one epoch to the next, almost all of it in recall (0.61 to 0.88), and that swing decides the
+pooled F1. The selected epoch is the top of a noisy curve: the median pooled F1 of epochs 8 to 16 is
+0.947, about 0.02 below the selected 0.968. AP kept rising after the selected epoch (0.622 at epoch 12).
+
+The instance-step grid at the selected epoch (pooled over both val gonads; the 24 rows are in the training
+log):
+
+| h (um) | foreground 0.4 / 0.5 / 0.6, neighbour weight 1: F1 | the same with neighbour weight 0: F1 | splits / merges (0.5, weight 1) |
+|---|---|---|---|
+| 0.2 | 0.920 / 0.912 / 0.912 | 0.938 / 0.934 / 0.922 | 18 / 0 |
+| 0.4 | 0.964 / **0.968** / 0.968 | 0.958 / 0.962 / 0.962 | 0 / 1 |
+| 0.6 | 0.881 / 0.885 / 0.885 | 0.872 / 0.877 / 0.877 | 0 / 1 |
+| 0.8 | 0.785 / 0.794 / 0.790 | 0.785 / 0.794 / 0.790 | 0 / 5 |
+
+h is the parameter that matters: 0.2 um splits nuclei (16 to 18 splits, precision 0.88 to 0.91), 0.6 um and
+above loses nuclei (recall 0.82 to 0.83 at 0.6, 0.71 at 0.8). The foreground threshold moves F1 by at most 0.016.
+The neighbour head helps a little at h 0.4 (229 against 227 matched nuclei) and hurts at h 0.2, where its
+damping of the distance map at contacts adds seeds.
+
+### Against the deployed Cellpose-SAM on val
+
+`scripts/benchmark_nuclei3d.py --coverage protocol` on the two val gonads: the deployed labels are the
+8666f07 goldens' `<image>__nuclei_labels.tif` (Cellpose-SAM fine-tuned as `germline_nuclei_combined`, the
+pipeline's own path); nuclei3d is the frozen model through `segment_nuclei` on the whole stack (`--model`,
+CUDA, the size filter of 4 um3). Outputs under
+`C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/nuclei3d_val/` (`cellpose_golden_protocol`,
+`nuclei3d_20261010_protocol`, and `cellpose_golden_auto`, `nuclei3d_20261010_auto` for the earlier rule).
+The whole-stack metrics of nuclei3d equal the training-time validation exactly (TP, FP, FN, AP and the
+z-extent error on both gonads). Intervals: cluster bootstrap by gonad, 1000 resamples, seed 20251105; with
+two gonads they are the range of the two.
+
+| val, protocol rule, pooled over 2 gonads | deployed Cellpose-SAM | nuclei3d |
+|---|---|---|
+| F1 at IoU 0.5 | 0.863 [0.863, 0.863] | 0.968 [0.923, 0.997] |
+| precision / recall at IoU 0.5 | 0.863 / 0.863 | 0.987 / 0.950 |
+| matched / in-scope predictions / truth | 208 / 241 / 241 | 229 / 232 / 241 |
+| AP over IoU 0.5 to 0.95 | 0.338 [0.311, 0.357] | 0.582 [0.493, 0.645] |
+| splits / merges (20 percent rule) | 0 / 0 | 0 / 1 |
+| z-extent error of matched pairs, mean | +0.51 um [+0.44, +0.61] | +0.09 um [-0.14, +0.48] |
+| predictions in the whole stack / ignored as out of scope | 1887 / 1646 | 1003 / 771 |
+| segmentation time per gonad on the RTX 5090 | about 19 min of Cellpose-SAM network time (golden run logs) | 50 to 72 s (inference, instances, size filter) |
+
+| val gonad | method | in scope / truth | TP / FP / FN | F1 | recall | AP | mean matched IoU | z-extent error, mean (mean absolute) |
+|---|---|---|---|---|---|---|---|---|
+| n2rad51_noHS_herm_001 | Cellpose-SAM | 146 / 146 | 126 / 20 / 20 | 0.863 | 0.863 | 0.357 | 0.737 | +0.44 um (0.48), +2.2 planes |
+| n2rad51_noHS_herm_001 | nuclei3d | 145 / 146 | 145 / 0 / 1 | 0.997 | 0.993 | 0.645 | 0.828 | -0.14 um (0.30), -0.7 planes |
+| n2rad51_HS_herm_001 | Cellpose-SAM | 95 / 95 | 82 / 13 / 13 | 0.863 | 0.863 | 0.311 | 0.715 | +0.61 um (0.62), +3.0 planes |
+| n2rad51_HS_herm_001 | nuclei3d | 87 / 95 | 84 / 3 / 11 | 0.923 | 0.884 | 0.493 | 0.801 | +0.48 um (0.57), +2.4 planes |
+
+Per gonad, nuclei3d minus Cellpose: F1 +0.134 and +0.060, AP +0.287 and +0.182, recall +0.130 and +0.021,
+mean matched IoU +0.092 and +0.087 (no-heat-shock, heat-shock). Under the earlier rule (the ROI box) the
+same labels give F1 0.694 and 0.514 (Cellpose, pooled 0.610, AP 0.205) against 0.824 and 0.680 (nuclei3d,
+pooled 0.765, AP 0.396): the box holds 91 and 142 unmatched Cellpose nuclei and 61 and 68 unmatched nuclei3d
+ones, untraced nuclei the protocol's rule leaves out.
+
+**Device check.** The same model on the CPU (4 threads; `nuclei3d_20261010_cpu_check`) gives the
+identical label image for n2rad51_noHS_herm_001, voxel for voxel (476 nuclei, 7,748,740 labelled voxels),
+in 898 s of segmentation instead of 50 s.
+
+Where the two differ, from the val label images:
+
+* Cellpose finds every traced nucleus and draws it larger. Its in-scope predictions equal the truth count on
+  both gonads (146 and 95), and each of the 33 traced nuclei it misses at IoU 0.5 lies 95 to 100 percent
+  inside one Cellpose nucleus with an IoU of 0.39 to 0.50: near misses of the boundary convention (its
+  masks are about 1.4 times the Imaris volume, protocol section 4.2, and run 0.44 to 0.61 um longer in z),
+  not missed nuclei. nuclei3d learned the Imaris convention it is scored against, which is most of its gain
+  in F1, AP and matched IoU. The decisive comparison, Cellpose fine-tuned on the same masks, is below.
+* nuclei3d merges crowded nuclei, which the protocol's merge count cannot see. On the heat-shock gonad each
+  of the 11 traced nuclei it misses lies 94 to 100 percent inside a nuclei3d object 2.5 to 10.2 times its
+  volume, 27 to 54 planes tall where the traced nucleus spans 18 to 28, that covers at least 20 percent of
+  2 to 9 deployed Cellpose nuclei: merges, mostly along z, with untraced neighbours. 7 of these 11 objects
+  have less than half of their volume in region C and are ignored by the scope rule, so they cost recall
+  but no precision, and the merge count (20 percent of two or more traced nuclei) sees one. Over the whole
+  stacks nuclei3d makes 476 and 527 objects where Cellpose makes 617 and 1270, and 95 and 211 of its objects
+  cover at least 20 percent of two or more Cellpose nuclei (none and 5 of them in scope). Outside the
+  traced region its training had no supervision on untraced nuclei (zero weight there), and these numbers
+  say that it under-segments dense untraced regions, the heat-shock gonad most of all. Its masks are not
+  ready to replace the deployed ones in the pipeline, whatever the traced-subset scores say.
+
+### The fine-tuned Cellpose competitor (on the same masks)
+
+The design's decisive competitor: Cellpose fine-tuned on the masks nuclei3d learns from. Run as the
+stretch of this package, once, with no tuning:
+
+* Slices: `scripts/export_imaris_training_pairs.py` wrote 144 slice pairs from the six train gonads (8 per
+  gonad and orientation, xy, xz and yz, each cutting at least 3 traced nuclei, seed 0; xz and yz stretched
+  along z to the xy pixel size; each cropped to its traced labels plus 48 pixels; 2152 nucleus sections in
+  all) to `C:/Users/ryane/germquant_golden/models/cellpose_ft_imaris_pairs_20261010/`. The labels are the
+  traced masks; the voxels nuclei3d leaves out of its loss (untraced Cellpose labels plus 0.5 um) were filled
+  with the gonad's 1st DAPI percentile, since Cellpose's loss has no ignore label (9.1 to 28.4 million voxels
+  per gonad). That fill changes the image the network sees (an untraced nucleus becomes a dark hole), a limit
+  of this competitor.
+* Training: `germquant train-nuclei --pairs <pairs> --out C:/Users/ryane/germquant_golden/models/cellpose_ft_imaris_20261010
+  --base <the deployed germline_nuclei_combined file> --epochs 100 --split-by series --min-train-masks 3
+  --batch-size 8 --learning-rate 1e-5 --seed 0` on the RTX 5090 (992 s; one series group, so all 144 pairs
+  trained and nothing was held out). Model `cellpose_ft_imaris_20261010`, sha256
+  `a4334d0016f3ce548c92ddb722011be908c922d576e5d740c1405c714561c38c`; base model sha256
+  `e4e32320cfc321a145ccbc0c52138eded50e37b87130f34bae2296c88b148f57`; Cellpose 4.2.1.1.
+* Scoring: `scripts/benchmark_nuclei3d.py --cellpose-model <model> --coverage protocol --split val`, the
+  pipeline's own Cellpose path in 3D on the cached DAPI with the size filter of 4 um3 (1140 to 1180 s of
+  segmentation per gonad); outputs `cellpose_ft_imaris_protocol` and `cellpose_ft_imaris_auto` next to the
+  others.
+
+| val, protocol rule, pooled over 2 gonads | deployed Cellpose-SAM | nuclei3d | Cellpose fine-tuned on the masks |
+|---|---|---|---|
+| F1 at IoU 0.5 | 0.863 [0.863, 0.863] | 0.968 [0.923, 0.997] | 0.974 [0.967, 0.984] |
+| precision / recall | 0.863 / 0.863 | 0.987 / 0.950 | 0.952 / 0.996 |
+| TP / FP / FN | 208 / 33 / 33 | 229 / 3 / 12 | 240 / 12 / 1 |
+| AP over IoU 0.5 to 0.95 | 0.338 [0.311, 0.357] | 0.582 [0.493, 0.645] | 0.590 [0.554, 0.656] |
+| splits / merges | 0 / 0 | 0 / 1 | 1 / 0 |
+| mean matched IoU, noHS / HS | 0.737 / 0.715 | 0.828 / 0.801 | 0.798 / 0.840 |
+| z-extent error, mean | +0.51 um | +0.09 um | -0.25 um [-0.32, -0.15] |
+| F1, noHS_herm_001 / HS_herm_001 | 0.863 / 0.863 | 0.997 / 0.923 | 0.967 / 0.984 |
+| AP, noHS_herm_001 / HS_herm_001 | 0.357 / 0.311 | 0.645 / 0.493 | 0.554 / 0.656 |
+| objects in the whole stack, noHS / HS (median volume) | 617 / 1270 (35.5 / 39.4 um3) | 476 / 527 (34.2 / 50.3 um3) | 647 / 1234 (23.2 / 27.2 um3) |
+| earlier rule (ROI box): pooled F1 / AP | 0.610 / 0.205 | 0.765 / 0.396 | 0.688 / 0.338 |
+| segmentation time per gonad (RTX 5090) | about 19 min (network) | 50 to 72 s | 1140 to 1180 s |
+
+On the traced nuclei the fine-tuned Cellpose ties with nuclei3d: pooled F1 0.974 against 0.968 and AP 0.590
+against 0.582, differences far below the protocol's minimum effect of 0.03, and the two split the gonads
+(nuclei3d ahead on the no-heat-shock gonad by 0.030 in F1, the fine-tuned Cellpose ahead on the heat-shock
+gonad by 0.061, where it finds all 95 traced nuclei). The one traced nucleus it misses has a best IoU of
+0.26. It keeps the deployed model's object count over the whole stacks (647 and 1234 against 617 and 1270)
+where nuclei3d makes 476 and 527, while the total foreground volume of the two new models is the same on
+the heat-shock gonad (37,332 and 37,351 um3 against 55,136 for the deployed labels): both draw the Imaris
+boundary, and nuclei3d packs it into fewer, larger objects. Against the deployed labels as a reference
+(not a truth), 193 of the fine-tuned Cellpose's 1234 heat-shock objects also cover at least 20 percent of
+two or more deployed nuclei (7 of 647 without heat shock), against 211 of nuclei3d's 527 (95 of 476), so
+neither is free of merges there, but nuclei3d merges far more of its objects. Under the design's stop rule
+(a fine-tuned competitor at least the minimum gain ahead on val ends the iteration) this is a tie on the
+protocol's metric, not a stop; on the whole-stack object counts the fine-tuned Cellpose is the better
+segmenter, and on runtime nuclei3d is about 20 times faster.
+
+### What this does and does not say
+
+* These are development numbers on two val gonads, both hermaphrodites. The epoch and the instance-step
+  parameters were chosen on them among 40 configurations, so the scores are optimistic: the selected epoch
+  is the top of a curve whose later epochs have a median pooled F1 of 0.947, and the heat-shock gonad's F1
+  swings by 0.2 from epoch to epoch. No test gonad was opened or scored, by nuclei3d or by any other method.
+* On the traced nuclei, scored by the protocol's rule, nuclei3d agrees with the Imaris masks better than the
+  deployed Cellpose-SAM on both val gonads (pooled F1 0.968 against 0.863, AP 0.582 against 0.338), but
+  Cellpose fine-tuned on the same masks does as well (0.974 and 0.590): the gain over the deployed model
+  comes from the training masks, the Imaris boundary convention, not from the architecture.
+* The protocol's partial-annotation scope rule is lenient on objects that reach far outside the traced
+  region, and the whole-stack diagnostic above shows nuclei3d under-segmenting untraced crowded nuclei. The
+  traced-subset metrics cannot show this; the RAD-51 counts on its masks (not computed), a complete
+  annotation of a crop (the design's napari crops) or the blind human subset can.
+* W3 of the protocol is a test-set criterion after retraining on train plus val (section 6.1); neither was
+  done. Nor was leave-one-gonad-out (section 6.2), the `--w-traced-shell 0` variant, or a second seed.
+* No heat-shock male is in val; the train set holds both heat-shock males (their surfaces are usable), so
+  unlike the spot detectors this model saw heat-shocked males in training.
+* Runtime is a clear difference: about a minute per gonad against about twenty for Cellpose-SAM in 3D on the
+  same GPU.
+
 ## Tests
 
 `tests/test_benchmark.py`: synthetic label volumes and spot sets with known answers for every metric
@@ -1510,3 +1844,27 @@ recipe, the train-plus-val run trains on the val gonad and never opens the test 
 `bench_logo.py net3d-folds` trains each fold on the recipe's other gonads and scores its held-out gonad, and the
 refusals (a test gonad, an unusable gonad, a gonad both trained and validated on, no val gonad without a fixed
 epoch count and threshold, a threshold with val gonads, `--recipe-from` with `--threshold`).
+
+`tests/test_nuclei3d.py`: nuclei3d and the protocol scope, on the CPU with tiny networks (skips itself
+without torch). The network's shapes, heads and receptive-radius bound; the loss (the weights, a
+zero-weight voxel changes nothing whatever the network says there, the normalisation, an all-zero weight);
+the targets on synthetic spheres (the cell distance equals the Euclidean distance transform inside each
+traced mask, the neighbour closeness is high at a contact and zero beyond the radius, a nucleus's own
+larger Cellpose label is not its neighbour, the class map: traced, shell, ignore inside an untraced
+Cellpose label and its 0.5 um margin, background) and their cache round trip; reproducible, weighted
+patches with zero weight off the stack; the instance step splitting two touching spheres (with and
+without the neighbour damping), one sphere staying one, an h above every dome or an empty foreground giving
+nothing; tiled inference equal to untiled inference in xy and z, and the seed-map path equal to the maps
+path; the backend contract with a randomly initialised model (segment_nuclei, the config keys over the
+model file's parameters, the classical fallback under `auto`, a missing model file, a file that is not a
+nuclei3d model, the provenance and its sha256, nothing for cellpose and classical); the default run's stage
+hashes and segment provenance unchanged and the segment sub-hash changed by nuclei3d; a pipeline run with
+`segmentation.nuclei.backend: nuclei3d` (`segmentation_method` and `segment_backend` in the manifest);
+`germquant train-nuclei3d` for one epoch on tiny planted gonads with a post grid (the test gonad is never
+opened, the same seed gives the same weights, the log, card and model file agree, a split file that moves
+a gonad is refused) and `scripts/benchmark_nuclei3d.py --model` and `--pred-dir` on the result (the test
+gonad skipped, the training-time grid scores equal to the script's); with an oracle in place of the
+network, the validation scorer equal to the script and perfect; `--cellpose-model` with a stubbed Cellpose;
+the protocol mode (fragments removed, the half-volume scope rule at its edge, the 20 percent splits and
+merges, the z-extent error in slices); and `scripts/export_imaris_training_pairs.py` (train gonads only,
+the truth masks as labels, one series so `train-nuclei` trains on every pair).

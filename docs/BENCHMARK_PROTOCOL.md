@@ -468,3 +468,48 @@ point.
    d091b9ef58850783387a4f5aa0fea5ecc9310abc027145771936fecd0de001c0, trained at commit 240cc72, with its
    `model_card.json`; it is the net3d of `docs/FINAL_SCORING.md` and was not scored. Every choice in (b) and (c) was
    made after the first result of entry 2 and is post hoc under rule 3. No test result was computed.
+
+5. 2026-10-10. nuclei3d, the in-house 3D nucleus model (package E2; `docs/BENCHMARK.md`, "nuclei3d").
+   No test gonad was run or scored for it, and no metric of any method was computed on a test gonad in
+   this package. (a) The scope rule of section 5.3 is now implemented in the nucleus harness as
+   `coverage="protocol"` (`germquant.benchmark.nuclei3d`; `scripts/benchmark_nuclei3d.py --coverage
+   protocol`): truth fragments under 1000 voxels removed, region C, a prediction in scope with at least
+   half of its volume in C, splits and merges at 20 percent of the truth volume. Until this entry the
+   harness implemented only its earlier rule (the ROI box when present, else the truth bounding box
+   dilated by 2 um; majority splits and merges), which section 4.2 rules out as a record of the traced
+   extent; that rule stays the script's default so earlier outputs reproduce, and every nucleus number of
+   this entry uses the protocol rule. The script now skips test gonads unless `--final` is given with a
+   `--reason`. (b) What was trained: a residual 3D U-Net with foreground, cell-distance and neighbour
+   heads, on the six train gonads (582 traced nuclei; the region growing of the two heat-shock males
+   affects their spots, not their surfaces) against the recovered Imaris masks, with zero loss weight
+   inside untraced deployed Cellpose labels plus a 0.5 um margin; selected on the two val gonads by the
+   pooled section 5.3 F1 at IoU 0.5, then AP, then the earlier epoch, with fixed instance-step parameters
+   during training and then a grid of 24 instance-step configurations for the selected epoch, which kept
+   the training's parameters. 40 configurations were scored on val (16 epochs and the 24 grid points),
+   within the 60 of section 6.4, each listed with its val score in the training log. Frozen model: sha256
+   11920205258dceece3e2bd6053621cbce390177f2baa70b9f40eefc0980bbb83 (epoch 8), trained at commit 02d8389
+   with seed 0 (`C:/Users/ryane/germquant_golden/models/nuclei3d_20261010/`). For comparison the
+   deployed Cellpose labels (the 8666f07 goldens) were scored on the same two val gonads under the same
+   rule. (c) Choices that neither this protocol nor the design fixed, made before training: the region of
+   a traced nucleus's own Cellpose label outside its traced mask has weight 1 and target background (the
+   design's weight rule leaves that region unnamed); a Cellpose label with at least half of its voxels
+   inside traced masks is a traced nucleus's own label; the neighbour closeness reaches 0 at 1 um (power
+   3); the validation runs the instance step only on foreground components that touch region C, which
+   changes no metric. (d) Not done: retraining on train plus val (6.1), leave-one-gonad-out (6.2), the
+   RAD-51 counts on the new masks; W3 is a test-set criterion and has not been evaluated. (e) The
+   design's decisive competitor was run once, without tuning: the deployed Cellpose model fine-tuned on 144
+   slices of the same six train gonads' traced masks (`scripts/export_imaris_training_pairs.py`, untraced
+   nuclei filled with background; `germquant train-nuclei`, 100 epochs; sha256
+   a4334d0016f3ce548c92ddb722011be908c922d576e5d740c1405c714561c38c,
+   `C:/Users/ryane/germquant_golden/models/cellpose_ft_imaris_20261010/`), one configuration scored on the
+   two val gonads by the same rule. On val it ties with nuclei3d (pooled F1 at IoU 0.5 0.974 against
+   0.968, AP 0.590 against 0.582; deployed Cellpose 0.863 and 0.338), a difference far below the 0.03 of
+   section 7, so the design's stop rule is not triggered; `docs/BENCHMARK.md` reports the whole-stack
+   diagnostic in which nuclei3d makes far fewer, larger objects than both Cellpose models (527 against
+   1270 deployed and 1234 fine-tuned on the heat-shock gonad), merging crowded untraced nuclei that the
+   traced-subset metrics cannot see.
+   (f) Disclosed: two output folders of the nucleus harness, `benchmarks/n2rad51_8666f07/nuclei3d` and
+   `nuclei3d_bbox`, were written on 2026-10-10 at 02:47 and 02:49 UTC (20:47 and 20:49 local time on
+   2026-10-09), three minutes after the manifest, under the earlier rule. This package did not open them,
+   so whether they hold test gonads is not known here; if they do, they are nucleus results of the
+   deployed pipeline on test gonads computed before this entry (rule 1) that no earlier entry records.

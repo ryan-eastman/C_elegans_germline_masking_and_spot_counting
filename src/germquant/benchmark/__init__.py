@@ -7,7 +7,8 @@ Two benchmarks share this package:
   the expert's inside an anisotropic cylinder for precision, recall and F1.
 * ``nuclei3d``: the 3D nucleus segmentation. Our label image is matched to the expert's partial label
   image by IoU (F1 at IoU 0.5, AP averaged over IoU 0.5 to 0.95, splits, merges, z-extent error), with
-  a partial-annotation rule so untraced nuclei far from the expert's region are not false positives.
+  a partial-annotation rule so untraced nuclei far from the expert's region are not false positives
+  (``coverage="protocol"`` is the pre-registered scope of docs/BENCHMARK_PROTOCOL.md section 5.3).
 
 ``stats`` holds the agreement statistics and the cluster bootstrap by gonad; ``matching`` holds the
 one-to-one assignment that both benchmarks use (the Hungarian algorithm on the connected components of

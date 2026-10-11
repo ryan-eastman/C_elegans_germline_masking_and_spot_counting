@@ -1,5 +1,6 @@
 from .backends import (
     UnknownBackendError,
+    backend_provenance,
     backend_sources,
     discover_entry_points,
     get_backend,
@@ -11,6 +12,7 @@ from .nuclei import segment_nuclei
 
 __all__ = [
     "UnknownBackendError",
+    "backend_provenance",
     "backend_sources",
     "discover_entry_points",
     "get_backend",

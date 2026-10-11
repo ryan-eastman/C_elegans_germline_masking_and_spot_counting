@@ -296,7 +296,9 @@ def process_series(
     # sub-hash that lets --resume notice a retrained model or a Cellpose upgrade
     model_sha = (provenance.file_sha256(pipeline.resolve_model_path(cfg))
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
-    segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha)["segment"]
+    # the segmentation backend's own provenance ({} on the default run), as process_image hashes it
+    segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
+                                   segment_backend=pipeline.segment_backend_provenance(cfg))["segment"]
     enabled = B.enabled_stage_names(cfg)
     keep_ref, ref_stride = reference_settings(cfg)
     prov = provenance.write_manifest(
