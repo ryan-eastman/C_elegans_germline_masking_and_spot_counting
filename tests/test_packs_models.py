@@ -297,6 +297,57 @@ def test_cellpose_backend_first_call_is_the_old_line(monkeypatch):
     device.record_segment_device(None)
 
 
+def test_opt_in_cellpose_path_records_a_cpu_fallback(monkeypatch):
+    """The opt-in branch of cellpose_backend (the planar 2D call and the object diameter, P2a) retries on the CPU
+    like the default branch, and records "cpu" in SEGMENT_DEVICE_USED only after that retry (merge of P1 and P2a)."""
+    from germquant import device
+
+    calls = []
+    plane_labels = np.ones((4, 4), np.int32)
+    vol_labels = np.ones((2, 4, 4), np.int32)
+    state = {"fail_first": False}
+
+    def fake_2d(plane, model, device_pref=None, diameter_px=None):
+        calls.append(("2d", device_pref, diameter_px))
+        if device_pref != "cpu" and state["fail_first"]:
+            raise RuntimeError("CUDA out of memory")
+        return plane_labels
+
+    def fake_3d(dna, spacing, model, diam, device_pref=None, diameter_px=None):
+        calls.append(("3d", device_pref, diameter_px))
+        if device_pref != "cpu" and state["fail_first"]:
+            raise RuntimeError("CUDA out of memory")
+        return vol_labels
+
+    monkeypatch.setattr(N, "_cellpose_2d", fake_2d)
+    monkeypatch.setattr(N, "_cellpose", fake_3d)
+    monkeypatch.setattr(device, "available", lambda: {"cuda": True, "mps": False})
+    monkeypatch.delenv("GERMQUANT_DEVICE", raising=False)
+    plane = np.zeros((1, 4, 4), np.float32)
+    vol = np.zeros((2, 4, 4), np.float32)
+    diam = {"cellpose": {"object_diameter_um": 4.0}}
+    try:
+        # success on the accelerator: nothing recorded, on either opt-in call
+        device.record_segment_device(None)
+        SB.cellpose_backend(plane, (1.0, 0.2, 0.2), model="models/m", diameter_um=3.0, device="cuda",
+                            cfg_section={}, planar=True)
+        SB.cellpose_backend(vol, (1.0, 0.2, 0.2), model="models/m", diameter_um=3.0, device="cuda",
+                            cfg_section=diam)
+        assert device.segment_device_used() is None
+        assert calls == [("2d", "cuda", None), ("3d", "cuda", 20.0)]
+        # accelerator trouble: one CPU retry, recorded
+        state["fail_first"] = True
+        for section, planar, arr in (({}, True, plane), (diam, False, vol)):
+            calls.clear()
+            device.record_segment_device(None)
+            SB.cellpose_backend(arr, (1.0, 0.2, 0.2), model="models/m", diameter_um=3.0, device="cuda",
+                                cfg_section=section, planar=planar)
+            assert [c[1] for c in calls] == ["cuda", "cpu"]
+            assert device.segment_device_used() == "cpu"
+    finally:
+        device.record_segment_device(None)
+
+
 def test_train_base_refuses_a_local_entry_with_a_pack_name_but_other_weights(pack_env, monkeypatch, tmp_path):  # noqa: F811
     from germquant.segment import training as TR
 
