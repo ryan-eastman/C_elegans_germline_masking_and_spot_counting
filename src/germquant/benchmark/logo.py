@@ -27,20 +27,22 @@ parameters (so its record carries every metric, the section 5.1 partition includ
 
 The pre-registered SpotMAX grid (protocol section 8 item 2), which D3 did not run. ``prereg_spotmax_grid``
 lists its 60 sets: thresholding method (``PREREG_SPOTMAX_METHODS``) by ``effect_size_min``
-(``PREREG_SPOTMAX_EFFECT_SIZES``) by ``z_merge_gap_um`` (``PREREG_SPOTMAX_Z_GAPS``), every other spots key at
-the golden run's deployed value, so pg_tri_e3.0_z0.8 is the deployed recipe. Its rule is that of sections 6.1
-and 6.4, not D3's: every set is scored on the selection gonads and the best on the primary metric is
-selected, with no train stage and no finalists. ``primary_objective_on`` is that metric pooled as
-``bench_detector.py`` pools it (the point estimate over the pooled nuclei of the given gonads): the
-per-nucleus CCC on the section 5.1 partition (the truth masks, Class A+B truth, end-to-end counts; the
-``per_nucleus_truth_masks`` block) rounded to 3 decimals, then the section 5.2 spot F1 inside R
-(``spots_truth_masks``); a missing or NaN value ranks last. ``select_grid`` ranks the sets on given gonads
-(ties keep the grid's order) and names the (set, gonad) pairs still to run. ``replay_grid`` applies it to
-one fold's selection gonads (its ``val``, from ``logo_folds``) and returns what ``replay_spotmax_search``
-returns, so ``bench_logo.py heldout --selection`` reads its output unchanged; ``designated_split`` gives
-the split's own train and val gonads, on which the frozen grid set is chosen. The index carries the
-truth-mask counts this needs only when it is built with ``index_runs(..., truth_masks=True)``; the
-default index, and so the D3 replay, reads nothing more than before.
+(``PREREG_SPOTMAX_EFFECT_SIZES``) by ``z_merge_gap_um`` (``PREREG_SPOTMAX_Z_GAPS``). Every other spots key
+stays at the golden run's deployed value, so pg_tri_e3.0_z0.8 is the deployed recipe. The rule is that of
+sections 6.1 and 6.4, not D3's: every set is scored on the selection gonads and the best on the primary
+metric is selected. There is no train stage, so every set is a finalist. ``primary_objective_on`` is that
+metric, pooled as ``bench_detector.py`` pools it (the point estimate over the pooled nuclei of the given
+gonads). It is the per-nucleus CCC on the section 5.1 partition (``per_nucleus_truth_masks``: the truth
+masks, Class A+B truth, end-to-end counts) rounded to 3 decimals, then the section 5.2 spot F1 inside R
+(``spots_truth_masks``). A missing or NaN value ranks last. ``select_grid`` ranks the sets on given gonads
+(ties keep the grid's order) and names the (set, gonad) pairs still to run. A score without the truth-mask
+counts is one of those pairs, so a set is never passed over only because its run folder lacks them.
+``replay_grid`` applies the rule to one fold's selection gonads (its ``val``, from ``logo_folds``). It
+returns what ``replay_spotmax_search`` returns, so ``bench_logo.py heldout --selection`` reads its output
+unchanged. ``designated_split`` gives the split's own train and val gonads; the frozen grid set is chosen
+on those val gonads. The index carries the truth-mask counts only when it is built with
+``index_runs(..., truth_masks=True)``. The default index, and so the D3 replay, reads nothing more than
+before.
 
 Pooling (``pool_heldout``, ``paired``): the held-out per-gonad tables of a detector are pooled over the
 six folds with the cluster bootstrap by gonad of protocol section 6.3 (1000 resamples, seed 20251105), and
@@ -143,6 +145,11 @@ class GonadScore:
     tm_ours: np.ndarray | None = None
     tm_spots: tuple[int, int, int] | None = None
 
+    def has_truth_masks(self) -> bool:
+        """True when the score has everything ``primary_objective_on`` pools: the truth-mask counts and the
+        matching counts inside R."""
+        return self.tm_expert is not None and self.tm_ours is not None and self.tm_spots is not None
+
 
 @dataclass
 class RunIndex:
@@ -154,6 +161,17 @@ class RunIndex:
 
     def has(self, sha: str, tag: str) -> bool:
         return tag in self.scores.get(sha, {})
+
+
+def _tm_spot_counts(r) -> tuple[int, int, int] | None:
+    """The matching counts inside R (matched, ours, expert) of one per_gonad.csv row, pooled as
+    ``spots._detection_block`` pools them. That block leaves out a row whose n_expert + n_ours is not above 0
+    (a NaN count included), so such a row is (0, 0, 0) here and adds nothing. None for a row with spots in R
+    but no readable matched count, which the scorer never writes; the pair then counts as missing."""
+    m, o, e = (finite(r[c]) for c in TM_SPOTS_COLUMNS)
+    if o is None or e is None or not o + e > 0:
+        return (0, 0, 0)
+    return None if m is None else (int(m), int(o), int(e))
 
 
 def _read_run_dir(run_dir: Path, truth_masks: bool = False) -> tuple[dict | None, str | None, dict]:
@@ -168,6 +186,7 @@ def _read_run_dir(run_dir: Path, truth_masks: bool = False) -> tuple[dict | None
         ptn = pd.read_csv(run_dir / "per_truth_nucleus.csv")
         if not {"tag", "expert_n", "ours_n"} <= set(ptn.columns):
             ptn = None
+    has_tm_spots = all(c in pg.columns for c in TM_SPOTS_COLUMNS)
     out = {}
     for _, r in pg.iterrows():
         tag = str(r["tag"])
@@ -179,9 +198,8 @@ def _read_run_dir(run_dir: Path, truth_masks: bool = False) -> tuple[dict | None
             if ptn is not None:          # a gonad without truth-mask rows has none to pool, as in bench_detector.py
                 tm = ptn[ptn["tag"].astype(str) == tag]
                 out[tag].tm_expert, out[tag].tm_ours = tm["expert_n"].to_numpy(float), tm["ours_n"].to_numpy(float)
-            counts = [finite(r.get(c)) for c in TM_SPOTS_COLUMNS]
-            if all(v is not None for v in counts):
-                out[tag].tm_spots = tuple(int(v) for v in counts)
+            if has_tm_spots:             # a folder written before the section 5.2 columns has none
+                out[tag].tm_spots = _tm_spot_counts(r)
     return params, run_dir.name, out
 
 
@@ -260,9 +278,9 @@ def primary_objective_on(idx: RunIndex, sha: str, tags) -> tuple[float, float]:
     gonads): the per-nucleus CCC over the concatenated truth nuclei (protocol section 5.1, Class A+B truth,
     end-to-end counts), rounded to ``tuning.CCC_DECIMALS``, then the F1 of the summed matching counts inside
     R (section 5.2). Ranked with ``tuning.objective``, so a missing or NaN value is -inf and ranks last. A
-    gonad without a score for the set, or a score without the truth-mask counts (an index built without
-    ``truth_masks``, a run folder without them), makes the value missing; a gonad with no truth nuclei adds
-    none, as in ``bench_detector.py``."""
+    gonad without a score for the set makes the value missing, and so does a score without the truth-mask
+    counts (an index built without ``truth_masks``, a run folder without them). A gonad with no truth nuclei,
+    or with no spot in R, adds nothing, as in ``bench_detector.py``."""
     s = [idx.scores.get(sha, {}).get(t) for t in tags]
     pooled = {}
     if s and all(g is not None for g in s):
@@ -286,12 +304,15 @@ def rank_on(idx: RunIndex, configs: list[dict], tags) -> list[dict]:
     return sorted(items, key=lambda it: it["objective"], reverse=True)
 
 
-def missing_scores(idx: RunIndex, configs: list[dict], tags) -> list[dict]:
-    """The (set, gonad) pairs of ``configs`` x ``tags`` with no score in the index."""
+def missing_scores(idx: RunIndex, configs: list[dict], tags, *, truth_masks: bool = False) -> list[dict]:
+    """The (set, gonad) pairs of ``configs`` x ``tags`` with no score in the index. With ``truth_masks`` (the
+    primary objective's rule), a score without the truth-mask counts is missing too
+    (``GonadScore.has_truth_masks``: a run folder without per_truth_nucleus.csv or the tm_spots_ columns)."""
     out = []
     for c in configs:
         sha = bd.params_sha256(c["params"])
-        lack = [t for t in tags if not idx.has(sha, t)]
+        have = idx.scores.get(sha, {})
+        lack = [t for t in tags if t not in have or (truth_masks and not have[t].has_truth_masks())]
         if lack:
             out.append({"name": c["name"], "params": c["params"], "tags": lack})
     return out
@@ -482,23 +503,27 @@ def select_grid(idx: RunIndex, configs: list[dict], tags) -> dict:
     """The grid rule of protocol sections 6.1 and 6.4 on the selection gonads ``tags``: every set of
     ``configs`` ranked by ``primary_objective_on`` over ``tags``, the higher rounded CCC first, then the
     higher spot F1, then the order of ``configs`` (a stable sort). Returns ``selected`` (the best set as
-    ``{name, params}``, or None while a (set, gonad) pair has no score), ``ranking`` (every set with its
-    ``objective``, best first; a set with a pair missing ranks last) and ``missing`` (the pairs still to run,
-    by set, as ``missing_scores`` lists them). A test gonad in ``tags`` is refused
-    (``detector.guard_test``). ValueError when nothing is missing but no set has a primary score."""
+    ``{name, params}``, or None while a pair is missing), ``ranking`` (every set with its ``objective``, best
+    first; a set with a pair missing ranks last) and ``missing`` (the pairs still to run, by set). A pair is
+    missing when it has no score or its score lacks the truth-mask counts (``missing_scores(...,
+    truth_masks=True)``). A run folder without per_truth_nucleus.csv or the tm_spots_ columns therefore holds
+    up the selection; it does not let another set be selected. A NaN CCC computed from the counts still ranks
+    last. A test gonad in ``tags`` is refused (``detector.guard_test``). ValueError without selection gonads,
+    and when nothing is missing but no set has a finite CCC."""
     tags = list(tags)
     bd.guard_test(tags)
     if not configs:
         raise ValueError("select_grid needs at least one parameter set")
+    if not tags:
+        raise ValueError("select_grid needs at least one selection gonad (a fold or split without val gonads?)")
     ranking = sorted(({"name": c["name"], "params": c["params"],
                        "objective": primary_objective_on(idx, bd.params_sha256(c["params"]), tags)}
                       for c in configs), key=lambda it: it["objective"], reverse=True)
-    missing = missing_scores(idx, configs, tags)
+    missing = missing_scores(idx, configs, tags, truth_masks=True)
     selected = None
     if not missing:
         if not math.isfinite(ranking[0]["objective"][0]):
-            raise ValueError(f"no parameter set has a primary score on {tags} (do the run folders have "
-                             "per_truth_nucleus.csv, and was the index built with truth_masks=True?)")
+            raise ValueError(f"no parameter set has a finite truth-mask CCC on {tags}")
         selected = {"name": ranking[0]["name"], "params": ranking[0]["params"]}
     return {"selected": selected, "ranking": ranking, "missing": missing}
 

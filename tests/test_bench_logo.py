@@ -5,17 +5,21 @@ replay of the D3 search on a synthetic score index (including the parameter sets
 and the driver end to end on the planted-foci gonads of test_bench_detector with the log backend
 (held-out scoring, the trial records' notes, the pooled report and the paired comparison). The
 pre-registered SpotMAX grid of protocol section 8 item 2: its 60 sets (values, order, names, the deployed
-recipe among them, only spots: keys), the primary objective against bench_detector.py's own pooling, the
-truth-mask counts in the run index, the grid rule (the rounding, both tie-breaks, NaN and missing values,
-the pairs still to run, no test gonad), each fold's own selection gonads, and `bench_logo.py grid-configs`
-and `select --search prereg-grid` end to end (a file bench_tune.py accepts, exit code 3 while pairs are
-missing, a selection that `heldout --selection` reads, the D3 replay unchanged). Synthetic only.
+recipe among them, only spots: keys); the primary objective against bench_detector.py's own pooling (a
+gonad without truth nuclei or with NaN counts inside R included) and against bench_tune.py's own run
+folders; the truth-mask counts in the run index; the grid rule (the rounding, both tie-breaks, NaN and
+missing values, a score without the truth-mask counts held as missing, no test gonad); each fold's own
+selection gonads; and `bench_logo.py grid-configs` and `select --search prereg-grid` end to end (a file
+bench_tune.py accepts, exit code 3 while pairs are missing, a selection that `heldout --selection` reads,
+the D3 replay unchanged, the real split's folds with `to_run` merged over both val folds, the refusals).
+Synthetic only.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
 import math
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -306,8 +310,14 @@ def _write_run(folder: Path, params: dict, rows, pn, ptn) -> dict:
 
 
 def test_primary_objective_pools_as_bench_detector(tmp_path):
-    tags = ["g_a", "g_b", "g_c"]
+    tags = ["g_a", "g_b", "g_c", "g_d"]
     rows, pn, ptn = _bench_tables(tags)
+    # g_d has no truth nuclei and NaN counts inside R (an older row; the scorer now writes zeros there), so
+    # bench_detector.py leaves it out of both blocks
+    ptn = ptn[ptn["tag"] != "g_d"].reset_index(drop=True)
+    in_r = [*logo.TM_SPOTS_COLUMNS, "tm_spots_f1"]
+    rows[in_r] = rows[in_r].astype(float)
+    rows.loc[rows["tag"] == "g_d", in_r] = np.nan
     _write_run(tmp_path / "runs" / "x", _PG, rows, pn, ptn)
     sha = bd.params_sha256(_PG)
     idx = logo.index_runs([tmp_path / "runs"], backend="spotmax", truth_masks=True)
@@ -315,12 +325,18 @@ def test_primary_objective_pools_as_bench_detector(tmp_path):
     got = logo.primary_objective_on(idx, sha, tags)
     assert got == bt.objective(doc, keys=_KEYS) and all(math.isfinite(v) for v in got)
     assert got == (round(doc["per_nucleus_truth_masks"]["ccc"]["point"], 3), doc["spots_truth_masks"]["f1"]["point"])
+    assert doc["spots_truth_masks"]["n_gonads"] == 3
+    d = idx.scores[sha]["g_d"]
+    assert len(d.tm_expert) == len(d.tm_ours) == 0 and d.tm_spots == (0, 0, 0) and d.has_truth_masks()
     # any subset of the gonads, in any order: bench_detector.py's point estimates over exactly those gonads
-    for sub in (["g_a"], ["g_c", "g_a"], ["g_b", "g_c"]):
+    for sub in (["g_a"], ["g_c", "g_a"], ["g_b", "g_c"], ["g_d", "g_b"], ["g_c", "g_d", "g_a"], ["g_d"]):
         r, n, t = (df[df["tag"].isin(sub)].reset_index(drop=True) for df in (rows, pn, ptn))
         pooled = bd.pool_scores(r, n, n_boot=5, seed=1, per_truth_nucleus=t)
         assert logo.primary_objective_on(idx, sha, sub) == bt.objective(pooled, keys=_KEYS)
-        assert logo.primary_objective_on(idx, sha, sub)[0] == round(stats.lin_ccc(t["expert_n"], t["ours_n"]), 3)
+        if len(t):
+            assert logo.primary_objective_on(idx, sha, sub)[0] == round(stats.lin_ccc(t["expert_n"], t["ours_n"]), 3)
+    assert logo.primary_objective_on(idx, sha, ["g_d", "g_b"]) == logo.primary_objective_on(idx, sha, ["g_b"])
+    assert logo.primary_objective_on(idx, sha, ["g_d"]) == (-math.inf, -math.inf)        # nothing to pool
     # the D3 objective reads the same folder as before and pools the germline block as bench_detector.py does
     plain = logo.index_runs([tmp_path / "runs"], backend="spotmax")
     assert logo.objective_on(plain, sha, tags) == logo.objective_on(idx, sha, tags) == bt.objective(doc)
@@ -344,6 +360,15 @@ def test_index_runs_truth_masks_agree_or_refuse(tmp_path):
     _write_run(tmp_path / "d" / "x", _PG, rows, pn, ptn.assign(ours_n=ptn["ours_n"] + 1))    # other counts
     alone = logo.index_runs([tmp_path / "c"], truth_masks=True).scores[sha]["g_a"]
     assert alone.tm_expert is None and alone.tm_ours is None and alone.tm_spots is None
+    # a folder written before the section 5.2 columns: the truth-mask table alone is not enough for the
+    # primary objective, so the pair counts as missing there (and only there)
+    _write_run(tmp_path / "e" / "x", _PG, rows.drop(columns=list(logo.TM_SPOTS_COLUMNS)), pn, ptn)
+    old = logo.index_runs([tmp_path / "e"], truth_masks=True)
+    s = old.scores[sha]["g_a"]
+    assert s.tm_expert is not None and s.tm_spots is None and not s.has_truth_masks()
+    one = [{"name": "x", "params": _PG}]
+    assert logo.missing_scores(old, one, ["g_a", "g_b"], truth_masks=True) == [{**one[0], "tags": ["g_a", "g_b"]}]
+    assert logo.missing_scores(old, one, ["g_a", "g_b"]) == []
     g = logo.index_runs([tmp_path / "c", tmp_path / "a", tmp_path / "b"], truth_masks=True).scores[sha]["g_a"]
     assert np.array_equal(g.tm_ours, ptn.loc[ptn["tag"] == "g_a", "ours_n"].to_numpy(float))    # taken from a
     assert g.tm_spots == tuple(int(rows.loc[0, c]) for c in logo.TM_SPOTS_COLUMNS)
@@ -352,6 +377,38 @@ def test_index_runs_truth_masks_agree_or_refuse(tmp_path):
     # the default index, the D3 replay's, reads none of it, so there the two folders still agree
     d3 = logo.index_runs([tmp_path / "a", tmp_path / "d"]).scores[sha]["g_a"]
     assert d3.tm_expert is None and d3.tm_spots is None and d3.n_matched == int(rows.loc[0, "n_matched"])
+
+
+def test_primary_objective_reads_bench_tune_output(planted_bench):  # noqa: F811
+    """The run folders bench_tune.py itself writes (log backend, so no SpotMAX run): every score carries the
+    truth-mask counts, and the primary objective equals bench_tune.py's own pooling and summary."""
+    b = planted_bench
+    tune = _load_script("bench_tune.py")
+    configs = [{"name": "defaults", "params": {}}, {"name": "snr3", "params": {"log": {"min_snr": 3.0}}},
+               {"name": "gate2_nomerge", "params": {"log": {"pre_gate_sigmas": 2.0}, "merge_z_columns": False}}]
+    cfile = b["root"] / "configs.json"
+    cfile.write_text(json.dumps({"configs": configs}), encoding="utf-8")
+    out = b["root"] / "tune"
+    assert tune.main(["--backend", "log", "--configs", str(cfile), "--split", "train", "--out-root", str(out),
+                      "--no-trial-log", "--manifest", str(b["manifest"]), "--cache-root", str(b["root"] / "cache"),
+                      "--n-boot", "50"]) == 0
+    tags = ["synth_HS_b", "synth_noHS_a"]
+    idx = logo.index_runs([out], backend="log", truth_masks=True)
+    summary = pd.read_csv(out / "summary.csv").set_index("name")
+    for c in configs:
+        sha = bd.params_sha256(c["params"])
+        pooled = json.loads((out / c["name"] / "pooled.json").read_text(encoding="utf-8"))
+        pg = pd.read_csv(out / c["name"] / "per_gonad.csv").set_index("tag")
+        got = logo.primary_objective_on(idx, sha, tags)
+        assert got == bt.objective(pooled, keys=_KEYS) and all(math.isfinite(v) for v in got)
+        assert got[0] == round(summary.loc[c["name"], "tm_ccc"], 3)
+        for t in tags:
+            s = idx.scores[sha][t]
+            assert s.has_truth_masks() and len(s.tm_expert) > 0
+            assert s.tm_spots == tuple(int(pg.loc[t, k]) for k in logo.TM_SPOTS_COLUMNS)
+    assert logo.missing_scores(idx, configs, tags, truth_masks=True) == []
+    best = max(configs, key=lambda c: logo.primary_objective_on(idx, bd.params_sha256(c["params"]), tags))
+    assert logo.select_grid(idx, configs, tags)["selected"]["name"] == best["name"]
 
 
 def _tm(ccc, f1_hits=50, germline_shift=1.0) -> logo.GonadScore:
@@ -386,7 +443,10 @@ def test_select_grid_rounding_tie_breaks_and_missing():
             _put(idx, by[name], t, score)
     sel = logo.select_grid(idx, configs, val)
     assert [x["name"] for x in sel["ranking"]] == ["c", "d", "b", "a", "g", "e", "f", "h"]
-    assert sel["selected"] is None and sel["missing"] == [{"name": "h", "params": by["h"]["params"], "tags": ["v2"]}]
+    # f's scores lack the truth-mask counts (a run folder without them) and h has no score on v2: both are
+    # pairs still to run, so nothing is selected yet
+    assert sel["selected"] is None and sel["missing"] == [{"name": "f", "params": by["f"]["params"], "tags": val},
+                                                          {"name": "h", "params": by["h"]["params"], "tags": ["v2"]}]
     assert all(set(x) == {"name", "params", "objective"} for x in sel["ranking"])
     obj = {x["name"]: x["objective"] for x in sel["ranking"]}
     # the rounding: a's CCC is above b's (0.8504 against 0.8496), both round to 0.850 and the F1 decides
@@ -397,6 +457,8 @@ def test_select_grid_rounding_tie_breaks_and_missing():
     assert obj["g"][0] == 0.85 and obj["g"][1] == -math.inf and obj["e"][0] == -math.inf
     assert obj["e"][1] == pytest.approx(0.95) and obj["f"] == obj["h"] == (-math.inf, -math.inf)
     _put(idx, by["h"], "v2", plan["h"])
+    for t in val:                       # counts that give a NaN CCC and no spot in R: f is complete but last
+        _put(idx, by["f"], t, _tm(None, None))
     sel = logo.select_grid(idx, configs, val)
     assert sel["selected"] == {"name": "c", "params": by["c"]["params"]} and sel["missing"] == []
     assert [x["name"] for x in sel["ranking"]] == ["c", "d", "b", "a", "g", "h", "e", "f"]
@@ -411,17 +473,34 @@ def test_select_grid_rounding_tie_breaks_and_missing():
     r = logo.replay_grid(idx, configs, [], val)
     assert not r["complete"] and r["stage"] == "grid" and "selected" not in r and "selected_params" not in r
     assert r["missing"] == [{"name": "e", "params": by["e"]["params"], "tags": ["v1"]}]
-    # a test gonad is refused, and so is a selection with nothing to select on
+    # the best set loses the truth-mask counts on one gonad: the selection waits for that pair instead of
+    # passing the set over for d
+    _put(idx, by["e"], "v1", plan["e"])
+    _put(idx, by["c"], "v2", logo.GonadScore(expert=_EXPERT, ours=_EXPERT, n_matched=50, n_ours=100, n_expert=100))
+    sel = logo.select_grid(idx, configs, val)
+    assert sel["selected"] is None and sel["missing"] == [{"name": "c", "params": by["c"]["params"], "tags": ["v2"]}]
+    assert [x["name"] for x in sel["ranking"]] == ["d", "b", "a", "g", "h", "e", "c", "f"]
+    # a test gonad is refused
     with pytest.raises(bd.TestSetGuardError):
         logo.select_grid(idx, configs, ["v1", "n2rad51_HS_male_001"])
     with pytest.raises(bd.TestSetGuardError):
         logo.replay_grid(idx, configs, ["n2rad51_noHS_herm_002"], val)
+    # an index without the truth-mask counts (built without truth_masks) has every pair still to run
     bare = logo.RunIndex()
     for c in configs:
         for t in val:
             _put(bare, c, t, plan["f"])
-    with pytest.raises(ValueError, match="no parameter set has a primary score"):
-        logo.select_grid(bare, configs, val)
+    sel = logo.select_grid(bare, configs, val)
+    assert sel["selected"] is None and [m["tags"] for m in sel["missing"]] == [val] * len(configs)
+    # nothing to select on: no set with a finite CCC, or no selection gonad
+    flat = logo.RunIndex()
+    for c in configs:
+        for t in val:
+            _put(flat, c, t, _tm(None, 50))
+    with pytest.raises(ValueError, match="finite truth-mask CCC"):
+        logo.select_grid(flat, configs, val)
+    with pytest.raises(ValueError, match="selection gonad"):
+        logo.replay_grid(idx, configs, ["v1"], [])
 
 
 def _real_split_entries() -> list[Entry]:
@@ -575,3 +654,86 @@ def test_bench_logo_grid_configs_and_select_prereg_grid(planted_bench, capsys, m
     dd = json.loads(d3.read_text(encoding="utf-8"))
     assert set(dd) == {"backend", "runs", "objective", "folds", "complete", "missing"}
     assert dd["objective"] == bt.OBJECTIVE_TEXT and {f["stage"] for f in dd["folds"]} == {"S1"}
+
+
+def _real_split_manifest(root: Path, *, with_val: bool = True) -> tuple[Path, Path]:
+    """A manifest of the real split's train and val gonads (no test gonad; roles from the pre-registration)
+    and a cache folder holding only the file the fold rule checks, so `bench_logo.py select` builds the real
+    folds without image data. ``with_val=False`` leaves the val gonads out."""
+    root.mkdir(parents=True)
+    cache = root / "cache"
+    entries = []
+    for e in _real_split_entries():
+        role = bd.preregistered_role(e.tag)
+        if role == "test" or (role == "val" and not with_val):
+            continue
+        (cache / e.tag).mkdir(parents=True)
+        (cache / e.tag / bd.CACHE_FILES["meta"]).write_text("{}", encoding="utf-8")
+        entries.append({"tag": e.tag, "results_dir": str(root / "results" / e.tag), **e.extra})
+    manifest = root / "manifest.json"
+    manifest.write_text(json.dumps(entries), encoding="utf-8")
+    return manifest, cache
+
+
+def test_bench_logo_select_prereg_grid_on_the_real_folds(tmp_path, capsys):
+    """`select --search prereg-grid` on the real split's six folds (synthetic run folders, no image data). The
+    two folds that hold out a val gonad each need their own substitute, `to_run` merges both, and the two
+    train males are never a selection gonad. A score without the truth-mask counts holds the selection up
+    until a folder with them is added. Disagreeing folders and a split without val gonads are refused."""
+    mod = _load_script("bench_logo.py")
+    grid = logo.prereg_spotmax_grid()
+    manifest, cache = _real_split_manifest(tmp_path / "split")
+    common = ["--manifest", str(manifest), "--cache-root", str(cache), "--trials-log", str(tmp_path / "trials.jsonl")]
+    hs_v, nohs_v = "n2rad51_HS_herm_001", "n2rad51_noHS_herm_001"
+    hs_sub, nohs_sub = "n2rad51_HS_herm_000", "n2rad51_noHS_herm_000"
+    # both val gonads favour set 30, each substitute its own set (two gonads pool to the harmonic mean of
+    # their CCCs here: 0.655 for 0.5 and 0.95, against 0.643 for 0.9 and 0.5)
+    special = {hs_v: {30: (0.9, 50)}, nohs_v: {30: (0.9, 50)}, hs_sub: {12: (0.95, 50)}, nohs_sub: {44: (0.95, 50)}}
+    _grid_runs(tmp_path / "val", [hs_v, nohs_v], special, grid)
+    sel = tmp_path / "selection.json"
+    select = [*common, "select", "--backend", "spotmax", "--search", "prereg-grid", "--out", str(sel), "--runs"]
+    assert mod.main([*select, str(tmp_path / "val")]) == 3
+    doc = json.loads(sel.read_text(encoding="utf-8"))
+    by = {f["held_out"]: f for f in doc["folds"]}
+    assert list(by) == [hs_sub, hs_v, nohs_sub, nohs_v, "n2rad51_noHS_male_000", "n2rad51_noHS_male_001"]
+    assert [t for t, f in by.items() if not f["complete"]] == [hs_v, nohs_v]
+    assert by[hs_v]["substitute"] == hs_sub and by[nohs_v]["substitute"] == nohs_sub
+    assert len(doc["missing"]) == 120
+    assert {(m["fold"], tuple(m["tags"])) for m in doc["missing"]} == {(hs_v, (hs_sub,)), (nohs_v, (nohs_sub,))}
+    assert doc["to_run"] == [{"name": c["name"], "params": c["params"], "tags": [hs_sub, nohs_sub]} for c in grid]
+    assert doc["designated"]["complete"] and doc["designated"]["selected"] == grid[30]["name"]
+    # run folders of the two substitutes alone complete every fold
+    _grid_runs(tmp_path / "sub", [hs_sub, nohs_sub], special, grid)
+    runs = [str(tmp_path / "val"), str(tmp_path / "sub")]
+    assert mod.main([*select, *runs]) == 0
+    doc = json.loads(sel.read_text(encoding="utf-8"))
+    want = {t: grid[30]["name"] for t in by} | {hs_v: grid[12]["name"], nohs_v: grid[44]["name"]}
+    assert {f["held_out"]: f["selected"] for f in doc["folds"]} == want
+    assert doc["complete"] and doc["to_run"] == [] and doc["designated"]["selected"] == grid[30]["name"]
+
+    # a run folder without per_truth_nucleus.csv: its pairs are to run again and nothing is selected, until the
+    # same scores with the counts come from another folder
+    name = grid[30]["name"]
+    shutil.copytree(tmp_path / "val" / name, tmp_path / "rerun" / name)
+    (tmp_path / "val" / name / "per_truth_nucleus.csv").unlink()
+    assert mod.main([*select, *runs]) == 3
+    doc = json.loads(sel.read_text(encoding="utf-8"))
+    assert doc["to_run"] == [{"name": name, "params": grid[30]["params"], "tags": [hs_v, nohs_v]}]
+    assert not doc["designated"]["complete"] and not any(f["complete"] for f in doc["folds"])
+    runs.append(str(tmp_path / "rerun"))
+    assert mod.main([*select, *runs]) == 0
+    assert {f["held_out"]: f["selected"] for f in json.loads(sel.read_text(encoding="utf-8"))["folds"]} == want
+
+    # refused (exit code 2, nothing written): a folder that disagrees on the truth-mask counts, and a split
+    # without val gonads (no fold has a selection gonad)
+    shutil.copytree(tmp_path / "rerun" / name, tmp_path / "bad" / name)
+    ptn = pd.read_csv(tmp_path / "bad" / name / "per_truth_nucleus.csv")
+    ptn.assign(ours_n=ptn["ours_n"] + 1).to_csv(tmp_path / "bad" / name / "per_truth_nucleus.csv", index=False)
+    before = sel.read_text(encoding="utf-8")
+    capsys.readouterr()
+    assert mod.main([*select, *runs, str(tmp_path / "bad")]) == 2
+    assert "REFUSED" in capsys.readouterr().out and sel.read_text(encoding="utf-8") == before
+    manifest2, cache2 = _real_split_manifest(tmp_path / "no_val", with_val=False)
+    assert mod.main(["--manifest", str(manifest2), "--cache-root", str(cache2), "select", "--backend", "spotmax",
+                     "--search", "prereg-grid", "--out", str(tmp_path / "sel2.json"), "--runs", *runs]) == 2
+    assert "selection gonad" in capsys.readouterr().out and not (tmp_path / "sel2.json").exists()

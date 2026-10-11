@@ -19,12 +19,14 @@ select       replays the D3 search of a tuned classical detector on every fold's
              every fold, or the parameter sets and gonads still to be run (exit code 3).
              --search prereg-grid (backend spotmax; --search d3, the D3 replay, is the default) applies the
              rule of the pre-registered SpotMAX grid instead (protocol section 8 item 2, sections 6.1 and
-             6.4; germquant.benchmark.logo.replay_grid): on every fold and on the designated split (the
+             6.4; germquant.benchmark.logo.replay_grid). On every fold and on the designated split (the
              split's own train and val gonads), all 60 sets are ranked on the selection gonads by the
              primary metric (the truth-mask CCC rounded to 3 decimals, then the spot F1 inside R, then the
              grid's order) and the best is selected. The file has the layout of a D3 selection, which
              heldout --selection reads, plus "search", "configs" (the grid), "designated" (the designated
-             split's selection) and "to_run" (the missing pairs merged by set); exit code 3 as above.
+             split's selection) and "to_run" (the missing pairs merged by set). Exit code 3 as above; a
+             score without the truth-mask counts is missing too. Run folders that disagree, or a fold
+             without selection gonads, are refused (exit code 2).
 grid-configs writes the 60 sets of the pre-registered SpotMAX grid
              (germquant.benchmark.logo.prereg_spotmax_grid) as a configuration file for
              scripts/bench_tune.py --configs.
@@ -121,13 +123,13 @@ def cmd_select(args) -> int:
 
 def select_prereg_grid(args) -> int:
     """``select --search prereg-grid``: the rule of the pre-registered SpotMAX grid (protocol sections 6.1,
-    6.4 and 8 item 2) on every fold and on the designated split, written in the layout of the D3 replay."""
+    6.4 and 8 item 2) on every fold and on the designated split, written in the layout of the D3 replay.
+    Run folders that disagree, a fold without selection gonads, and a fold where no set has a finite
+    truth-mask CCC are refused (exit code 2); nothing is written then."""
     if args.backend != "spotmax":
         print("REFUSED: --search prereg-grid is the SpotMAX grid of protocol section 8 item 2 (--backend spotmax)")
         return 2
-    idx = logo.index_runs(args.runs, backend="spotmax", truth_masks=True)
     configs = logo.prereg_spotmax_grid()
-    folds = _folds(args)
     out = {"backend": args.backend, "search": args.search, "runs": [str(r) for r in args.runs],
            "objective": logo.PRIMARY_OBJECTIVE_TEXT, "configs": configs, "folds": []}
     missing = []
@@ -139,14 +141,21 @@ def select_prereg_grid(args) -> int:
             print(f"{label}: val {unit['val']} -> selected {r['selected']} (val truth-mask CCC {ccc:.3f}, "
                   f"F1 inside R {f1:.3f}; {r['n_sets']} sets)")
         else:
-            print(f"{label}: val {unit['val']} -> incomplete: {len(r['missing'])} sets lack a score on a val gonad")
+            print(f"{label}: val {unit['val']} -> incomplete: {len(r['missing'])} sets lack a score with the "
+                  "truth-mask counts on a val gonad")
             missing.extend({**m, "fold": label, "stage": r["stage"]} for m in r["missing"])
         return r
 
-    for f in folds:
-        out["folds"].append({**f, **replay(f["held_out"], f)})
-    designated = logo.designated_split(folds)
-    out["designated"] = {**designated, **replay("designated", designated)}
+    try:
+        folds = _folds(args)
+        idx = logo.index_runs(args.runs, backend="spotmax", truth_masks=True)
+        for f in folds:
+            out["folds"].append({**f, **replay(f["held_out"], f)})
+        designated = logo.designated_split(folds)
+        out["designated"] = {**designated, **replay("designated", designated)}
+    except ValueError as err:
+        print(f"REFUSED: {err}")
+        return 2
     out["complete"] = not missing
     out["missing"] = missing
     to_run: dict[str, set] = {}
