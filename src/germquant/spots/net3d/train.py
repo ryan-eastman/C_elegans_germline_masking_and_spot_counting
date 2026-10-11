@@ -31,6 +31,18 @@ labels) computed once per gonad; at the first validation the result is checked a
 pooled (nuclei concatenated for the CCC, counts summed for the F1); for every threshold of the grid
 the pooled scores are logged, and the epoch's score is that of its best threshold (CCC first, F1 to
 break a tie). The best epoch's weights and threshold become ``model.pt``.
+
+The frozen recipe (``recipe_from``, ``germquant train-spots --recipe-from MODELDIR``). Protocol sections
+6.1 and 6.2 retrain a selected configuration on other gonads without selecting again: on train plus val
+before test is scored, and on every leave-one-gonad-out fold. ``recipe_from`` reads a trained model's
+training_log.json and returns its settings (architecture, data and loss settings, normalisation, seed,
+batch, steps, learning-rate schedule over the same maximum of epochs, peak finding) with the selected
+epoch as ``run_epochs`` and the selected threshold as ``fixed_threshold``. With ``train_tags`` (the
+gonads to train on, in that order; train or val gonads with usable spot truth, never a test gonad) and
+no val gonads (``val_tags=[]``), training runs exactly ``run_epochs`` epochs with no validation and no
+early stopping, and ``model.pt`` holds the last epoch's weights with ``fixed_threshold``. The schedule is
+the recipe's: the learning rate at a step is that of the original run at the same step, so stopping at
+the selected epoch reproduces the selected checkpoint when the training gonads are the same.
 """
 from __future__ import annotations
 
@@ -163,6 +175,86 @@ def set_determinism(seed: int) -> None:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True)
+
+
+# ------------------------------------------------------------------------ the frozen recipe
+RECIPE_KEYS = ("epochs", "patch", "seed", "batch_size", "steps_per_epoch", "lr", "weight_decay", "warmup_steps",
+               "use_dna", "base_channels", "levels", "data_cfg", "norm", "separation_um", "assign_max_um",
+               "tile_zyx", "tol_xy_um", "tol_z_um", "run_epochs", "fixed_threshold")
+
+
+def recipe_from(model_dir) -> tuple[dict, dict]:
+    """The frozen recipe of a trained model: (keyword arguments of ``train_spots``, provenance record).
+
+    Read from ``MODELDIR/training_log.json``: every training setting of the run (``RECIPE_KEYS``; the
+    schedule keeps the run's maximum of epochs, so the learning rate at each step is the run's) plus the
+    selected epoch as ``run_epochs`` and the selected threshold as ``fixed_threshold``. The provenance
+    names the model, its sha256, its git sha and the selection. ValueError when the log is unfinished
+    or was written with a different minimum learning-rate fraction than this code's."""
+    path = Path(model_dir) / "training_log.json"
+    log_doc = json.loads(path.read_text(encoding="utf-8"))
+    if log_doc.get("status") != "finished":
+        raise ValueError(f"{path}: the training run is not finished (status {log_doc.get('status')!r})")
+    s, sel = log_doc["settings"], log_doc["selection"]
+    if float(s.get("min_lr_frac", TRAIN_DEFAULTS["min_lr_frac"])) != float(TRAIN_DEFAULTS["min_lr_frac"]):
+        raise ValueError(f"{path}: min_lr_frac {s.get('min_lr_frac')} differs from this code's "
+                         f"{TRAIN_DEFAULTS['min_lr_frac']}; the schedule cannot be reproduced")
+
+    def tup(v):
+        return tuple(v) if isinstance(v, list) else v
+
+    kwargs = {
+        "epochs": int(s["epochs"]), "patch": tuple(int(v) for v in s["patch"]), "seed": int(s["seed"]),
+        "batch_size": int(s["batch_size"]), "steps_per_epoch": int(s["steps_per_epoch"]), "lr": float(s["lr"]),
+        "weight_decay": float(s["weight_decay"]), "warmup_steps": int(s["warmup_steps"]),
+        "use_dna": "dna" in list(s.get("input_roles") or []),
+        "base_channels": int(s["arch"]["base_channels"]), "levels": int(s["arch"]["levels"]),
+        "data_cfg": {k: tup(v) for k, v in (s.get("data") or {}).items()}, "norm": dict(s.get("norm") or {}),
+        "separation_um": tuple(float(v) for v in s["separation_um"]), "assign_max_um": float(s["assign_max_um"]),
+        "tile_zyx": tuple(int(v) for v in s["tile_zyx"]), "tol_xy_um": float(s["tol_xy_um"]),
+        "tol_z_um": float(s["tol_z_um"]), "run_epochs": int(sel["epoch"]), "fixed_threshold": float(sel["threshold"]),
+    }
+    if int(s["arch"].get("in_channels", 2 if kwargs["use_dna"] else 1)) != (2 if kwargs["use_dna"] else 1):
+        raise ValueError(f"{path}: the architecture's input channels do not match its input roles")
+    assert set(kwargs) == set(RECIPE_KEYS)
+    recipe = {"from_model_dir": str(Path(model_dir)).replace("\\", "/"),
+              "from_model_sha256": log_doc.get("model_sha256"), "from_git_sha": log_doc.get("git_sha"),
+              "from_train_gonads": [g.get("tag") for g in (log_doc.get("gonads") or {}).get("train", [])],
+              "from_val_gonads": [g.get("tag") for g in (log_doc.get("gonads") or {}).get("val", [])],
+              "selected_epoch": int(sel["epoch"]), "selected_threshold": float(sel["threshold"]),
+              "selection_rule": sel.get("rule"), "selection_tolerance": sel.get("tolerance")}
+    return kwargs, recipe
+
+
+def choose_gonads(gon: dict, train_tags=None, val_tags=None) -> tuple[list[str], list[str]]:
+    """The training and validation gonads of a run: the split's own (``gon`` from ``resolve_gonads``)
+    by default, else ``train_tags`` (in the order given) and ``val_tags`` (default: the split's val gonads
+    that are not training gonads; ``[]`` for none). Every requested gonad must be a train or val gonad
+    with usable spot truth; a test gonad is refused by the guard, a gonad cannot be both trained and
+    validated on, and a gonad cannot be named twice."""
+    from germquant.benchmark import detector as bd
+
+    allowed = list(gon["train"]) + list(gon["val"])
+    excluded = {e["tag"]: e["reason"] for e in gon["excluded"]}
+    for tags in (train_tags, val_tags):
+        if tags is None:
+            continue
+        bd.guard_test(list(tags), allow_test=False, roles=gon["roles"])
+        for t in tags:
+            if t not in allowed:
+                why = excluded.get(t, "not a train or val gonad of the split")
+                raise ValueError(f"{t}: cannot be used ({why})")
+        if len(set(tags)) != len(list(tags)):
+            raise ValueError(f"a gonad is named twice in {list(tags)}")
+    train = list(train_tags) if train_tags is not None else list(gon["train"])
+    if val_tags is not None:
+        val = list(val_tags)
+    else:
+        val = [t for t in gon["val"] if t not in set(train)]
+    both = sorted(set(train) & set(val))
+    if both:
+        raise ValueError(f"{both}: a gonad cannot be both a training and a validation gonad")
+    return train, val
 
 
 # ------------------------------------------------------------------------- gonads and roles
@@ -495,7 +587,8 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
            assign_max_um: float = pk.DEFAULT_ASSIGN_MAX_UM, prep_dir=None, min_free_gb: float = 0.0,
            wait_minutes: float = 120.0, name: str | None = None, check_harness: bool = True,
            tol_xy_um: float = 0.3, tol_z_um: float = 0.4,
-           select_tolerance: float = TRAIN_DEFAULTS["select_tolerance"]) -> dict:
+           select_tolerance: float = TRAIN_DEFAULTS["select_tolerance"], train_tags=None, val_tags=None,
+           run_epochs: int | None = None, fixed_threshold: float | None = None, recipe: dict | None = None) -> dict:
     import torch
     import torch.nn.functional as F
 
@@ -531,18 +624,26 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
         log.info("GPU: %.1f GB free", free)
 
     gon = resolve_gonads(split_file, manifest)
-    if not gon["train"]:
+    train_list, val_list = choose_gonads(gon, train_tags, val_tags)
+    if not train_list:
         raise ValueError("no train gonad with usable spot truth")
-    if not gon["val"]:
-        raise ValueError("no val gonad: early stopping and the threshold need one")
+    frozen = not val_list
+    n_epochs = int(epochs) if run_epochs is None else int(run_epochs)
+    if not 1 <= n_epochs <= int(epochs):
+        raise ValueError(f"run_epochs {run_epochs} must be between 1 and the schedule's {epochs} epochs")
+    if frozen and (run_epochs is None or fixed_threshold is None):
+        raise ValueError("no val gonad: early stopping and the threshold need one (or give run_epochs and "
+                         "fixed_threshold, the frozen recipe)")
+    if not frozen and fixed_threshold is not None:
+        raise ValueError("fixed_threshold is for a run without val gonads; with val gonads the threshold is selected")
     prep = Path(prep_dir) if prep_dir else out / "prep"
-    log.info("train gonads %s; val %s; left out %s; test (never opened) %s", gon["train"], gon["val"],
+    log.info("train gonads %s; val %s; left out %s; test (never opened) %s", train_list, val_list,
              [e["tag"] for e in gon["excluded"]], gon["test"])
     t0 = time.time()
     train_g = [load_train_gonad(t, gon["entries"][t], cache_root, prep, use_dna=use_dna, data_cfg=dcfg, norm=ncfg)
-               for t in gon["train"]]
+               for t in train_list]
     val_g = [load_val_gonad(t, gon["entries"][t], cache_root, use_dna=use_dna, norm=ncfg, tol_xy_um=tol_xy_um,
-                            tol_z_um=tol_z_um, assign_max_um=assign_max_um) for t in gon["val"]]
+                            tol_z_um=tol_z_um, assign_max_um=assign_max_um) for t in val_list]
     prep_s = time.time() - t0
     log.info("data ready in %.0f s", prep_s)
 
@@ -562,6 +663,9 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
                 "separation_um": list(separation_um), "assign_max_um": float(assign_max_um),
                 "tol_xy_um": float(tol_xy_um), "tol_z_um": float(tol_z_um), "input_roles": roles_in,
                 "arch": model.arch(), "n_parameters": n_parameters(model)}
+    if run_epochs is not None or fixed_threshold is not None or recipe is not None:
+        settings.update({"run_epochs": n_epochs, "fixed_threshold": fixed_threshold, "frozen_recipe": bool(frozen),
+                         "recipe": recipe})
     gonad_rec = {"train": [{"tag": g.tag, "condition": g.condition, "sex": g.sex, **g.info} for g in train_g],
                  "val": [{"tag": v.tag, "condition": v.condition, "sex": v.sex,
                           "n_germline_nuclei": int(len(v.scorer.nucleus_ids)), "n_traced": int(v.scorer.traced.sum()),
@@ -579,8 +683,8 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
     harness_check = None
     step = 0
     log.info("training on %s: %d parameters, %d epochs x %d steps x %d patches %s", dev, n_parameters(model),
-             epochs, steps_per_epoch, batch_size, patch)
-    for epoch in range(int(epochs)):
+             n_epochs, steps_per_epoch, batch_size, patch)
+    for epoch in range(n_epochs):
         model.train()
         t_ep = time.time()
         losses = []
@@ -611,7 +715,7 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
         sha_ep = save_model_file(ckpt, model, {**meta_base, "epoch": epoch + 1, "git_sha": git_sha})
         rec["checkpoint"], rec["checkpoint_sha256"] = f"checkpoints/{ckpt.name}", sha_ep
         checkpoints.append({"epoch": epoch + 1, "file": f"checkpoints/{ckpt.name}", "sha256": sha_ep})
-        if (epoch + 1) % max(1, int(val_every)) == 0 or epoch + 1 == int(epochs):
+        if val_g and ((epoch + 1) % max(1, int(val_every)) == 0 or epoch + 1 == n_epochs):
             t_v = time.time()
             if dev == "cuda":
                 # hand the training batches' cached blocks back before the inference tiles (and the tiles'
@@ -660,13 +764,22 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
             break
 
     # the final model: the selected epoch's weights with the selected threshold, and its record
+    if frozen:
+        sel = {"epoch": len(epochs_log), "threshold": float(fixed_threshold), "entry": {}, "n_eligible": 0}
+        stop_reason = f"frozen recipe: {len(epochs_log)} epochs of the {int(epochs)}-epoch schedule, no validation"
     chosen = sel["entry"]
     val_sel = {k: chosen.get(k) for k in SUMMARY_KEYS}
-    selection = {"rule": "pooled traced per-nucleus CCC (Class A+B) within the tolerance of the best, then the best "
-                         "pooled spot F1, then the higher CCC, the earlier epoch, the lower threshold",
-                 "tolerance": float(select_tolerance), "epoch": sel["epoch"], "threshold": sel["threshold"],
-                 "n_eligible": sel["n_eligible"], "n_configurations": len(entries),
-                 "val_metrics": val_sel, "val_metrics_per_gonad": chosen.get("per_gonad")}
+    if frozen:
+        selection = {"rule": "frozen recipe, no selection: the last epoch run (the recipe's selected epoch count) "
+                             "with the recipe's threshold",
+                     "tolerance": None, "epoch": sel["epoch"], "threshold": sel["threshold"], "n_eligible": 0,
+                     "n_configurations": 0, "val_metrics": val_sel, "val_metrics_per_gonad": None, "recipe": recipe}
+    else:
+        selection = {"rule": "pooled traced per-nucleus CCC (Class A+B) within the tolerance of the best, then the "
+                             "best pooled spot F1, then the higher CCC, the earlier epoch, the lower threshold",
+                     "tolerance": float(select_tolerance), "epoch": sel["epoch"], "threshold": sel["threshold"],
+                     "n_eligible": sel["n_eligible"], "n_configurations": len(entries),
+                     "val_metrics": val_sel, "val_metrics_per_gonad": chosen.get("per_gonad")}
     final_meta = {**meta_base, "peaks": {**meta_base["peaks"], "threshold": sel["threshold"]},
                   "epoch": sel["epoch"], "git_sha": git_sha,
                   "training": {"train_gonads": [g.tag for g in train_g], "val_gonads": [v.tag for v in val_g],
@@ -674,6 +787,8 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
                                "selected_epoch": sel["epoch"], "epochs_run": len(epochs_log),
                                "val_selected": val_sel, "selection_tolerance": float(select_tolerance),
                                "created": _utc()}}
+    if frozen:
+        final_meta["training"].update({"frozen_recipe": True, "recipe": recipe, "selection_tolerance": None})
     best_model = build_model(model.arch())
     best_model.load_state_dict(read_model_file(out / "checkpoints" / f"epoch_{sel['epoch']:03d}.pt")["state_dict"])
     model_sha = save_model_file(out / "model.pt", best_model, final_meta)
@@ -688,9 +803,11 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
                "model_file": str(out / "model.pt"), "model_sha256": model_sha, "git_sha": git_sha,
                "versions": versions, "split_file": str(split_file), "manifest": str(manifest),
                "cache_root": str(cache_root)}
+    if frozen:
+        log_doc["recipe"] = recipe
     _write_json(out / "training_log.json", log_doc)
     card = model_card(name or out.name, out, model_sha, settings, gonad_rec, selection, stop_reason, len(epochs_log),
-                      git_sha, versions, split_file, manifest, cache_root, finished)
+                      git_sha, versions, split_file, manifest, cache_root, finished, recipe=recipe if frozen else None)
     _write_json(out / "model_card.json", card)
     shutil.copyfile(out / "model_card.json", out / "checkpoints" / "model_card.json")
     log.info("net3d trained in %.0f s: selected epoch %s, threshold %s, model %s (sha256 %s...)", elapsed,
@@ -701,8 +818,37 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
             "device": dev, "epochs_run": len(epochs_log), "stop_reason": stop_reason, "gonads": gonad_rec}
 
 
+def _frozen_limitations(gonad_rec: dict, recipe: dict | None) -> list[str]:
+    """The limitations of a model trained by the frozen recipe, from the gonads it saw."""
+    tr = gonad_rec["train"]
+    cells = ", ".join(f"{g['tag']} ({g.get('condition') or '?'} {g.get('sex') or '?'})" for g in tr)
+    hs_male = [g["tag"] for g in tr if g.get("condition") == "HS" and g.get("sex") == "male"]
+    src = (recipe or {}).get("from_model_dir", "the source model")
+    return [
+        f"Trained on {len(tr)} N2 gonads of one imaging session (2025-11-05): {cells}.",
+        ("No heat-shock male with usable spot truth is among the training gonads (both train heat-shock males were "
+         "exported with Imaris region growing and are excluded)." if not hs_male else
+         f"Heat-shock males among the training gonads: {hs_male}."),
+        f"No validation: the epoch count and the peak threshold are the frozen recipe of {src}, selected there on its "
+        "val gonads; nothing was selected on this model's training gonads.",
+        "The truth is threshold-curated automatic Imaris Spots, not hand-placed points.",
+        "Development numbers only: no test gonad has been scored (docs/BENCHMARK_PROTOCOL.md).",
+    ]
+
+
 def model_card(name, out, model_sha, settings, gonad_rec, selection, stop_reason, epochs_run, git_sha, versions,
-               split_file, manifest, cache_root, finished) -> dict:
+               split_file, manifest, cache_root, finished, recipe: dict | None = None) -> dict:
+    if recipe is not None:
+        card = model_card(name, out, model_sha, settings, gonad_rec, selection, stop_reason, epochs_run, git_sha,
+                          versions, split_file, manifest, cache_root, finished)
+        card["what"] = ("A compact residual 3D U-Net (xy-only first pooling) trained on the lab's Imaris spots by a "
+                        "frozen recipe: the architecture, data and loss settings, seed, learning-rate schedule, epoch "
+                        "count and peak threshold of an earlier model selected on its val gonads (protocol section "
+                        "6.1), retrained here on the gonads listed, with no validation and no selection.")
+        card["recipe"] = recipe
+        card["training_gonad_tags"] = [g["tag"] for g in gonad_rec["train"]]
+        card["limitations"] = _frozen_limitations(gonad_rec, recipe)
+        return card
     return {
         "name": name,
         "kind": "net3d RAD-51 foci heatmap detector (germquant spots backend 'net3d', EXPERIMENTAL)",

@@ -427,12 +427,15 @@ N gonads at once in separate processes (a SpotMAX worker peaked at 10.4 to 12.1 
 these gonads, measured on 2026-10-10; the cached foci channel and labels alone are 2.9 GB), so pick N
 by the free memory. Other options: `--manifest`, `--cache-root`, `--trials-log`,
 `--no-trial-log`, `--n-boot` (1000) and `--seed` (20251105, the protocol's), `--tol-xy` and `--tol-z`
-(0.3 and 0.4 um), `--verbose` (keeps SpotMAX's progress bars).
+(0.3 and 0.4 um), `--verbose` (keeps SpotMAX's progress bars), `--detector-only` (a second run of the
+backend with the truth masks as its nuclei, for the detector-only count of protocol section 5.1; see
+"Leave-one-gonad-out") and `--note JSON` (a value stored as `note` in the trial record and pooled.json).
 
-Outputs in `--out`: `per_gonad.csv`, `per_nucleus.csv`, `per_spot_matches.csv`, `pooled.json` (the
-pooled blocks above with `backend`, `params`, `params_sha256`, `split`, `skipped`, `git_sha`,
-`manifest`, `cache_root` and the bootstrap settings) and `detections/<tag>__spots.csv`, the detector's
-own spot table per gonad.
+Outputs in `--out`: `per_gonad.csv`, `per_nucleus.csv`, `per_truth_nucleus.csv` (the section 5.1 partition,
+"Leave-one-gonad-out"), `per_spot_matches.csv`, `pooled.json` (the pooled blocks above with `backend`, `params`,
+`params_sha256`, `split`, `skipped`, `git_sha`, `manifest`, `cache_root` and the bootstrap settings) and
+`detections/<tag>__spots.csv`, the detector's own spot table per gonad (with `--detector-only` also
+`detections_detector_only/<tag>__spots.csv`).
 
 **The trial log.** Every run appends one JSON line to `trials.jsonl` next to the manifest
 (`C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/trials.jsonl`): `utc`, `git_sha` (with
@@ -668,7 +671,12 @@ python scripts/bench_detector.py --backend net3d --params net3d_val_params.json 
 where `net3d_val_params.json` holds `{"net3d": {"model": ".../model.pt", "device": "cuda"}}`. Other
 options: `--patch Z,Y,X` (multiples of 4, 8, 8), `--batch-size`, `--steps-per-epoch`, `--lr`,
 `--patience`, `--val-every`, `--no-dna` (the RAD-51-only ablation), `--thresholds`, `--tile`,
-`--select-tolerance`, `--base-channels`, `--levels`, `--manifest`, `--wait-minutes`. `--min-free-gb`
+`--select-tolerance`, `--base-channels`, `--levels`, `--manifest`, `--wait-minutes`, and for retraining a
+selected model on other gonads (protocol sections 6.1 and 6.2; "Leave-one-gonad-out") `--recipe-from MODELDIR`
+(its settings, seed and schedule, its selected epoch count and threshold, no validation), `--train-tags`
+(train on exactly these train or val gonads, in this order), `--val-tags` (validate on these; the option alone
+for none), `--stop-after-epochs` and `--threshold` (a run's epoch count within the schedule, and the threshold
+stored for a run without val gonads). `--min-free-gb`
 waits (polling every 60 s) until nvidia-smi reports that much free memory; on Windows,
 `torch.cuda.mem_get_info` reports the whole card as free while other processes hold most of it, so it is
 not used for this. The loss-region maps (one uint8 volume per train gonad, 0.45 GB each) are computed
@@ -767,7 +775,8 @@ What this does and does not say:
   agreement with a person (protocol section 9).
 * Before any test scoring, the protocol (section 6.1) asks for the selected configuration to be retrained
   on train plus val; that, the leave-one-gonad-out analysis of section 6.2 and the changelog entry of
-  section 10 have not been done.
+  section 10 have not been done. (Package E1 did the first two, "Leave-one-gonad-out" below; the
+  pre-scoring entry of section 10 is step 4.2 of `docs/FINAL_SCORING.md`.)
 
 ## Tuning on train and val
 
@@ -796,6 +805,7 @@ The plan was written to `tuning_d3/search_plan.json` before any D3 trial ran.
   F1 are reported and steered nothing. The harness's traced subset (our nuclei with more than half of
   their volume inside one Imaris surface, counted in our labels) is not the primary partition of
   protocol section 5.1, which takes the Imaris masks themselves as the nuclei; neither was used to select.
+  (Since E1 the harness computes the section 5.1 partition as well; see "Leave-one-gonad-out".)
 * Budgets. At most 60 parameter sets for `log` (search `d3_log`) and 24 for SpotMAX (search
   `d3_spotmax`); `bench_tune.py --budget` refuses a run that would exceed them.
 * Selection. The best 5 `log` sets on train went to val and the best of the 5 on val by the same
@@ -1057,6 +1067,375 @@ flag `spots:unvalidated_backend=log`.
   with this truth may come by construction; agreement with this truth is not agreement with a person
   (protocol section 9).
 
+## Leave-one-gonad-out
+
+Package E1, 2026-10-10: the protocol's primary partition (section 5.1) in the harness, leave-one-gonad-out
+estimates for the five detectors (section 6.2), and net3d retrained on train plus val (section 6.1). No test
+gonad was run, scored or looked at: every run below is on the six train and val gonads with usable spot
+truth, the harness's test guard was never passed (no `--final` run; `final_runs.jsonl` does not exist), and
+the plan for the one-time test scoring is `docs/FINAL_SCORING.md`, which nothing here executed. Every output
+folder is under `C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/logo_e1/`, every model under
+`C:/Users/ryane/germquant_golden/models/`, and every scoring run is a record in `trials.jsonl`.
+
+### The protocol's primary partition (section 5.1)
+
+The harness's "traced" subset (our germline nuclei with more than half of their volume inside one truth mask,
+counted in OUR labels) is not the partition section 5.1 makes primary, and reviewers said so. Section 5.1
+takes the truth masks themselves as the nuclei, the same for every method and independent of any method's
+segmentation. `germquant.benchmark.spots` now computes exactly that, next to the existing partitions:
+
+* Nuclei: the recovered Imaris masks (`<stem>__imaris_labels.tif`) with fragments below 1000 voxels removed
+  (section 4.2; `truth_mask_lut`). The truth export had already split collided values and dropped the
+  unclaimed ones (its params JSON: `n_shared_values` 0 and 2 to 8 orphan values per gonad on the six gonads),
+  so the fragment rule is the only step left; it removes one label among the train and val gonads, a
+  44-voxel label of n2rad51_noHS_male_000.
+* Assignment (`assign_to_masks`), for truth spots and the method's spots alike: the mask label at the centre
+  voxel; if that voxel is background, the most frequent non-zero label of the 3 x 3 x 3 neighbourhood (ties
+  to the smaller label); otherwise unassigned. Centre voxels: the truth files' `zi, yi, xi`; for the method,
+  round(coordinate / voxel), the convention of section 4.3. The spot region R of section 5 (the masks
+  dilated by one voxel in every axis) is read as the 3 x 3 x 3 cube, and then a centre voxel is in R exactly
+  when the rule assigns it (a test checks this voxel by voxel), so the R restriction needs no extra step.
+* Counts: truth count = truth spots assigned to the nucleus, from Class A+B (primary), Class A and Class B
+  spots; method count = the method's end-to-end spots assigned to it (every spot of its final list, whatever
+  nucleus of its own it was given). With `--detector-only`, `bench_detector.py` runs the spot stage a second
+  time with the truth masks in place of the deployed nuclei (`run_backend(..., labels=...)`) and reports that
+  detector-only count next to the end-to-end one, as section 5.1 asks.
+* Statistics: Pearson r, Lin's CCC, bias (method minus truth) and mean absolute error (`stats.mean_abs_error`,
+  now also in the other agreement blocks), per gonad (`tm_` columns of `per_gonad.csv`: `tm_n_nuclei`,
+  `tm_n_fragments_removed`, assigned and unassigned truth and method spots, `tm_ccc`, `tm_pearson_r`,
+  `tm_bias`, `tm_mae`, `tm_mean_expert`, `tm_mean_ours`, the same under `tm_class_a_` and `tm_class_b_`, and
+  `tm_det_` for the detector-only count) and pooled with the cluster bootstrap by gonad
+  (`per_nucleus_truth_masks`, `_class_a`, `_class_b`, `_detector_only` in pooled.json and the trial records).
+  `per_truth_nucleus.csv` holds one row per truth nucleus (`truth_label`, `n_voxels`, `expert_n`,
+  `expert_n_class_a`, `expert_n_class_b`, `ours_n`, `ours_n_detector_only`).
+* Where: `bench_detector.py`, `bench_tune.py` (summary column `tm_ccc`) and `benchmark_spots.py` all report
+  it; `stats.paired_cluster_bootstrap` is the paired comparison of section 6.3 (both methods' pooled
+  statistic on the same resample of gonads).
+
+On the six gonads it covers 676 truth nuclei (train: 88, 107, 143 and 97 for HS_herm_000, noHS_herm_000,
+noHS_male_000 and noHS_male_001; val: 95 and 146 for HS_herm_001 and noHS_herm_001) and assigns 2054 of the
+13158 truth spots (357 of 5152 in HS_herm_000, 162 of 2753 in HS_herm_001: most heat-shock truth spots lie
+outside the traced nuclei). Not done: the check of section 4.4 against the lab's xlsx coloc assignment (no
+xlsx export of these twelve gonads is registered).
+
+### The folds
+
+Section 6.2 over the train and val gonads; for spot detectors the two region-growing heat-shock males drop
+out, which leaves six gonads and six folds (`germquant.benchmark.logo.logo_folds`, `bench_logo.py folds`). A
+fold tunes or trains on the other five; its own selection uses the designated val gonads that are among them
+and, in place of a held-out val gonad, the first train gonad of the same condition by tag order.
+
+| held out | role | fold train gonads | fold val gonads |
+|---|---|---|---|
+| n2rad51_HS_herm_000 | train | noHS_herm_000, noHS_male_000, noHS_male_001 | HS_herm_001, noHS_herm_001 |
+| n2rad51_HS_herm_001 | val | noHS_herm_000, noHS_male_000, noHS_male_001 | noHS_herm_001, HS_herm_000 (substitute) |
+| n2rad51_noHS_herm_000 | train | HS_herm_000, noHS_male_000, noHS_male_001 | HS_herm_001, noHS_herm_001 |
+| n2rad51_noHS_herm_001 | val | HS_herm_000, noHS_male_000, noHS_male_001 | HS_herm_001, noHS_herm_000 (substitute) |
+| n2rad51_noHS_male_000 | train | HS_herm_000, noHS_herm_000, noHS_male_001 | HS_herm_001, noHS_herm_001 |
+| n2rad51_noHS_male_001 | train | HS_herm_000, noHS_herm_000, noHS_male_000 | HS_herm_001, noHS_herm_001 |
+
+The two heat-shock folds tune on the three no-heat-shock train gonads only: with one heat-shock gonad left in
+train after the region-growing exclusion, holding out either heat-shock hermaphrodite leaves none to tune on.
+
+### net3d: the frozen recipe on every fold
+
+E1 fixes the recipe rather than the selection: each fold retrains net3d on its five gonads with the
+recipe of the selected model `net3d_20261010` (same architecture, data and loss settings, normalisation,
+seed 0, AdamW with 200 warm-up steps and the cosine decay over the maximum of 40 epochs of 200 steps), stops
+after the selected 4 epochs and keeps the selected threshold 0.40, with no validation and no selection inside
+the fold. `germquant.spots.net3d.train.recipe_from` reads all of that from the model's `training_log.json`, and
+`germquant train-spots --recipe-from MODELDIR --train-tags ...` (or `bench_logo.py net3d-fold`) runs it; the
+five gonads are taken in the recipe's order (its train gonads, then its val gonads, the held-out one left out).
+
+The check that the recipe is frozen: retrained by `--recipe-from` on its own four train gonads, without the
+validation the original run made after every epoch, the model's weights after epoch 4 equal those of the
+selected checkpoint `checkpoints/epoch_004.pt` bit for bit (all 134 tensors), every epoch's training loss and
+learning rate equal the original run's (epoch losses 0.048756, 0.031216, 0.029856, 0.030222), and the stored
+threshold is 0.40 (`models/net3d_recipe_check_20261010/`, 163 s on the RTX 5090, commit eca6f12; the file
+sha256 differs from the original `model.pt` only through its metadata). So the folds below differ from the
+selected model only in their training gonads.
+
+What this estimate does and does not cover. The recipe's epoch and threshold were chosen on the two
+designated val gonads (protocol changelog entry 3). In the four folds that hold out a train gonad, the held-out
+gonad never informed the recipe; in the two folds that hold out a val gonad (HS_herm_001, noHS_herm_001), it
+did, so those two held-out scores are optimistic for net3d, and the estimate as a whole leaves out the
+variance of net3d's own selection step. Section 6.2 asks for selection inside each fold; repeating net3d's
+selection per fold (twelve epochs times eighteen thresholds on each fold's val gonads) was not done.
+
+### The tuned classical detectors: the D3 search replayed on every fold
+
+"Rerun the selection on the five non-held-out gonads within the same search space and budget": the D3
+searches were staged and data dependent (tuning_d3/search_plan.json): for `log` a 30-set grid (stage A),
+17 sets around its best (stage B), up to 8 around the best of A and B (stage C), the 5 best of all on train
+scored on val and the best of those on val selected; for SpotMAX a 12-set grid (S1), 12 sets around its best
+(S2), the 3 best on train to val. The objective is D3's: pooled germline per-nucleus CCC rounded to three
+decimals, then pooled spot F1. `germquant.benchmark.logo.replay_log_search` and `replay_spotmax_search`
+replay the whole procedure on a fold's own gonads: the grid ranked on the fold's train gonads, the
+neighbourhoods generated around the fold's own bests by the plan's rules, the finalists ranked on the fold's
+val gonads. Scores come from the run folders (`index_runs`), so a set already scored on a gonad is never run
+again, and the replay names any (set, gonad) pair it still needs. Replayed on the D3 split itself (train the
+four train gonads, val the two val gonads) it gives D3's stage bests, finalists and selections exactly, and the
+generated stage lists equal the D3 configuration files name for name and parameter for parameter.
+
+What had to be run:
+
+* Every D3 set on the two val gonads (D3 had scored only its finalists there): 55 `log` sets (trial lines
+  97 to 151, search `d3_log`, stage `logo_val`, `logo_e1/val_scoring/log/`) and 24 SpotMAX sets (lines 174 to
+  197, search `d3_spotmax`, `logo_e1/val_scoring/spotmax/`). The searches' distinct-set counts stay 55 and 24.
+  The val scores of the D3 finalists came out identical to D3's (5 `log` and 4 SpotMAX sets: pooled points and
+  intervals, every per-gonad number).
+* In the four folds whose train gonads include the heat-shock hermaphrodite HS_herm_000, the replay follows the
+  D3 path (stage-A best 0.5 um at SNR 2.5, stage-B best pre-gate 2 with z merge on, so stage C is D3's; S1 best
+  triangle at effect size 4, so S2 is D3's). In the two heat-shock folds, whose train gonads are the three
+  no-heat-shock train gonads, it does not. For `log` the stage-B best is separation 0.75 diameters with pre-gate
+  4 (`logB_d0.5_s2.5_k0.75_g4_m1`), so stage C is centred there: 8 new sets (`logo_e1/fold_search/log_C_train3noHS/`,
+  search `logo_log_train3noHS`, trial lines 152 to 159), one of which reached the finalists and was scored on
+  those folds' val gonads (lines 160 and 161, the second on the substitute HS_herm_000). For SpotMAX the S1 best is
+  `threshold_otsu` at effect size 4, so S2 is centred there: 12 new sets (`logo_e1/fold_search/spotmax_S2_train3noHS/`,
+  search `logo_spotmax_train3noHS`, lines 198 to 209), two of which reached the finalists and were scored on those
+  folds' val gonads (lines 210 to 213). Each fold's own search stays within D3's budget (55 `log` sets, 24
+  SpotMAX sets).
+
+The per-fold selections (`logo_e1/selection_log.json`, `logo_e1/selection_spotmax.json`, with every
+finalist's train and val objective):
+
+| held out | `log` selected | SpotMAX selected |
+|---|---|---|
+| n2rad51_HS_herm_000 | logB_d0.5_s2.5_k0.75_g2_m1 | smS1_otsu_r0.3_g0.08_e4 |
+| n2rad51_HS_herm_001 | logB_d0.5_s2.5_k0.75_g2_m1 | smS1_otsu_r0.3_g0.08_e4 |
+| n2rad51_noHS_herm_000 | logC_d0.5_s2.25_k0.5_g2_m1 | smS2_tri_r0.3_g0.12_e3.5 (the D3 selection) |
+| n2rad51_noHS_herm_001 | logC_d0.5_s2.25_k0.5_g2_m1 | smS2_tri_r0.3_g0.12_e3.5 (the D3 selection) |
+| n2rad51_noHS_male_000 | logC_d0.46_s2.25_k0.5_g2_m1 | smS2_tri_r0.3_g0.12_e3.5 (the D3 selection) |
+| n2rad51_noHS_male_001 | logB_d0.5_s2.5_k0.5_g2_m0 (the D3 selection) | smS2_tri_r0.3_g0.12_e3.5 (the D3 selection) |
+
+`log` picks another set than D3's in five of six folds: the same diameter and SNR with a wider separation (0.75
+diameters, z merge on) in the two heat-shock folds, SNR 2.25 instead of 2.5 with z merge on (and 0.46 um in one)
+in three others. SpotMAX picks the D3 set wherever the fold's tuning gonads include a heat-shock gonad, and an
+otsu set where they do not.
+
+### Deployed SpotMAX and the log defaults
+
+Neither is tuned, so a fold changes nothing and the held-out score of a gonad is its per-gonad score. Both
+were re-run per gonad with the same command as the tuned detectors (`bench_logo.py heldout --params {}`), so
+that every held-out score carries the section 5.1 partition and the detector-only count. The end-to-end
+numbers equal the earlier runs of the same parameters (D1, trial lines 3 to 6: thirteen headline numbers per
+gonad, none different), and the deployed recipe's detections equal the golden spot tables of all six gonads
+(`detector.compare_with_golden`, every column, every row). Likewise every re-tuned SpotMAX and tuned `log`
+held-out score equals the earlier run of the same parameters on the same gonad wherever one exists.
+
+### Held-out scoring
+
+Every held-out gonad of every detector is one `bench_detector.py --detector-only` run on that gonad alone
+(`bench_logo.py heldout` and `net3d-fold` call it), with the fold in the trial record's `note`
+(`{"logo": {"detector", "held_out", "fold_train", "fold_val", "substitute", ...}}`; net3d's also names the fold
+model and its sha256, the tuned detectors' the selected set and the finalists). Outputs:
+`logo_e1/heldout/<detector>/<held-out tag>/`; trial lines 162 to 167 (tuned `log`), 168 to 173 (`log` defaults),
+214 to 219 (SpotMAX re-tuned), 220 to 225 (SpotMAX deployed) and 226 to 231 (net3d). The pooled estimates and
+the paired comparisons are `bench_logo.py report` (`logo_e1/report/`: `logo_report.json`, `logo_per_gonad.csv`,
+`logo_pooled.csv`, `logo_paired.csv`): the six held-out gonads pooled with the cluster bootstrap by gonad (1000
+resamples, seed 20251105), and every pair of detectors compared on the same resamples (protocol section 6.3).
+
+Provenance. E1 added trial lines 97 to 231 (135 records, all split train or val). Lines 97 to 99 carry git sha
+eca6f12 with `-dirty` (the sha is read when a record is appended, and at that moment the tree held an
+uncommitted edit of `scripts/bench_logo.py` and its test); every other line carries 240cc72, clean. The
+scoring code that ran (`germquant.benchmark.spots`, `detector.score`, `tuning`) is that of 9b206ba in every
+record, unchanged in both later commits. Every net3d model was trained at commit 240cc72.
+
+### The commands
+
+With `$L = "C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/logo_e1"`, `$T` the `tuning_d3` folder
+next to it and `$M = "C:/Users/ryane/germquant_golden/models"`; `CUDA_VISIBLE_DEVICES=-1` except for net3d, whose
+commands ran under the workstation's GPU lock (`gpu_lock.py run --name ... -- COMMAND`).
+
+```powershell
+# every D3 set on the val gonads ($L/configs/*_all.json are the D3 configuration files concatenated)
+python scripts/bench_tune.py --backend log --configs $L/configs/log_all.json --split val --search d3_log `
+    --stage logo_val --budget 60 --jobs 4 --chunks 2 --out-root $L/val_scoring/log
+python scripts/bench_tune.py --backend spotmax --configs $L/configs/spotmax_all.json --split val `
+    --search d3_spotmax --stage logo_val --budget 24 --jobs 1 --chunks 4 --out-root $L/val_scoring/spotmax
+# the sets the replay called for in the heat-shock folds (written with logo.log_stage_c / spotmax_stage_s2)
+python scripts/bench_tune.py --backend log --configs $L/configs/log_C_train3noHS.json --split train `
+    --tags n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 --search logo_log_train3noHS `
+    --stage C --budget 13 --jobs 3 --out-root $L/fold_search/log_C_train3noHS
+python scripts/bench_tune.py --backend log --configs $L/configs/log_valstep_train3noHS.json --split val `
+    --search logo_log_train3noHS --stage val --budget 13 --out-root $L/fold_search/log_val_train3noHS
+python scripts/bench_tune.py --backend log --configs $L/configs/log_valstep_train3noHS.json --split train `
+    --tags n2rad51_HS_herm_000 --search logo_log_train3noHS --stage val_substitute --budget 13 `
+    --out-root $L/fold_search/log_valsub_train3noHS
+python scripts/bench_tune.py --backend spotmax --configs $L/configs/spotmax_S2_train3noHS.json --split train `
+    --tags n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 --search logo_spotmax_train3noHS `
+    --stage S2 --budget 12 --jobs 1 --chunks 4 --out-root $L/fold_search/spotmax_S2_train3noHS
+python scripts/bench_tune.py --backend spotmax --configs $L/configs/spotmax_valstep_train3noHS.json --split val `
+    --search logo_spotmax_train3noHS --stage val --budget 12 --out-root $L/fold_search/spotmax_val_train3noHS
+python scripts/bench_tune.py --backend spotmax --configs $L/configs/spotmax_valstep_train3noHS.json --split train `
+    --tags n2rad51_HS_herm_000 --search logo_spotmax_train3noHS --stage val_substitute --budget 12 `
+    --out-root $L/fold_search/spotmax_valsub_train3noHS
+# the replayed selections (each was first run on the D3 and val scorings alone: it named the sets and gonads
+# still missing and exited with code 3; the fold_search runs above are those sets)
+python scripts/bench_logo.py select --backend log --runs $T/log_A_train $T/log_B_train $T/log_C_train $T/log_val `
+    $L/val_scoring/log $L/fold_search/log_C_train3noHS $L/fold_search/log_val_train3noHS `
+    $L/fold_search/log_valsub_train3noHS --out $L/selection_log.json
+python scripts/bench_logo.py select --backend spotmax --runs $T/spotmax_S1_train $T/spotmax_S2_train $T/spotmax_val `
+    $L/val_scoring/spotmax $L/fold_search/spotmax_S2_train3noHS $L/fold_search/spotmax_val_train3noHS `
+    $L/fold_search/spotmax_valsub_train3noHS --out $L/selection_spotmax.json
+# held-out scoring
+python scripts/bench_logo.py heldout --detector log_tuned --backend log --selection $L/selection_log.json `
+    --out-root $L/heldout/log_tuned
+python scripts/bench_logo.py heldout --detector log_defaults --backend log --params "{}" --out-root $L/heldout/log_defaults
+python scripts/bench_logo.py heldout --detector spotmax_retuned --backend spotmax --selection $L/selection_spotmax.json `
+    --out-root $L/heldout/spotmax_retuned
+python scripts/bench_logo.py heldout --detector spotmax_deployed --backend spotmax --params "{}" `
+    --out-root $L/heldout/spotmax_deployed
+# net3d: the recipe check, the six folds (each under the GPU lock) and the train-plus-val model
+germquant train-spots --cache C:/Users/ryane/germquant_golden/bench_cache --split-file tests/golden/rad51_split.json `
+    --out $M/net3d_recipe_check_20261010 --recipe-from $M/net3d_20261010 `
+    --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 `
+    --device cuda --prep-dir $M/net3d_prep --min-free-gb 8
+python scripts/bench_logo.py net3d-folds --recipe-from $M/net3d_20261010 --models-root $M/net3d_logo_20261010 `
+    --out-root $L/heldout/net3d --log-dir $L/logs --gpu-lock C:/Users/ryane/germquant_golden/gpu_lock.py `
+    --prep-dir $M/net3d_prep --min-free-gb 8
+germquant train-spots --cache C:/Users/ryane/germquant_golden/bench_cache --split-file tests/golden/rad51_split.json `
+    --out $M/net3d_trainval_20261010 --recipe-from $M/net3d_20261010 `
+    --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 `
+                 n2rad51_HS_herm_001 n2rad51_noHS_herm_001 --device cuda --prep-dir $M/net3d_prep --min-free-gb 8
+# the pooled estimates and the paired comparisons
+python scripts/bench_logo.py report --heldout net3d=$L/heldout/net3d log_tuned=$L/heldout/log_tuned `
+    log_defaults=$L/heldout/log_defaults spotmax_retuned=$L/heldout/spotmax_retuned `
+    spotmax_deployed=$L/heldout/spotmax_deployed --out $L/report
+```
+
+### The net3d fold models
+
+`C:/Users/ryane/germquant_golden/models/net3d_logo_20261010/fold_<held-out tag>/` (model.pt, model_card.json with
+the recipe, training_log.json, checkpoints), all trained at commit 240cc72 on the RTX 5090 under the GPU lock,
+158 to 191 s each (the first fold also built the loss-region maps of the two val gonads, 35 s):
+
+| fold (held out) | trained on | model.pt sha256 |
+|---|---|---|
+| n2rad51_HS_herm_000 | noHS_herm_000, noHS_male_000, noHS_male_001, HS_herm_001, noHS_herm_001 | 969fec3edb8d980b8e69e2c98f7837de617fcbfee4f9876e5c0d098c073fa548 |
+| n2rad51_HS_herm_001 | HS_herm_000, noHS_herm_000, noHS_male_000, noHS_male_001, noHS_herm_001 | 4fa6d1edb9cf6bad95469b47f93f9e7f1a4113ec505aae0e7cb1a70c246a3844 |
+| n2rad51_noHS_herm_000 | HS_herm_000, noHS_male_000, noHS_male_001, HS_herm_001, noHS_herm_001 | 932a5dac3bb879301910bd09d381d2dbf7740f018abeff2785bb7b7df0fe05a3 |
+| n2rad51_noHS_herm_001 | HS_herm_000, noHS_herm_000, noHS_male_000, noHS_male_001, HS_herm_001 | 1aa2176f3b547de91dfb0aa38fc8fbf46af103e29dc7d0727189d7dd9f78a37c |
+| n2rad51_noHS_male_000 | HS_herm_000, noHS_herm_000, noHS_male_001, HS_herm_001, noHS_herm_001 | aff880e6e90853059c2f7bb4f8e0f063b23271f43c155b63cd08b470a8cf8ecb |
+| n2rad51_noHS_male_001 | HS_herm_000, noHS_herm_000, noHS_male_000, HS_herm_001, noHS_herm_001 | 963da323640fa764945af2d50b89a3a53074368f16dbbc0507285971bb0e71b8 |
+
+### Results
+
+Development numbers on the six train and val gonads; each held-out gonad is scored by a configuration or model
+that its own fold chose or trained without it (with net3d's caveat above). Cluster bootstrap by gonad, 1000
+resamples, seed 20251105; truth from Class A+B unless stated; end-to-end counts on the deployed nucleus masks.
+`logo_e1/report/` holds every number (`logo_pooled.csv`, `logo_per_gonad.csv`, `logo_paired.csv`,
+`logo_report.json`).
+
+| pooled over the 6 held-out gonads | SpotMAX deployed | SpotMAX re-tuned (D3 replayed) | log defaults | log tuned (D3 replayed) | net3d (frozen recipe) |
+|---|---|---|---|---|---|
+| per nucleus, truth masks (5.1), A+B: CCC | 0.601 [0.499, 0.718] | 0.742 [0.655, 0.812] | 0.777 [0.623, 0.920] | 0.893 [0.818, 0.955] | 0.878 [0.834, 0.935] |
+| per nucleus, truth masks, A+B: bias | +2.66 [+1.95, +3.28] | +0.37 [-0.72, +1.17] | +1.33 [+0.50, +2.20] | +0.24 [-0.50, +0.95] | +0.23 [-0.58, +0.88] |
+| per nucleus, truth masks, A+B: MAE | 2.79 [2.28, 3.31] | 1.48 [1.20, 1.85] | 1.43 [0.76, 2.22] | 0.84 [0.50, 1.26] | 0.85 [0.49, 1.27] |
+| per nucleus, truth masks, Class A: CCC | 0.599 [0.489, 0.723] | 0.752 [0.674, 0.817] | 0.776 [0.625, 0.911] | 0.895 [0.826, 0.954] | 0.881 [0.839, 0.929] |
+| per nucleus, truth masks, detector-only count: CCC | 0.727 [0.674, 0.783] | 0.746 [0.588, 0.842] | 0.824 [0.703, 0.931] | 0.893 [0.831, 0.938] | 0.879 [0.834, 0.935] |
+| per nucleus, germline, A+B: CCC | 0.750 [0.688, 0.814] | 0.821 [0.734, 0.881] | 0.882 [0.820, 0.934] | 0.898 [0.850, 0.947] | 0.892 [0.826, 0.954] |
+| per nucleus, germline, A+B: bias | +1.02 [+0.69, +1.35] | -0.02 [-0.51, +0.41] | +0.43 [+0.08, +0.85] | -0.05 [-0.40, +0.31] | +0.16 [-0.35, +0.56] |
+| per nucleus, traced (harness), A+B: CCC | 0.620 [0.524, 0.728] | 0.751 [0.652, 0.830] | 0.776 [0.624, 0.923] | 0.889 [0.815, 0.950] | 0.867 [0.820, 0.926] |
+| spots A+B: F1 | 0.415 [0.320, 0.562] | 0.368 [0.219, 0.567] | 0.513 [0.414, 0.647] | 0.501 [0.359, 0.727] | 0.512 [0.364, 0.705] |
+| spots without Class B: F1 | 0.454 [0.363, 0.572] | 0.425 [0.269, 0.583] | 0.573 [0.474, 0.685] | 0.576 [0.432, 0.747] | 0.580 [0.423, 0.767] |
+| matched / ours / expert spots | 4955 / 10698 / 13158 | 3505 / 5883 / 13158 | 5419 / 7983 / 13158 | 4737 / 5764 / 13158 | 5131 / 6881 / 13158 |
+
+Nuclei in every column: 676 truth masks, 4567 germline nuclei, 633 nuclei in the harness's traced subset.
+
+Per held-out gonad, truth-mask CCC / germline CCC / spot F1:
+
+| held-out gonad | SpotMAX deployed | SpotMAX re-tuned | log defaults | log tuned | net3d |
+|---|---|---|---|---|---|
+| HS_herm_000 | 0.843 / 0.864 / 0.260 | 0.587 / 0.622 / 0.133 | 0.979 / 0.938 / 0.357 | 0.951 / 0.863 / 0.299 | 0.825 / 0.789 / 0.241 |
+| HS_herm_001 | 0.391 / 0.643 / 0.317 | 0.734 / 0.796 / 0.213 | 0.911 / 0.957 / 0.427 | 0.550 / 0.769 / 0.248 | 0.959 / 0.984 / 0.490 |
+| noHS_herm_000 | 0.611 / 0.743 / 0.512 | 0.743 / 0.844 / 0.532 | 0.693 / 0.823 / 0.564 | 0.901 / 0.932 / 0.629 | 0.848 / 0.801 / 0.553 |
+| noHS_herm_001 | 0.679 / 0.783 / 0.636 | 0.835 / 0.891 / 0.630 | 0.818 / 0.880 / 0.734 | 0.963 / 0.973 / 0.828 | 0.952 / 0.969 / 0.834 |
+| noHS_male_000 | 0.545 / 0.767 / 0.592 | 0.746 / 0.893 / 0.604 | 0.480 / 0.755 / 0.626 | 0.772 / 0.879 / 0.729 | 0.816 / 0.892 / 0.732 |
+| noHS_male_001 | 0.533 / 0.728 / 0.469 | 0.742 / 0.871 / 0.462 | 0.826 / 0.909 / 0.624 | 0.964 / 0.975 / 0.686 | 0.921 / 0.938 / 0.651 |
+
+Per held-out gonad, truth-mask bias / traced CCC / F1 without Class B / our spots:
+
+| held-out gonad | SpotMAX deployed | SpotMAX re-tuned | log defaults | log tuned | net3d |
+|---|---|---|---|---|---|
+| HS_herm_000 | +0.91 / 0.843 / 0.292 / 1552 | -2.33 / 0.574 / 0.158 / 574 | +0.34 / 0.978 / 0.402 / 1351 | -0.68 / 0.942 / 0.345 / 950 | -1.70 / 0.812 / 0.287 / 721 |
+| HS_herm_001 | +3.79 / 0.436 / 0.377 / 2600 | -0.77 / 0.792 / 0.353 / 537 | -0.15 / 0.932 / 0.656 / 829 | -1.08 / 0.569 / 0.423 / 407 | -0.15 / 0.959 / 0.733 / 958 |
+| noHS_herm_000 | +2.35 / 0.611 / 0.515 / 1934 | +1.44 / 0.738 / 0.535 / 1556 | +1.47 / 0.678 / 0.566 / 1679 | +0.62 / 0.890 / 0.632 / 1306 | +0.91 / 0.803 / 0.556 / 1861 |
+| noHS_herm_001 | +2.34 / 0.703 / 0.652 / 1653 | +0.67 / 0.855 / 0.650 / 1195 | +1.24 / 0.821 / 0.754 / 1453 | +0.21 / 0.964 / 0.856 / 1086 | -0.17 / 0.950 / 0.863 / 1000 |
+| noHS_male_000 | +3.13 / 0.564 / 0.603 / 1440 | +1.03 / 0.775 / 0.617 / 995 | +2.98 / 0.486 / 0.635 / 1554 | +1.59 / 0.784 / 0.743 / 1219 | +1.28 / 0.818 / 0.747 / 1219 |
+| noHS_male_001 | +3.30 / 0.530 / 0.473 / 1519 | +1.34 / 0.755 / 0.466 / 1026 | +1.24 / 0.813 / 0.630 / 1117 | -0.01 / 0.959 / 0.694 / 796 | +0.65 / 0.910 / 0.657 / 1122 |
+
+Paired differences (the first detector minus the second, both pooled on the same 1000 resamples of the six
+gonads; an asterisk marks an interval that excludes zero):
+
+| pair | truth masks CCC | germline CCC | traced CCC | spot F1 | F1 without Class B | truth masks MAE |
+|---|---|---|---|---|---|---|
+| net3d - log tuned | -0.015 [-0.084, +0.073] | -0.006 [-0.088, +0.082] | -0.021 [-0.097, +0.078] | +0.011 [-0.049, +0.112] | +0.004 [-0.052, +0.104] | +0.012 [-0.370, +0.399] |
+| net3d - log defaults | +0.101 [-0.051, +0.239] | +0.010 [-0.069, +0.087] | +0.092 [-0.064, +0.234] | -0.001 [-0.065, +0.072] | +0.007 [-0.056, +0.087] | -0.583 [-1.211, +0.162] |
+| net3d - SpotMAX re-tuned | +0.136 [+0.090, +0.204] * | +0.071 [+0.004, +0.137] * | +0.117 [+0.065, +0.193] * | +0.144 [+0.081, +0.212] * | +0.155 [+0.085, +0.246] * | -0.632 [-0.792, -0.446] * |
+| net3d - SpotMAX deployed | +0.277 [+0.139, +0.409] * | +0.142 [+0.018, +0.250] * | +0.247 [+0.114, +0.371] * | +0.097 [+0.027, +0.185] * | +0.126 [+0.043, +0.259] * | -1.939 [-2.631, -1.160] * |
+| log tuned - log defaults | +0.116 [-0.014, +0.217] | +0.016 [-0.072, +0.101] | +0.113 [-0.022, +0.222] | -0.012 [-0.080, +0.084] | +0.003 [-0.075, +0.087] | -0.595 [-1.068, +0.043] |
+| log tuned - SpotMAX re-tuned | +0.151 [+0.040, +0.278] * | +0.077 [+0.012, +0.151] * | +0.138 [+0.014, +0.274] * | +0.133 [+0.087, +0.175] * | +0.151 [+0.113, +0.188] * | -0.643 [-1.164, -0.199] * |
+| log tuned - SpotMAX deployed | +0.292 [+0.215, +0.360] * | +0.148 [+0.078, +0.200] * | +0.268 [+0.201, +0.337] * | +0.085 [+0.021, +0.169] * | +0.122 [+0.070, +0.192] * | -1.951 [-2.429, -1.484] * |
+| log defaults - SpotMAX re-tuned | +0.035 [-0.148, +0.254] | +0.061 [-0.051, +0.189] | +0.025 [-0.167, +0.261] | +0.145 [+0.062, +0.200] * | +0.148 [+0.061, +0.224] * | -0.049 [-0.951, +0.757] |
+| log defaults - SpotMAX deployed | +0.176 [+0.042, +0.337] * | +0.132 [+0.047, +0.223] * | +0.155 [+0.024, +0.312] * | +0.097 [+0.068, +0.126] * | +0.119 [+0.070, +0.185] * | -1.357 [-2.219, -0.680] * |
+| SpotMAX re-tuned - SpotMAX deployed | +0.141 [-0.043, +0.292] | +0.071 [-0.074, +0.155] | +0.130 [-0.063, +0.277] | -0.047 [-0.102, +0.008] | -0.029 [-0.092, +0.026] | -1.308 [-2.024, -0.511] * |
+
+### Which differences survive
+
+Plainly, with six gonads and the paired cluster bootstrap:
+
+* net3d and the tuned `log` each beat both SpotMAX configurations on every number in the table: the truth-mask,
+  germline and traced CCC, both spot F1 variants and the truth-mask mean absolute error; all twenty-four of those
+  paired intervals exclude zero. Against the SpotMAX re-tuning procedure the truth-mask CCC gains are +0.136
+  (net3d) and +0.151 (tuned `log`); against the deployed recipe +0.277 and +0.292.
+* net3d against the tuned `log`: no difference survives on any number (truth-mask CCC -0.015 [-0.084, +0.073]).
+* net3d and the tuned `log` against the `log` defaults: no difference survives (truth-mask CCC +0.101 and +0.116,
+  both intervals reaching below zero). The defaults are far off on one male gonad (noHS_male_000, truth-mask
+  CCC 0.480) and the best or close to it on the two heat-shock hermaphrodites (0.979 and 0.911), so six gonads
+  do not settle it.
+* The `log` defaults beat the deployed recipe on every number, and the re-tuned SpotMAX on the two spot F1
+  variants only.
+* SpotMAX re-tuned against deployed: only the smaller mean absolute error survives (1.48 against 2.79 foci per
+  truth nucleus); the CCC gain (+0.141 [-0.043, +0.292]) does not, and its F1 is lower (-0.047 [-0.102, +0.008]).
+
+Sensitivity to net3d's two optimistic folds (`logo_e1/report_train_heldout/`, `bench_logo.py report --tags` with
+the four train gonads: the folds where the recipe never saw the held-out gonad): net3d's truth-mask CCC is 0.845
+[0.816, 0.890] and the tuned `log`'s 0.889 [0.808, 0.957]; net3d minus tuned `log` is -0.044 [-0.115, +0.029] in
+truth-mask CCC, and on those four gonads the tuned `log` is ahead in germline CCC (-0.056 [-0.108, -0.005]) and spot
+F1 (-0.037 [-0.065, -0.018]). net3d still beats SpotMAX re-tuned (+0.154 [+0.084, +0.231]) and deployed (+0.219
+[+0.076, +0.348]) in truth-mask CCC there.
+
+### The train-plus-val model (protocol section 6.1)
+
+`C:/Users/ryane/germquant_golden/models/net3d_trainval_20261010/model.pt`, sha256
+`d091b9ef58850783387a4f5aa0fea5ecc9310abc027145771936fecd0de001c0`: the frozen recipe of net3d_20261010 (sha256
+8cdb710b..., commit 87d77f1; epoch 4 of the 40-epoch schedule, threshold 0.40, seed 0) retrained on the six train
+and val gonads with usable spot truth (HS_herm_000, noHS_herm_000, noHS_male_000, noHS_male_001, HS_herm_001,
+noHS_herm_001, in that order), no validation; commit 240cc72, 159 s on the RTX 5090 under the GPU lock (epoch
+losses 0.047437, 0.025822, 0.024363, 0.024501). Its `model_card.json` records the sha256, the training gonads, the
+epochs (4 run of the 40-epoch schedule), the threshold, the git sha, the recipe (source model, its sha256 and git
+sha, its train and val gonads, the selected epoch and threshold, the selection rule) and limitations written from
+the gonads it saw. It is the net3d of `docs/FINAL_SCORING.md`. It was not scored on anything: every gonad with
+usable spot truth outside the test set is one of its training gonads.
+
+### What this does and does not say
+
+* These are development estimates on six gonads, two of them heat-shocked hermaphrodites and none a heat-shock
+  male. The intervals are wide, and one gonad moves a pooled number by several hundredths.
+* The tuned classical detectors' estimates include their whole selection (the replayed search), so they are the
+  out-of-sample performance of the D3 procedure, judged by its own germline objective. net3d's estimate does not
+  include its selection, and two of its six folds saw their held-out gonad through the recipe; on the other four
+  it trails the tuned `log` by a few hundredths. A selection by the primary metric was not replayed for any detector.
+* The `log` backend and Imaris Spots are both blob detectors, so part of `log`'s agreement may come by
+  construction; agreement with this truth is not agreement with a person (protocol section 9).
+* The two heat-shock folds tune on no-heat-shock gonads only, which is where the replayed searches leave the D3
+  path and where the tuned detectors undercount heat shock (truth-mask bias -0.68 and -1.08 for the tuned `log`,
+  -2.33 and -0.77 for SpotMAX re-tuned): one global threshold chosen without heat-shock data undercounts heat shock
+  against this truth.
+* No test gonad was scored, and nothing here is a win condition of the protocol. The section 4.4 cross-check of
+  the geometric assignment against the xlsx coloc assignment was not done (no xlsx export of these gonads).
+
 ## Tests
 
 `tests/test_benchmark.py`: synthetic label volumes and spot sets with known answers for every metric
@@ -1106,3 +1485,28 @@ two tasks per gonad equals the sequential run, the budget guard counts distinct 
 two tuned profiles extend `config/config.yaml`, change only `spots:` keys and, used as bench parameters
 over the base section, give exactly the profile's section. `tests/test_spot_backends.py` covers the
 `spots.log.pre_gate_sigmas` key (default, validation, that it reaches the candidate step and gates).
+
+`tests/test_bench_partition.py`: the section 5.1 partition. The assignment rule on tiny label images (centre
+voxel, the 3 x 3 x 3 mode with ties to the smaller label, unassigned beyond, the image edge), fragments removed
+everywhere through the lookup table, the assignment equal to the spot region R voxel by voxel, the
+per-truth-nucleus counts for Class A+B, A and B with assigned and unassigned spots and the detector-only column,
+the `tm_` statistics against `agreement_metrics` and the mean absolute error, the paired cluster bootstrap (the
+same draws as `cluster_bootstrap`, a method against itself, a better method), the independence of the partition
+from our own segmentation on a planted gonad, and `bench_detector.py --detector-only --note` end to end (the
+detector-only run on truth masks equal to the cached nuclei gives the same spots, the pooled blocks, the trial
+record's blocks and note).
+
+`tests/test_bench_logo.py`: leave-one-gonad-out. The fold rule (designated val gonads, the same-condition
+substitute by tag order, no test gonad and no gonad without usable spot truth, the real split's six folds), the
+D3 stage generators, the staged replay on a synthetic score index (stage by stage, naming what is missing, the
+selection following val among the finalists), the index refusing two disagreeing scores of one gonad, and
+`bench_logo.py folds`, `heldout` and `report` end to end on the planted gonads (one trial record per held-out
+gonad with its fold, the pooled truth-mask CCC equal to the concatenated tables, the paired difference, `report
+--tags` from one folder or per-gonad folders).
+
+`tests/test_net3d_recipe.py`: the frozen recipe. Retraining by `--recipe-from` on the selected model's own
+gonads gives the selected checkpoint bit for bit with the same learning rates, the card and the log record the
+recipe, the train-plus-val run trains on the val gonad and never opens the test or region-growing gonad,
+`bench_logo.py net3d-folds` trains each fold on the recipe's other gonads and scores its held-out gonad, and the
+refusals (a test gonad, an unusable gonad, a gonad both trained and validated on, no val gonad without a fixed
+epoch count and threshold, a threshold with val gonads, `--recipe-from` with `--threshold`).

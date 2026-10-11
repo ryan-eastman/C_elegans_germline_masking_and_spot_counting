@@ -56,8 +56,14 @@ def bias(ours, expert) -> float:
     return float(np.mean(o - e)) if len(o) else float("nan")
 
 
+def mean_abs_error(ours, expert) -> float:
+    """Mean of |ours minus expert| (protocol section 5.1); NaN without pairs."""
+    o, e = _clean_pair(ours, expert)
+    return float(np.mean(np.abs(o - e))) if len(o) else float("nan")
+
+
 def agreement_metrics(expert, ours) -> dict:
-    """n, means, Pearson's r, Lin's CCC and bias for paired per-nucleus counts."""
+    """n, means, Pearson's r, Lin's CCC, bias and mean absolute error for paired per-nucleus counts."""
     e, o = _clean_pair(expert, ours)
     return {
         "n": int(len(e)),
@@ -66,6 +72,7 @@ def agreement_metrics(expert, ours) -> dict:
         "pearson_r": pearson(e, o),
         "ccc": lin_ccc(e, o),
         "bias": bias(o, e),
+        "mae": mean_abs_error(o, e),
     }
 
 
@@ -125,12 +132,12 @@ def cluster_bootstrap(groups: Sequence, statistic: Callable, *, n_boot: int = 10
 
 def pooled_agreement(payloads) -> dict:
     """Statistic for ``cluster_bootstrap``: each payload is (expert_counts, ours_counts); the pooled
-    CCC, Pearson's r and bias over every nucleus of the given gonads."""
+    CCC, Pearson's r, bias and mean absolute error over every nucleus of the given gonads."""
     if not payloads:
-        return {"ccc": float("nan"), "pearson_r": float("nan"), "bias": float("nan")}
+        return {"ccc": float("nan"), "pearson_r": float("nan"), "bias": float("nan"), "mae": float("nan")}
     e = np.concatenate([np.asarray(p[0], float).ravel() for p in payloads])
     o = np.concatenate([np.asarray(p[1], float).ravel() for p in payloads])
-    return {"ccc": lin_ccc(e, o), "pearson_r": pearson(e, o), "bias": bias(o, e)}
+    return {"ccc": lin_ccc(e, o), "pearson_r": pearson(e, o), "bias": bias(o, e), "mae": mean_abs_error(o, e)}
 
 
 def pooled_detection(payloads) -> dict:
@@ -152,6 +159,51 @@ def pooled_mean(payloads) -> float:
     if not vals:
         return float("nan")
     return float(np.nanmean(np.concatenate(vals)))
+
+
+def paired_cluster_bootstrap(groups_a: Sequence, groups_b: Sequence, statistic: Callable, *,
+                             n_boot: int = 1000, seed: int = 0, alpha: float = 0.05) -> dict:
+    """The paired comparison of protocol section 6.3: two methods scored on the same gonads (one payload
+    per gonad and method, in the same gonad order). Every draw resamples the gonads once, with
+    replacement, and computes both methods' pooled statistic on that same resample; the interval of the
+    difference (a minus b) is the alpha/2 and 1 - alpha/2 percentiles of the per-draw differences. The
+    draws are those of ``cluster_bootstrap`` for the same seed and number of gonads, so the per-method
+    intervals of that function come from the same resamples.
+
+    Returns ``{"n_boot", "n_groups", "seed", "alpha", "stats"}``; ``stats`` maps each statistic name to
+    ``{"a", "b", "diff": {"point", "lo", "hi", "n_nan"}, "excludes_zero"}`` where ``a`` and ``b`` are the
+    point estimates and ``excludes_zero`` says whether the interval of the difference lies wholly above
+    or wholly below zero."""
+    groups_a, groups_b = list(groups_a), list(groups_b)
+    if len(groups_a) != len(groups_b):
+        raise ValueError("a paired comparison needs both methods scored on the same gonads, in the same order")
+    n = len(groups_a)
+    pa, pb = statistic(groups_a), statistic(groups_b)
+    scalar = not isinstance(pa, dict)
+    pa_d = {"value": pa} if scalar else dict(pa)
+    pb_d = {"value": pb} if scalar else dict(pb)
+    names = list(pa_d)
+    diffs: dict[str, list[float]] = {k: [] for k in names}
+    if n:
+        rng = np.random.default_rng(seed)
+        for d in rng.integers(0, n, size=(int(n_boot), n)):
+            va = statistic([groups_a[i] for i in d])
+            vb = statistic([groups_b[i] for i in d])
+            va = {"value": va} if scalar else va
+            vb = {"value": vb} if scalar else vb
+            for k in names:
+                diffs[k].append(float(va.get(k, float("nan"))) - float(vb.get(k, float("nan"))))
+    stats = {}
+    for k in names:
+        arr = np.asarray(diffs[k], float)
+        finite = arr[np.isfinite(arr)]
+        lo = float(np.percentile(finite, 100 * alpha / 2)) if finite.size else float("nan")
+        hi = float(np.percentile(finite, 100 * (1 - alpha / 2))) if finite.size else float("nan")
+        a_pt, b_pt = float(pa_d[k]), float(pb_d.get(k, float("nan")))
+        stats[k] = {"a": a_pt, "b": b_pt,
+                    "diff": {"point": a_pt - b_pt, "lo": lo, "hi": hi, "n_nan": int(arr.size - finite.size)},
+                    "excludes_zero": bool(finite.size and (lo > 0 or hi < 0))}
+    return {"n_boot": int(n_boot), "n_groups": n, "seed": int(seed), "alpha": float(alpha), "stats": stats}
 
 
 def paired_comparison(a, b, *, n_boot: int = 1000, seed: int = 0, label_a: str = "a",

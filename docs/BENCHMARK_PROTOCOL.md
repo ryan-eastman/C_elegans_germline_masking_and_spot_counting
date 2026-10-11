@@ -425,3 +425,46 @@ point.
    8cdb710bd2f0fe7acef49c6117d7113ad61e224405960d2847b34c8327a4c4f7, trained at commit 87d77f1 with
    seed 0 (`C:/Users/ryane/germquant_golden/models/net3d_20261010/`). Section 6.1 asks for the selected
    configuration to be retrained on train plus val before test is scored; that has not been done.
+4. 2026-10-10. Package E1: the section 5.1 partition in the harness, leave-one-gonad-out estimates and net3d
+   retrained on train plus val (`docs/BENCHMARK.md`, "Leave-one-gonad-out"). No test gonad was run, scored or
+   looked at, and no test result was computed: no `--final` run was made, `final_runs.jsonl` does not exist,
+   and `docs/FINAL_SCORING.md`, the plan for the one-time test scoring, was not executed. (a) The primary
+   partition of section 5.1 is implemented as written there (`germquant.benchmark.spots.truth_mask_table`; `tm_`
+   columns, `per_truth_nucleus.csv` and the `per_nucleus_truth_masks` blocks of `bench_detector.py`,
+   `bench_tune.py` and `benchmark_spots.py`): the truth masks with fragments below 1000 voxels removed are the
+   nuclei (one 44-voxel label of n2rad51_noHS_male_000 is removed among the train and val gonads; the truth export
+   had already split collided values), every truth spot and every method spot is assigned by the section 5 rule
+   (the spot region R read as the masks dilated by a 3 x 3 x 3 cube, which equals the set of assigned centre
+   voxels), and Pearson r, Lin's CCC, bias and mean absolute error are reported for Class A+B, A and B truth, per
+   gonad and pooled; `bench_detector.py --detector-only` re-runs the spot stage with the truth masks as its nuclei
+   for the detector-only count. The harness's earlier "traced" subset is kept and is not this partition. Not done:
+   the check of section 4.4 against the xlsx coloc assignment (no xlsx export of these gonads is registered).
+   (b) Leave-one-gonad-out over the six train and val gonads with usable spot truth: six folds (for a held-out
+   val gonad the first same-condition train gonad by tag order joins the remaining val gonad), each held-out
+   gonad scored by `bench_detector.py --detector-only` with its fold in the trial record's `note` (trial lines 162
+   to 173 and 214 to 231). net3d: each fold retrained on its five gonads by the frozen recipe of net3d_20261010
+   (its settings, seed and 40-epoch schedule, stopped after the selected 4 epochs, threshold 0.40, no
+   validation); retraining the recipe on its own four train gonads reproduced the selected weights bit for bit.
+   This departs from section 6.2, which selects inside each fold: the recipe's epoch and threshold were chosen on
+   the two designated val gonads, so the two folds that hold one of them out are optimistic for net3d, and its
+   estimate leaves out the variance of its selection. Tuned log and re-tuned SpotMAX: the whole D3 search replayed
+   on each fold's own gonads (its stages, budgets of 55 and 24 sets, finalists and objective, which is the
+   germline partition, not the primary metric); first all 55 log and 24 SpotMAX D3 sets were scored on the two val
+   gonads (lines 97 to 151 and 174 to 197); in the two folds whose train gonads are the three no-heat-shock train
+   gonads the replay left the D3 path, and the sets it called for were run (lines 152 to 161 and 198 to 213). The
+   deployed SpotMAX recipe and the log defaults: their per-gonad scores, re-run with the same harness. Pooled over
+   the six held-out gonads, primary partition (Class A+B, end-to-end), CCC [95 percent cluster-bootstrap
+   interval]: SpotMAX deployed 0.601 [0.499, 0.718], SpotMAX re-tuned 0.742 [0.655, 0.812], log defaults 0.777
+   [0.623, 0.920], log tuned 0.893 [0.818, 0.955], net3d 0.878 [0.834, 0.935]. Paired differences whose interval
+   excludes zero: net3d and the tuned log better than both SpotMAX configurations on every partition, on spot F1
+   with and without Class B and in mean absolute error (net3d minus SpotMAX re-tuned +0.136 [+0.090, +0.204] in
+   primary CCC); the log defaults better than the deployed recipe on every number and than the re-tuned SpotMAX
+   on F1; the re-tuned SpotMAX better than the deployed recipe in mean absolute error only. No difference survives
+   between net3d and the tuned log (-0.015 [-0.084, +0.073]); on the four folds that hold out a train gonad the
+   tuned log leads net3d in germline CCC and F1. These are development estimates; nothing here is a win
+   condition. (c) net3d retrained on the six train and val gonads by the same frozen recipe (protocol section
+   6.1):
+   `C:/Users/ryane/germquant_golden/models/net3d_trainval_20261010/model.pt`, sha256
+   d091b9ef58850783387a4f5aa0fea5ecc9310abc027145771936fecd0de001c0, trained at commit 240cc72, with its
+   `model_card.json`; it is the net3d of `docs/FINAL_SCORING.md` and was not scored. Every choice in (b) and (c) was
+   made after the first result of entry 2 and is post hoc under rule 3. No test result was computed.
