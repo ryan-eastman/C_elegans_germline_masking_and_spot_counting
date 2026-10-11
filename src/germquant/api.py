@@ -35,7 +35,8 @@ from .io import (
     read_nd2_metadata,
     read_stack,
 )
-from .models_registry import get_model
+from .models_registry import get_model, known_models, register_local_model
+from .packs import fetch_pack_models, find_pack, install_pack, list_packs, load_pack, pack_status
 from .pipeline import process_image, resolve_model_path, spot_instances
 from .provenance import read_done_marker
 from .segment import segment_nuclei
@@ -89,16 +90,58 @@ __all__ = [
     "segment_nuclei",
     "spot_instances",
     "stage_enabled",
+    # system packs (docs/PACKS.md); germquant.packs offers the same listing and checks without loading torch
+    "list_packs",
+    "find_pack",
+    "load_pack",
+    "pack_status",
+    "fetch_pack_models",
+    "install_pack",
+    "list_segment_backends",
+    "list_spot_backends",
+    "known_models",
+    "register_local_model",
 ]
 
 
-def resolve_config(config: str | Path | Config | None = None, profile: str | None = None) -> Config:
-    """The Config a run uses. A loaded ``Config`` passes through; a path is loaded with load_config (it may
-    use ``extends:``); a ``profile`` name is looked up as ``config/profiles/<name>.yaml`` (the checkout, the
-    working directory, then ``$GERMQUANT_CONFIG_ROOT``); with neither, the checkout's ``config/config.yaml``
-    is used, as the drag-and-drop scripts do. Giving both raises ValueError."""
-    if config is not None and profile is not None:
-        raise ValueError("give either config or profile, not both")
+def list_segment_backends() -> list[str]:
+    """The segmentation backend names this environment declares (built-ins, in-process registrations and
+    installed entry points), read from metadata without loading any backend."""
+    from .segment.backends import declared_backend_names
+
+    return declared_backend_names()
+
+
+def list_spot_backends() -> list[str]:
+    """The spot backend names this environment declares, read from metadata without loading any backend."""
+    from .spots.backends import declared_backend_names
+
+    return declared_backend_names()
+
+
+def resolve_config(config: str | Path | Config | None = None, profile: str | None = None,
+                   pack: str | None = None, recipe: str | None = None) -> Config:
+    """The Config a run uses, from exactly one source. A loaded ``Config`` passes through; a path is loaded
+    with load_config (it may use ``extends:``); a ``profile`` name is looked up as
+    ``config/profiles/<name>.yaml`` (the checkout, the working directory, then ``$GERMQUANT_CONFIG_ROOT``); a
+    ``pack`` (``id`` or ``id@version``) loads one of its recipes (``recipe``, else the pack's default) through
+    load_config and sets ``cfg.pack_record`` (docs/PACKS.md): the config_hash equals that of ``config=<the
+    recipe file>``. With no source, the checkout's ``config/config.yaml`` is used, as the drag-and-drop scripts
+    do. More than one source, or ``recipe`` without ``pack``, raises ValueError."""
+    given = [name for name, v in (("config", config), ("profile", profile), ("pack", pack)) if v is not None]
+    if len(given) > 1:
+        raise ValueError(f"give either config, profile or pack, not both ({' and '.join(given)} given)")
+    if recipe is not None and pack is None:
+        raise ValueError("recipe needs pack")
+    if pack is not None:
+        from .packs import find_pack as _find_pack
+        from .packs import pack_record, recipe_profile_path
+
+        p = _find_pack(pack)
+        r = p.recipe(recipe)
+        cfg = load_config(recipe_profile_path(p, r))
+        cfg.pack_record = pack_record(p, r.id)
+        return cfg
     if isinstance(config, Config):
         return config
     if profile is not None:
@@ -124,6 +167,8 @@ def run(
     z_range: tuple[int, int] | list[int] | None = None,
     overrides: dict | None = None,
     t: int | None = None,
+    pack: str | None = None,
+    recipe: str | None = None,
 ) -> dict:
     """Process one image exactly as ``germquant run`` does and return its result record.
 
@@ -137,13 +182,16 @@ def run(
     enters the config hash and the provenance manifest exactly like a ``--no-<stage>`` switch on the
     command line (a Config passed in is modified in place). ``t`` processes one timepoint of a time series:
     the stages run on that timepoint's stack and the image id becomes ``<stem>_t<NNN>`` (docs/TIMELAPSE.md);
-    None, the default, for a fixed image.
+    None, the default, for a fixed image. ``pack`` (``id`` or ``id@version``) and ``recipe`` run a system
+    pack's recipe instead of config or profile (docs/PACKS.md), as ``germquant run --pack`` does; the run
+    also records the pack and the runtime in its manifest. This call does not run the pack check: call
+    ``pack_status`` first, as the command line does.
 
     Returns the dict process_image returns: ``image_id``, ``n_nuclei``, ``qc_pass``, ``qc_flags``,
     ``out_dir``, ``tables`` (one DataFrame per output table) and ``stages`` (the per-stage record). A QC
     flag is not an error: only a failed read, segmentation or write raises.
     """
-    cfg = resolve_config(config, profile)
+    cfg = resolve_config(config, profile, pack=pack, recipe=recipe)
     for key, value in (overrides or {}).items():
         cfg.set(str(key), value)
     return run_loaded(image, cfg, out, xy_stride=xy_stride, z_range=z_range, t=t)

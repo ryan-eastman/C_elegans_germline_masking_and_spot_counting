@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use the C. elegans germline pack of germquant, please cite the software as below."
+title: "germquant: C. elegans germline pack"
+version: 0.1.0
+type: software
+license: MIT
+repository-code: "https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting"
+authors:
+  - family-names: "Eastman"
+    given-names: "Ryan"

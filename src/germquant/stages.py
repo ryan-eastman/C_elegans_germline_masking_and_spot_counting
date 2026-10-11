@@ -165,10 +165,17 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
     ``spot_backend`` is the provenance a non-default spot backend declares (net3d: its model file's
     sha256 and the extra channel roles it reads); it enters the spots payload only when not empty, so
     the hashes of a default run are unchanged. ``segment_backend`` is the same for the segmentation
-    backend (nuclei3d: its model file's sha256), entering the segment payload only when not empty."""
+    backend (nuclei3d: its model file's sha256), entering the segment payload only when not empty.
+
+    Portable payload (docs/DESIGN_system_packs.md, section 3.4): in a chain that went through one of the
+    two new extends forms (``pack:<id>@<v>/<r>`` or a bare name under a built-in root), an inherited path
+    that load_config made absolute is hashed by its original relative value, so an edited pack recipe hashes
+    alike on every machine (the model digest stays in the segment payload). Every other config, the shipped
+    ones and out-of-repo overlays with an absolute extends path included, hashes exactly as before."""
     import hashlib
     import json
 
+    portable = _portable_paths(cfg)
     out = {}
     for st in STAGES:
         payload = {
@@ -177,6 +184,8 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
             "roles": {r: role_to_idx.get(r) for r in st.required_roles},
             "tools": {k: extras.get(k, "not-installed") for k in _STAGE_TOOLS.get(st.name, ())},
         }
+        if portable:
+            payload["config"] = _with_relative_paths(payload["config"], portable)
         if st.name == "segment":
             payload["model_sha256"] = model_sha
         if st.name == "segment" and segment_backend:
@@ -184,6 +193,35 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
         if st.name == "spots" and spot_backend:
             payload["spot_backend"] = spot_backend
         out[st.name] = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:12]
+    return out
+
+
+def _portable_paths(cfg) -> dict[str, str]:
+    """``{dotted key: original relative value}`` for the anchored paths a portable chain hashes by their
+    relative value (empty unless ``cfg.anchors`` says the chain used a new extends form). A key whose value
+    no longer equals the anchored absolute path (a runtime override) keeps its own value."""
+    anchors = getattr(cfg, "anchors", None)
+    if not isinstance(anchors, dict) or not anchors.get("portable"):
+        return {}
+    out = {}
+    for key, rec in (anchors.get("paths") or {}).items():
+        if isinstance(rec, dict) and cfg.get(key) == rec.get("absolute"):
+            out[key] = rec.get("relative")
+    return out
+
+
+def _with_relative_paths(sections: dict, portable: dict[str, str]) -> dict:
+    """A copy of a stage's config sections with each anchored path replaced by its relative value."""
+    import copy
+
+    out = copy.deepcopy(sections)
+    for key, rel in portable.items():
+        parts = key.split(".")
+        node = out.get(parts[0])
+        for part in parts[1:-1]:
+            node = node.get(part) if isinstance(node, dict) else None
+        if isinstance(node, dict) and parts[-1] in node:
+            node[parts[-1]] = rel
     return out
 
 

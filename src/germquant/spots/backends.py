@@ -98,6 +98,19 @@ def list_backends() -> list[str]:
     return sorted(_REGISTRY)
 
 
+def declared_backend_names() -> list[str]:
+    """Sorted names of every spot backend this environment declares, WITHOUT loading any: the built-ins,
+    the in-process registrations and the entry-point names read from the installed packages' metadata
+    (no module is imported, so nothing pulls in SpotMAX, CuPy or torch). pack status checks a pack's
+    needed backends with it (docs/DESIGN_system_packs.md, section 5.1)."""
+    names = set(_REGISTRY)
+    try:
+        names |= {str(getattr(ep, "name", "")).strip() for ep in _iter_entry_points()}
+    except Exception as e:  # noqa: BLE001 - a damaged installation must not stop a listing
+        log.warning("could not read the %r entry points (%s: %s)", ENTRY_POINT_GROUP, type(e).__name__, e)
+    return sorted(n for n in names if n and _NAME_RE.fullmatch(n))
+
+
 def backend_input_roles(name: str) -> tuple[str, ...]:
     """The channel roles beyond the foci channel that backend ``name`` asks for, from its optional
     ``input_roles`` attribute (net3d: ``("dna",)``); empty for spotmax and log. The caller passes the

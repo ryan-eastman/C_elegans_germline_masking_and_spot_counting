@@ -106,6 +106,49 @@ gonads are built inside the fixtures.
   guard. `config/profiles/bench_log_tuned.yaml` and `bench_spotmax_tuned.yaml` load, extend
   `config/config.yaml` and change only `spots:` keys.
 
+- The system packs (`docs/PACKS.md`, tranche 5 package P1), on the test pack in
+  `fixtures/packs/test_pack` (a classical recipe that runs anywhere, and a Cellpose recipe with a 64-byte
+  stand-in model) and the built-in `packs/celegans_germline`; `packs_helpers.py` holds the shared
+  `pack_env` fixture, which isolates every pack root, the model store and the Cellpose cache:
+  - `test_packs_format.py`: the pack.yaml rules (recipes at `config/profiles/<recipe>.yaml`),
+    `validate_pack` (tunables the recipe does not set, or that are not scalars), LF-normalised SHA256SUMS
+    (CRLF and LF copies agree, junk never hashed), the search order, built-in roots (the checkout and
+    `$GERMQUANT_CONFIG_ROOT` only), shadowing, a broken pack listed as unusable, recipe resolution and the
+    pack record;
+  - `test_packs_extends.py`: the two extends fallbacks, every shipped config resolving to the same file
+    as before, and the portable stage hashes of edited pack recipes when the engine root or the pack
+    moves, also through a two-level chain (an absolute-path overlay keeps today's hashes);
+  - `test_packs_models.py`: the blob store and fetch-models (Cellpose-cache adoption, `--from-file`, a
+    local HTTP server with Range requests for download and resume, mismatches discarded, a wrong blob in
+    the store removed, the size checked before any hash, nothing done twice), the verification record
+    across processes and a store that cannot keep one, the pin check before segmentation (a pinned name no
+    pack declares is refused), reserved names, classical runs that never resolve a model,
+    `train-nuclei --base <pack model>` with the same pin check, and Cellpose's first call kept as the old
+    line (rule R3);
+  - `test_packs_status.py`: `pack check` blockers and fixes (modules, undeclared backends, the readers
+    extra, models, the engine range, the recipe hash, faulty tunables, engine-file digests), image headers
+    read without bioio (.nd2 and TIFF, the TIFF reader checked against bioio; other formats left to the
+    deep check), the deep check's device report and accelerator warning, exit code 2 (an unknown pack
+    included), and `run --pack` refusing an unusable pack unless `--no-pack-check`;
+  - `test_packs_install.py`: install refusals (zip-slip, drive letters, symlinks and Windows junctions,
+    bad sums, non-ASCII hashed text anywhere in the pack, recipes outside `config/profiles/`, faulty
+    tunables, built-in collisions), a zip's junk left behind, immutability (a damaged installed copy
+    included), vendor, every path of every committed SHA256SUMS tracked by git, and the .gitattributes and
+    .gitignore rules in a scratch repository;
+  - `test_packs_isolation.py`: in a fresh interpreter, `germquant.packs` and `python -m germquant.packs`
+    load no torch, CuPy, SpotMAX or Cellpose, with `--image` too (no bioio, no dask); a deep check imports
+    the pipeline (torch) before it loads any backend; `python -m germquant --help` imports torch first; the
+    version entries; a simulated non-editable install inside another project;
+  - `test_packs_run.py`: `--pack celegans_germline` against `--config config/config.yaml` (same hash,
+    files, tables and done markers; the manifests differ only by the pack and runtime records), `batch
+    --pack` records, the test pack's recipe goldens with an empty model store, and the tifffile example
+    reader against the bioio reader;
+  - `test_packs_lint.py`: model cards (`validate_card` on a real `train-nuclei` card), every lint rule,
+    the `--previous` version rules, the base-weight comparison on small fake state dicts, and the result
+    the C. elegans card records (cpsam_v2, from the run on the workstation CPU);
+  - `test_packs_cli.py` and `test_datafetch.py`: the command surface and the resumable downloader (a
+    server that answers a Range request from another byte is read again from the start).
+
 ## Markers
 
 Registered in `pyproject.toml` (`[tool.pytest.ini_options] markers`); CI passes `--strict-markers`,
@@ -185,13 +228,15 @@ works without installing ruff). The rule set is written out in `pyproject.toml` 
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push to `main` and to `feat/**` branches, on pull requests
-and on demand (the "Run workflow" button). One job per OS, `ubuntu-latest` and `windows-latest`,
-with Python 3.11:
+and on demand (the "Run workflow" button). One job per OS, `ubuntu-latest`, `windows-latest` and
+`macos-14` (Apple Silicon, from tranche 5 package P1), with Python 3.11:
 
-1. `uv` installs torch and torchvision as CPU wheels from the PyTorch CPU index, then germquant with
-   the `gpu`, `spots`, `sc` and `dev` extras (Cellpose, SpotMAX and Cell-ACDC, skan, pytest and
-   ruff) against `constraints/ci-cpu-2026-10.txt`: the validated workstation versions minus the
-   CUDA-only packages. The uv cache directory is saved between runs.
+1. `uv` installs torch and torchvision as CPU wheels from the PyTorch CPU index (on macOS, the arm64
+   wheels from PyPI, the CPU and Metal build), then germquant with the `gpu`, `spots`, `sc`, `dev` and
+   `timelapse` extras (Cellpose, SpotMAX and Cell-ACDC, skan, pytest, ruff and laptrack) against
+   `constraints/ci-cpu-2026-10.txt` (macOS: `constraints/ci-mac-arm64-2026-10.txt`, the same pins): the
+   validated workstation versions minus the CUDA-only packages. The uv cache directory is saved between
+   runs. A test that cannot pass on macOS for an environment reason is marked with the reason.
 2. `ruff check src tests scripts`.
 3. `pytest -q -rs -m "not model" --strict-markers`: the full suite including the synthetic golden
    tests; `test_gpu.py` reports itself as skipped.

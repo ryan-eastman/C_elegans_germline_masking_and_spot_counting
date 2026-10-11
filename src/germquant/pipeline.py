@@ -145,7 +145,13 @@ def resolve_model_path(cfg):
     ``$GERMQUANT_MODELS`` (the HPC / container binding: the config's ``models/...`` path is looked up
     under it, with or without the leading ``models/``). A bare name that is a registered model (a release
     asset or a model added with ``germquant register-model``, models_registry) resolves to the registered
-    file when it is on disk; other bare names such as 'cpsam' pass through to Cellpose."""
+    file when it is on disk; other bare names such as 'cpsam' pass through to Cellpose.
+
+    A pack model name ``<name>@<8 hex>`` (docs/DESIGN_system_packs.md, section 3.5) is looked up only where
+    the steps above find nothing and today's code raises: it resolves to the verified blob of an installed
+    pack's model spec, and a declared but missing blob raises FileNotFoundError naming `germquant pack
+    fetch-models`. Under segmentation.nuclei.method classical such a value is returned unresolved (the
+    classical segmenter never loads a model; model_sha256 is "unused")."""
     model_path = cfg.get("segmentation.nuclei.cellpose_model")
     if not model_path:
         return model_path
@@ -168,6 +174,15 @@ def resolve_model_path(cfg):
             registered = resolve_registered(str(model_path), base_dir)
             if registered is not None:
                 return registered
+        from .models_registry import is_pack_model_name
+
+        if is_pack_model_name(str(model_path)):
+            # only reached where the lines below would raise: a pinned pack model, never a Cellpose name
+            if str(cfg.get("segmentation.nuclei.method", "auto")) == "classical":
+                return model_path
+            from .packs.blobs import resolve_pack_model
+
+            return resolve_pack_model(str(model_path).strip())
         from .models_registry import known_models
 
         if str(model_path) in known_models():
@@ -196,15 +211,20 @@ def read_input_metadata(path: str | Path) -> dict:
     return read_image_metadata(path)
 
 
-def _read_input(path: Path, *, xy_stride: int, z_range, t=None):
+def _read_input(path: Path, *, xy_stride: int, z_range, t=None, read_fn=None):
     """Header and pixels of the input image: ``(metadata dict, Stack)``.
 
     An ``.nd2`` goes through this module's ``read_nd2_metadata`` and ``read_stack`` names: the functions
     every golden was made with, and the seam the synthetic-stack test fixtures patch. Every other format
     goes through io.read_image_metadata / io.read_image (bioio, optional ``readers`` extra), which return
     the same Stack and honour xy_stride and z_range the same way. ``t`` (one timepoint of a time series)
-    is passed on only when given, so a fixed image makes exactly the calls it always has."""
+    is passed on only when given, so a fixed image makes exactly the calls it always has. ``read_fn`` (None
+    by default) replaces both readers with ``read_fn(path, xy_stride=, z_range=[, t=]) -> (meta, Stack)``:
+    the pack golden runner reads a pack's OME-TIFF example with tifffile through it, where bioio is absent
+    (germquant.packs_golden)."""
     kw = {} if t is None else {"t": t}
+    if read_fn is not None:
+        return read_fn(path, xy_stride=xy_stride, z_range=z_range, **kw)
     if image_format(path) == "nd2":
         return read_nd2_metadata(path, **kw), read_stack(path, xy_stride=xy_stride, z_range=z_range, **kw)
     return read_image_metadata(path, **kw), read_image(path, xy_stride=xy_stride, z_range=z_range, **kw)
@@ -241,6 +261,7 @@ def process_image(
     prov: dict | None = None,
     t: int | None = None,
     on_stack=None,
+    read_fn=None,
 ) -> dict:
     """Run every enabled stage on one image and write its results folder. ``nd2_path`` (the name is kept
     for compatibility) is any supported image: an ``.nd2``, or a TIFF / OME-TIFF, CZI, LIF or OME-Zarr
@@ -256,7 +277,12 @@ def process_image(
     ``on_stack`` (None by default) is called once, right after the read stage, with a dict holding the
     ``stack`` as read, the header ``meta``, the resolved ``role_to_idx``, the ``image_id``, ``out_dir``,
     ``spacing`` and ``t``: the time-lapse loop keeps a downsampled reference volume for registration with it
-    (timelapse.series, docs/TIMELAPSE.md). It changes no stage and no output; a fixed image passes nothing."""
+    (timelapse.series, docs/TIMELAPSE.md). It changes no stage and no output; a fixed image passes nothing.
+
+    ``read_fn`` (None by default) replaces the image reader (see ``_read_input``); only the pack golden runner
+    passes one. A run whose config carries a pack record (``api.resolve_config(pack=...)``, ``--pack``) also
+    records the pack and the runtime in run_manifest.json and ``<image_id>__stages.json`` and the device
+    Cellpose ran on (post_run.segment_device_used); no table, done marker or hash changes."""
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
     os.makedirs(long_path(out_dir), exist_ok=True)
@@ -266,7 +292,10 @@ def process_image(
     # ---- read + resolve channels ----
     t_read = time.perf_counter()
     acq_expected = expected_settings(cfg)   # a bad acquisition.expected section fails here, before any pixel is read ({} when absent)
-    meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range, t=t)
+    if read_fn is None:
+        meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range, t=t)
+    else:
+        meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range, t=t, read_fn=read_fn)
     role_to_idx, ch_flags = cfg.channel_map.resolve(meta["channel_names"])
     flags += ch_flags
     spacing = stack.spacing
@@ -289,6 +318,14 @@ def process_image(
     model_file = resolve_model_path(cfg)
     model_sha = (provenance.file_sha256(model_file)
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
+    if model_sha != "unused":
+        model_key = str(cfg.get("segmentation.nuclei.cellpose_model") or "")
+        if "@" in model_key:
+            # a pinned pack model <name>@<8 hex>: whatever it resolved to (a local registry entry included)
+            # must carry the pinned digest, or the run stops here, before any stage processes pixels
+            from .models_registry import check_model_pin
+
+            check_model_pin(model_key, model_sha)
     # a non-default spot backend's own provenance (net3d: its model sha256); {} on the default run
     spot_prov = spot_backend_provenance(cfg, role_to_idx)
     # the same for the segmentation backend (nuclei3d: its model sha256); {} on the default run
@@ -306,6 +343,14 @@ def process_image(
         # the timepoint enters the run geometry (manifest, stage record) and the marker ONLY for a series
         run_geometry["t_index"] = int(t)
         run_geometry["t_seconds"] = _t_seconds_of(meta, t)
+    pack_record = getattr(cfg, "pack_record", None)
+    if pack_record:
+        # a pack run: the pack and the runtime enter the run geometry (manifest, stage record), never a table,
+        # the done marker or a stage hash (docs/DESIGN_system_packs.md, section 3.10)
+        from .device import runtime_record
+
+        run_geometry["pack"] = dict(pack_record)
+        run_geometry["runtime"] = runtime_record(cfg.get("segmentation.nuclei.device"))
     prov = prov or provenance.write_manifest(out_dir, config_hash=cfg.hash, config=cfg.as_dict(),
                                              extra=run_geometry)
 
@@ -374,6 +419,10 @@ def process_image(
             cfg_section=cfg.get("segmentation.nuclei", {}),
         )
 
+    if pack_record:
+        from .device import record_segment_device
+
+        record_segment_device(None)           # cellpose_backend records "cpu" after a CPU retry (pack runs report it)
     labels, seg_method = run_stage("segment", _segment, flags=flags, outcomes=outcomes, fatal=True)
     n_nuclei = int(labels.max())
 
@@ -998,10 +1047,21 @@ def process_image(
         # per-stage outcome record (ran / skipped + reason / failed + error, elapsed, flags); advisory,
         # so it can never fail a finished run, and written even when the montage raises.
         rec = {name: oc.as_dict() for name, oc in outcomes.items()}
+        post_run = {}
+        if pack_record:
+            from .device import segment_device_used, select_device
+
+            dev = segment_device_used()              # "cpu" after a CPU retry (cellpose_backend), else None
+            if dev is None and seg_method == "cellpose":
+                try:                                 # the first call ran on the device Cellpose was given
+                    dev = select_device(cfg.get("segmentation.nuclei.device"), quiet=True)
+                except Exception:  # noqa: BLE001 - a record only
+                    dev = None
+            post_run = {"post_run": {"segment_device_used": dev}}
         try:
             with open(long_path(out_dir / f"{sample['image_id']}__stages.json"), "w", encoding="utf-8") as fh:
                 json.dump({"image_id": sample["image_id"], "config_hash": cfg.hash, "complete": complete,
-                           **run_geometry, "stages": rec}, fh, indent=1)
+                           **run_geometry, **post_run, "stages": rec}, fh, indent=1)
         except Exception as e:  # noqa: BLE001 - the record is advisory
             log.warning("could not write the stage record: %s", e)
         return rec

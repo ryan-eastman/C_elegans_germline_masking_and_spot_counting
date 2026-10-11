@@ -18,6 +18,8 @@ COPY src ./src
 COPY config ./config
 COPY workflow ./workflow
 COPY constraints ./constraints
+# the built-in system packs (docs/PACKS.md): found under $GERMQUANT_CONFIG_ROOT/packs, set below
+COPY packs ./packs
 
 # Pinned to the validated workstation environment (constraints/desktop-2026-09.txt) so a container
 # run resolves the same package versions the goldens were made with. Explicit cu128 torch wheel FIRST
@@ -31,6 +33,9 @@ ENV GERMQUANT_CONFIG_ROOT=/opt/germquant
 
 # build-time smoke check (imports only — a GPU is not attached during `docker build`).
 RUN python -c "import germquant, cellpose; print('germquant ok')"
+# the built-in packs are listed (gate G13); the engine is installed non-editable here, so they are found
+# through GERMQUANT_CONFIG_ROOT, and this torch-free entry fails the build if none is found
+RUN python -m germquant.packs list && python -c "import germquant.packs as P, sys; sys.exit(0 if P.list_packs() else 1)"
 
 # Runtime sm_120 assertion lives in the entrypoint, not the build: `docker build` has no
 # GPU, so the (12,0) capability check can only run with `--gpus all` at `docker run`.

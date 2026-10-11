@@ -505,3 +505,25 @@ The default run never changes: `spots.backend` is read with the code default `sp
 calls the same code with the same arguments, the detector column still reads `spotmax` and the flag
 text is unchanged, which the synthetic goldens verify cell for cell. The spots table keeps its declared
 columns in their order (`germquant.schema.SPOTS`); a backend may not rename, reorder or drop one.
+
+## Backends and system packs
+
+System packs (docs/PACKS.md) name backends and models by name, never by callable, so the engine can tell
+whether a pack can run without loading anything.
+
+- `declared_backend_names()`, on both registries (`germquant.segment.backends` and
+  `germquant.spots.backends`): the built-ins, the backends registered in this process and the entry-point
+  names read from the installed packages' metadata, without loading any of them (so nothing pulls in torch
+  or CuPy). `germquant pack check` greys a recipe whose backend is not declared. A declared entry point
+  can still fail when it is loaded; `germquant pack check --deep` loads the backends and reports that.
+  `germquant.api.list_segment_backends()` and `list_spot_backends()` return the same lists.
+- `germquant.models_registry.resolve_model_name(name, expect_sha256=None)`: the helper a third-party
+  backend calls for its own model key. It returns the file a registered local or release model points at,
+  or, for a pinned pack model `<name>@<8 hex>`, the verified file in the model store, after the pin check
+  (the file's sha256 must start with the 8 hex digits and equal the pack's digest; a name of that form that no
+  installed pack declares is refused). With `expect_sha256`
+  the file's digest must equal it. A pack model whose file is missing raises FileNotFoundError naming
+  `germquant pack fetch-models <pack>`.
+- The pack rule: a pack recipe sets `segmentation.nuclei.method: cellpose` (with whatever backend it names)
+  or `classical`, never `auto`, so a missing Cellpose or a missing plugin fails loudly instead of falling
+  back to the classical watershed.

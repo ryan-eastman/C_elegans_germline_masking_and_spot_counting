@@ -10,12 +10,54 @@ and is not used).
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 
 log = logging.getLogger(__name__)
 
 _CHOICES = ("auto", "cuda", "mps", "cpu")
+
+# "cpu" when Cellpose had to retry on the CPU in this context (segment.backends.cellpose_backend sets it on that
+# path only, so its first call stays the old line, rule R3), else None. For pack runs only, process_image resets
+# it before the segment stage and writes post_run.segment_device_used to <image_id>__stages.json: this value
+# after a retry, else the device the Cellpose call was given (select_device), else None when Cellpose did not
+# make the labels (docs/DESIGN_system_packs.md 3.10).
+SEGMENT_DEVICE_USED: contextvars.ContextVar[str | None] = contextvars.ContextVar("germquant_segment_device_used",
+                                                                                 default=None)
+
+
+def record_segment_device(name: str | None) -> None:
+    SEGMENT_DEVICE_USED.set(name)
+
+
+def segment_device_used() -> str | None:
+    return SEGMENT_DEVICE_USED.get()
+
+
+def requested_device(prefer: str | None = None) -> str:
+    """What the run asked for: ``$GERMQUANT_DEVICE``, else the config's choice, else auto (lower case)."""
+    return (os.environ.get("GERMQUANT_DEVICE") or prefer or "auto").strip().lower()
+
+
+def runtime_record(prefer: str | None = None) -> dict:
+    """The runtime block of a pack run (run_geometry["runtime"]): the device requested and the one selected,
+    the torch version, whether CUDA is available, python and the platform. Never a table column, never part
+    of a hash."""
+    import importlib
+    import platform
+    import sys
+
+    torch = sys.modules.get("torch")          # pipeline imported it already on every run path
+    if torch is None:
+        try:
+            torch = importlib.import_module("torch")
+        except Exception:  # noqa: BLE001 - CPU-only environment without torch
+            torch = None
+    return {"device_requested": requested_device(prefer), "device_selected": select_device(prefer, quiet=True),
+            "torch_version": str(getattr(torch, "__version__", "not-installed")),
+            "cuda_available": bool(available()["cuda"]), "python": platform.python_version(),
+            "platform": platform.platform()}
 
 
 def available() -> dict[str, bool]:
@@ -29,25 +71,27 @@ def available() -> dict[str, bool]:
     return {"cuda": cuda, "mps": mps}
 
 
-def select_device(prefer: str | None = None) -> str:
+def select_device(prefer: str | None = None, *, quiet: bool = False) -> str:
     """'cuda', 'mps' or 'cpu'. `prefer` (config) is overridden by $GERMQUANT_DEVICE; 'auto' or None
     picks the first available accelerator. Asking for an accelerator that is not available falls back
-    to the next one with a warning, never an error."""
+    to the next one with a warning, never an error. ``quiet`` only silences those warnings (for a second
+    look at a choice already made and logged, such as the runtime record)."""
+    warn = (lambda *a: None) if quiet else log.warning
     want = (os.environ.get("GERMQUANT_DEVICE") or prefer or "auto").strip().lower()
     if want not in _CHOICES:
-        log.warning("unknown device %r (choices %s); using auto", want, _CHOICES)
+        warn("unknown device %r (choices %s); using auto", want, _CHOICES)
         want = "auto"
     have = available()
     order = {"auto": ["cuda", "mps"], "cuda": ["cuda", "mps"], "mps": ["mps", "cuda"], "cpu": []}[want]
     for dev in order:
         if have.get(dev):
             if want not in ("auto", dev):
-                log.warning("device %r not available; using %s", want, dev)
+                warn("device %r not available; using %s", want, dev)
             if dev == "mps":
                 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
             return dev
     if want not in ("auto", "cpu"):
-        log.warning("device %r not available; using cpu", want)
+        warn("device %r not available; using cpu", want)
     return "cpu"
 
 
