@@ -135,7 +135,9 @@ python -c "from germquant.provenance import file_sha256; print(file_sha256(r'C:/
 # the parameter files are the frozen ones (sha256 as in section 2 and under decision 2)
 Get-FileHash -Algorithm SHA256 C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/*.json
 # protocol section 4.4 on the test gonads: the geometric truth assignment against the lab's mask channel;
-# agreement should match the train and val gonads (99.35 to 99.99 percent, boundary spots only)
+# agreement should match the train and val gonads (99.35 to 99.99 percent); there the differences were
+# boundary spots, spots whose mask-channel value is a removed mask fragment (the larger group), and 3 spots
+# that one region-growing gonad assigns to different nuclei
 python scripts/check_truth_assignment.py --tags n2rad51_HS_herm_002 n2rad51_HS_male_001 n2rad51_noHS_herm_002 n2rad51_noHS_male_002
 # no test scoring has happened
 Test-Path C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_runs.jsonl   # must be False

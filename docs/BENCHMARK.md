@@ -1140,6 +1140,15 @@ segmentation. `germquant.benchmark.spots` now computes exactly that, next to the
 * Where: `bench_detector.py`, `bench_tune.py` (summary column `tm_ccc`) and `benchmark_spots.py` all report
   it; `stats.paired_cluster_bootstrap` is the paired comparison of section 6.3 (both methods' pooled
   statistic on the same resample of gonads).
+* Spot F1 inside R (section 5.2): the method's spots and the truth spots whose centre voxel lies in R (the
+  rule above) are matched one to one in the anisotropic cylinder of the whole-field score. Per gonad the
+  `tm_spots_` columns hold the end-to-end score, `tm_spots_no_b_` Class A alone (Class B spots in R and the
+  method spots matched to them leave both counts), `tm_spots_b_recall` the Class B recall and
+  `tm_det_spots_` the detector-only score; pooled.json has them as `spots_truth_masks`,
+  `spots_truth_masks_class_a` and `spots_truth_masks_detector_only`. This is the W2 metric of
+  docs/FINAL_SCORING.md; the whole-field F1 (`spots_all`) stays for comparison. It was added in commit
+  e19a029, after the leave-one-gonad-out runs below, so their held-out tables have no `tm_spots_` columns
+  and every spot F1 in this section is the whole-field one.
 
 On the six gonads it covers 676 truth nuclei (train: 88, 107, 143 and 97 for HS_herm_000, noHS_herm_000,
 noHS_male_000 and noHS_male_001; val: 95 and 146 for HS_herm_001 and noHS_herm_001) and assigns 2054 of the
