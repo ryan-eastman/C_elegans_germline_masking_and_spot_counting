@@ -45,6 +45,11 @@ gonads are built inside the fixtures.
   real-data comparison (see the environment variables below). The goldens were produced on the
   workstation (Windows, the pinned `constraints/desktop-2026-09.txt` environment) and are checked
   with `check_exact=True`.
+- `test_peak_filter.py`: the exact replica of SpotMAX's minimum-distance peak filter
+  (`germquant.spots.peak_filter`, `docs/PERFORMANCE.md`) against the installed SpotMAX function on
+  random inputs with tied intensities, duplicate points and boundary distances, its fallback domain,
+  the context manager that installs it, the SpotMAX stage with and without it on a flooded synthetic
+  volume, and the flood guard's warning. The SpotMAX comparisons skip when SpotMAX is not installed.
 - `test_benchmark_split.py`: the pre-registered RAD-51 benchmark split (`golden/rad51_split.json`,
   `docs/BENCHMARK_PROTOCOL.md`): the 12 tags and their train/val/test roles, the sha256 helper, the
   Imaris creation-parameter reader on a synthetic HDF5 project, and the manifest builder
@@ -54,6 +59,33 @@ gonads are built inside the fixtures.
   synthetic label volumes and spot sets with known answers for every metric (a split, a merge, an
   out-of-coverage prediction, the z-extent error, the chunked Hungarian against the dense result, the
   bootstrap intervals), plus both benchmark scripts run on a temporary manifest in a subprocess.
+- `test_bench_detector.py`: the detector bench harness (`germquant.benchmark.detector`,
+  `scripts/bench_cache.py`, `scripts/bench_detector.py`; `docs/BENCHMARK.md`, "Detector bench harness").
+  A real pipeline run on a synthetic uint16 gonad is cached and re-run: the cached label image is the one
+  the spots stage received, `run_backend` hands `detect_spots` exactly the pipeline's arguments and
+  reproduces its spots table (log backend always, SpotMAX when installed). Tiny planted-foci gonads with
+  truth files exercise the runner, the trial log, the test guard and the final-run log (on synthetic
+  test-role gonads and temporary logs only), and the process pool against the sequential run.
+- `test_net3d.py`: the EXPERIMENTAL net3d detector (`germquant.spots.net3d`; `docs/BENCHMARK.md`,
+  "net3d"), on the CPU with tiny networks (skips itself without torch). The U-Net's shapes and the bound
+  on its receptive field (a single perturbed voxel never reaches farther), tiled inference equal to
+  untiled inference in xy and z and with the tile skip, peak finding on a synthetic heatmap (sub-voxel
+  refinement, ellipsoidal suppression, the threshold property the validation sweep relies on, the
+  nearest-label fallback and the contested flag), the exact dilations of the loss region and the
+  weights and masked loss, the backend contract with a randomly initialised model (including the DNA
+  channel through `channels`, the provenance hook, the spots sub-hash and the default path untouched),
+  a pipeline run with `spots.backend: net3d`, and `germquant train-spots` for one epoch on tiny planted
+  gonads (the test gonad is never opened, the same seed gives the same weights, the validation scorer
+  agrees with the bench harness, and `scripts/bench_detector.py --backend net3d` scores the model).
+
+- `test_bench_tuning.py`: the parameter search runner (`germquant.benchmark.tuning`,
+  `scripts/bench_tune.py`; `docs/BENCHMARK.md`, "Tuning on train and val") and the two tuned profiles.
+  The SpotMAX effect-size filter applied after a run with `effect_size_min` 0 reproduces a run made with
+  that minimum, table for table (SpotMAX when installed); the ranking rule; on the planted-foci gonads of
+  `test_bench_detector.py`, one trial record per parameter set, the same scores and detections as
+  `bench_detector.py`, the process pool, the budget guard, the top-K selection for val and the test
+  guard. `config/profiles/bench_log_tuned.yaml` and `bench_spotmax_tuned.yaml` load, extend
+  `config/config.yaml` and change only `spots:` keys.
 
 ## Markers
 

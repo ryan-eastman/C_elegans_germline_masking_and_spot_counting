@@ -237,6 +237,7 @@ Instead of `--config config/config.yaml` you can name a profile with `--profile`
 | `ccw77_partition` | the SYP-3 / PGL-1 partition analysis: lamin envelopes, hand-traced staging, the Imaris-calibrated granule recipe, on top of `config/config_ccw77.yaml` |
 | `generic` | samples that are not a worm germline (cultured cells, yeast, sections): nuclei with the stock Cellpose model and puncta per nucleus, every worm stage off (see `docs/GENERIC_PROFILE.md`) |
 | `live_syp2` | live GFP::SYP-2 time-lapse series with no DNA stain: nuclei segmented on the GFP channel (`segmentation.nuclei.channel: central_element`), germline, axis and signal QC per timepoint, the fixed-image stains off; run with `--t all` (see `docs/TIMELAPSE.md`, which also has the training loop for a GFP nucleus model) |
+| `bench_log_tuned`, `bench_spotmax_tuned` | benchmark development profiles, not validated recipes: the experimental `log` spot backend and SpotMAX with the spot parameters chosen on the RAD-51 benchmark's train and val gonads (`docs/BENCHMARK.md`, "Tuning on train and val"); everything else as `config/config.yaml` |
 
 Windows:
 ```
@@ -431,9 +432,10 @@ On either machine:
   match the config. Run the `info` command on the file and compare with `config/channel_maps/`.
   Tell whoever maintains the tool.
 - The window closed instantly: run the command from the terminal so the error stays on screen.
-- The spot step runs for hours on one image: that image is probably flooded with signal or an
-  artefact. The run caps the number of candidate spots so it should still finish; if you only need
-  the segmentation, rerun with `--no-spots`.
+- The spot step takes much longer on one image than on the others, or the log says `FLOODED`: that
+  image is probably flooded with signal or an artefact. The run keeps only the brightest candidate
+  spots (`spots.max_spot_candidates`, 30000) so it still finishes, but the spot count of that image
+  is a floor, not a measurement. If you only need the segmentation, rerun with `--no-spots`.
 - Anything else: copy the red text and send it to whoever maintains the tool.
 
 Windows:

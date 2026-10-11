@@ -385,3 +385,43 @@ point.
    per-gonad CCC range 0.5 to 0.8; the split was fixed by the cell structure and the region-growing
    defect, and the margins of section 7 were set by the project lead before this document, not
    derived from those numbers. No competitor and no new method has been scored.
+2. 2026-10-10. Development tuning of the classical detectors on train and val (package D3;
+   `docs/BENCHMARK.md`, "Tuning on train and val"). No test gonad was run or scored for it and no
+   per-gonad test number was looked at. Disclosed: the pooled agreement of the deployed recipe over the
+   nine gonads that had outputs and usable spot truth, three of them test gonads (per-nucleus CCC 0.84,
+   bias +0.77 foci per nucleus, spot F1 0.39), had been computed before this entry with the benchmark
+   harness and was known when the searches were designed; by rule 1 that computation was the first
+   result, and this entry is the first to record it. What the searches did differently from sections 6
+   and 8 (each of (a) to (d) is post hoc under rule 3: it was made after the first result): (a) the SpotMAX re-tuned competitor was searched over `thresholding_method`
+   (`threshold_triangle`, `threshold_otsu`, `threshold_li`; `threshold_yen` not searched),
+   `effect_size_min`, `spot_radius_um` and `gauss_sigma_um` (`z_merge_gap_um` not searched), 24
+   configurations in two stages, instead of the 60-configuration grid of section 8 item 2, to fit
+   SpotMAX's compute cost; (b), for the same compute cost and because the package was designed as a
+   search on train with finalists sent to val, both searches (SpotMAX, and the experimental `log` backend with 55
+   configurations in three stages) ran on the four train gonads with usable spot truth, and only their
+   best configurations (3 for SpotMAX, 5 for `log`) were scored on val, where section 6.4 lists a val
+   score for every configuration and section 6.1 tunes parameter-only competitors on train plus val;
+   the early stop of section 10 was not used; (c) the selection objective was the pooled per-nucleus
+   CCC over the germline nuclei of the deployed masks (end-to-end, Class A+B; the harness's
+   `per_nucleus_all`), with the pooled spot F1 as tie-break, not the traced-subset partition of section
+   5.1, because the germline partition has about six times as many nuclei as the traced subset and the
+   harness does not compute the section 5.1 primary partition; (d), to make the pre-gate searchable,
+   the `log` backend's candidate pre-gate became a config key, `spots.log.pre_gate_sigmas`
+   (code default 3.0, the former constant). Which SpotMAX configuration is the re-tuned competitor of
+   section 7, this search's or one from the section 8 grid, is to be decided and written here before
+   test is scored; on the harness's traced-subset CCC, the closest proxy it computes for the primary
+   metric, the val rule would pick smS2_tri_r0.35_g0.08_e4 (0.756) over the selected
+   smS2_tri_r0.3_g0.12_e3.5 (0.717), so the reference has to be chosen under the primary metric.
+3. 2026-10-10. net3d, the learned 3D U-Net detector (package D2; `docs/BENCHMARK.md`, "net3d"). No
+   test gonad was run or scored for it. It was trained on the four train gonads with usable spot truth
+   and selected on the two val gonads. Its selection rule is declared here as a deviation from 6.4,
+   post hoc under rule 3 and adopted on val after launches 1 to 3: every (epoch, threshold) scored on
+   val (216 for the frozen model, 12 epochs times 18 thresholds; 288 for the no-DAPI ablation; more in
+   the interrupted launches) whose pooled traced-subset CCC is within 0.01 of the best is eligible, and
+   the eligible one with the best pooled spot F1 is frozen. Each (epoch, threshold) pair counts as one
+   configuration against the 6.4 budget, so net3d exceeded it. The literal 6.4 rule (best val score
+   on the primary metric) would have frozen epoch 5 at threshold 0.05 (val germline CCC 0.959, F1
+   0.608) instead of epoch 4 at 0.40 (germline CCC 0.982, F1 0.630). Frozen model: sha256
+   8cdb710bd2f0fe7acef49c6117d7113ad61e224405960d2847b34c8327a4c4f7, trained at commit 87d77f1 with
+   seed 0 (`C:/Users/ryane/germquant_golden/models/net3d_20261010/`). Section 6.1 asks for the selected
+   configuration to be retrained on train plus val before test is scored; that has not been done.

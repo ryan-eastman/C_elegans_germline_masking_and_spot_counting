@@ -150,6 +150,19 @@ class SeriesLayout:
         raise SeriesLayoutError(f"{self.stem}: no nuclei table carries a voxel size (voxel_dz_um, voxel_dy_um, "
                                 f"voxel_dx_um); every timepoint is empty?")
 
+    def run_xy_stride(self) -> int:
+        """The xy stride the series was run at (from the series record; 1 when the record has none). The label
+        images and the nuclei tables are on that grid, the series file is not."""
+        try:
+            return max(1, int((self.record or {}).get("xy_stride") or 1))
+        except (TypeError, ValueError):
+            return 1
+
+    def run_z_range(self) -> tuple[int, int] | None:
+        """The z range the series was run on (from the series record), or None for every plane."""
+        zr = (self.record or {}).get("z_range")
+        return (int(zr[0]), int(zr[1])) if zr else None
+
     def channel_index(self, role: str) -> int | None:
         """The channel index a role resolved to, from the channel_map_json column of the first nuclei table."""
         for t in self.timepoints:

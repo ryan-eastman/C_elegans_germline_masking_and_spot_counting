@@ -230,6 +230,19 @@ columns are kept after the declared ones, as the append-only schema rule allows)
 detector column does not carry the name. The constants `PER_SPOT_COLS` and `PER_NUC_COLS` in
 `germquant.spots.backends` are the contract in code.
 
+Two optional attributes of the backend callable extend the contract (added with `net3d`; a backend
+without them is called exactly as before, so `spotmax` and `log` never see a difference):
+
+* `input_roles`, a tuple of channel roles beyond the foci channel (net3d: `("dna",)`). The pipeline's
+  spots stage, its spot instances and the detector bench harness pass the roles the image has as
+  `detect_spots(..., channels={role: array})`, and the backend receives them as the keyword `channels`.
+  A backend without the attribute is never given that keyword, whatever the caller passes.
+  `germquant.spots.backends.backend_input_roles(name)` reads it.
+* `provenance(cfg_section) -> dict`, what a run records before any pixel is read (net3d: the model file
+  and its sha256). When the dict is not empty the pipeline adds it, with the channel index of every
+  extra role, to the spots stage sub-hash and to `run_manifest.json` (`spot_backend`); on the default run
+  it is empty and both are unchanged. `backend_provenance(name, cfg_section)` reads it and never raises.
+
 ### Selecting a backend
 
 `spots.backend` names the backend for the RAD-51 instance (code default `spotmax`); an entry of
@@ -264,7 +277,9 @@ effect size, the flood guard, the z-split merge and the effect-size filter. Its 
 `germquant.spots.detect.detect_spots_spotmax`; the registered backend is a thin wrapper that passes the
 resolved parameters through, and its outputs are byte-identical to the code before the registry
 existed (the synthetic goldens run this path for real). It is the only backend cross-validated against
-Imaris (`docs/SPOTMAX_VALIDATION.md`).
+Imaris (`docs/SPOTMAX_VALIDATION.md`). SpotMAX's minimum-distance peak filter runs as germquant's exact
+replica (`germquant.spots.peak_filter`: the same output, without the cost that grew with the square of
+the candidate count; `docs/PERFORMANCE.md`).
 
 Parameters, read from the top of the `spots:` section with the pipeline's code defaults:
 `spot_radius_um` 0.3, `gauss_sigma_um` 0.08, `thresholding_method` threshold_triangle,
@@ -288,8 +303,11 @@ memory cost stays small on a full 2600 x 2600 x 90 stack):
    expected focus diameter. Bright blobs give a positive response. Anisotropy is handled by the
    per-axis sigma, not by resampling.
 2. Local maxima: a voxel is a candidate when it is the maximum of the response inside an ellipsoid of
-   radius `min_separation_um` (a physical radius, so z and xy are treated alike), its response is
-   positive and it lies inside the label. A greedy pass in physical coordinates settles ties.
+   radius `min_separation_um` (a physical radius, so z and xy are treated alike), it lies inside the
+   label and its response clears the pre-gate: more than `pre_gate_sigmas` robust standard deviations
+   (1.4826 times the median absolute deviation) of the response over the voxels of that nucleus, and
+   always more than zero. The pre-gate keeps noise maxima of an empty or noisy nucleus out of the
+   flood guard. A greedy pass in physical coordinates settles ties.
 3. Flood guard: `_cap_candidates`, the SpotMAX path's guard, keeps the brightest
    `max_spot_candidates` raw voxels with the same loud warning.
 4. Signal-to-background gate: the raw peak (the brightest voxel of a core ellipsoid of radius half the
@@ -314,6 +332,7 @@ Parameters under `spots.log`, all read with code defaults:
 | `min_separation_um` | half the diameter | minimum distance between two maxima |
 | `annulus_inner_um` | the diameter | inner radius of the local background annulus |
 | `annulus_outer_um` | twice the diameter | outer radius of the local background annulus |
+| `pre_gate_sigmas` | 3.0 | candidate pre-gate in robust standard deviations of the in-nucleus LoG response (0: any positive response); a finite number of at least 0, null means the default |
 
 Shared keys read from the top of the `spots:` section: `merge_z_columns`, `z_merge_gap_um`,
 `z_merge_valley_frac`, `max_spot_candidates` (same code defaults as above). Unknown keys under
@@ -331,6 +350,59 @@ runs on the raw profile, so noise can keep two stacked peaks apart that SpotMAX 
 validate it is the one the SpotMAX path went through: the same gonads with two profiles (`spots.backend`
 spotmax and log), `scripts/regression_diff.py` on the two result trees, and the Imaris comparison tools
 in `germquant.validate`.
+
+### Built-in `net3d` (experimental learned detector)
+
+Status: EXPERIMENTAL. Selected only by `spots.backend: net3d` with a model file in `spots.net3d.model`;
+never the default, not cross-validated against Imaris beyond the development scores on the train and val
+gonads in `docs/BENCHMARK.md` ("net3d"). It needs torch. Its code is `germquant.spots.net3d`; the model
+is trained with `germquant train-spots` (`docs/BENCHMARK.md` has the recipe and the record).
+
+The chain:
+
+1. Inputs: the foci channel and, for a model trained with DAPI, the DNA channel (through the
+   `channels` mapping of the contract above), each normalised per image to (raw - p1) / (p99.9 - p1)
+   with the percentiles of the whole volume read on every fourth voxel in y and x (the model file
+   records the settings).
+2. A compact residual 3D U-Net (four levels, 16 to 128 channels, an xy-only first pooling for the 1.85
+   anisotropy of the 0.108 x 0.108 x 0.2 um grid) gives a per-voxel probability of a focus centre.
+   Inference is tiled in float32 with an overlap equal to the network's receptive radius, so the result
+   does not depend on the tile size beyond float rounding; tiles without a nucleus are skipped.
+3. Peaks: voxels above the threshold that are the maximum of the heatmap over an ellipsoid of
+   `separation_um` (0.6 um in z, 0.3 um in xy), a greedy ellipsoidal non-maximum suppression, and a
+   sub-voxel refinement by the parabola through the log probabilities on each axis.
+4. Nucleus assignment: the label at the refined position; when that is background, the nearest
+   labelled voxel within `assign_max_um` (0.3 um); otherwise the peak is dropped, as SpotMAX drops
+   spots outside every nucleus. `contested` marks a spot with two or more nuclei within that distance.
+
+Keys under `spots.net3d`, all read with code defaults:
+
+| key | code default | meaning |
+|---|---|---|
+| `model` | none (required) | the model file `germquant train-spots` wrote (`MODELDIR/model.pt`); an absolute path, or one relative to the working directory |
+| `threshold` | the model's own | peak probability threshold; by default the value chosen on the val gonads and stored in the model file |
+| `device` | `auto` | `auto` (CUDA when available, honours `GERMQUANT_DEVICE`), `cpu` or `cuda` |
+| `tile_zyx` | [96, 384, 384] | inference tile in voxels |
+| `separation_um` | the model's own, else [0.6, 0.3] | (z, xy) radii of the suppression ellipsoid |
+| `assign_max_um` | the model's own, else 0.3 | reach of the nearest-label fallback |
+
+Shared key: `max_spot_candidates` (30000), the flood guard (the most probable peaks are kept, with the
+SpotMAX path's warning). The z-split merge keys do not apply.
+
+Columns: `spot_mean_intensity` is the mean raw intensity of a 0.25 um core, `effect_size` the log
+backend's Glass's delta against a 0.5 to 1.0 um annulus; after the declared columns come `prob` (the
+heatmap peak), `assignment` (`label` or `nearest`) and `contested`. A run records the model file's
+sha256 in the spots stage sub-hash and in `run_manifest.json` under `spot_backend`, besides the usual
+`spots:net3d_n=` and `spots:unvalidated_backend=net3d` flags. A CPU and a CUDA run agree to float
+rounding, not bit for bit, so a peak exactly at the threshold can differ between devices.
+
+```yaml
+extends: config.yaml
+spots:
+  backend: net3d
+  net3d:
+    model: C:/Users/ryane/germquant_golden/models/net3d_20261010/model.pt
+```
 
 ### Adding a backend
 

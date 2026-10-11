@@ -87,6 +87,44 @@ def spot_backend_section(cfg, inst: dict | None = None) -> dict:
     return section
 
 
+def spot_backend_channels(backend: str, role_to_idx: dict, stack) -> dict:
+    """``{"channels": {role: array}}`` for a spot backend that asks for channel roles beyond the foci
+    channel (its ``input_roles``; net3d asks for ``dna``), holding the roles this image has; ``{}`` for
+    every other backend, so the call of spotmax and log is exactly what it always was. An unknown
+    backend raises ValueError here, inside the stage, as detect_spots would."""
+    from .spots.backends import backend_input_roles
+
+    roles = backend_input_roles(backend)
+    if not roles:
+        return {}
+    return {"channels": {r: stack.data[role_to_idx[r]] for r in roles if role_to_idx.get(r) is not None}}
+
+
+def spot_backend_provenance(cfg, role_to_idx: dict) -> dict:
+    """The provenance the configured non-default spot backends declare (net3d: the model file and its
+    sha256, and the channel index of every extra role it reads), keyed ``spots`` and ``spots_<name>`` per
+    instance; ``{}`` for the default run (and for a backend that declares nothing), which keeps its stage
+    hashes and manifest unchanged."""
+    from .spots.backends import backend_input_roles, backend_provenance
+
+    out = {}
+    todo = [("spots", cfg.get("spots.backend", "spotmax"), spot_backend_section(cfg))]
+    for inst in spot_instances(cfg):
+        todo.append((f"spots_{inst['name']}", inst.get("backend", cfg.get("spots.backend", "spotmax")),
+                     spot_backend_section(cfg, inst)))
+    for key, backend, section in todo:
+        if backend == "spotmax":
+            continue
+        rec = backend_provenance(backend, section)
+        if rec:
+            try:
+                rec["input_roles"] = {r: role_to_idx.get(r) for r in backend_input_roles(backend)}
+            except ValueError:
+                pass
+            out[key] = rec
+    return out
+
+
 def resolve_model_path(cfg):
     """The Cellpose model the config names, resolved against the config's base_dir when it is a relative
     path to an existing file (so a profile outside the repo still finds models/...), or against
@@ -123,6 +161,15 @@ def resolve_model_path(cfg):
             raise FileNotFoundError(
                 f"model {model_path!r} is registered but its file is missing: fetch it with "
                 f"'germquant get-model {model_path}' (release assets), register it again, or set GERMQUANT_MODELS")
+        from .models_registry import CELLPOSE_BUILTIN_NAMES, local_registry_path
+
+        if str(model_path).lower() not in CELLPOSE_BUILTIN_NAMES:
+            # not a file, not registered in THIS environment's registry, not a Cellpose built-in: Cellpose would
+            # log "pretrained model not found, using default model" and segment with its stock weights
+            raise FileNotFoundError(
+                f"model {model_path!r} is not a file, not a model registered in {local_registry_path()} and not a "
+                f"Cellpose built-in {CELLPOSE_BUILTIN_NAMES}; give the model file's absolute path in "
+                f"segmentation.nuclei.cellpose_model, or register it in this environment")
     return model_path
 
 
@@ -228,10 +275,14 @@ def process_image(
     model_file = resolve_model_path(cfg)
     model_sha = (provenance.file_sha256(model_file)
                  if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
-    stage_hashes = stage_hashes_fn(cfg, role_to_idx, provenance.tool_versions(), model_sha)
+    # a non-default spot backend's own provenance (net3d: its model sha256); {} on the default run
+    spot_prov = spot_backend_provenance(cfg, role_to_idx)
+    stage_hashes = stage_hashes_fn(cfg, role_to_idx, provenance.tool_versions(), model_sha, spot_backend=spot_prov)
     run_geometry = {"xy_stride": int(xy_stride), "z_range": list(z_range) if z_range else None,
                     "stage_hashes": stage_hashes, "model_sha256": model_sha,
                     "enabled_stages": [s.name for s in STAGES if stage_enabled(cfg, s.name)]}
+    if spot_prov:
+        run_geometry["spot_backend"] = spot_prov
     if t is not None:
         # the timepoint enters the run geometry (manifest, stage record) and the marker ONLY for a series
         run_geometry["t_index"] = int(t)
@@ -526,6 +577,7 @@ def process_image(
             z_merge_valley_frac=float(cfg.get("spots.z_merge_valley_frac", 0.8)),
             max_spot_candidates=int(cfg.get("spots.max_spot_candidates", 30000)),
             backend=backend, cfg_section=spot_backend_section(cfg),
+            **spot_backend_channels(backend, role_to_idx, stack),   # {} for spotmax and log
         )
         df = nuclei
         if not df.empty and not per_nuc.empty:
@@ -579,6 +631,7 @@ def process_image(
                 z_merge_gap_um=float(p("z_merge_gap_um", 0.8)), z_merge_valley_frac=float(p("z_merge_valley_frac", 0.8)),
                 max_spot_candidates=int(p("max_spot_candidates", 30000)),
                 backend=backend, cfg_section=spot_backend_section(cfg, inst),
+                **spot_backend_channels(backend, role_to_idx, stack),   # {} for spotmax and log
             )
             df = nuclei
             if not df.empty:

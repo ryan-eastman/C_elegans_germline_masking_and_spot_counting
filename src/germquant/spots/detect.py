@@ -51,6 +51,7 @@ def detect_spots(
     max_spot_candidates: int | None = None,
     backend: str = DEFAULT_BACKEND,
     cfg_section: dict | None = None,
+    channels: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (per_spot_df, per_nucleus_df) from the spot detection backend ``backend``: by default
     ``spotmax``, the validated SpotMAX chain of ``detect_spots_spotmax`` below, called with exactly
@@ -60,7 +61,11 @@ def detect_spots(
     mapping; the backend receives a copy of it with these parameters resolved (an explicit argument wins,
     then the section's own value, then the SpotMAX default), so a backend finds its own keys (``log.diameter_um``) next to the shared ones
     (``max_spot_candidates``). Both tables always have the columns PER_SPOT_COLS / PER_NUC_COLS and
-    the ``detector`` column carries the backend name; an unknown name raises ValueError."""
+    the ``detector`` column carries the backend name; an unknown name raises ValueError.
+
+    ``channels`` maps further channel roles to (Z, Y, X) arrays for a backend that declares
+    ``input_roles`` (net3d reads ``dna``); it reaches only such a backend, so spotmax and log are
+    called exactly as before whatever is passed."""
     # precedence: an explicit keyword (not None) wins; else the section's own value; else the SpotMAX default.
     # A caller that passes the shared keys only in cfg_section is therefore not silently overridden.
     section = dict(cfg_section or {})
@@ -76,6 +81,9 @@ def detect_spots(
         elif key not in section:
             section[key] = default
     fn = get_backend(backend)
+    if getattr(fn, "input_roles", None):
+        return conform_result(backend, fn(spot_img, labels, spacing, cfg_section=section, marker=marker,
+                                          channels=dict(channels or {})))
     return conform_result(backend, fn(spot_img, labels, spacing, cfg_section=section, marker=marker))
 
 
@@ -107,8 +115,15 @@ def detect_spots_spotmax(
     above `z_merge_valley_frac` * the dimmer peak) — i.e. one PSF-blurred focus, not two distinct
     foci. A genuine valley keeps them separate, so dense pachytene nuclei are not over-merged.
     Validated vs Imaris on 20251105_N2_HERM_001 (2033 -> ~Imaris 1222). effect_size_min is NOT the right
-    knob for the over-count (the extras are real bright peaks of one focus, not dim noise)."""
+    knob for the over-count (the extras are real bright peaks of one focus, not dim noise).
+
+    Speed: SpotMAX thins its peak candidates with a minimum-distance filter whose cost grows with the
+    square of the candidate count (hours on a flooded gonad, before the candidate cap below is
+    reached). The peak step therefore runs with germquant's exact replica of that filter installed
+    (spots/peak_filter.py, docs/PERFORMANCE.md); the candidates and every output are unchanged."""
     import spotmax.pipe as P
+
+    from .peak_filter import fast_min_distance_filter
 
     sp = np.asarray(spacing, dtype=float)
     img = np.asarray(spot_img).astype("float32")
@@ -120,8 +135,9 @@ def detect_spots_spotmax(
     segm = P.spots_semantic_segmentation(
         pre, lab=labels, spots_zyx_radii_pxl=radii_px, do_try_all_thresholds=False,
         return_only_segm=True, thresholding_method=thresholding_method, use_gpu=False)
-    det = P.spot_detection(pre, spots_segmantic_segm=segm, spots_zyx_radii_pxl=radii_px,
-                           lab=labels, return_df=True)
+    with fast_min_distance_filter():
+        det = P.spot_detection(pre, spots_segmantic_segm=segm, spots_zyx_radii_pxl=radii_px,
+                               lab=labels, return_df=True)
     df = det[0] if isinstance(det, tuple) else det
     if df is None or len(df) == 0:
         return _empty(labels, marker, "spotmax")
@@ -132,12 +148,15 @@ def detect_spots_spotmax(
     df = df.assign(nucleus_id=np.asarray(labels)[zi, yi, xi])
     df = df[df["nucleus_id"] > 0].reset_index(drop=True)
 
-    # FLOOD GUARD: a high-signal or artefact image can propose tens-to-hundreds of thousands of
-    # candidate peaks, and the per-spot feature step below is O(n) and CPU-bound — on one syp-2 mutant
-    # gonad it ran for 8 h without finishing. Cap to the brightest `max_spot_candidates` before
-    # features so the pipeline can never wedge. A real RAD-51 count is far below this, so hitting the
-    # cap means the image is flooded (artefact / bleed-through / over-bright) and its count is a floor,
-    # not a measurement — surfaced via a loud warning.
+    # FLOOD GUARD: a high-signal or artefact image can propose hundreds of thousands of candidate
+    # peaks (n2rad51_noHS_male_002 with its June labels: 479,901 into SpotMAX's minimum-distance
+    # filter, 54,487 inside nuclei after it; docs/PERFORMANCE.md), and the per-spot feature step below
+    # costs about 5 ms per spot on one core (on one syp-2 mutant gonad the stage once ran for 8 h
+    # without finishing). Keep the brightest `max_spot_candidates` before the features so the stage
+    # always finishes. A real RAD-51 count is far below this, so hitting the cap means the image is
+    # flooded (artefact, bleed-through or over-bright) and its count is a floor, not a measurement:
+    # _cap_candidates logs a warning with the candidate count. It is a log line only; the default
+    # path adds no flag or column for it.
     df = _cap_candidates(df, img, max_spot_candidates)
 
     # Per-spot features (effect size + intensity). SpotMAX needs the FULL detection frame
@@ -183,9 +202,10 @@ def detect_spots_spotmax(
 
 def _cap_candidates(df: pd.DataFrame, image: np.ndarray, cap: int) -> pd.DataFrame:
     """Flood guard: if more than `cap` candidate spots, keep the brightest `cap` (by raw intensity at
-    the peak voxel), in original order. Bounds the O(n) per-spot feature step so an artefact /
-    over-bright image can't wedge the run for hours. A real RAD-51 count is far below `cap`, so
-    triggering this means the image is flooded and its count is a floor, not a measurement."""
+    the peak voxel), in original order. Bounds the per-spot feature step so an artefact or
+    over-bright image can not wedge the run for hours. A real RAD-51 count is far below `cap`, so
+    triggering this means the image is flooded and its count is a floor, not a measurement. The
+    warning carries the candidate count; it is a log line only (no flag, no column)."""
     if len(df) <= cap:
         return df
     z = np.clip(df["z"].astype(int), 0, image.shape[0] - 1)
@@ -193,8 +213,10 @@ def _cap_candidates(df: pd.DataFrame, image: np.ndarray, cap: int) -> pd.DataFra
     x = np.clip(df["x"].astype(int), 0, image.shape[2] - 1)
     bright = np.asarray(image)[z, y, x]
     keep = np.sort(np.argsort(bright)[::-1][:cap])
-    log.warning("FLOODED: %d spot candidates exceed cap %d — likely artefact/over-bright; keeping the "
-                "brightest %d, count is a FLOOR not a measurement.", len(df), cap, cap)
+    log.warning("FLOODED: %d spot candidates inside nuclei exceed the cap max_spot_candidates=%d; "
+                "keeping the brightest %d and dropping %d. The image is likely over-bright or carries an "
+                "artefact, so its spot count is a FLOOR, not a measurement.",
+                len(df), cap, cap, len(df) - cap)
     return df.iloc[keep].reset_index(drop=True)
 
 
