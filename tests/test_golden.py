@@ -69,6 +69,20 @@ def _read(p: Path) -> pd.DataFrame:
 _RTOL_ENV = os.environ.get("GERMQUANT_GOLDEN_RTOL")
 _FLOAT_TOLERANCE = ({"check_exact": False, "rtol": float(_RTOL_ENV), "atol": 0.0} if _RTOL_ENV
                     else {"check_exact": True})
+# Row order. On the workstation every table is compared row by row. Another CPU can swap two spots whose sort
+# key ties within floating-point noise (macos-14 swapped two spots of synthetic_4ch, CI run 37), so in CI
+# tolerance mode the spots table is put in coordinate order on both sides first; the workstation keeps the
+# exact row-by-row check, and every value is still compared.
+_ORDER_KEYS = {"spots": ["z_um", "y_um", "x_um"]}
+
+
+def _canonical(df: pd.DataFrame, table: str) -> pd.DataFrame:
+    keys = _ORDER_KEYS.get(table)
+    if not _RTOL_ENV or not keys or not set(keys) <= set(df.columns):
+        return df
+    k = df[keys].astype(float).round(6)
+    order = k.sort_values(keys, kind="mergesort").index
+    return df.loc[order].reset_index(drop=True)
 
 
 @pytest.mark.parametrize("name", list(CASES))
@@ -88,6 +102,7 @@ def test_synthetic_golden(tmp_path, request, name):
                                   "existing runs would no longer reproduce (roadmap rule)")
     for t, f in files.items():
         got, ref = _read(f), pd.read_csv(gold / f"{t}.csv", low_memory=False, float_precision="round_trip")
+        got, ref = _canonical(got, t), _canonical(ref, t)
         # append-only schema rule: every golden column is still present, in the same relative order
         # (new declared columns may land before the per-role extras; nothing is renamed or removed)
         common = [c for c in got.columns if c in set(ref.columns)]
