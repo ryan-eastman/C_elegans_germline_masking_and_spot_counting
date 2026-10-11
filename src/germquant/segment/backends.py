@@ -23,6 +23,10 @@ watershed) and 'nuclei3d' (EXPERIMENTAL: the in-house 3D U-Net of segment/nuclei
 ``segmentation.nuclei.backend: nuclei3d``). A backend callable may carry a ``provenance(cfg_section)``
 attribute; ``backend_provenance`` reads it (nuclei3d: its model file's sha256), and the pipeline adds a
 non-empty record to the segment stage sub-hash and the run manifest, so the default run is unchanged.
+A backend callable may also carry ``planar_ok = True`` (cellpose and classical do; docs/PLANAR.md): in a
+projected or single-plane run it then receives one plane as a (1, Y, X) array with the extra keyword
+``planar=True`` and returns (1, Y, X) labels; a backend without the attribute never sees that keyword, and
+``germquant.planar.check_planar`` refuses it in such a run.
 An installed package adds a backend by declaring an entry point in the group
 ``germquant.segment_backends``; the entry point's name is the backend name. A backend that fails to
 load is logged and skipped, never fatal, so a broken plugin cannot stop a run that does not use it.
@@ -50,13 +54,23 @@ class UnknownBackendError(LookupError):
 
 # ---- the two built-ins ----------------------------------------------------------------------
 
-def cellpose_backend(dna, spacing, *, model, diameter_um, device, cfg_section) -> np.ndarray:
+def cellpose_backend(dna, spacing, *, model, diameter_um, device, cfg_section, planar=False) -> np.ndarray:
     """The Cellpose-SAM path: ``nuclei._cellpose`` with the explicit device from ``germquant.device``
     (honours ``$GERMQUANT_DEVICE``) and one retry on the CPU when the accelerator fails (out of memory,
-    an operator Metal cannot run). ``cfg_section`` is unused: every Cellpose knob is an argument."""
+    an operator Metal cannot run). ``cfg_section`` is read for one opt-in key only,
+    ``cellpose.object_diameter_um``; every other Cellpose knob is an argument.
+
+    Two opt-in branches (docs/PLANAR.md), both taken by ``_cellpose_opt_in`` with the same CPU retry:
+    ``planar=True`` (a projected or single-plane run hands over one plane, (1, Y, X)) runs the 2D call
+    ``nuclei._cellpose_2d``, and ``segmentation.nuclei.cellpose.object_diameter_um`` passes Cellpose
+    diameter = d / dy pixels in the 2D and the 3D call. Without both, the call is exactly today's."""
     from ..device import select_device
     from . import nuclei  # looked up at call time, so a test can monkeypatch nuclei._cellpose
 
+    diameter_px = object_diameter_px(cfg_section, spacing)
+    if planar or diameter_px is not None:
+        return _cellpose_opt_in(dna, spacing, model=model, diameter_um=diameter_um, device=device,
+                                planar=bool(planar), diameter_px=diameter_px)
     _ = cfg_section
     try:
         return nuclei._cellpose(dna, spacing, model, diameter_um, device_pref=device)
@@ -68,12 +82,60 @@ def cellpose_backend(dna, spacing, *, model, diameter_um, device, cfg_section) -
         return nuclei._cellpose(dna, spacing, model, diameter_um, device_pref="cpu")
 
 
-def classical_backend(dna, spacing, *, model, diameter_um, device, cfg_section) -> np.ndarray:
+def object_diameter_px(cfg_section: dict | None, spacing) -> float | None:
+    """Cellpose's diameter in pixels from ``segmentation.nuclei.cellpose.object_diameter_um`` (a recipe key,
+    code default null): d / dy, with dy the pixel size after xy_stride. None when unset, so the Cellpose
+    calls stay exactly today's; a value that is not a positive number raises ValueError. Cellpose 4 then
+    rescales the image by 30 / diameter, for objects outside Cellpose-SAM's native size range."""
+    sub = (cfg_section or {}).get("cellpose")
+    if sub is None:
+        return None
+    if not isinstance(sub, dict):
+        raise ValueError(f"segmentation.nuclei.cellpose must be a mapping of Cellpose keys; got {sub!r}")
+    value = sub.get("object_diameter_um")
+    if value is None:
+        return None
+    d = float(value)
+    if not d > 0:
+        raise ValueError(f"segmentation.nuclei.cellpose.object_diameter_um must be a positive number; got {value!r}")
+    return d / float(spacing[1])
+
+
+def _cellpose_opt_in(dna, spacing, *, model, diameter_um, device, planar: bool, diameter_px: float | None):
+    """The opt-in branch of cellpose_backend: the 2D call of a projected or single-plane run (``planar``,
+    ``nuclei._cellpose_2d`` on the one plane of the (1, Y, X) input, returning (1, Y, X) labels) and/or the
+    object diameter (``diameter_px``, passed as Cellpose's diameter). The same retry on the CPU as the
+    default branch when the accelerator fails."""
+    from ..device import select_device
+    from . import nuclei  # looked up at call time, so a test can monkeypatch the Cellpose calls
+
+    if planar:
+        arr = np.asarray(dna)
+        if arr.ndim != 3 or arr.shape[0] != 1:
+            raise ValueError(f"a planar Cellpose call takes one plane as (1, Y, X); got shape {arr.shape}")
+
+    def call(device_pref):
+        if planar:
+            return nuclei._cellpose_2d(arr[0], model, device_pref=device_pref, diameter_px=diameter_px)
+        return nuclei._cellpose(dna, spacing, model, diameter_um, device_pref=device_pref, diameter_px=diameter_px)
+
+    try:
+        return call(device)
+    except Exception as e:  # accelerator trouble: the same model on the CPU first
+        if select_device(device) == "cpu":
+            raise
+        log.warning("Cellpose failed on %s (%s: %s); retrying on the CPU.", select_device(device),
+                    type(e).__name__, e)
+        return call("cpu")
+
+
+def classical_backend(dna, spacing, *, model, diameter_um, device, cfg_section, planar=False) -> np.ndarray:
     """The spacing-aware watershed (``nuclei._classical``): a baseline that needs no GPU and no model.
-    ``model``, ``device`` and ``cfg_section`` are unused."""
+    ``model``, ``device`` and ``cfg_section`` are unused, and so is ``planar``: the watershed runs unchanged
+    on the one plane of a (1, Y, X) input (docs/PLANAR.md)."""
     from . import nuclei
 
-    _ = (model, device, cfg_section)
+    _ = (model, device, cfg_section, planar)
     return nuclei._classical(dna, spacing, diameter_um)
 
 
@@ -94,6 +156,10 @@ def _nuclei3d_provenance(cfg_section: dict) -> dict:
 
 # the model file's sha256 enters the segment stage sub-hash and the run manifest (backend_provenance)
 nuclei3d_backend.provenance = _nuclei3d_provenance
+# 2D objects (docs/PLANAR.md): a backend that declares planar_ok gets planar=True and one plane as (1, Y, X)
+# in a projected or single-plane run; nuclei3d does not declare it and is refused there (planar.check_planar)
+cellpose_backend.planar_ok = True
+classical_backend.planar_ok = True
 
 _BUILTINS: dict[str, Backend] = {"cellpose": cellpose_backend, "classical": classical_backend,
                                  "nuclei3d": nuclei3d_backend}

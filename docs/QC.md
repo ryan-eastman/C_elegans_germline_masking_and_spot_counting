@@ -8,6 +8,15 @@ set `qc_pass` to false. The flags described here never fire on a run that does n
 so the `qc_flags` of every existing run and of the synthetic goldens (`tests/test_golden.py`) are
 unchanged.
 
+## The few-nuclei flag
+
+`qc:few_nuclei_<n>` is raised, as an advisory flag, when an image has between 1 and 9 segmented
+objects; `qc:NO_NUCLEI` (a QC fail) when it has none. A recipe can move the threshold with
+`qc.min_nuclei` (code default 10, read only when a recipe sets it): a field of cultured cells holds a
+handful of nuclei, so the cultured-cell pack sets 1, and the flag would otherwise mark almost every
+image. No shipped config sets the key, so the C. elegans runs keep the threshold of 10
+(`docs/PLANAR.md`, "Recipe keys for packs").
+
 ## Acquisition record
 
 ### Where the record comes from

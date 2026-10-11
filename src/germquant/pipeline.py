@@ -283,6 +283,11 @@ def process_image(
         sample["image_id"] = f"{sample['image_id']}_t{int(t):03d}"
     # a rerun must never leave an older run's completion marker behind (batch --resume trusts it)
     provenance.clear_done_marker(out_dir, sample["image_id"])
+    # projected runs (segmentation.nuclei.project, docs/PLANAR.md): 3D-only stages and a backend without planar_ok
+    # are refused and the plane to segment is resolved here, before any stage runs; None on every other run
+    from . import planar
+
+    projection = planar.prepare_projection(cfg, stack, role_to_idx)
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
     # the stage record, never table columns, so no CSV header changes.
     spot_instances(cfg)                    # a bad spots.instances declaration fails here, before any pixel is read
@@ -306,6 +311,9 @@ def process_image(
         # the timepoint enters the run geometry (manifest, stage record) and the marker ONLY for a series
         run_geometry["t_index"] = int(t)
         run_geometry["t_seconds"] = _t_seconds_of(meta, t)
+    if projection is not None:
+        # the projection enters the run geometry (manifest, stage record) ONLY for a projected run
+        run_geometry["segment_projection"] = projection["record"]
     prov = prov or provenance.write_manifest(out_dir, config_hash=cfg.hash, config=cfg.as_dict(),
                                              extra=run_geometry)
 
@@ -355,13 +363,36 @@ def process_image(
     # value every shipped config carries, so every frozen recipe resolves the same pixels). A live profile
     # without a DNA stain names central_element here (config/profiles/live_syp2.yaml, docs/TIMELAPSE.md).
     seg_role = str(cfg.get("segmentation.nuclei.channel", "dna") or "dna")
+    projected: dict = {}        # a projected run's 2D image and labels, for the measure and render stages
+
+    def _segment_projected(img, seg):
+        # segment ONE 2D image of the channel (a projection or the plane resolved above) and copy the (1, Y, X)
+        # labels through every plane; the stages after this one stay 3D (docs/PLANAR.md)
+        img2d = planar.project_image(img, projection["mode"], projection["z"])
+        lab2d, used = planar.segment_planar(
+            img2d[None], spacing, method=seg.get("method", "auto"),
+            cellpose_model=str(model_file) if model_file else "cpsam",
+            diameter_um=float(seg.get("diameter_um", 3.0)), min_area_um2=projection["min_area_um2"],
+            device=seg.get("device"), backend=cfg.get("segmentation.nuclei.backend", "cellpose"),
+            cfg_section=cfg.get("segmentation.nuclei", {}))
+        projected.update(image=img2d, labels2d=lab2d[0])
+        flags.append(projection["flag"])
+        return planar.repeat_through_z(lab2d, img.shape[0]), used
 
     def _segment():
         img = stack.channel(role_to_idx.get(seg_role))
         if img is None:
+            if bool(cfg.get("segmentation.nuclei.require_channel", False)):
+                # a recipe key (code default false; every outside pack sets it): fail the image instead of
+                # segmenting channel 0, which could be a fluorescence channel taken for the cells
+                raise ValueError(f"segmentation.nuclei.require_channel is true and this image has no channel for "
+                                 f"the segmentation role {seg_role!r} (channels {list(meta['channel_names'])}); "
+                                 f"the image is not segmented")
             flags.append(f"segment:no_{seg_role}_channel_using_first_channel")
             img = stack.data[0]
         seg = cfg.segmentation.nuclei
+        if projection is not None:
+            return _segment_projected(img, seg)
         return segment_nuclei(
             img, spacing,
             method=seg.get("method", "auto"), cellpose_model=str(model_file) if model_file else "cpsam",
@@ -391,6 +422,10 @@ def process_image(
             # nothing changes for them.
             for m in ("mean", "max", "integrated"):
                 df[f"dna_{m}_intensity"] = float("nan")
+        if projection is not None:
+            # a projected run: volume_um3 NA (a prism is not a cell volume), area_um2 and equivalent_diameter_um
+            # from the 2D labels; intensities stay means over each 3D column (docs/PLANAR.md)
+            df = planar.projected_measurements(df, projected["labels2d"], spacing)
         return df
 
     nuclei = run_stage("measure", _measure, flags=flags, outcomes=outcomes, fatal=True)
@@ -890,11 +925,13 @@ def process_image(
 
     # ---- QC ----
     t_qc = time.perf_counter()
+    min_nuclei = cfg.get("qc.min_nuclei")     # the few_nuclei threshold: passed only when a recipe sets it
     qc_pass, qc_all = qc.qc_flags(
         n_nuclei=n_nuclei, channel_flags=ch_flags,
         axis_flags=[f for f in flags if f.startswith("axis")],
         spots_found=len(spots) > 0 or any(len(t) > 0 for t in extra_spot_tables.values()),
         spots_enabled=(bool(cfg.get("spots.enabled", True)) and spots_idx is not None) or any(inst_enabled),
+        **({} if min_nuclei is None else {"min_nuclei": int(min_nuclei)}),
     )
     qc_all = sorted(set(flags + qc_all))
     outcomes["qc"] = Outcome("ran", elapsed_s=time.perf_counter() - t_qc,
@@ -950,7 +987,8 @@ def process_image(
               **extra_spot_tables}
 
     def _write():
-        _write_tables(tables, shared, out_dir, sample["image_id"], cfg.get("output.formats", ["csv"]))
+        _write_tables(tables, shared, out_dir, sample["image_id"], cfg.get("output.formats", ["csv"]),
+                      **({"extra_declared": schema.PLANAR_COLUMNS} if projection is not None else {}))
         if cfg.get("output.write_label_images", True):
             _save_labels(labels, out_dir / f"{sample['image_id']}__nuclei_labels.tif", spacing)
         if cfg.get("output.write_spots_image", True) and len(spots):
@@ -992,6 +1030,8 @@ def process_image(
             scalebar_um=float(cfg.get("render.scalebar_um", 10)),
             title=f"{sample['image_id']}  [{sample['sex']}/{sample['treatment']}]  n={n_nuclei}",
             base_role=seg_role,          # the overlay sits on the channel that was segmented ("dna" by default)
+            # a projected run: on the 2D image the segmenter saw, not on a projection of the stack
+            **({"base_plane": projected.get("image")} if projection is not None else {}),
         )
 
     def _dump_stage_record(complete: bool) -> dict:
@@ -1030,9 +1070,12 @@ def process_image(
             "qc_flags": qc_all, "out_dir": str(out_dir), "tables": tables, "stages": stage_record}
 
 
-def _write_tables(tables, shared, out_dir, image_id, formats):
+def _write_tables(tables, shared, out_dir, image_id, formats, extra_declared=None):
+    """Write every table with the shared metadata block. ``extra_declared`` ({table: [columns]}, None by
+    default) adds declared columns that follow the schema's own: schema.PLANAR_COLUMNS in a run with 2D objects
+    (docs/PLANAR.md), never in a 3D run."""
     for name, df in tables.items():
-        df = _conform_schema(df, name)
+        df = _conform_schema(df, name, extra_declared)
         for k, v in shared.items():
             df[k] = v
         base = out_dir / f"{image_id}__{name}"
@@ -1045,13 +1088,17 @@ def _write_tables(tables, shared, out_dir, image_id, formats):
                 log.warning("parquet write failed (%s); CSV written.", e)
 
 
-def _conform_schema(df, name):
+def _conform_schema(df, name, extra_declared=None):
     """Guarantee every declared schema column exists (filled NA if a stage didn't produce it)
     and is ordered first, so producer/consumer drift surfaces as an empty column rather than a
     KeyError in R. Extra columns a stage adds (e.g. per-role intensities) are kept after.
+    ``extra_declared`` ({table: [columns]}) appends declared columns after the schema's own, for runs with
+    2D objects only (schema.PLANAR_COLUMNS); None, the default, changes nothing.
     """
     df = df.copy()
     declared = schema.TABLES.get(name, schema.SPOTS if name.startswith("spots_") else [])
+    if extra_declared:
+        declared = list(declared) + [c for c in extra_declared.get(name, ()) if c not in declared]
     for col in declared:
         if col not in df.columns:
             df[col] = pd.NA

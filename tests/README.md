@@ -64,6 +64,18 @@ gonads are built inside the fixtures.
   changes; the fence files may not be deleted; the pins file is append-only, where a scope may switch
   between "all" and "workstation") and `scripts/t5_gate.py` (its verdicts with stub steps, the ruff
   version it picks and the file-list check).
+- `test_planar.py`, `test_pack_knobs.py` and `test_projected_run.py`: the projected 2D path and the pack
+  knobs of tranche 5 package P2a (`docs/PLANAR.md`). `test_planar.py` checks `germquant.planar` on its
+  own: the plane selectors (a planted sharpest plane, mid, an index, max and mean, an index out of
+  range), the area gate, `segment_planar`'s control flow against `segment_nuclei`'s, the 2D measurements
+  and `check_planar`'s refusals. `test_pack_knobs.py` pins every knob's default to today's call: Cellpose
+  mocked (the 3D call, the object diameter, the 2D call and its CPU retry), SpotMAX spied through fake
+  `spotmax.pipe` and `spotmax.filters` modules (and, where SpotMAX is installed, the effect size on the
+  sharpened image), `require_channel` and `qc.min_nuclei`. `test_projected_run.py` runs a synthetic
+  yeast-like stack through the test recipe `fixtures/planar/projected_yeast_like.yaml` and compares the
+  tables with the golden in `golden/synthetic_projected/`, whose `config_hash.txt` sentinel is pinned
+  in `golden/default_invariants.json`; it also checks the run's contract and its refusals before any
+  pixel is processed. Regenerate that golden with `GERMQUANT_UPDATE_GOLDEN=1`, as for `test_golden.py`.
 - `test_peak_filter.py`: the exact replica of SpotMAX's minimum-distance peak filter
   (`germquant.spots.peak_filter`, `docs/PERFORMANCE.md`) against the installed SpotMAX function on
   random inputs with tied intensities, duplicate points and boundary distances, its fallback domain,

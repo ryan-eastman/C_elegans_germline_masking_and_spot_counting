@@ -37,10 +37,14 @@ def make_montage(
     scalebar_um: float = 10.0,
     title: str = "",
     base_role: str = "dna",
+    base_plane: np.ndarray | None = None,
 ) -> Path:
     """One panel per resolved channel role, the nucleus outlines over the ``base_role`` channel (the one
     the segment stage segmented; "dna" unless segmentation.nuclei.channel says otherwise) and, when both
-    masks are given, the coloc panel."""
+    masks are given, the coloc panel. ``base_plane`` (None by default) is a (Y, X) image to draw the
+    outlines on instead of the maximum projection of that channel: a projected run passes the 2D image
+    the segmenter saw (docs/PLANAR.md), so the overlay does not sit on the projection of a bright-field
+    stack."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -73,6 +77,8 @@ def make_montage(
         k += 1
         dna_idx = role_to_idx.get(base_role)
         base = _norm(_mip(stack.data[dna_idx])) if dna_idx is not None else np.zeros(stack.shape_zyx[1:])
+        if base_plane is not None:       # a projected run: the 2D image the segmenter saw
+            base = _norm(np.asarray(base_plane))
         ax.imshow(base, cmap="gray")
         lab_mip = labels.max(axis=0)
         if excluded_ids:
