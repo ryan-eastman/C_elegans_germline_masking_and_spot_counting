@@ -243,10 +243,13 @@ def _point(pooled: dict | None, block: str, stat: str) -> float | None:
     return bd.finite_or_none(v)
 
 
-def objective(pooled: dict | None) -> tuple[float, float]:
-    """The ranking key of a pooled result: (CCC rounded to CCC_DECIMALS, F1), missing values as -inf."""
-    ccc = _point(pooled, *OBJECTIVE)
-    f1 = _point(pooled, *TIE_BREAK)
+def objective(pooled: dict | None, keys=(OBJECTIVE, TIE_BREAK)) -> tuple[float, float]:
+    """The ranking key of a pooled result: (CCC rounded to CCC_DECIMALS, F1), missing values as -inf.
+    ``keys`` names the (block, stat) of the two values; the default is this module's objective (the
+    germline CCC, then the whole-field F1). ``logo.primary_objective_on`` passes the protocol's primary
+    metric instead."""
+    ccc = _point(pooled, *keys[0])
+    f1 = _point(pooled, *keys[1])
     return (round(ccc, CCC_DECIMALS) if ccc is not None else -math.inf,
             f1 if f1 is not None else -math.inf)
 
