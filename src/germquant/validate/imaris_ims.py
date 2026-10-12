@@ -1114,14 +1114,17 @@ def xlsx_spots_table(xl: pd.DataFrame, geom: dict, our_vox) -> pd.DataFrame:
 
 # ---- the recorded earlier export of a registered train gonad (protocol changelog entry 11) -------------
 # n2rad51_HS_male_000's registered .ims holds 772,485 unthresholded, unclassified spot candidates of constant radius;
-# its 2025-12-31 statistics export holds the curated 7,628 (Class A and B), each within 0.0013 um of one of them. The
-# truth spots are the .ims spots the export names, matched by position (the export renumbers the IDs), with the
-# classes of the project's own one-dimensional classification computed on the unrounded neighbour distances (the
-# export writes them to 0.001 um, which moves one spot across the threshold). Criteria E1 to E10, below.
+# its 2025-12-31 statistics export holds a thresholded, classified subset of 7,628 (Class A and B), each within
+# 0.0013 um of one of them. The truth spots are the .ims spots the export names, matched by position (the export
+# renumbers the IDs), with the classes of the project's own one-dimensional classification computed on the
+# neighbour distances recomputed from the matched .ims positions, checked spot by spot against the distances the
+# export writes (to 0.001 um, which leaves one spot within half a digit of the threshold) and its Overall class
+# counts (protocol changelog entry 12). Criteria E1 to E10, below.
 
 EXPORT_MATCH_TOL_UM = 0.005      # E7: an export spot to its .ims spot (real file: at most 0.0013 um)
 EXPORT_VOLUME_ATOL_UM3 = 0.0005  # E3: half the last digit of the export's surface volumes (0.001 um^3)
 EXPORT_DIAMETER_TOL_UM = 1e-6    # E6: every spot diameter equal to the expected one (the float32 of 0.4 and 0.9)
+EXPORT_NN3_HALF_DIGIT_UM = 0.0005  # E8: half the last digit of the export's written 3-neighbour distances (0.001 um)
 SPOT_SOURCE_ID_MAP = "spot_source_id_map.csv"
 
 
@@ -1186,14 +1189,53 @@ def match_one_to_one(src_xyz, dst_xyz, tol_um: float) -> dict:
             "max_distance_um": float(near.max()), "min_second_distance_um": float(second.min()) if k == 2 else None}
 
 
+def classes_from_written_values(written, threshold: float, overall_counts: dict,
+                                class_names=("Class A", "Class B"),
+                                half_digit_um: float = EXPORT_NN3_HALF_DIGIT_UM) -> dict:
+    """The class each spot must have, from the export alone (E8's per-spot part, protocol changelog entry 12): a spot
+    whose written 3-neighbour distance (rounded by the export to 0.001 um) lies more than half that digit plus two
+    float32 steps from ``threshold`` takes the class of its written value (class 0 below, class 1 at or above); the
+    remaining spots (``n_ambiguous_written``) are resolved by the Overall class counts, which must give them all one
+    class (``unique``) and add up. ``classes`` (an array, one per spot) is None when a written value is missing, the
+    counts do not add up, or the resolution is not unique."""
+    w = np.asarray(written, float)
+    names = list(class_names)
+    out = {"half_digit_um": float(half_digit_um), "n_ambiguous_written": None, "unique": False, "classes": None}
+    if not len(w) or not np.isfinite(w).all():
+        out["reason"] = "the export writes no 3-neighbour distance for every spot"
+        return out
+    tol = float(half_digit_um) + 2.0 * float(np.spacing(np.float32(abs(float(threshold)))))
+    amb = np.abs(w - float(threshold)) <= tol
+    cls = np.where(w < float(threshold), names[0], names[1]).astype(object)
+    n_amb = int(amb.sum())
+    need = {n: int(overall_counts.get(n, 0)) - int(((cls == n) & ~amb).sum()) for n in names}
+    out.update(tolerance_um=tol, n_ambiguous_written=n_amb, needed_among_ambiguous=need)
+    if min(need.values()) < 0 or sum(need.values()) != n_amb or \
+            sum(int(v) for v in overall_counts.values()) != len(w):
+        out["reason"] = "the Overall class counts do not fit the written values"
+        return out
+    if n_amb and min(need.values()) > 0:
+        out["reason"] = "the Overall class counts leave the ambiguous spots' classes open"
+        return out
+    if n_amb:
+        cls[amb] = names[0] if need[names[0]] == n_amb else names[1]
+    out.update(unique=True, classes=cls)
+    return out
+
+
 def _export_checks_with_images(f, xl: dict, source: dict, export_path, geom_stored: dict, images: dict,
-                               frame_rep: dict | None, stat_label, n_image_voxels: int) -> dict:
-    """E1, E2, E3, E5 and E6 of the export-subset verification (the checks that need the open .ims or the images)."""
+                               frame_rep: dict | None, stat_label, n_image_voxels: int,
+                               ims_sha256: str | None = None) -> dict:
+    """E1, E2, E3, E5 and E6 of the export-subset verification (the checks that need the open .ims or the images).
+    E1 compares the export's sha256 with the source's and, since entry 12, the .ims's (``ims_sha256``, hashed before
+    the .ims was opened) with the source's ``ims.sha256``."""
     pin_sha = source["export"]["sha256"]
+    ims_want = (source.get("ims") or {}).get("sha256")
     exp = source.get("expect") or {}
     ver = {}
     sha = file_sha256_path(export_path)
-    ver["E1_sha256"] = {"sha256": sha, "expected": pin_sha, "passes": sha == pin_sha}
+    ver["E1_sha256"] = {"sha256": sha, "expected": pin_sha, "ims_sha256": ims_sha256, "ims_expected": ims_want,
+                        "passes": bool(sha == pin_sha and ims_want is not None and ims_sha256 == ims_want)}
     ov = xl["overall"]
     cc = {str(k): int(v) for k, v in (xl.get("class_counts") or {}).items()}
     ver["E2_totals"] = {"overall": ov, "overall_class_counts": cc, "position_sheet_spots": int(len(xl["spots"])),
@@ -1222,7 +1264,8 @@ def _export_checks_with_images(f, xl: dict, source: dict, export_path, geom_stor
     ver["E6_constant_diameter"] = {
         "expected_um": want, "max_abs_deviation_um": float(np.nanmax(dev)) if dev.size else None,
         "n_spots_off": int((~(dev <= EXPORT_DIAMETER_TOL_UM).all(axis=1)).sum()) if len(dia) else 0,
-        "rule": "every spot at the estimated diameter: region growing off (protocol section 4.1)",
+        "rule": ("every spot at the estimated diameter: no region-grown spot sizes (the settings the export was made "
+                 "with are not recorded; protocol changelog entry 12)"),
         "passes": bool(len(dia) and (dev <= EXPORT_DIAMETER_TOL_UM).all())}
     return ver
 
@@ -1234,8 +1277,11 @@ def export_subset_spots(xl: dict, ims_spots: pd.DataFrame, labels, classificatio
     ``ims_spots`` is the .ims's own spot table (``read_spots_table``, in the frame the frame check chose). E7: every
     export spot lies within ``EXPORT_MATCH_TOL_UM`` of exactly one .ims spot, one to one; those .ims spots, in the
     .ims's order, are the truth spots (their IDs, positions, voxel indices and radius). E4: every one lies inside
-    the image. E8: ``classification`` (the project's own rule, ``classification_rule``) applied to the unrounded
-    Average Distance To 3 Nearest Neighbours among them reproduces the export's Overall class counts. E9: the
+    the image. E8: ``classification`` (the project's own rule, ``classification_rule``) applied to the Average
+    Distance To 3 Nearest Neighbours recomputed among their .ims positions (float32, within 0.0013 um of the positions
+    the export was made from, so not the export's own values unrounded) reproduces the export's Overall class counts
+    and, spot by spot, the classes the export alone forces (``classes_from_written_values``: the written distances,
+    with the spots within half a written digit of the threshold resolved by the Overall counts; entry 12). E9: the
     export's per-spot Intensity Max of the mask channel equals the .ims's stored one for every matched spot (it is
     the truth's ``imaris_mask_label``). E10: section 4.4 against the label image (``truth_assignment_agreement``)
     at least ``TRUTH_ASSIGNMENT_MIN``. Returns (truth spots, criteria, the export-to-.ims ID map)."""
@@ -1265,15 +1311,23 @@ def export_subset_spots(xl: dict, ims_spots: pd.DataFrame, labels, classificatio
     else:
         cls = classify_1d(nn3, thr, names)
         counts = {str(k): int(v) for k, v in pd.Series(cls).value_counts().items()}
-        rounded = classify_1d(xo["nn3"].to_numpy(float), thr, names) if "nn3" in xo else None
+        written = xo["nn3"].to_numpy(float) if "nn3" in xo else np.full(len(xo), np.nan)
+        forced = classes_from_written_values(written, float(thr), exported, names)
+        per_spot = {k: v for k, v in forced.items() if k != "classes"}
+        per_spot["n_equal_to_recomputed"] = (None if forced["classes"] is None
+                                             else int((forced["classes"] == cls).sum()))
+        per_spot["passes"] = bool(forced["classes"] is not None and len(cls)
+                                  and per_spot["n_equal_to_recomputed"] == len(cls))
         rec = {"statistic": classification["statistic"], "threshold_um": float(thr), "class_names": names,
                "counts": counts, "export_overall_counts": exported, "n_at_threshold": int((nn3 == thr).sum()),
-               "passes": bool(counts == exported and len(exported) > 0)}
-        if rounded is not None and np.isfinite(xo["nn3"].to_numpy(float)).all():
+               "per_spot_from_written_values": per_spot,
+               "passes": bool(counts == exported and len(exported) > 0 and per_spot["passes"])}
+        if np.isfinite(written).all() and len(written):
+            rounded = classify_1d(written, thr, names)
             rc = {str(k): int(v) for k, v in pd.Series(rounded).value_counts().items()}
             rec.update(counts_from_the_export_rounded_values=rc,
                        n_spots_classed_differently_by_the_rounded_values=int((rounded != cls).sum()),
-                       max_abs_unrounded_minus_export_um=float(np.abs(nn3 - xo["nn3"].to_numpy(float)).max()))
+                       max_abs_recomputed_minus_written_um=float(np.abs(nn3 - written).max()))
         ver["E8_classes"] = rec
     ims_lab = pd.to_numeric(sub["imaris_mask_label"], errors="coerce").to_numpy(float)
     x_lab = xo["imax_mask"].to_numpy(float)
@@ -1362,20 +1416,22 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
 
     ``spot_source`` (protocol changelog entry 11; an entry of ``benchmark_split.load_spot_sources``, the recorded
     earlier export of a registered train gonad) takes the spots from that export instead: the .ims spots it names,
-    matched by position, with the classes of the project's own rule on the unrounded neighbour distances
-    (``export_subset_spots``), verified by criteria E1 to E10 (``spots_source.verification``), and writes the
-    export-to-.ims ID map (``SPOT_SOURCE_ID_MAP``) next to the truth files. It implies the frame check; ``ims`` must
-    be the gonad's registered project, and no test gonad is ever allowed.
+    matched by position, with the classes of the project's own rule on the neighbour distances recomputed from the
+    matched .ims positions and checked spot by spot against the export (``export_subset_spots``), verified by
+    criteria E1 to E10 (``spots_source.verification``), and writes the export-to-.ims ID map (``SPOT_SOURCE_ID_MAP``)
+    next to the truth files. It implies the frame check; ``ims`` must be the gonad's registered project with the
+    source's recorded size (refused before it is opened otherwise) and sha256 (E1, hashed before it is opened), and no
+    test gonad is ever allowed.
 
     With the frame check, the xlsx source or the recorded source, the files are guarded before anything is opened
-    (``benchmark_split.guard_truth_read``, protocol changelog entries 10 and 11): a registered gonad's project passes
+    (``benchmark_split.guard_truth_read``, protocol changelog entries 10 to 12): a registered gonad's project passes
     the role guard, so a test gonad is refused unless ``allow_test`` (the pre-flight of docs/FINAL_SCORING.md), the
-    pinned earlier export of a registered train gonad counts as that gonad's file, and any other sealed file (a
-    2025-11-05 export, an aggregate table) is refused."""
+    pinned earlier export of a registered train gonad counts as that gonad's file once its sha256 is the pinned one,
+    and any other sealed file (a 2025-11-05 export, an aggregate table) is refused."""
     import h5py
 
     ims = Path(ims)
-    export_path = None
+    export_path, ims_sha256 = None, None
     if spot_source is not None:
         from .benchmark_split import registered_tag_of, spot_source_tag_of
 
@@ -1393,6 +1449,15 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
         guard_truth_read([ims, nd2, spots_xlsx, export_path], allow_test=allow_test)
         if export_path is not None and spot_source_tag_of(export_path) != spot_source["tag"]:
             raise PermissionError(f"refused: {export_path} is not the pinned export of {spot_source['tag']}")
+    if spot_source is not None:
+        # entry 12: the project must be the recorded file, not only one with the registered stem (a later re-save
+        # of the project, say): its size before anything opens it, its sha256 (E1) before h5py opens it
+        want = (spot_source.get("ims") or {}).get("size_bytes")
+        size = ims.stat().st_size if ims.is_file() else None
+        if want is None or size != want:
+            raise ValueError(f"{ims}: {size} bytes, not the {want} bytes the spot source records for "
+                             f"{spot_source['tag']}'s registered project; refused before it is opened")
+        ims_sha256 = file_sha256_path(ims)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = truth_paths(out_dir, ims.stem)
@@ -1499,7 +1564,8 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
                           "export": {k: spot_source["export"].get(k) for k in ("name", "size_bytes", "sha256", "nas_path")},
                           "classification": classification,
                           "verification": _export_checks_with_images(f, subset_xl, spot_source, export_path, geom_stored,
-                                                                     images, frame_rep, stat_label, n_img)}
+                                                                     images, frame_rep, stat_label, n_img,
+                                                                     ims_sha256=ims_sha256)}
         del images
         if masks and channel is not None:
             labels, per, rec = recover_surface_masks(f, geom, channel, surfaces, values_unique=values_unique,
@@ -1569,15 +1635,18 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
             subset_rep["frame_used"] = {"name": ((frame_rep or {}).get("chosen") or {}).get("name"),
                                         "ext_min_xyz_um": geom["ext_min_xyz"], "voxel_imaris_xyz_um": geom["voxel_xyz_um"]}
             subset_rep["criteria"] = (
-                "protocol changelog entry 11: E1 sha256 as pinned; E2 the Overall totals and class counts as recorded "
-                "and the image's voxel count; E3 the surfaces equal the .ims Surfaces one to one (position within "
-                f"{XLSX_POSITION_TOL_UM} um, volume within {EXPORT_VOLUME_ATOL_UM3} um^3, mask Intensity Max equal); E4 "
-                "every truth spot inside the image; E5 the Intensity Center test of entry 9 (d)(3) on the export's own "
-                "values chooses the frame of the .ims spots; E6 every spot at the recorded diameter (region growing "
-                f"off); E7 every export spot within {EXPORT_MATCH_TOL_UM} um of exactly one .ims spot, one to one; E8 "
-                "the project's classification on the unrounded 3-neighbour distances reproduces the Overall class "
-                "counts; E9 the export's mask Intensity Max equals the .ims's per spot; E10 the section 4.4 agreement "
-                f"at least {TRUTH_ASSIGNMENT_MIN}")
+                "protocol changelog entries 11 and 12: E1 the export's sha256 as pinned and the .ims's as recorded; E2 "
+                "the Overall totals and class counts as recorded and the image's voxel count; E3 the surfaces equal the "
+                f".ims Surfaces one to one (position within {XLSX_POSITION_TOL_UM} um, volume within "
+                f"{EXPORT_VOLUME_ATOL_UM3} um^3 plus two float32 steps, mask Intensity Max equal); E4 every truth spot "
+                "inside the image; E5 the Intensity Center test of entry 9 (d)(3) on the export's own values chooses "
+                f"the frame of the .ims spots; E6 every spot at the recorded diameter within {EXPORT_DIAMETER_TOL_UM} um "
+                f"(no region-grown sizes); E7 every export spot within {EXPORT_MATCH_TOL_UM} um of exactly one .ims "
+                "spot, one to one; E8 the project's classification on the 3-neighbour distances recomputed from the "
+                "matched .ims positions reproduces the Overall class counts and, spot by spot, the classes the export's "
+                f"written distances force (within {EXPORT_NN3_HALF_DIGIT_UM} um plus two float32 steps of the threshold "
+                "resolved by the Overall counts, uniquely); E9 the export's mask Intensity Max equals the .ims's per "
+                f"spot; E10 the section 4.4 agreement at least {TRUTH_ASSIGNMENT_MIN}")
             subset_rep["reported_not_a_criterion"] = {"n_ims_spots_saved": int(len(spots)),
                                                       "id_map_file": SPOT_SOURCE_ID_MAP}
             if not ver["passed"]:
@@ -1637,7 +1706,8 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
                          else {"source": "ims"}),
     }
     if subset_rep is not None:
-        # the spots are the export's (constant diameter: region growing off by the section 4.1 rule); the flag of the
+        # the spots are the export's (constant estimated diameter: no region-grown sizes, so ``region_growing`` is
+        # false when E6 passes; the settings the export was made with are not recorded, entry 12); the flag of the
         # .ims's saved Spots object, whose candidates were not used, is kept beside it
         params["region_growing_saved_spots_object"] = params["region_growing"]
         params["region_growing"] = not bool(subset_rep["verification"].get("E6_constant_diameter", {}).get("passes"))

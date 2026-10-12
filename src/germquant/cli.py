@@ -256,6 +256,10 @@ def main(argv: list[str] | None = None) -> int:
                           "take the spots of this registered train gonad from its recorded earlier export (the .ims "
                           "spots it names, matched by position, classes by the project's own rule) and verify them "
                           "(criteria E1 to E10 in the params JSON); implies --frame-check; never a test gonad")
+    pit.add_argument("--split-file", default=None, metavar="SPLIT",
+                     help="with --spot-source: the registered split record the spot source is checked against (its "
+                          ".ims path, size and sha256; protocol changelog entry 12). Default: rad51_split.json next to "
+                          "the spot-sources record. It must be the registered split file (its pinned digests)")
 
     pe = sub.add_parser("export-training",
                         help="write paired 2D training slices (image/ and labels/ TIFs plus manifest.csv) from the "
@@ -1224,13 +1228,20 @@ def _imaris_truth(args) -> int:
                   "n_surfaces": args.xlsx_expect_surfaces}
     source = None
     if getattr(args, "spot_source", None):
-        from .validate.benchmark_split import load_spot_sources, registered_tag_of, spot_source_of
+        from .validate.benchmark_split import (load_split, load_spot_sources, registered_tag_of,
+                                               split_file_unchanged, spot_source_of)
 
         if args.pre_flight:
             print("--spot-source is for a registered train gonad; it does not go with --pre-flight")
             return 2
+        split_path = Path(args.split_file) if getattr(args, "split_file", None) else \
+            Path(args.spot_source).with_name("rad51_split.json")
+        if not split_path.is_file() or not split_file_unchanged(split_path):
+            print(f"{split_path}: not the registered split record (protocol changelog entry 12: --spot-source is "
+                  "checked against it); give it with --split-file")
+            return 2
         tag = registered_tag_of(args.ims)
-        source = spot_source_of(load_spot_sources(args.spot_source), tag) if tag else None
+        source = spot_source_of(load_spot_sources(args.spot_source, load_split(split_path)), tag) if tag else None
         if source is None:
             print(f"{args.ims}: the record {args.spot_source} holds no spot source for this project")
             return 2

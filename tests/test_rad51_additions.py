@@ -21,7 +21,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SPLIT = ROOT / "tests" / "golden" / "rad51_split.json"
 ADDITIONS = ROOT / "tests" / "golden" / "rad51_additions.json"
 ROLES_SHA256 = "32e2ee0b4a0dc193fe941b995449447d11004a377289e5ce8e3eda5af5ddec00"
-MALES = ["n2rad51_20260105a_HS_male_001", "n2rad51_20260105a_HS_male_002", "n2rad51_20260105a_HS_male_003"]
+# the split file the additions record of entry 9 was made against (as registered; CRLF and LF). The record is data
+# cited by entry 9 and stays as committed when the split moves by the re-export of protocol section 4.1 (entry 10
+# (g)(8)): these historical digests are pinned here, and the roles are checked live (protocol changelog entry 12)
+SPLIT_AT_ENTRY_9 = ("955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f",
+                    "989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85")
+MALES =["n2rad51_20260105a_HS_male_001", "n2rad51_20260105a_HS_male_002", "n2rad51_20260105a_HS_male_003"]
 HS1 = "n2rad51_20260105b_HS_male_001"
 
 
@@ -43,7 +48,7 @@ def test_the_additions_record_validates_with_fixed_train_roles():
     assert rec["changelog_entry"] == 9 and rec["decided_by"]["reply"] == "2 whatever you recommend"
     reg = rec["registered_split"]
     assert reg["roles_sha256"] == ROLES_SHA256 and reg["unchanged"] is True
-    assert reg["sha256"] == bs.REGISTERED_SPLIT_SHA256 or reg["sha256_lf"] == bs.REGISTERED_SPLIT_SHA256_LF
+    assert (reg["sha256"], reg["sha256_lf"]) == SPLIT_AT_ENTRY_9               # the split it was made against
     for g in rec["gonads"]:
         assert g["role"] == "train" and g["session"] == "2026-01-05" and (g["condition"], g["sex"]) == ("HS", "male")
         assert g["nd2"]["sizes"] == {"Z": 106, "C": 3, "Y": 2720, "X": 2720}

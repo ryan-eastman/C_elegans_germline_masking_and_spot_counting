@@ -394,7 +394,7 @@ def test_read_imaris_ims_still_works_on_the_synthetic_file(tmp_path):
     assert spots["x_um"].iloc[0] == pytest.approx((8 + 0.3) * VOX[0], abs=1e-3)
 
 
-def test_cli_wiring(monkeypatch):
+def test_cli_wiring(monkeypatch, tmp_path):
     from germquant import cli
     from germquant.validate import imaris_ims
 
@@ -433,6 +433,27 @@ def test_cli_wiring(monkeypatch):
     assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o8", "--spot-source", rec,
                      "--pre-flight"]) == 2
     assert called == {}                                     # nothing was exported for the three refusals
+    # entry 12: the record is checked against the registered split (its .ims path, size and sha256); the split is
+    # the record's sibling unless --split-file names it, and it must be the registered split file
+    split = str(Path(rec).with_name("rad51_split.json"))
+    other = tmp_path / "rad51_split.json"
+    other.write_text("{}", encoding="utf-8")
+    assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o9", "--spot-source", rec,
+                     "--split-file", str(other)]) == 2
+    moved = tmp_path / "elsewhere" / "rad51_spot_sources.json"
+    moved.parent.mkdir()
+    moved.write_bytes(Path(rec).read_bytes())
+    assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o10", "--spot-source", str(moved)]) == 2
+    assert called == {}
+    assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o11", "--spot-source", str(moved),
+                     "--split-file", split]) == 0
+    assert called["spot_source"] == "n2rad51_HS_male_000"
+    doc = json.loads(moved.read_text(encoding="utf-8"))
+    doc["sources"][0]["ims"]["sha256"] = "1" * 64                          # not the split's .ims
+    moved.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(ValueError, match="not the registered one"):
+        cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o12", "--spot-source", str(moved),
+                  "--split-file", split])
 
 
 # ---------------------------------------------------------------- the frame check (entry 9 (d)(3))
@@ -859,10 +880,26 @@ def _subset_case(tmp_path, monkeypatch):
 _REAL_READER: dict = {}
 
 
+def _written_nn3(ims, classes) -> dict:
+    """The 3-neighbour distances an export writes for the subset (rounded to 0.001 um), except that the Class B spot
+    nearest the threshold is written 0.0004 um below it: within half a written digit, so only the Overall counts
+    resolve it (entry 12), and its written value alone would class it A."""
+    with h5py.File(ims, "r") as f:
+        sp = f["Scene8/Content/Points0/Spot"][:]
+        thr = I.classification_rule(I.read_creation_parameters(f["Scene8/Content/Points0"]))["threshold"]
+    pos = {int(r["ID"]): (float(r["PositionX"]), float(r["PositionY"]), float(r["PositionZ"])) for r in sp}
+    nn = dict(zip(SUBSET, I.average_distance_to_neighbours(np.array([pos[s] for s in SUBSET]), 3)))
+    out = {s: round(float(v), 3) for s, v in nn.items()}
+    b = min((s for s in SUBSET if classes[s] == "Class B"), key=lambda s: nn[s])
+    out[b] = thr - 0.0004
+    return out
+
+
 def _run_subset(tmp_path, monkeypatch, ims, classes, name, *, expect=None, sha=None, vmin=0.5, mutate=None,
-                **kw):
-    """Write the export (renumbered IDs, positions rounded to 0.001 um, a misleading 3-neighbour sheet), pin it
-    under the real name and run the export from it."""
+                ims_sha=None, **kw):
+    """Write the export (renumbered IDs, positions rounded to 0.001 um, the 3-neighbour sheet of ``_written_nn3``
+    unless ``nn3`` is given), pin it under the real name and run the export from it with a source that records the
+    synthetic .ims (size and sha256, or ``ims_sha``)."""
     import hashlib
 
     from germquant.validate import benchmark_split as bs
@@ -873,7 +910,8 @@ def _run_subset(tmp_path, monkeypatch, ims, classes, name, *, expect=None, sha=N
     x = d / "20251105_n2_hs_MALE_3.xlsx"
     counts = pd.Series(list(classes.values())).value_counts().to_dict()
     kw.setdefault("class_counts", counts)
-    _write_export(x, ims, drop_spot=15, id_offset=1000, round_um=3, nn3={s: 99.0 for s in SUBSET}, **kw)
+    kw.setdefault("nn3", _written_nn3(ims, classes))
+    _write_export(x, ims, drop_spot=15, id_offset=1000, round_um=3, **kw)
     data = x.read_bytes()
     monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {"n2rad51_HS_male_000": {
         "name": x.name, "size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}})
@@ -889,6 +927,8 @@ def _run_subset(tmp_path, monkeypatch, ims, classes, name, *, expect=None, sha=N
     monkeypatch.setattr(X, "read_export_objects", fake)
     source = {"tag": "n2rad51_HS_male_000", "export": {"name": x.name, "path": str(x), "size_bytes": len(data),
                                                        "sha256": sha or hashlib.sha256(data).hexdigest()},
+              "ims": {"path": str(ims), "size_bytes": ims.stat().st_size,
+                      "sha256": ims_sha or hashlib.sha256(ims.read_bytes()).hexdigest()},
               "expect": {"n_spots": len(SUBSET), "n_surfaces": len(SURFACE_IDS), "class_counts": counts,
                          "spot_diameter_um": [0.4, 0.4, 0.9], **(expect or {})}}
     return I.export_imaris_truth(ims, d / "out", nd2_voxel_xyz_um=OUR_VOX, spot_source=source)
@@ -897,8 +937,10 @@ def _run_subset(tmp_path, monkeypatch, ims, classes, name, *, expect=None, sha=N
 def test_the_recorded_earlier_export_as_spot_truth(tmp_path, monkeypatch):
     """Entry 11: the truth spots are the .ims spots the export names (their IDs and positions, matched by position
     although the export renumbers the IDs and rounds the positions), the classes the project's rule gives on the
-    unrounded distances (not the export's sheet, which here says 99 for every spot, and not the .ims's own labels),
-    the mask label the export's; E1 to E10 pass; the nucleus truth is that of the same project exported plainly."""
+    distances recomputed from the matched .ims positions (not the export's written values, one of which sits within
+    half a digit of the threshold on the other side, and not the .ims's own labels), checked spot by spot against
+    the written values and the Overall counts (entry 12); the mask label the export's; E1 (the export's and the
+    .ims's sha256) to E10 pass; the nucleus truth is that of the same project exported plainly."""
     pytest.importorskip("openpyxl")
     ims, thr, classes = _subset_case(tmp_path, monkeypatch)
     p = _run_subset(tmp_path, monkeypatch, ims, classes, "good")
@@ -906,8 +948,11 @@ def test_the_recorded_earlier_export_as_spot_truth(tmp_path, monkeypatch):
     assert [k.split("_")[0] for k in ver if k.startswith("E")] == [f"E{i}" for i in range(1, 11)]
     assert {k: v["passes"] for k, v in ver.items() if k.startswith("E")} == {k: True for k in ver if k.startswith("E")}
     assert ver["passed"] is True and p["spots_source"]["source"] == "earlier_export_subset"
+    assert ver["E1_sha256"]["ims_sha256"] == ver["E1_sha256"]["ims_expected"] is not None
     assert ver["E7_position_match"]["n_common_ids"] == 0 and ver["E7_position_match"]["max_distance_um"] < 0.001
-    assert ver["E8_classes"]["threshold_um"] == thr and ver["E8_classes"]["n_spots_classed_differently_by_the_rounded_values"] > 0
+    assert ver["E8_classes"]["threshold_um"] == thr and ver["E8_classes"]["n_spots_classed_differently_by_the_rounded_values"] == 1
+    per = ver["E8_classes"]["per_spot_from_written_values"]
+    assert per["n_ambiguous_written"] == 1 and per["unique"] is True and per["n_equal_to_recomputed"] == len(SUBSET)
     assert p["spots_source"]["frame_used"]["name"] == "stored" and p["frame_check"]["chosen"]["name"] == "stored"
     assert p["region_growing"] is False and p["region_growing_saved_spots_object"] is False
     assert p["n_spots"] == len(SUBSET) and p["spots_source"]["reported_not_a_criterion"]["n_ims_spots_saved"] == len(SPOTS)
@@ -939,6 +984,7 @@ def test_each_export_subset_criterion_fails_on_its_own(tmp_path, monkeypatch):
 
     assert failed("ok") == (set(), True)
     assert failed("e1", sha="0" * 64) == ({"E1"}, False)
+    assert failed("e1i", ims_sha="1" * 64) == ({"E1"}, False)                 # the .ims is not the recorded one
     assert failed("e2", expect={"n_surfaces": len(SURFACE_IDS) + 1}) == ({"E2"}, False)
     assert failed("e3", volume_add=0.002) == ({"E3"}, False)
 
@@ -951,31 +997,111 @@ def test_each_export_subset_criterion_fails_on_its_own(tmp_path, monkeypatch):
     swapped = {"Class A": 1, "Class B": 3} if sorted(classes.values()).count("Class A") == 2 else {"Class A": 2,
                                                                                                     "Class B": 2}
     assert failed("e8", class_counts=swapped, expect={"class_counts": swapped}) == ({"E8"}, False)
+    # the record expects other class counts than the export's Overall holds: E2 alone (E8 reads the Overall)
+    assert failed("e2c", expect={"class_counts": swapped}) == ({"E2"}, False)
+    # entry 12, E8 spot by spot: the totals agree, but the written values of an A spot and a B spot are swapped (a
+    # compensating swap), or the sheet says 99 for every spot: E8 alone
+    nn3 = _written_nn3(ims, classes)
+    a = next(s for s in SUBSET if classes[s] == "Class A")
+    b = max((s for s in SUBSET if classes[s] == "Class B"), key=lambda s: nn3[s])
+    assert failed("e8s", nn3={**nn3, a: nn3[b], b: nn3[a]}) == ({"E8"}, False)
+    assert failed("e8m", nn3={s: 99.0 for s in SUBSET}) == ({"E8"}, False)
     assert failed("e9", imax_override={12: 7}, vmin=0.25) == ({"E9"}, False)
     assert failed("e10", vmin=0.9935) == ({"E10"}, False)
 
 
+def test_classes_from_written_values():
+    """E8's per-spot part (entry 12): the class of each written value more than half a digit from the threshold; the
+    rest resolved by the Overall counts only when they give them one class and add up."""
+    thr = 4.11504
+    one = I.classes_from_written_values([4.0, 4.115, 4.2, 4.3], thr, {"Class A": 1, "Class B": 3})
+    assert one["unique"] is True and one["n_ambiguous_written"] == 1
+    assert list(one["classes"]) == ["Class A", "Class B", "Class B", "Class B"]
+    assert list(I.classes_from_written_values([4.0, 4.115, 4.2], thr, {"Class A": 2, "Class B": 1})["classes"]) == \
+        ["Class A", "Class A", "Class B"]
+    # two within half a digit, the counts give one to each: open, so no classes
+    two = I.classes_from_written_values([4.115, 4.1155, 4.3], thr, {"Class A": 1, "Class B": 2})
+    assert two["unique"] is False and two["classes"] is None and two["n_ambiguous_written"] == 2
+    # counts that do not fit the written values, a missing value, counts that do not add up
+    assert I.classes_from_written_values([4.0, 4.3], thr, {"Class A": 2, "Class B": 0})["classes"] is None
+    assert I.classes_from_written_values([4.0, np.nan], thr, {"Class A": 1, "Class B": 1})["classes"] is None
+    assert I.classes_from_written_values([4.0, 4.3], thr, {"Class A": 1, "Class B": 2})["classes"] is None
+    # just beyond half a digit plus two float32 steps the written value decides alone
+    far = I.classes_from_written_values([thr - 0.000502, thr + 0.000502], thr, {"Class A": 1, "Class B": 1})
+    assert far["n_ambiguous_written"] == 0 and list(far["classes"]) == ["Class A", "Class B"]
+
+
+def test_export_subset_spots_e4_and_e8_on_their_own():
+    """export_subset_spots without the .ims: E4 fails alone when the matched spots lie outside the image (here a 1 x 1
+    x 1 image); E8 checks the classes spot by spot against the written values (entry 12)."""
+    pos = np.array([[0.05, 0.05, 0.1], [1.05, 0.05, 0.1], [0.05, 2.05, 0.1], [0.05, 0.05, 3.1], [6.05, 6.05, 6.1]])
+    n = len(pos)
+    idx = np.floor(pos / np.array([0.1, 0.1, 0.2])).astype(int)
+    ims_spots = pd.DataFrame({"spot_id": np.arange(n) + 1, "x_um": pos[:, 0], "y_um": pos[:, 1], "z_um": pos[:, 2],
+                              "xi": idx[:, 0], "yi": idx[:, 1], "zi": idx[:, 2], "radius_um": 0.2, "quality": np.nan,
+                              "spot_class": "", "imaris_x_um": pos[:, 0], "imaris_y_um": pos[:, 1],
+                              "imaris_z_um": pos[:, 2], "imaris_mask_label": pd.array([3] * n, dtype="Int64"),
+                              "spots_object": "Spots 1"})
+    nn = I.average_distance_to_neighbours(pos, 3)
+    srt = np.sort(nn)
+    thr = float((srt[2] + srt[3]) / 2)
+    assert np.abs(nn - thr).min() > 0.01
+    cls = I.classify_1d(nn, thr)
+    counts = pd.Series(cls).value_counts().to_dict()
+    xs = pd.DataFrame({"ID": np.arange(n) + 500, "x": pos[:, 0] + 0.0004, "y": pos[:, 1], "z": pos[:, 2],
+                       "nn3": np.round(nn, 3), "imax_mask": 3.0})
+    rule = {"statistic": "Average Distance To 3 Nearest Neighbours", "threshold": thr, "class_names": ["Class A",
+                                                                                                      "Class B"]}
+    xl = {"spots": xs, "class_counts": counts}
+
+    def failing(shape, x):
+        _sub, ver, _m = I.export_subset_spots(x, ims_spots, None, rule, shape)
+        return {k.split("_")[0] for k, v in ver.items() if not v["passes"]}
+
+    assert failing((100, 100, 100), xl) == {"E10"}                   # no label image: E10 only
+    assert failing((1, 1, 1), xl) == {"E4", "E10"}
+    a, b = int(np.argmin(nn)), int(np.argmax(nn))                    # a compensating swap of two written values
+    w = xs["nn3"].to_numpy().copy()
+    w[[a, b]] = w[[b, a]]
+    assert failing((100, 100, 100), {**xl, "spots": xs.assign(nn3=w)}) == {"E8", "E10"}
+    assert failing((100, 100, 100), {**xl, "spots": xs.drop(columns="nn3")}) == {"E8", "E10"}
+
+
 def test_the_recorded_export_is_refused_before_anything_is_opened(tmp_path, monkeypatch):
-    """Another gonad's project, an export file of another size than the pin, and two spot sources at once are
-    refused before any file is opened or any output folder made."""
+    """Another gonad's project, an export file of another size than the pin, an export with the pinned name and size
+    but other bytes, a project of another size than the source records (entry 12), and two spot sources at once
+    are refused before any file is opened or any output folder made."""
+    import hashlib
+
     from germquant.validate import benchmark_split as bs
 
     x = tmp_path / "20251105_n2_hs_MALE_3.xlsx"
     x.write_bytes(b"12345")
+    good = hashlib.sha256(b"12345").hexdigest()
     monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {"n2rad51_HS_male_000": {"name": x.name, "size_bytes": 5,
-                                                                            "sha256": "a" * 64}})
-    src = {"tag": "n2rad51_HS_male_000", "export": {"name": x.name, "path": str(x), "size_bytes": 5, "sha256": "a" * 64},
-           "expect": {}}
+                                                                            "sha256": good}})
+    ims = tmp_path / f"{REG_STEM}.ims"
+    ims.write_bytes(b"not an hdf5 file")                     # never opened: every case below is refused first
+    src = {"tag": "n2rad51_HS_male_000", "export": {"name": x.name, "path": str(x), "size_bytes": 5, "sha256": good},
+           "ims": {"path": str(ims), "size_bytes": ims.stat().st_size + 1, "sha256": "b" * 64}, "expect": {}}
     out = tmp_path / "never"
     for stem in ("20251105_n2_hs_MALE _002", "20251105_n2_hs_MALE _001", "synthetic"):
         with pytest.raises(ValueError, match="registered project only"):
             I.export_imaris_truth(tmp_path / f"{stem}.ims", out, spot_source=src)
     with pytest.raises(ValueError, match="give one"):
-        I.export_imaris_truth(tmp_path / f"{REG_STEM}.ims", out, spot_source=src, spots_xlsx=x)
+        I.export_imaris_truth(ims, out, spot_source=src, spots_xlsx=x)
+    with pytest.raises(ValueError, match="refused before it is opened"):          # the .ims is not the recorded size
+        I.export_imaris_truth(ims, out, spot_source=src)
+    with pytest.raises(ValueError, match="refused before it is opened"):          # no .ims recorded at all
+        I.export_imaris_truth(ims, out, spot_source={k: v for k, v in src.items() if k != "ims"})
+    monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {"n2rad51_HS_male_000": {"name": x.name, "size_bytes": 5,
+                                                                            "sha256": "a" * 64}})
+    with pytest.raises(PermissionError, match="not its sha256"):                  # pinned name and size, other bytes
+        I.export_imaris_truth(ims, out, spot_source=src)
     monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {"n2rad51_HS_male_000": {"name": x.name, "size_bytes": 6,
                                                                             "sha256": "a" * 64}})
     with pytest.raises(PermissionError, match="sealed"):
-        I.export_imaris_truth(tmp_path / f"{REG_STEM}.ims", out, spot_source=src)
+        I.export_imaris_truth(ims, out, spot_source=src)
     assert not out.exists()
 
 

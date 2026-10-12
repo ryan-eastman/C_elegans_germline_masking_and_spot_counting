@@ -106,7 +106,10 @@ gonads are built inside the fixtures.
   the read guard that admits exactly the pinned export and keeps the other 2025-11-05 exports sealed, the
   usability rule, the manifest that changes only that gonad's entry (and the folds that then hold it and not
   n2rad51_HS_male_002), net3d's training gonads and the net3d fold order. The check of the pinned file skips when
-  the copy is not on the machine.
+  the copy is not on the machine. Since protocol changelog entry 12: the record's split digests are pinned as the
+  historical ones it was made against (so the re-export of n2rad51_HS_male_002 does not break it; the additions
+  record's test does the same), `load_spot_sources` refuses a malformed record, and a file with the pinned name and
+  size but other bytes is hashed and refused by both guards before anything parses it.
 - `test_gpu.py`: the real Cellpose-SAM 3D path. See the markers.
 - `test_benchmark.py`: the benchmark harness (`germquant.benchmark`, see `docs/BENCHMARK.md`) on
   synthetic label volumes and spot sets with known answers for every metric (a split, a merge, an

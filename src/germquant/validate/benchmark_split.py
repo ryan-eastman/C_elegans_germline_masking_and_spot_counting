@@ -402,7 +402,9 @@ REGISTERED_SESSION = "2025-11-05"
 #: workstation checkout (CRLF line endings, the digest every manifest records) and the same bytes with LF line
 #: endings (the git blob, a Linux checkout). The file changes only by the re-export of protocol section 4.1, with a
 #: changelog line and new pinned digests here, in the same commit (protocol changelog entry 10 (g)(8));
-#: tests/test_rad51_additions.py pins both, so any edit has to be deliberate and logged
+#: tests/test_rad51_additions.py pins both, so any edit has to be deliberate and logged. The additions record (entry 9)
+#: and the spot-sources record (entry 11) carry the digests of the split they were made against; those records stay
+#: as committed when the split moves (their tests pin those historical digests and check the roles live, entry 12)
 REGISTERED_SPLIT_SHA256 = "955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f"
 REGISTERED_SPLIT_SHA256_LF = "989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85"
 #: the additions of protocol changelog entry 9 and their roles: train only, fixed here so that no manifest or
@@ -421,8 +423,8 @@ ADDITION_TAG_RE = re.compile(
 #: decision-1 export check of entry 9 lists them). A file of the 2025-11-05 session is refused unless it is a
 #: registered project read by its registered stem behind the role guard (``guard_truth_read``): the eight train
 #: and val projects were read that way for entry 9 (d)(3) and (d)(4); or the one recorded earlier export of a
-#: registered train gonad that protocol changelog entry 11 admits by its pinned name and size
-#: (``SPOT_SOURCE_EXPORTS``), behind the role guard
+#: registered train gonad that protocol changelog entry 11 admits by its pinned name and size, behind the role
+#: guard, and then by its pinned sha256 before anything parses it (``SPOT_SOURCE_EXPORTS``, entry 12)
 SEALED_NAME_MARKERS = ("20251105", "temp_compiledtdata", "compiled_data", "master_data", "rad51_stats", ".prism")
 #: the stems of the registered split (tests/golden/rad51_split.json; tests/test_rad51_additions.py checks them
 #: against the file), so a truth-side read can tell a registered project, which the role guard admits or refuses,
@@ -448,10 +450,12 @@ ADDITION_FILE_KEYS = ("nd2", "ims", "xlsx")
 #: protocol changelog entry 11: the registered train gonads whose spot truth comes from a recorded earlier Imaris
 #: statistics export of their own project instead of the .ims's saved Spots object (the record is
 #: tests/golden/rad51_spot_sources.json). Each export is pinned here by file name, size and sha256: the guard admits
-#: exactly that file (by name and size, before anything is read; the sha256 is checked when it is read), behind the
-#: role guard. n2rad51_HS_male_000's registered .ims holds 772,485 unthresholded, unclassified candidates of constant
-#: radius; its 2025-12-31 export (MALE_3 of the three, identified by name, size and date) holds the curated 7,628,
-#: region growing off by the section 4.1 rule. The test male's exports (MALE_1) carry another name and size and stay
+#: that file by name and size (no byte read), then the role guard, then its sha256 (``guard_export_read``,
+#: ``guard_truth_read``; entry 12), all before anything parses it. n2rad51_HS_male_000's registered .ims holds 772,485
+#: unthresholded, unclassified candidates of constant radius; its 2025-12-31 export (MALE_3 of the three, identified
+#: by name, size and date) holds a thresholded, classified subset of 7,628, every one at the estimated diameter
+#: 0.4 x 0.4 x 0.9 um (no region-grown sizes; the settings it was exported with and its Quality threshold are not
+#: recorded, protocol changelog entry 12). The test male's exports (MALE_1) carry another name and size and stay
 #: sealed; HS_male_002's (MALE_2) is region-grown and is not a spot source.
 SPOT_SOURCES_CHANGELOG_ENTRY = 11
 SPOT_SOURCE_KIND = "earlier_export_subset"
@@ -554,10 +558,22 @@ def spot_source_tag_of(path) -> str | None:
     return None
 
 
+def refuse_unless_pinned_sha256(path, tag: str) -> None:
+    """Raise PermissionError unless the file at ``path`` has the sha256 pinned for ``tag``'s earlier export
+    (``SPOT_SOURCE_EXPORTS``). Called after the name and size test and the role guard, before anything parses the
+    file: a file with the pinned name and size but other bytes (a renamed export of another gonad, say) is hashed
+    and refused, never opened as a workbook (protocol changelog entry 12)."""
+    want = SPOT_SOURCE_EXPORTS[tag]["sha256"]
+    if file_sha256(path) != want:
+        raise PermissionError(f"refused: {path} has the pinned name and size of {tag}'s recorded export but not its "
+                              f"sha256 ({want[:12]}...); it is not read (protocol changelog entries 11 and 12)")
+
+
 def guard_export_read(path) -> str | None:
     """Before an Imaris statistics export is opened (``imaris_xlsx``): the pinned earlier export of a registered gonad
-    (``spot_source_tag_of``) passes the role guard (it is a train gonad's, or the guard raises); any other file must
-    not be sealed (``refuse_sealed``). Returns the registered tag of a pinned export, None otherwise."""
+    (``spot_source_tag_of``: name and size) passes the role guard (it is a train gonad's, or the guard raises) and
+    then must have the pinned sha256 (``refuse_unless_pinned_sha256``); any other file must not be sealed
+    (``refuse_sealed``). Returns the registered tag of a pinned export, None otherwise."""
     tag = spot_source_tag_of(path)
     if tag is None:
         refuse_sealed(path)
@@ -565,6 +581,7 @@ def guard_export_read(path) -> str | None:
     from germquant.benchmark.detector import guard_test
 
     guard_test([tag])
+    refuse_unless_pinned_sha256(path, tag)
     return tag
 
 
@@ -572,21 +589,28 @@ def guard_truth_read(paths, *, allow_test: bool = False) -> list[str]:
     """Before a truth-side read (the frame check, the xlsx spot source or the recorded earlier export of ``germquant
     imaris-truth``): a file of a registered gonad passes the role guard (train and val; test only with
     ``allow_test``, the pre-flight of docs/FINAL_SCORING.md), the pinned earlier export of a registered gonad
-    (``spot_source_tag_of``, protocol changelog entry 11) counts as that gonad's file, and any other file must not
-    be sealed (``refuse_sealed``). None entries are skipped. Returns the registered tags found. Raises before
-    anything is opened."""
+    (``spot_source_tag_of``, protocol changelog entry 11) counts as that gonad's file and, after the role guard, must
+    have the pinned sha256 (entry 12), and any other file must not be sealed (``refuse_sealed``). None entries are
+    skipped. Returns the registered tags found. Raises before anything is opened (a pinned export is hashed, never
+    parsed, before it passes)."""
     from germquant.benchmark.detector import guard_test
 
-    tags = []
+    tags, pinned = [], []
     for p in paths:
         if p is None:
             continue
-        tag = registered_tag_of(p) or spot_source_tag_of(p)
+        tag = registered_tag_of(p)
+        if tag is None:
+            tag = spot_source_tag_of(p)
+            if tag is not None:
+                pinned.append((p, tag))
         if tag is None:
             refuse_sealed(p)
         elif tag not in tags:
             tags.append(tag)
     guard_test(tags, allow_test=allow_test)
+    for p, tag in pinned:
+        refuse_unless_pinned_sha256(p, tag)
     return tags
 
 

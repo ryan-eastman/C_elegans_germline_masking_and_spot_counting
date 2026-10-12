@@ -27,6 +27,11 @@ SOURCES = ROOT / "tests" / "golden" / "rad51_spot_sources.json"
 TAG = "n2rad51_HS_male_000"
 RG2 = "n2rad51_HS_male_002"
 PIN_SHA = "0fbc41b7dc5dbf0a1ef0c87f367451635c0f7dfea1302e6dfc53b614082aca52"
+# the split file the record of entry 11 was made against (as registered; CRLF and LF). The record is data cited by
+# entry 11 and stays as committed when the split moves by the re-export of protocol section 4.1 (entry 10 (g)(8)):
+# these historical digests are pinned here, and the roles are checked live (protocol changelog entry 12)
+SPLIT_AT_ENTRY_11 = ("955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f",
+                     "989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85")
 
 
 def _record() -> dict:
@@ -39,8 +44,8 @@ def test_the_record_and_its_pins():
     assert [s["tag"] for s in rec["sources"]] == [TAG] and set(bs.SPOT_SOURCE_EXPORTS) == {TAG}
     assert rec["decided_by"]["reply"] == "9 yes"
     reg = rec["registered_split"]
-    assert reg["sha256"] == bs.REGISTERED_SPLIT_SHA256 and reg["sha256_lf"] == bs.REGISTERED_SPLIT_SHA256_LF
-    assert reg["roles_sha256"] == bs.roles_sha256() and bs.split_file_unchanged(SPLIT)   # the split does not change
+    assert (reg["sha256"], reg["sha256_lf"]) == SPLIT_AT_ENTRY_11            # the split the record was made against
+    assert reg["roles_sha256"] == bs.roles_sha256() and bs.split_file_unchanged(SPLIT)   # no role moved
     s = bs.spot_source_of(rec, TAG)
     assert s["export"]["name"] == "20251105_n2_hs_MALE_3.xlsx" and s["export"]["size_bytes"] == 15512227
     assert s["export"]["sha256"] == PIN_SHA == bs.SPOT_SOURCE_EXPORTS[TAG]["sha256"]
@@ -87,11 +92,33 @@ def test_validate_spot_sources_refuses(mutate, match):
         bs.validate_spot_sources(rec, bs.load_split(SPLIT))
 
 
+def test_load_spot_sources_validates(tmp_path):
+    """The CLI and the scripts read the record through load_spot_sources: a malformed record is refused there, with
+    and without the split (a source on the test male; an .ims that is not the split's)."""
+    rec = _record()
+    rec["sources"][0]["tag"] = "n2rad51_HS_male_001"
+    p = tmp_path / "rad51_spot_sources.json"
+    p.write_text(json.dumps(rec), encoding="utf-8")
+    with pytest.raises(ValueError, match="registered train gonad only"):
+        bs.load_spot_sources(p)
+    with pytest.raises(ValueError, match="registered train gonad only"):
+        bs.load_spot_sources(p, bs.load_split(SPLIT))
+    rec = _record()
+    rec["sources"][0]["ims"]["size_bytes"] += 1
+    p.write_text(json.dumps(rec), encoding="utf-8")
+    assert bs.load_spot_sources(p)["sources"][0]["tag"] == TAG                  # without the split: not compared
+    with pytest.raises(ValueError, match="not the registered one"):
+        bs.load_spot_sources(p, bs.load_split(SPLIT))
+
+
 def _pin(monkeypatch, tmp_path, tag=TAG, name="20251105_n2_hs_MALE_3.xlsx", data=b"export bytes") -> Path:
+    import hashlib
+
     tmp_path.mkdir(parents=True, exist_ok=True)
     p = tmp_path / name
     p.write_bytes(data)
-    monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {tag: {"name": name, "size_bytes": len(data), "sha256": "a" * 64}})
+    monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {tag: {"name": name, "size_bytes": len(data),
+                                                          "sha256": hashlib.sha256(data).hexdigest()}})
     return p
 
 
@@ -123,6 +150,40 @@ def test_the_guard_admits_exactly_the_pinned_export(tmp_path, monkeypatch):
         bs.guard_export_read(q)
     with pytest.raises(bd.TestSetGuardError):
         bs.guard_truth_read([q])
+
+
+def test_the_guard_refuses_the_pinned_name_and_size_with_other_bytes(tmp_path, monkeypatch):
+    """Entry 12: a file with the pinned name and size but other bytes (a renamed export of another gonad, say) is
+    hashed and refused by both guards before anything parses it; the role guard comes before the hash."""
+    from germquant.validate import imaris_xlsx as X
+
+    p = _pin(monkeypatch, tmp_path / "pin")
+    other = tmp_path / "other" / p.name
+    other.parent.mkdir()
+    other.write_bytes(b"EXPORT BYTES")                             # same name, same size, other bytes
+    assert other.stat().st_size == p.stat().st_size and bs.spot_source_tag_of(other) == TAG
+    opened = []
+    import openpyxl
+
+    def no_open(*a, **k):
+        opened.append(a)
+        raise AssertionError("the workbook was opened")
+
+    monkeypatch.setattr(openpyxl, "load_workbook", no_open)
+    with pytest.raises(PermissionError, match="not its sha256"):
+        bs.guard_export_read(other)
+    with pytest.raises(PermissionError, match="not its sha256"):
+        bs.guard_truth_read(["C:/x/20251105_n2_hs_MALE _.ims", other])
+    with pytest.raises(PermissionError, match="not its sha256"):
+        X.read_export_objects(other, spot_channel=2, mask_channel=3)
+    assert opened == []
+    assert bs.guard_export_read(p) == TAG                          # the pinned bytes still pass
+    hashed = []
+    monkeypatch.setattr(bs, "file_sha256", lambda path, *a, **k: hashed.append(path) or "0" * 64)
+    q = _pin(monkeypatch, tmp_path / "t", tag="n2rad51_HS_male_001")
+    with pytest.raises(bd.TestSetGuardError):                      # a test tag is refused before it is hashed
+        bs.guard_export_read(q)
+    assert hashed == []
 
 
 def test_the_export_reader_uses_the_guard(tmp_path, monkeypatch):

@@ -282,33 +282,51 @@ Surfaces settings entry 9 (d)(4) compares with sections 4.1 and 4.2 of the proto
 
     germquant imaris-truth "<project>.ims" --out <folder> --nd2 "<image>.nd2" --spot-source tests/golden/rad51_spot_sources.json
 
-For a registered TRAIN gonad whose saved Spots object is not the curated set but whose curated spots survive in an
-earlier Imaris statistics export of the same project (n2rad51_HS_male_000: 772,485 unthresholded candidates in the
-.ims, the curated 7,628 in its 2025-12-31 export `20251105_n2_hs_MALE_3.xlsx`), `--spot-source` takes the gonad's
-entry from the record of entry 11 (`benchmark_split.load_spot_sources`) and builds the spot truth from the export
-without replacing the .ims as the file of record:
+For a registered TRAIN gonad whose saved Spots object is not the thresholded, classified set but whose thresholded,
+classified spots survive in an Imaris statistics export of the same project (n2rad51_HS_male_000: 772,485
+unthresholded candidates in the .ims, a subset of 7,628 with classes in its 2025-12-31 export
+`20251105_n2_hs_MALE_3.xlsx`; the .ims was saved again on 2026-01-21, after that export), `--spot-source` takes the
+gonad's entry from the record of entry 11 (`benchmark_split.load_spot_sources`, checked against the split record,
+`--split-file`, by default `rad51_split.json` next to the record) and builds the spot truth from the export without
+replacing the .ims as the file of record. "Curated" in the record and in entry 11 is an inference from the
+thresholded subset and from the class counts the project's own classifier reproduces; the Quality threshold of
+the 7,628 is stored in neither file, and the settings the export was made with are not recorded (protocol
+changelog entry 12):
 
-* the guard: the project must be the gonad's registered one (by its stem), the export is admitted only as the file
-  pinned in code (`benchmark_split.SPOT_SOURCE_EXPORTS`: name and size before anything is read, sha256 when it is
-  read), behind the role guard (a train gonad); the 2025-12-31 exports of the other heat-shock males stay sealed,
-  and `--pre-flight` is refused;
+* the guard: the project must be the gonad's registered one (by its stem) and have the size the source records
+  (before it is opened); the export is admitted only as the file pinned in code
+  (`benchmark_split.SPOT_SOURCE_EXPORTS`: name and size without reading a byte, then the role guard, a train
+  gonad, then its sha256, all before anything parses it; entry 12); the 2025-12-31 exports of the other heat-shock
+  males stay sealed, and `--pre-flight` is refused;
 * the spots: the .ims spots the export names, matched one to one by position within 0.005 um (the export
   renumbers the IDs and writes positions to 0.001 um), with their .ims IDs, positions and radius, in the .ims's
   order, converted with the frame the check of entry 9 (d)(3) chooses on the .ims's own spots (the frame check is
   implied); the class from the project's own one-dimensional classification (`classification_rule`: Class A below
   the threshold stored in the Spots creation parameters, Class B at or above) applied to the Average Distance To
-  3 Nearest Neighbours recomputed among the matched spots (`average_distance_to_neighbours`), not to the export's
-  rounded sheet (on n2rad51_HS_male_000 the rounded values move one spot across 4.11504 um); `imaris_mask_label`
+  3 Nearest Neighbours recomputed among the matched .ims positions (`average_distance_to_neighbours`). Those
+  positions are float32 and lie within 0.0013 um of the positions the export was made from, so the recomputed
+  distances are not the export's own values unrounded; on n2rad51_HS_male_000 they differ from the written values by
+  -0.00097 to +0.00059 um. They are therefore checked spot by spot against the export (E8 below); `imaris_mask_label`
   the export's per-spot Intensity Max of the mask channel; `spots_object` "Spots 1 (export subset)";
-* the checks, in `spots_source.verification`: E1 the sha256 is the pinned one; E2 the Overall totals and class
-  counts and the Position sheet hold the recorded numbers, and the image's voxel count is the .ims's; E3 the
-  export's surfaces equal the .ims Surfaces one to one (position within 0.005 um, volume within 0.0005 um^3, half
-  the export's last digit, plus two float32 steps; the mask Intensity Max equal); E4 every truth spot inside the
-  image; E5 the Intensity Center test on the export's own values chooses the frame of the .ims spots; E6 every spot
-  at the recorded diameter (0.4 x 0.4 x 0.9 um: region growing off by the rule of protocol section 4.1); E7 the
-  position match is one to one, every export spot within 0.005 um of exactly one .ims spot; E8 the classification
-  reproduces the export's Overall class counts; E9 the export's mask Intensity Max equals the .ims's for every
-  matched spot; E10 the section 4.4 agreement at least 99.35 percent. `passed` is true only when all ten pass;
+* the checks, in `spots_source.verification`: E1 the export's sha256 is the pinned one and the .ims's the one the
+  source records (entry 12; hashed before the .ims is opened); E2 the Overall totals and class counts and the
+  Position sheet hold the recorded numbers, and the image's voxel count is the .ims's; E3 the export's surfaces
+  equal the .ims Surfaces one to one (position within 0.005 um, volume within 0.0005 um^3, half the export's last
+  digit, plus two float32 steps; the mask Intensity Max equal); E4 every truth spot inside the image; E5 the
+  Intensity Center test on the export's own values chooses the frame of the .ims spots; E6 every spot at the
+  recorded diameter within 1e-6 um (0.4 x 0.4 x 0.9 um: no region-grown sizes. Protocol section 4.1 has no rule
+  that reads the export settings from the diameter, and the settings are not recorded: the registered .ims's own
+  flag says region growing on while its saved spots are also constant); E7 the position match is one to one, every
+  export spot within 0.005 um of exactly one .ims spot; E8 the classification reproduces the export's Overall class
+  counts and, spot by spot, the classes the export alone forces (`classes_from_written_values`, entry 12: a spot
+  whose written distance lies more than 0.0005 um plus two float32 steps from the threshold takes the class of
+  that value, and the Overall counts must give the remaining spots one class; on n2rad51_HS_male_000 one spot is
+  left, export ID 386332, written 4.115 against 4.11504, and the counts make it Class B, which the recomputed
+  distance 4.115152 also gives); E9 the export's mask Intensity Max equals the .ims's for every matched spot (the
+  independent check of the mask label: the truth's `imaris_mask_label` is the export's, so the per-surface coloc
+  join of `scripts/check_truth_assignment.py --spot-sources` compares the export with itself); E10 the section 4.4
+  agreement at least 99.35 percent. `passed` is true only when all ten pass. The params of entry 11 (written at
+  e187f8b) carry the earlier E1 and E8 (no .ims digest, totals only) and the earlier wording of E6's rule;
 * the files: the four truth files as always (the nuclei and the label image from the .ims, which must equal the
   registered export of the project: `scripts/check_truth_assignment.py --spot-sources` compares them) and
   `spot_source_id_map.csv` (export ID, .ims ID, match distance, the recomputed and the exported 3-neighbour
@@ -349,7 +367,13 @@ The recorded earlier export (entry 11): the classification parsed from a creatio
 boundary (4.115 rounded falls below 4.11504, 4.115243 above), the 3-neighbour distance, the one-to-one position
 match (a spot taken twice, an ambiguous second neighbour, a spot beyond the tolerance), the volume rule of E3; on
 the synthetic project under n2rad51_HS_male_000's registered stem with an export that renumbers the IDs, rounds the
-positions and carries a misleading distance sheet: every criterion passes, the truth spots carry the .ims IDs and
-the recomputed classes, and the nuclei equal the plain export's; E1, E2, E3, E5, E6, E7, E8, E9 and E10 each fail
-alone on a defect of their own; another gonad's project, an export of another size than the pin and two spot
-sources at once are refused before anything is opened.
+positions and writes one distance within half a digit of the threshold on the wrong side: every criterion passes,
+the truth spots carry the .ims IDs and the recomputed classes, and the nuclei equal the plain export's; E1, E2, E3,
+E5, E6, E7, E8, E9 and E10 each fail alone on a defect of their own. Added with protocol changelog entry 12: E1 on
+an .ims digest that is not the recorded one; E2 alone when the record expects other class counts than the
+export's Overall; E8 alone on a compensating swap of two written distances and on a sheet that says 99 for every
+spot; E4 alone in `export_subset_spots` on a 1 x 1 x 1 image; `classes_from_written_values` (one spot within half
+a digit resolved by the counts, two left open, counts that do not fit, a missing value, values just beyond the
+tolerance). Refused before anything is opened: another gonad's project, an export of another size than the pin, an
+export with the pinned name and size but other bytes (hashed, never parsed), a project of another size than the
+source records, and two spot sources at once.
