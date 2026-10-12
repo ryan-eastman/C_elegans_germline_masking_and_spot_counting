@@ -16,6 +16,11 @@ another session added to train in a record of their own. With the file, they are
 their spot truth may be used), after the split's own train gonads, in record order. The model card names
 every session a model was trained on.
 
+The recorded spot sources of protocol changelog entry 11 (tests/golden/rad51_spot_sources.json): a registered train
+gonad whose manifest entry takes its spot truth from a pinned earlier export (n2rad51_HS_male_000) is decided by the
+manifest's ``spot_truth_usable``, not by the split's region-growing flag, which describes the .ims's saved Spots
+object that this truth does not use.
+
 What is learned. data.py: Gaussian heatmap targets at the Class A spots, Class B ignored, the loss
 masked to the germline and down-weighted outside the traced coverage. The loss is the weighted binary
 cross-entropy of the logits against the targets, normalised by the summed weight of the batch.
@@ -295,6 +300,16 @@ def resolve_gonads(split_file, manifest, additions_file=None) -> dict:
             sessions[t] = g.get("session")
             # the spot source of an addition may be the xlsx export (entry 9 (e)); the manifest decides
             rg[t] = bool((g.get("ims") or {}).get("region_growing")) and (g.get("spot_truth") or {}).get("source") == "ims"
+    # a registered train gonad whose spot truth comes from its recorded earlier export (protocol changelog entry 11,
+    # the export pinned in benchmark_split.SPOT_SOURCE_EXPORTS): the split's region-growing flag describes the
+    # .ims's saved Spots object, which that truth does not use, so the manifest decides
+    from germquant.validate.benchmark_split import SPOT_SOURCE_EXPORTS, SPOT_SOURCE_KIND
+
+    for t, e in entries.items():
+        src = e.extra.get("spot_truth_source") or {}
+        if (src.get("kind") == SPOT_SOURCE_KIND and t in SPOT_SOURCE_EXPORTS
+                and (src.get("export") or {}).get("sha256") == SPOT_SOURCE_EXPORTS[t]["sha256"]):
+            rg[t] = False
     out = {"train": [], "val": [], "test": [], "excluded": [], "roles": roles, "entries": entries,
            "sessions": sessions}
     for t, role in roles.items():

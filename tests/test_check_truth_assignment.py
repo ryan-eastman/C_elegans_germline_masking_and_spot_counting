@@ -86,3 +86,57 @@ def test_the_additions_checks_refuse_a_test_gonad(tmp_path):
     with pytest.raises(TestSetGuardError):
         mod.main(["--manifest", str(manifest), "--tags", "n2rad51_HS_male_001",
                   "--additions", str(ROOT / "tests" / "golden" / "rad51_additions.json")])
+
+
+def test_like_for_like_agreement():
+    """Entry 10 (b): the spots whose mask-channel value is no kept truth label (here the one on a removed fragment)
+    taken out of both the count and the total."""
+    mod = _load()
+    lab = np.zeros((10, 20, 20), np.int32)
+    lab[2:8, 2:12, 2:12] = 5
+    lab[0, 0, 0] = 7
+    spots = pd.DataFrame({"zi": [4, 4, 0, 9], "yi": [5, 0, 0, 19], "xi": [5, 19, 0, 19],
+                          "imaris_mask_label": [5, 0, 7, 5]})
+    r = mod.check_gonad(lab, spots, min_voxels=100)
+    assert r["agreement"] == pytest.approx(0.5) and r["n_coloc_on_removed_fragment"] == 1
+    assert r["agreement_like_for_like"] == pytest.approx(2 / 3)
+    assert "agreement_like_for_like" in mod.COLUMNS
+
+
+def test_nucleus_truth_equal_compares_table_and_labels(tmp_path):
+    """Entry 11: the nucleus truth of the export from the recorded source against the registered export."""
+    import tifffile
+
+    mod = _load()
+    stem = "20251105_n2_hs_MALE _"
+    lab = np.zeros((3, 4, 5), np.int32)
+    lab[1, 1:3, 1:4] = 9
+    nuc = pd.DataFrame({c: [1] for c in mod.NUCLEUS_CONTRACT_COLUMNS})
+    for d in ("new", "reg"):
+        (tmp_path / d).mkdir()
+        nuc.to_csv(tmp_path / d / f"{stem}__imaris_nuclei.csv", index=False)
+        tifffile.imwrite(str(tmp_path / d / f"{stem}__imaris_labels.tif"), lab)
+    r = mod.nucleus_truth_equal(tmp_path / "new", tmp_path / "reg", stem)
+    assert r["nucleus_truth_nuclei_equal_registered"] and r["nucleus_truth_labels_equal_registered"]
+    lab2 = lab.copy()
+    lab2[0, 0, 0] = 9
+    tifffile.imwrite(str(tmp_path / "new" / f"{stem}__imaris_labels.tif"), lab2)
+    nuc.assign(volume_um3=2).to_csv(tmp_path / "new" / f"{stem}__imaris_nuclei.csv", index=False)
+    r = mod.nucleus_truth_equal(tmp_path / "new", tmp_path / "reg", stem)
+    assert not r["nucleus_truth_nuclei_equal_registered"] and not r["nucleus_truth_labels_equal_registered"]
+
+
+def test_the_spot_source_checks_refuse_a_test_gonad(tmp_path):
+    """Entry 11: with --spot-sources a test gonad is refused before any truth file is read."""
+    import json
+
+    from germquant.benchmark.detector import TestSetGuardError
+
+    mod = _load()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"gonads": [
+        {"tag": "n2rad51_noHS_male_002", "split": "test", "role": "test", "results_dir": str(tmp_path / "r"),
+         "truth_dir": str(tmp_path / "missing"), "stem": "20251105_N2_nohs_MALE _002"}]}), encoding="utf-8")
+    with pytest.raises(TestSetGuardError):
+        mod.main(["--manifest", str(manifest), "--tags", "n2rad51_noHS_male_002",
+                  "--spot-sources", str(ROOT / "tests" / "golden" / "rad51_spot_sources.json")])

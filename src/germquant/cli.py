@@ -251,6 +251,11 @@ def main(argv: list[str] | None = None) -> int:
                      help="with --frame-check: allow a test gonad of the registered split (only in the pre-flight of "
                           "docs/FINAL_SCORING.md, the Intensity Center test of each test gonad, no metric); without "
                           "it a test gonad and any sealed file are refused before anything is opened")
+    pit.add_argument("--spot-source", default=None, metavar="RECORD",
+                     help="the spot-sources record of protocol changelog entry 11 (tests/golden/rad51_spot_sources.json): "
+                          "take the spots of this registered train gonad from its recorded earlier export (the .ims "
+                          "spots it names, matched by position, classes by the project's own rule) and verify them "
+                          "(criteria E1 to E10 in the params JSON); implies --frame-check; never a test gonad")
 
     pe = sub.add_parser("export-training",
                         help="write paired 2D training slices (image/ and labels/ TIFs plus manifest.csv) from the "
@@ -1217,9 +1222,21 @@ def _imaris_truth(args) -> int:
     if args.spots_xlsx:
         expect = {"sha256": args.xlsx_expect_sha256, "n_spots": args.xlsx_expect_spots,
                   "n_surfaces": args.xlsx_expect_surfaces}
+    source = None
+    if getattr(args, "spot_source", None):
+        from .validate.benchmark_split import load_spot_sources, registered_tag_of, spot_source_of
+
+        if args.pre_flight:
+            print("--spot-source is for a registered train gonad; it does not go with --pre-flight")
+            return 2
+        tag = registered_tag_of(args.ims)
+        source = spot_source_of(load_spot_sources(args.spot_source), tag) if tag else None
+        if source is None:
+            print(f"{args.ims}: the record {args.spot_source} holds no spot source for this project")
+            return 2
     p = export_imaris_truth(args.ims, args.out, nd2=args.nd2, masks=not args.no_masks,
                             frame_check_on=args.frame_check, spots_xlsx=args.spots_xlsx, xlsx_expect=expect,
-                            allow_test=args.pre_flight)
+                            allow_test=args.pre_flight, spot_source=source)
     m = p["mask"]
     line = f"{p['stem']}: {p['n_spots']} spots, {p['n_surfaces']} surfaces"
     if m.get("labels_file"):
@@ -1244,6 +1261,11 @@ def _imaris_truth(args) -> int:
         print(f"  xlsx spots (entry 9 (e)): {'VERIFIED' if ver.get('passed') else 'NOT VERIFIED'}: "
               + ", ".join(f"{k.split('_')[0]} {'pass' if v.get('passes') else 'FAIL'}" for k, v in ver.items()
                           if k.startswith("V")))
+    elif src.get("source") == "earlier_export_subset":
+        ver = src["verification"]
+        print(f"  recorded spot source (entry 11): {'VERIFIED' if ver.get('passed') else 'NOT VERIFIED'}: "
+              + ", ".join(f"{k.split('_')[0]} {'pass' if v.get('passes') else 'FAIL'}" for k, v in ver.items()
+                          if k.startswith("E")))
     for w in p["warnings"]:
         print(f"  warning: {w}")
     print(f"  -> {args.out}")

@@ -95,8 +95,10 @@ SPOTMAX_ABBR = {"threshold_triangle": "tri", "threshold_otsu": "otsu", "threshol
 def logo_folds(entries, *, cache_root=None, require_cache: bool = True) -> list[dict]:
     """The leave-one-gonad-out folds of protocol section 6.2 for the spot detectors (module docstring).
     ``entries`` is the manifest (a list of ``Entry``); roles come from the pre-registration
-    (``detector.entry_role``). Only train and val gonads with usable spot truth (and, with
-    ``require_cache``, a bench cache) take part; a test gonad never does. Returns one fold per gonad in
+    (``detector.entry_role``). Only train and val gonads with usable spot truth (the manifest's
+    ``spot_truth_usable``: region growing off, the decisions of protocol changelog entries 10 and 11, and a
+    registered train gonad's recorded earlier export of entry 11, as for n2rad51_HS_male_000) and, with
+    ``require_cache``, a bench cache take part; a test gonad never does. Returns one fold per gonad in
     sorted tag order: ``held_out``, its ``role`` and ``condition``, the fold's ``train`` and ``val``
     gonads, and ``substitute`` (the registered train gonad that stands in for a held-out val gonad, or None;
     an addition of entry 9 never does)."""

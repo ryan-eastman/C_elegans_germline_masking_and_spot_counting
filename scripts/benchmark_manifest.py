@@ -4,7 +4,8 @@
         [--split tests/golden/rad51_split.json] [--results-root C:/Users/ryane/germquant_golden/8666f07]
         [--out benchmarks] [--truth-file masks={stem}__imaris_labels.tif ...]
         [--additions tests/golden/rad51_additions.json --additions-results-root DIR
-         --truth-check CSV --spot-truth-decisions tests/golden/rad51_additions_decisions.json]
+         --truth-check CSV [CSV ...] --spot-truth-decisions tests/golden/rad51_additions_decisions.json]
+        [--spot-sources tests/golden/rad51_spot_sources.json --spot-sources-truth-root DIR]
         [--manifest-file NAME.json]
 
 One entry per gonad: the split role, condition and sex, the .nd2 and .ims (exists, size matches the
@@ -26,6 +27,15 @@ checks (the frame check of the truth params, the xlsx verification), then the de
 (--spot-truth-decisions, the committed decisions file), else the section 4.4 agreement of --truth-check (the
 --out table of scripts/check_truth_assignment.py) of at least 99.35 percent. Without either option no
 addition sourced from its .ims is usable. Both files are recorded with their sha256 (spot_truth_inputs).
+--truth-check takes several tables (the additions' of entry 10 and the spot sources' of entry 11); a gonad may have
+a row in one of them only.
+
+--spot-sources (the record of protocol changelog entry 11) changes only the registered train gonads it names: their
+truth files are read from --spot-sources-truth-root/<tag>/ (the export from the recorded earlier export, written by
+germquant imaris-truth --spot-source), and their spot_truth_usable follows
+benchmark_split.spot_source_truth_usable: the export's own checks (E1 to E9 and the frame check), then a changelog
+decision, else the section 4.4 agreement of --truth-check of at least 99.35 percent. Every other registered entry
+stays as without it. The record is recorded with its sha256 (spot_sources_file).
 --manifest-file names the file written in <out>/<name>/ (default manifest.json): a revised
 manifest goes next to the registered one under another name, so trials.jsonl and final_runs.jsonl, which the
 scoring scripts find next to the manifest, stay the same files.
@@ -56,8 +66,13 @@ def main(argv=None) -> int:
     ap.add_argument("--additions", default=None, help="the additions record of protocol changelog entry 9")
     ap.add_argument("--additions-results-root", default=None,
                     help="pipeline outputs of the additions, one folder per tag (default: --results-root)")
-    ap.add_argument("--truth-check", default=None, metavar="CSV",
-                    help="with --additions: the section 4.4 table of scripts/check_truth_assignment.py --out")
+    ap.add_argument("--truth-check", default=None, metavar="CSV", nargs="+",
+                    help="with --additions or --spot-sources: the section 4.4 table(s) of "
+                         "scripts/check_truth_assignment.py --out")
+    ap.add_argument("--spot-sources", default=None, metavar="JSON",
+                    help="the spot-sources record of protocol changelog entry 11 (tests/golden/rad51_spot_sources.json)")
+    ap.add_argument("--spot-sources-truth-root", default=None, metavar="DIR",
+                    help="with --spot-sources: the truth exports from the recorded sources, one folder per tag")
     ap.add_argument("--spot-truth-decisions", default=None, metavar="JSON",
                     help="with --additions: the decisions file of a changelog entry on the additions' spot "
                          "truth (tests/golden/rad51_additions_decisions.json, entry 10)")
@@ -72,14 +87,24 @@ def main(argv=None) -> int:
             ap.error(f"--truth-file expects KIND=PATTERN, got {item!r}")
         overrides[kind] = pattern
 
-    if (args.truth_check or args.spot_truth_decisions) and not args.additions:
+    if args.spot_truth_decisions and not args.additions:
         ap.error("--truth-check and --spot-truth-decisions need --additions")
+    if args.truth_check and not (args.additions or args.spot_sources):
+        ap.error("--truth-check needs --additions or --spot-sources")
+    if bool(args.spot_sources) != bool(args.spot_sources_truth_root):
+        ap.error("--spot-sources and --spot-sources-truth-root go together")
     split = bs.load_split(args.split)
     additions = bs.load_additions(args.additions) if args.additions else None
+    sources = bs.load_spot_sources(args.spot_sources, split) if args.spot_sources else None
+    truth_check = None
+    if args.truth_check:
+        truth_check = args.truth_check[0] if len(args.truth_check) == 1 else list(args.truth_check)
     manifest = bs.build_manifest(split, args.results_root, args.truth_root, name=args.name,
                                  truth_files=overrides or None, split_path=args.split, additions=additions,
                                  additions_results_root=args.additions_results_root, additions_path=args.additions,
-                                 truth_check=args.truth_check, spot_truth_decisions=args.spot_truth_decisions)
+                                 truth_check=truth_check, spot_truth_decisions=args.spot_truth_decisions,
+                                 spot_sources=sources, spot_sources_path=args.spot_sources,
+                                 spot_sources_truth_root=args.spot_sources_truth_root)
     out = bs.write_manifest(manifest, args.out, args.manifest_file)
 
     print(f"{'tag':28s} {'role':5s} {'outputs':8s} {'truth':8s} {'spot truth':10s}")
@@ -87,7 +112,7 @@ def main(argv=None) -> int:
         outputs = "complete" if e["outputs_complete"] else "missing"
         truth = "complete" if e["truth_complete"] else ("partial" if e["truth"]["found"] else "missing")
         usable = "usable" if e["spot_truth_usable"] else "excluded"
-        reason = f"  {e['spot_truth_reason']}" if e.get("addition") else ""
+        reason = f"  {e['spot_truth_reason']}" if e.get("spot_truth_reason") else ""
         print(f"{e['tag']:28s} {e['role']:5s} {outputs:8s} {truth:8s} {usable:10s}{reason}")
     s = manifest["summary"]
     print(f"wrote {out}: {s['n_gonads']} gonads, outputs complete for {len(s['outputs_complete'])}, "

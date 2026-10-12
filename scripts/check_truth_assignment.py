@@ -1,7 +1,7 @@
 """Protocol section 4.4: check the geometric spot-to-nucleus assignment of the truth against the lab's own.
 
     python scripts/check_truth_assignment.py [--manifest PATH] [--tags TAG ...] [--out CSV]
-        [--additions tests/golden/rad51_additions.json]
+        [--additions tests/golden/rad51_additions.json] [--spot-sources tests/golden/rad51_spot_sources.json]
 
 The benchmark assigns a truth spot to a traced nucleus geometrically (``assign_to_masks``: the recovered
 mask label at the spot's centre voxel, else the most frequent label in its 3 x 3 x 3 neighbourhood, with mask
@@ -19,6 +19,17 @@ mask channel's Intensity Max, the value of their surface) against the same join 
 the geometric assignment, per surface; and the xlsx spot positions against the truth spots (by ID, then one
 to one by position within 0.005 um). Only the additions' own exports are read (never a 2025-11-05 file), and with
 --additions a test gonad is refused before anything is read (protocol changelog entry 10).
+
+--spot-sources (the record of protocol changelog entry 11, tests/golden/rad51_spot_sources.json) does the same for
+every checked registered train gonad whose spot truth comes from a recorded earlier export (the manifest's
+``spot_truth_source``): the cross-checks against that export (read through the guard, which admits only the pinned
+file), and the nucleus truth of the new export against the registered one (``registered_truth_dir`` of the
+manifest): the nuclei table equal in every contract column and the label image equal voxel for voxel. With
+--spot-sources a test gonad is refused before anything is read.
+
+Every row carries ``agreement_like_for_like`` (protocol changelog entry 10 (b)): the agreement with the spots whose
+mask-channel value is no kept truth label (a removed fragment, or a nucleus present in the mask channel but deleted
+from the Surfaces) taken out of both the count and the total. It is reported; no rule uses it.
 
 Its --out table is the section 4.4 input of scripts/benchmark_manifest.py --truth-check.
 """
@@ -39,7 +50,8 @@ from germquant.benchmark.manifest import load_manifest, truth_file_names  # noqa
 from germquant.benchmark.spots import TRUTH_MASK_MIN_VOXELS, assign_to_masks, truth_mask_lut  # noqa: E402
 
 COLUMNS = ["tag", "split", "n_spots", "n_agree", "n_agree_assigned", "n_geometric_only", "n_coloc_only",
-           "n_both_different", "n_coloc_on_removed_fragment", "agreement", "coloc_label_column"]
+           "n_both_different", "n_coloc_on_removed_fragment", "agreement", "coloc_label_column",
+           "agreement_like_for_like"]
 
 
 def check_gonad(truth_labels: np.ndarray, spots: pd.DataFrame, *, min_voxels: int = TRUTH_MASK_MIN_VOXELS) -> dict:
@@ -63,8 +75,33 @@ def check_gonad(truth_labels: np.ndarray, spots: pd.DataFrame, *, min_voxels: in
         "n_coloc_on_removed_fragment": int(on_frag.sum()),
         "agreement": float(agree.mean()) if len(spots) else float("nan"),
         "coloc_label_column": True,
+        "agreement_like_for_like": (float(agree.sum() / (len(spots) - on_frag.sum()))
+                                    if len(spots) > int(on_frag.sum()) else float("nan")),
         "fragments_removed": [int(v) for v in frag],
     }
+
+
+NUCLEUS_CONTRACT_COLUMNS = ["surface_id", "label", "x_um", "y_um", "z_um", "xi", "yi", "zi", "volume_um3",
+                            "n_voxels_mask", "imaris_x_um", "imaris_y_um", "imaris_z_um"]
+
+
+def nucleus_truth_equal(new_dir: Path, registered_dir: Path, stem: str) -> dict:
+    """Protocol changelog entry 11: the nucleus truth of an export from a recorded spot source against the
+    registered export of the same .ims: the nuclei table equal in every contract column, and the label image equal
+    voxel for voxel (with its shape and dtype)."""
+    import tifffile
+
+    names = truth_file_names(stem)
+    a = pd.read_csv(Path(new_dir) / names["nuclei"])
+    b = pd.read_csv(Path(registered_dir) / names["nuclei"])
+    cols = [c for c in NUCLEUS_CONTRACT_COLUMNS if c in a.columns and c in b.columns]
+    nuclei_equal = bool(len(cols) == len(NUCLEUS_CONTRACT_COLUMNS) and len(a) == len(b)
+                        and a[cols].reset_index(drop=True).equals(b[cols].reset_index(drop=True)))
+    la = tifffile.imread(str(Path(new_dir) / names["labels"]))
+    lb = tifffile.imread(str(Path(registered_dir) / names["labels"]))
+    labels_equal = bool(la.shape == lb.shape and la.dtype == lb.dtype and np.array_equal(la, lb))
+    return {"nucleus_truth_nuclei_equal_registered": nuclei_equal, "nucleus_truth_labels_equal_registered": labels_equal,
+            "nucleus_truth_n_nuclei": int(len(a)), "nucleus_truth_n_nuclei_registered": int(len(b))}
 
 
 POSITION_TOL_UM = 0.005
@@ -130,21 +167,29 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", help="write the per-gonad table here (CSV)")
     ap.add_argument("--additions", default=None,
                     help="the additions record of protocol changelog entry 9: cross-check each addition's xlsx export")
+    ap.add_argument("--spot-sources", default=None,
+                    help="the spot-sources record of protocol changelog entry 11: cross-check each recorded earlier "
+                         "export and compare the nucleus truth with the registered export")
     a = ap.parse_args(argv)
     entries = load_manifest(a.manifest)
-    additions = {}
+    additions, sources = {}, {}
     if a.additions:
         from germquant.validate.benchmark_split import load_additions
 
         additions = {g["tag"]: g for g in load_additions(a.additions)["gonads"]}
+    if a.spot_sources:
+        from germquant.validate.benchmark_split import load_spot_sources
+
+        sources = {s["tag"]: s for s in load_spot_sources(a.spot_sources)["sources"]}
     if a.tags:
         want = set(a.tags)
         entries = [e for e in entries if e.tag in want]
     else:
         entries = [e for e in entries if e.split in ("train", "val")]
-    if a.additions:
-        # the additions' checks never read a test gonad (protocol changelog entry 10); the test gonads are checked
-        # only in the pre-flight of docs/FINAL_SCORING.md, by naming them with --tags and without --additions
+    if a.additions or a.spot_sources:
+        # the additions' and the spot sources' checks never read a test gonad (protocol changelog entries 10 and 11);
+        # the test gonads are checked only in the pre-flight of docs/FINAL_SCORING.md, by naming them with --tags
+        # and without --additions or --spot-sources
         bd.guard_test([e.tag for e in entries], roles={e.tag: e.split for e in entries})
     rows = []
     import tifffile
@@ -161,8 +206,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{e.tag:24s} {e.split:5s} spots {r['n_spots']:7d}  agree {r.get('agreement', float('nan')):.4f}  "
               f"geometric-only {r.get('n_geometric_only', '-')}  coloc-only {r.get('n_coloc_only', '-')}  "
               f"different {r.get('n_both_different', '-')}  on removed fragment {r.get('n_coloc_on_removed_fragment', '-')}")
+        print(f"    like for like (entry 10 (b)): {r.get('agreement_like_for_like', float('nan')):.4f}")
         g = additions.get(e.tag)
+        s = sources.get(e.tag)
+        export, use = None, None
         if g is not None and g.get("xlsx"):
+            export, use = g["xlsx"]["path"], g["xlsx"].get("use")
+        elif s is not None and e.extra.get("spot_truth_source"):
+            export, use = s["export"]["path"], "recorded earlier export (entry 11)"
+            reg = e.extra.get("registered_truth_dir")
+            if reg:
+                eq = nucleus_truth_equal(Path(e.truth_dir), Path(reg), e.truth_stem)
+                r.update(eq)
+                print(f"    nucleus truth against the registered export ({reg}): nuclei table equal "
+                      f"{eq['nucleus_truth_nuclei_equal_registered']}, label image equal "
+                      f"{eq['nucleus_truth_labels_equal_registered']}")
+        if export is not None:
             from germquant.validate.imaris_xlsx import read_export_objects
 
             params = {}
@@ -172,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
                 params = json.loads((Path(e.truth_dir) / names["params"]).read_text(encoding="utf-8"))
             src = (params.get("frame_check") or {}).get("spot_channel")
             mask = (params.get("mask") or {}).get("channel")
-            xl = read_export_objects(g["xlsx"]["path"], spot_channel=int(src if src is not None else 2),
+            xl = read_export_objects(export, spot_channel=int(src if src is not None else 2),
                                      mask_channel=int(mask if mask is not None else 3))
             nuclei = pd.read_csv(Path(e.truth_dir) / names["nuclei"])
             xc = xlsx_cross_check(labels, spots, nuclei, xl)
@@ -181,8 +240,8 @@ def main(argv: list[str] | None = None) -> int:
                 per.assign(tag=e.tag).to_csv(Path(a.out).with_name(Path(a.out).stem + f"__{e.tag}__xlsx_per_surface.csv"),
                                              index=False)
             r.update({f"xlsx_{k}": v for k, v in xc.items()})
-            r["xlsx_use"] = g["xlsx"].get("use")
-            print(f"    xlsx ({g['xlsx'].get('use')}): {xc['n_xlsx_spots']} spots, {xc['n_xlsx_surfaces']} surfaces; "
+            r["xlsx_use"] = use
+            print(f"    xlsx ({use}): {xc['n_xlsx_spots']} spots, {xc['n_xlsx_surfaces']} surfaces; "
                   f"per-surface coloc equal {xc.get('n_surfaces_coloc_equal')}, geometric equal "
                   f"{xc.get('n_surfaces_geometric_equal')}; spot IDs common {xc['n_spot_ids_common']} "
                   f"(only xlsx {xc['n_spot_ids_only_xlsx']}, only truth {xc['n_spot_ids_only_truth']}), one to one "

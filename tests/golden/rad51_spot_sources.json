@@ -1,0 +1,51 @@
+{
+ "name": "n2rad51_spot_sources",
+ "changelog_entry": 11,
+ "recorded_on": "2026-10-12",
+ "protocol": "docs/BENCHMARK_PROTOCOL.md",
+ "description": "Registered train gonads whose spot truth comes from a recorded earlier Imaris statistics export of their own project instead of the spots saved in the registered .ims (protocol changelog entry 11). Read by germquant imaris-truth --spot-source, scripts/check_truth_assignment.py --spot-sources and scripts/benchmark_manifest.py --spot-sources (germquant.validate.benchmark_split.load_spot_sources). The split file tests/golden/rad51_split.json does not change and no role moves (rule 4); the .ims, its surfaces and the nucleus truth stay the registered ones. Each export is pinned in code (benchmark_split.SPOT_SOURCE_EXPORTS) by name, size and sha256; the guard admits exactly that file. This is an earlier curated export, not the re-export of section 4.1: the spots it names are a position-exact subset of the spots of the registered .ims.",
+ "registered_split": {
+  "path": "tests/golden/rad51_split.json",
+  "sha256": "955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f",
+  "sha256_lf": "989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85",
+  "roles_sha256": "32e2ee0b4a0dc193fe941b995449447d11004a377289e5ce8e3eda5af5ddec00",
+  "unchanged": true
+ },
+ "decided_by": {
+  "question": "Use HS_male_000's recovered spots in training? Its old 2025-12-31 export holds a clean set with region growing off, so it needs no Imaris work. I recommend yes.",
+  "reply": "9 yes",
+  "date": "2026-10-12"
+ },
+ "sources": [
+  {
+   "tag": "n2rad51_HS_male_000",
+   "role": "train",
+   "stem": "20251105_n2_hs_MALE _",
+   "kind": "earlier_export_subset",
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _.ims",
+    "size_bytes": 2766364995,
+    "sha256": "1f8df1b381f64e1a4c711de33b689681e1db9998882753f366836b035ec0f60e",
+    "saved_spots_object": "Spots 1: 772,485 unthresholded, unclassified candidates, every one at radius 0.2 um; creation parameters say region growing on and Quality 13.358, and hold the classification (Average Distance To 3 Nearest Neighbours, Class A below 4.11504 um, Class B at or above)"
+   },
+   "export": {
+    "name": "20251105_n2_hs_MALE_3.xlsx",
+    "path": "C:/Users/ryane/germquant_inventory/decision1_check/20251105_n2_hs_MALE_3.xlsx",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/202511_imaris_export_het_mutants_Crest/20251105_n2_hs_MALE_3.xlsx",
+    "size_bytes": 15512227,
+    "sha256": "0fbc41b7dc5dbf0a1ef0c87f367451635c0f7dfea1302e6dfc53b614082aca52",
+    "written": "2025-12-31 12:18",
+    "copy": "the local path is a byte-identical copy of the NAS file (same size and sha256)"
+   },
+   "identification": "MALE_3 of the three 2025-12-31 heat-shock male exports, by name, size and date (protocol changelog entry 9 (i)): MALE_1 is the sealed test male n2rad51_HS_male_001, MALE_2 is n2rad51_HS_male_002 (its export is the same region-grown set as its .ims), MALE_3 is n2rad51_HS_male_000. Its 64 surfaces equal those of the registered .ims.",
+   "expect": {
+    "n_spots": 7628,
+    "n_surfaces": 64,
+    "class_counts": {"Class A": 6497, "Class B": 1131},
+    "spot_diameter_um": [0.4, 0.4, 0.9]
+   },
+   "rule": "The truth spots are the spots of the registered .ims that the export names, matched one to one by position within 0.005 um (the export renumbers the IDs), converted by the frame rule of section 4.3 with the frame the check of entry 9 (d)(3) chooses; Class A and B from the project's own classification applied to the unrounded Average Distance To 3 Nearest Neighbours among them (the export writes that distance to 0.001 um, which moves one spot across the threshold: 6,498 and 1,130 instead of 6,497 and 1,131); the mask label is the export's per-spot Intensity Max of Masked 405. Criteria E1 to E10 (germquant.validate.imaris_ims); usable when E1 to E9 and the frame check pass and section 4.4 reaches 99.35 percent, or as a later changelog entry decides.",
+   "use": "train spot truth (protocol changelog entry 11, post hoc under rule 3)"
+  }
+ ]
+}

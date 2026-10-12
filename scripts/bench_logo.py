@@ -40,8 +40,11 @@ net3d-fold   trains net3d on the fold's other gonads by the frozen recipe of a s
              train-spots --recipe-from: its settings, seed, schedule, epoch count and threshold, no
              validation) into <models-root>/fold_<held-out>/, then scores the held-out gonad as `heldout`
              does. Run it under the workstation's GPU lock. The training order is the recipe's train
-             gonads, then its val gonads, then, with --additions (the record of protocol changelog entry
-             9), the additions in record order that take part in the folds, the held-out gonad left out.
+             gonads, then its val gonads, then the registered gonads of the fold the recipe did not see (a
+             registered train gonad whose spot truth comes from its recorded earlier export, protocol
+             changelog entry 11), in tag order, then, with --additions (the record of protocol changelog
+             entry 9), the additions in record order that take part in the folds, the held-out gonad left
+             out.
 net3d-folds  runs net3d-fold for every fold (or --tags) in turn, each in its own process and, with
              --gpu-lock, each under that lock script; logs in --log-dir.
 report       pools the held-out gonads of every detector (cluster bootstrap by gonad, 1000 resamples, seed
@@ -252,10 +255,11 @@ def cmd_net3d_fold(args) -> int:
     folds = _folds(args)
     fold = _fold_of(folds, args.held_out)
     kw, recipe = recipe_from(args.recipe_from)
-    # the fold's gonads in the recipe's order: its train gonads, then its val gonads, then the additions of
-    # entry 9 in record order (those that take part in the folds), the held-out one left out
+    # the fold's gonads in the recipe's order: its train gonads, then its val gonads, then the registered gonads the
+    # recipe did not train on (entry 11), then the additions of entry 9 in record order (those that take part in the
+    # folds), the held-out one left out
     additions = net3d_addition_order(args, folds)
-    order = [t for t in recipe["from_train_gonads"] + recipe["from_val_gonads"] + additions if t != fold["held_out"]]
+    order = fold_training_order(recipe, fold, additions)
     fold_tags = set(fold["train"]) | set(fold["val"])
     if set(order) != fold_tags or len(order) != len(set(order)):
         print(f"REFUSED: the recipe's gonads {order} are not the fold's {sorted(fold_tags)}"
@@ -279,6 +283,20 @@ def cmd_net3d_fold(args) -> int:
     if args.additions:
         extra["additions_file"] = str(args.additions)
     return score_heldout(args, fold, "net3d", "net3d", params, extra)
+
+
+def fold_training_order(recipe: dict, fold: dict, additions: list[str]) -> list[str]:
+    """The order in which a fold model trains: the recipe's train gonads, then its val gonads, then the registered
+    gonads of the fold the recipe did not see (a registered train gonad whose spot truth became usable after the
+    recipe was selected, as n2rad51_HS_male_000 by its recorded earlier export, protocol changelog entry 11), in tag
+    order, then ``additions`` (entry 9, record order); the held-out gonad left out. A gonad of the fold that is
+    neither registered nor among ``additions`` is not added, so the caller's check refuses the fold."""
+    from germquant.validate.benchmark_split import PREREGISTERED_ROLES
+
+    base = list(recipe["from_train_gonads"]) + list(recipe["from_val_gonads"])
+    fold_tags = set(fold["train"]) | set(fold["val"])
+    extra = sorted(t for t in fold_tags if t in PREREGISTERED_ROLES and t not in base)
+    return [t for t in base + extra + list(additions) if t != fold["held_out"]]
 
 
 def net3d_addition_order(args, folds: list[dict]) -> list[str]:

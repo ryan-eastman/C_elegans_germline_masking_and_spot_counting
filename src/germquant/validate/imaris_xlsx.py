@@ -92,11 +92,13 @@ _XYZ = {"Position X": "x", "Position Y": "y", "Position Z": "z"}
 
 
 def _workbook(path):
+    """Open an export read only, after the guard: a sealed file is refused unless it is the pinned earlier export
+    of a registered train gonad (protocol changelog entry 11; ``benchmark_split.guard_export_read``)."""
     import openpyxl
 
-    from .benchmark_split import refuse_sealed
+    from .benchmark_split import guard_export_read
 
-    refuse_sealed(path)
+    guard_export_read(path)
     return openpyxl.load_workbook(str(path), read_only=True, data_only=True)
 
 
@@ -131,6 +133,23 @@ def overall_totals(path_or_wb, spots_object: str = "Spots 1", surfaces_object: s
             "n_voxels_image": one("Number of Voxels")}
 
 
+def overall_class_counts(path_or_wb, spots_object: str = "Spots 1") -> dict:
+    """Imaris's "Number of labelled Spots per Class" rows of the Overall sheet for ``spots_object``, as
+    ``{class name: count}`` with the label group dropped ("Set 1::Class A" -> "Class A"); {} without them."""
+    ov = read_sheet(path_or_wb, "Overall")
+    if "Class" not in ov.columns:
+        return {}
+    m = ov["Variable"] == "Number of labelled Spots per Class"
+    if "Surpass Object" in ov.columns:
+        m &= ov["Surpass Object"] == spots_object
+    return {str(c).split("::")[-1]: int(v) for c, v in zip(ov.loc[m, "Class"], ov.loc[m, "Value"])}
+
+
+#: the export's sheet of Imaris's classify statistic; Imaris cuts sheet names to 31 characters
+NN3_SHEET_PREFIX = "Average Distance To 3 Neare"
+NN3_COLUMN = "Average Distance To 3 Nearest Neighbours"
+
+
 def _object_rows(df: pd.DataFrame, category: str, obj: str) -> pd.DataFrame:
     m = df["Category"] == category
     if "Surpass Object" in df.columns:
@@ -150,9 +169,10 @@ def read_export_objects(path, *, spot_channel: int, mask_channel: int, spots_obj
     ``spot_channel`` and ``mask_channel`` are 0-based DataSet channel indices (the sheets count from 1).
 
     ``spots``: ID, x, y, z (Imaris stage um), diameter_x, diameter_y, diameter_z, ic_spot and ic_mask (Intensity
-    Center of the spot and mask channels) and imax_mask (Intensity Max of the mask channel: the lab's coloc
-    value). ``surfaces``: ID, x, y, z (the Position sheet), volume and imax_mask. ``overall``: the totals of
-    ``overall_totals``. ``sheets``: the sheet names."""
+    Center of the spot and mask channels), imax_mask (Intensity Max of the mask channel: the lab's coloc
+    value) and nn3 (the export's Average Distance To 3 Nearest Neighbours, rounded as the export writes it; NaN
+    without that sheet). ``surfaces``: ID, x, y, z (the Position sheet), volume and imax_mask. ``overall``: the
+    totals of ``overall_totals``. ``class_counts``: ``overall_class_counts``. ``sheets``: the sheet names."""
     wb = _workbook(path)
     try:
         pos = read_sheet(wb, "Position").rename(columns=_XYZ)
@@ -175,7 +195,11 @@ def read_export_objects(path, *, spot_channel: int, mask_channel: int, spots_obj
         surfaces["imax_mask"] = _stat(wb, imax, "Intensity Max", "Surface",
                                       surfaces_object).reindex(surfaces["ID"]).to_numpy()
         surfaces["volume"] = _stat(wb, "Volume", "Volume", "Surface", surfaces_object).reindex(surfaces["ID"]).to_numpy()
+        nn3 = next((s for s in wb.sheetnames if s.startswith(NN3_SHEET_PREFIX)), None)
+        spots["nn3"] = (_stat(wb, nn3, NN3_COLUMN, "Spot", spots_object).reindex(spots["ID"]).to_numpy()
+                        if nn3 is not None else np.full(len(spots), np.nan))
         return {"spots": spots, "surfaces": surfaces,
-                "overall": overall_totals(wb, spots_object, surfaces_object), "sheets": list(wb.sheetnames)}
+                "overall": overall_totals(wb, spots_object, surfaces_object),
+                "class_counts": overall_class_counts(wb, spots_object), "sheets": list(wb.sheetnames)}
     finally:
         wb.close()

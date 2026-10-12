@@ -30,6 +30,14 @@ docs/BENCHMARK_PROTOCOL.md is the pre-registration; this module is its machine-r
   applies the export's own checks, then the decision of a changelog entry (``load_spot_truth_decisions``,
   tests/golden/rad51_additions_decisions.json), else the section 4.4 minimum (``SECTION_4_4_MIN``, read from
   the table of scripts/check_truth_assignment.py by ``load_truth_check``).
+* The recorded spot sources (protocol changelog entry 11). ``tests/golden/rad51_spot_sources.json`` names, for a
+  registered TRAIN gonad, an earlier Imaris statistics export of its own project whose spots replace the .ims's
+  saved Spots object as its spot truth (n2rad51_HS_male_000: the curated 7,628 spots of its 2025-12-31 export,
+  matched by position to the 772,485 candidates of the registered .ims). The split file does not change and no
+  role moves (rule 4). ``SPOT_SOURCE_EXPORTS`` pins each export by name, size and sha256, so the sealed-name rule
+  admits exactly that file (``spot_source_tag_of``, ``guard_export_read``, ``guard_truth_read``);
+  ``load_spot_sources`` reads and validates the record; ``build_manifest(..., spot_sources=...)`` points the
+  gonad's truth at the export from that source and decides its spot truth by ``spot_source_truth_usable``.
 
 Nothing here touches the pipeline: the module reads files and writes JSON. The Imaris reading is kept
 separate from validate/imaris_ims.py on purpose, so the truth-export work can change that module
@@ -412,7 +420,9 @@ ADDITION_TAG_RE = re.compile(
 #: no test-gonad file, no 2025-11-05 heat-shock male export and no aggregate of the per-nucleus tables (the
 #: decision-1 export check of entry 9 lists them). A file of the 2025-11-05 session is refused unless it is a
 #: registered project read by its registered stem behind the role guard (``guard_truth_read``): the eight train
-#: and val projects were read that way for entry 9 (d)(3) and (d)(4)
+#: and val projects were read that way for entry 9 (d)(3) and (d)(4); or the one recorded earlier export of a
+#: registered train gonad that protocol changelog entry 11 admits by its pinned name and size
+#: (``SPOT_SOURCE_EXPORTS``), behind the role guard
 SEALED_NAME_MARKERS = ("20251105", "temp_compiledtdata", "compiled_data", "master_data", "rad51_stats", ".prism")
 #: the stems of the registered split (tests/golden/rad51_split.json; tests/test_rad51_additions.py checks them
 #: against the file), so a truth-side read can tell a registered project, which the role guard admits or refuses,
@@ -434,6 +444,26 @@ REGISTERED_STEMS = {
 SPOT_TRUTH_SOURCES = ("ims", "xlsx")
 SPOT_TRUTH_STATUS = ("usable", "pending")
 ADDITION_FILE_KEYS = ("nd2", "ims", "xlsx")
+
+#: protocol changelog entry 11: the registered train gonads whose spot truth comes from a recorded earlier Imaris
+#: statistics export of their own project instead of the .ims's saved Spots object (the record is
+#: tests/golden/rad51_spot_sources.json). Each export is pinned here by file name, size and sha256: the guard admits
+#: exactly that file (by name and size, before anything is read; the sha256 is checked when it is read), behind the
+#: role guard. n2rad51_HS_male_000's registered .ims holds 772,485 unthresholded, unclassified candidates of constant
+#: radius; its 2025-12-31 export (MALE_3 of the three, identified by name, size and date) holds the curated 7,628,
+#: region growing off by the section 4.1 rule. The test male's exports (MALE_1) carry another name and size and stay
+#: sealed; HS_male_002's (MALE_2) is region-grown and is not a spot source.
+SPOT_SOURCES_CHANGELOG_ENTRY = 11
+SPOT_SOURCE_KIND = "earlier_export_subset"
+SPOT_SOURCE_EXPORTS = {
+    "n2rad51_HS_male_000": {"name": "20251105_n2_hs_MALE_3.xlsx", "size_bytes": 15512227,
+                            "sha256": "0fbc41b7dc5dbf0a1ef0c87f367451635c0f7dfea1302e6dfc53b614082aca52"},
+}
+SPOT_SOURCE_NOTE = (
+    "Spot truth from a recorded earlier export (protocol changelog entry 11, tests/golden/rad51_spot_sources.json): "
+    "the curated spots of the project's 2025-12-31 statistics export, matched by position to the spots of the "
+    "registered .ims, Class A and B by the project's own classification rule. The .ims, its surfaces and the nucleus "
+    "truth are the registered ones.")
 
 # the protocol's text (sections 4.1 and 4.2) as values, for the creation-parameter comparison of entry 9 (d)(4)
 PROTOCOL_TEXT_PARAMETERS = {
@@ -509,18 +539,49 @@ def registered_tag_of(path) -> str | None:
     return None
 
 
+def spot_source_tag_of(path) -> str | None:
+    """The registered gonad whose pinned earlier export (``SPOT_SOURCE_EXPORTS``, protocol changelog entry 11) is
+    ``path``: the file name equals the pinned name (letter case ignored) and the file on disk has the pinned size.
+    Only the name and the file size are looked at, so nothing is read; None for any other file (a missing file, a
+    file of another size, any other name)."""
+    p = Path(str(path).replace("\\", "/"))
+    for tag, rec in SPOT_SOURCE_EXPORTS.items():
+        if p.name.lower() == rec["name"].lower():
+            try:
+                return tag if p.is_file() and p.stat().st_size == rec["size_bytes"] else None
+            except OSError:
+                return None
+    return None
+
+
+def guard_export_read(path) -> str | None:
+    """Before an Imaris statistics export is opened (``imaris_xlsx``): the pinned earlier export of a registered gonad
+    (``spot_source_tag_of``) passes the role guard (it is a train gonad's, or the guard raises); any other file must
+    not be sealed (``refuse_sealed``). Returns the registered tag of a pinned export, None otherwise."""
+    tag = spot_source_tag_of(path)
+    if tag is None:
+        refuse_sealed(path)
+        return None
+    from germquant.benchmark.detector import guard_test
+
+    guard_test([tag])
+    return tag
+
+
 def guard_truth_read(paths, *, allow_test: bool = False) -> list[str]:
-    """Before a truth-side read (the frame check or the xlsx spot source of ``germquant imaris-truth``): a file of a
-    registered gonad passes the role guard (train and val; test only with ``allow_test``, the pre-flight of
-    docs/FINAL_SCORING.md), and any other file must not be sealed (``refuse_sealed``). None entries are skipped.
-    Returns the registered tags found. Raises before anything is opened."""
+    """Before a truth-side read (the frame check, the xlsx spot source or the recorded earlier export of ``germquant
+    imaris-truth``): a file of a registered gonad passes the role guard (train and val; test only with
+    ``allow_test``, the pre-flight of docs/FINAL_SCORING.md), the pinned earlier export of a registered gonad
+    (``spot_source_tag_of``, protocol changelog entry 11) counts as that gonad's file, and any other file must not
+    be sealed (``refuse_sealed``). None entries are skipped. Returns the registered tags found. Raises before
+    anything is opened."""
     from germquant.benchmark.detector import guard_test
 
     tags = []
     for p in paths:
         if p is None:
             continue
-        tag = registered_tag_of(p)
+        tag = registered_tag_of(p) or spot_source_tag_of(p)
         if tag is None:
             refuse_sealed(p)
         elif tag not in tags:
@@ -965,6 +1026,12 @@ def addition_spot_truth_usable(g: dict, truth_params: dict | None, truth_check: 
     fc = params.get("frame_check")
     if fc is None or fc.get("chosen") is None:
         return False, "frame check of entry 9 (d)(3) missing or failed"
+    return _decision_or_section_4_4(agreement, decision, "entry 9 (d)(5)")
+
+
+def _decision_or_section_4_4(agreement, decision: dict | None, rule: str) -> tuple[bool, str]:
+    """The last two rules of the spot-truth decision: a changelog decision, else a section 4.4 agreement of at least
+    ``SECTION_4_4_MIN`` (``rule`` names where the criterion was declared)."""
     if decision is not None:
         return bool(decision["usable"]), f"changelog entry {decision['entry']}: {decision['reason']}"
     try:
@@ -972,21 +1039,166 @@ def addition_spot_truth_usable(g: dict, truth_params: dict | None, truth_check: 
     except (TypeError, ValueError):
         a = float("nan")
     if not a >= SECTION_4_4_MIN:
-        return False, ("section 4.4 below 99.35 percent or not run (entry 9 (d)(5)); needs a changelog entry"
+        return False, (f"section 4.4 below 99.35 percent or not run ({rule}); needs a changelog entry"
                        + ("" if agreement is None else f" (agreement {a:.4f})"))
-    return True, f"section 4.4 agreement {a:.4f}, at least {SECTION_4_4_MIN} (entry 9 (d)(5))"
+    return True, f"section 4.4 agreement {a:.4f}, at least {SECTION_4_4_MIN} ({rule})"
+
+
+# ---- the recorded earlier exports of registered train gonads (protocol changelog entry 11) ----
+
+#: the criterion of the export-subset verification (``imaris_ims``, entry 11) that is the section 4.4 check; the
+#: others (E1 to E9) are checks of the export itself
+EXPORT_SECTION_4_4_CRITERION = "E10_truth_assignment"
+SPOT_SOURCE_RULE = "entry 11"
+
+
+def validate_spot_sources(rec: dict, split: dict | None = None) -> None:
+    """Raise ValueError when the spot-sources record (tests/golden/rad51_spot_sources.json, protocol changelog entry
+    11) is malformed or names anything but the pinned export of a registered train gonad: the record of a changelog
+    entry 11 or later, made against the registered roles; every source a registered TRAIN gonad (never val or test;
+    rule 4: no role changes) with its registered stem, the kind ``SPOT_SOURCE_KIND``, the export pinned in code
+    (``SPOT_SOURCE_EXPORTS``: name, size and sha256, also of the NAS path's name), the expected totals (spots,
+    surfaces, Class A and B counts that add up to the spots, a spot diameter) and, with ``split``, the .ims of the
+    split record (path, size, sha256)."""
+    if not isinstance(rec, dict) or not isinstance(rec.get("changelog_entry"), int) or \
+            rec["changelog_entry"] < SPOT_SOURCES_CHANGELOG_ENTRY:
+        raise ValueError(f"the spot-sources record must name its changelog entry ({SPOT_SOURCES_CHANGELOG_ENTRY} or later)")
+    if (rec.get("registered_split") or {}).get("roles_sha256") != roles_sha256():
+        raise ValueError("the spot-sources record was made against other registered roles")
+    sources = rec.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError("the spot-sources record has no 'sources' list")
+    tags = [s.get("tag") for s in sources]
+    if len(set(tags)) != len(tags):
+        raise ValueError("spot-source tags are not unique")
+    by_tag = {g["tag"]: g for g in split["gonads"]} if split is not None else {}
+    for s in sources:
+        tag = s.get("tag")
+        if tag not in PREREGISTERED_ROLES:
+            raise ValueError(f"{tag}: a spot source belongs to a registered gonad")
+        if PREREGISTERED_ROLES[tag] != "train" or s.get("role") != "train":
+            raise ValueError(f"{tag}: a spot source is recorded for a registered train gonad only (never val or test)")
+        if s.get("stem") != REGISTERED_STEMS[tag]:
+            raise ValueError(f"{tag}: stem {s.get('stem')!r} is not the registered stem")
+        if s.get("kind") != SPOT_SOURCE_KIND:
+            raise ValueError(f"{tag}: kind {s.get('kind')!r} is not {SPOT_SOURCE_KIND!r}")
+        pin = SPOT_SOURCE_EXPORTS.get(tag)
+        if pin is None:
+            raise ValueError(f"{tag}: no export is pinned for this gonad in the code (SPOT_SOURCE_EXPORTS)")
+        ex = s.get("export") or {}
+        for k in ("name", "size_bytes", "sha256"):
+            if ex.get(k) != pin[k]:
+                raise ValueError(f"{tag}: the export's {k} is not the pinned one")
+        for k in ("path", "nas_path"):
+            if ex.get(k) is not None and Path(str(ex[k]).replace("\\", "/")).name.lower() != pin["name"].lower():
+                raise ValueError(f"{tag}: the export's {k} does not name the pinned file {pin['name']}")
+        if not ex.get("path"):
+            raise ValueError(f"{tag}: the export has no path")
+        exp = s.get("expect") or {}
+        if not all(isinstance(exp.get(k), int) and exp[k] > 0 for k in ("n_spots", "n_surfaces")):
+            raise ValueError(f"{tag}: expect needs positive n_spots and n_surfaces")
+        cc = exp.get("class_counts")
+        if not isinstance(cc, dict) or not cc or sum(int(v) for v in cc.values()) != exp["n_spots"]:
+            raise ValueError(f"{tag}: expect.class_counts must add up to n_spots")
+        if not (isinstance(exp.get("spot_diameter_um"), list) and len(exp["spot_diameter_um"]) == 3):
+            raise ValueError(f"{tag}: expect.spot_diameter_um must be [x, y, z]")
+        if by_tag:
+            ims = s.get("ims") or {}
+            reg = by_tag[tag]["ims"]
+            if (ims.get("path"), ims.get("size_bytes"), ims.get("sha256")) != (reg["path"], reg["size_bytes"], reg["sha256"]):
+                raise ValueError(f"{tag}: the source's .ims is not the registered one")
+
+
+def load_spot_sources(path, split: dict | None = None) -> dict:
+    """Read and validate the spot-sources record (``validate_spot_sources``)."""
+    rec = json.loads(Path(path).read_text(encoding="utf-8"))
+    validate_spot_sources(rec, split)
+    return rec
+
+
+def spot_source_of(rec: dict | None, tag: str) -> dict | None:
+    """The source of ``tag`` in a spot-sources record, None when it has none."""
+    for s in (rec or {}).get("sources", []):
+        if s["tag"] == tag:
+            return s
+    return None
+
+
+def check_spot_source_files(rec: dict, hashes: bool = False) -> list[str]:
+    """Problems with the recorded exports (missing, another size, with ``hashes`` another sha256); an empty list
+    means the files on disk are the pinned ones."""
+    problems = []
+    for s in rec["sources"]:
+        ex = s["export"]
+        p = Path(ex["path"])
+        if not p.is_file():
+            problems.append(f"{s['tag']}: export missing: {ex['path']}")
+            continue
+        if p.stat().st_size != ex["size_bytes"]:
+            problems.append(f"{s['tag']}: export size {p.stat().st_size} differs from the pinned {ex['size_bytes']}")
+            continue
+        if hashes and file_sha256(p) != ex["sha256"]:
+            problems.append(f"{s['tag']}: export sha256 differs from the pinned digest")
+    return problems
+
+
+def spot_source_truth_usable(source: dict | None, truth_params: dict | None, truth_check: dict | None = None,
+                             decision: dict | None = None) -> tuple[bool, str]:
+    """Whether a registered train gonad's spot truth from its recorded earlier export (protocol changelog entry 11)
+    may be scored, and why. The rules, in order, as ``addition_spot_truth_usable`` applies them to an addition:
+
+    1. no source, or one whose export the code does not pin (``SPOT_SOURCE_EXPORTS``): not usable (the registered
+       rule, region growing, stays);
+    2. no truth params (no truth export from the source yet): not usable;
+    3. the export: the truth params were written from this source (``spots_source`` of kind ``SPOT_SOURCE_KIND``,
+       the pinned sha256), every criterion of its verification (E1 to E9) passes but the section 4.4 one (E10), and
+       the frame check of entry 9 (d)(3) chose a frame. No decision overrides this;
+    4. ``decision`` (of a later changelog entry): its ``usable`` and its reason;
+    5. otherwise section 4.4: ``truth_check`` (this gonad's row of scripts/check_truth_assignment.py; E10's own
+       agreement when no row is given) must reach ``SECTION_4_4_MIN``."""
+    if source is None or SPOT_SOURCE_EXPORTS.get(source.get("tag"), {}).get("sha256") != \
+            (source.get("export") or {}).get("sha256"):
+        return False, "no recorded spot source (entry 11)"
+    if truth_params is None:
+        return False, "no truth export from the recorded spot source yet"
+    src = truth_params.get("spots_source") or {}
+    if src.get("source") != SPOT_SOURCE_KIND or (src.get("export") or {}).get("sha256") != source["export"]["sha256"]:
+        return False, "the truth params were not written from the recorded spot source (entry 11)"
+    crit = {k: v for k, v in (src.get("verification") or {}).items() if k.startswith("E")}
+    if not crit:
+        return False, "the recorded spot source was not verified (entry 11)"
+    failed = sorted((k for k, v in crit.items() if not (v or {}).get("passes")), key=lambda k: int(k.split("_")[0][1:]))
+    if any(k != EXPORT_SECTION_4_4_CRITERION for k in failed):
+        return False, f"the recorded spot source failed {', '.join(k.split('_')[0] for k in failed)} of entry 11"
+    fc = truth_params.get("frame_check")
+    if fc is None or fc.get("chosen") is None:
+        return False, "frame check of entry 9 (d)(3) missing or failed"
+    agreement = None if truth_check is None else truth_check.get("agreement")
+    if agreement is None:
+        agreement = (crit.get(EXPORT_SECTION_4_4_CRITERION) or {}).get("agreement")
+    return _decision_or_section_4_4(agreement, decision, SPOT_SOURCE_RULE)
 
 
 def load_truth_check(path) -> dict[str, dict]:
     """The rows of a section 4.4 table written by scripts/check_truth_assignment.py --out, by tag, with
-    ``agreement`` and the counts as numbers."""
+    ``agreement`` and the counts as numbers. ``path`` may be a list of tables (protocol changelog entry 11: the
+    additions' table of entry 10 and the table of the recorded spot sources); a tag in two of them is refused."""
     import csv
 
+    if isinstance(path, (list, tuple)):
+        out: dict[str, dict] = {}
+        for p in path:
+            rows = load_truth_check(p)
+            both = sorted(set(rows) & set(out))
+            if both:
+                raise ValueError(f"{p}: {both} already have a row in another section 4.4 table")
+            out.update(rows)
+        return out
     out = {}
     with open(path, newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
             rec = dict(row)
-            for k in ("agreement",):
+            for k in ("agreement", "agreement_like_for_like"):
                 try:
                     rec[k] = float(row[k]) if row.get(k) not in (None, "") else None
                 except ValueError:
@@ -1078,10 +1290,47 @@ def _addition_entry(g: dict, results_root: Path, truth_root: Path, patterns: dic
     return entry
 
 
+def _apply_spot_source(entry: dict, source: dict, src_root: Path, patterns: dict,
+                       truth_check: dict | None) -> None:
+    """Point a registered entry's truth at the export of its recorded spot source (protocol changelog entry 11):
+    the truth files under <src_root>/<tag>/ (the same .ims exported again, with the spots of the recorded export),
+    ``spot_truth_usable`` from ``spot_source_truth_usable``, its reason, the section 4.4 row, and the source; the
+    registered truth folder is kept as ``registered_truth_dir`` (its nucleus truth is what the new export must
+    reproduce, checked by scripts/check_truth_assignment.py --spot-sources)."""
+    stem, tag = entry["stem"], entry["tag"]
+    tdir = src_root / tag
+    truth = {k: _exists_record(tdir / pat.format(stem=stem)) for k, pat in patterns.items()}
+    found = sorted(p.name for p in tdir.iterdir() if p.name.startswith(f"{stem}__imaris_")) if tdir.is_dir() else []
+    params = None
+    if truth.get("params", {}).get("exists"):
+        try:
+            params = json.loads(Path(truth["params"]["path"]).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            params = None
+    usable, why = spot_source_truth_usable(source, params, truth_check)
+    entry.update({
+        "registered_truth_dir": entry["truth_dir"],
+        "truth_dir": posix(tdir),
+        "truth": {**truth, "found": found},
+        "truth_complete": all(truth[k]["exists"] for k in REQUIRED_TRUTH if k in truth),
+        "spot_truth_source": {"kind": source["kind"], "changelog_entry": SPOT_SOURCES_CHANGELOG_ENTRY,
+                              "export": {k: source["export"].get(k) for k in ("name", "path", "size_bytes", "sha256")},
+                              "export_record": _exists_record(source["export"]["path"], source["export"]["size_bytes"]),
+                              "expect": source.get("expect")},
+        "spot_truth_usable": usable,
+        "spot_truth_reason": why,
+        "section_4_4": (None if truth_check is None else
+                        {k: truth_check.get(k) for k in ("agreement", "n_spots", "n_agree",
+                                                         "n_coloc_on_removed_fragment", "n_both_different")}),
+        "notes": entry["notes"] + [SPOT_SOURCE_NOTE],
+    })
+
+
 def build_manifest(split: dict, results_root, truth_root, name: str | None = None,
                    truth_files: dict | None = None, split_path=None, additions: dict | None = None,
                    additions_results_root=None, additions_path=None, truth_check=None,
-                   spot_truth_decisions=None) -> dict:
+                   spot_truth_decisions=None, spot_sources: dict | None = None, spot_sources_path=None,
+                   spot_sources_truth_root=None) -> dict:
     """One entry per gonad of the split: role, condition, sex, stem, the .nd2 and .ims (exists, size
     matches the registered size), the pipeline outputs under <results_root>/<tag>/ and the truth files
     under <truth_root>, each with its path and an exists flag, plus ``outputs_complete`` (nuclei table,
@@ -1093,13 +1342,28 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
     which stay exactly as they are without it: pipeline outputs under <additions_results_root>/<tag>/ (default
     the results root), truth files under <truth_root>, ``addition`` true, and ``spot_truth_usable`` from
     ``addition_spot_truth_usable`` (which reads the truth params JSON when it exists). ``truth_check`` is the
-    section 4.4 table of scripts/check_truth_assignment.py (a CSV path) and ``spot_truth_decisions`` the decisions
-    file of a changelog entry (a JSON path, ``load_spot_truth_decisions``); both are recorded with their sha256
-    under ``spot_truth_inputs``. Without them no ims-sourced addition is usable (entry 10 (c))."""
-    if (truth_check is not None or spot_truth_decisions is not None) and additions is None:
+    section 4.4 table of scripts/check_truth_assignment.py (a CSV path, or a list of them) and
+    ``spot_truth_decisions`` the decisions file of a changelog entry (a JSON path, ``load_spot_truth_decisions``);
+    both are recorded with their sha256 under ``spot_truth_inputs``. Without them no ims-sourced addition is usable
+    (entry 10 (c)).
+
+    ``spot_sources`` (the record of ``load_spot_sources``, protocol changelog entry 11) changes only the entries of
+    the registered train gonads it names: their truth files are read from <spot_sources_truth_root>/<tag>/ (the
+    export from the recorded source), ``spot_truth_usable`` follows ``spot_source_truth_usable`` with this gonad's
+    row of ``truth_check``, and ``spot_truth_source`` records the source; every other registered entry stays exactly
+    as without it. The record is recorded with its sha256 under ``spot_sources_file``."""
+    if spot_truth_decisions is not None and additions is None:
         raise ValueError("truth_check and spot_truth_decisions apply to the additions only")
+    if truth_check is not None and additions is None and spot_sources is None:
+        raise ValueError("truth_check and spot_truth_decisions apply to the additions only (and truth_check to the "
+                         "recorded spot sources of entry 11)")
+    if spot_sources is not None and spot_sources_truth_root is None:
+        raise ValueError("spot_sources needs spot_sources_truth_root, the folder of the exports from the sources")
     patterns = dict(TRUTH_FILES, **(truth_files or {}))
     results_root, truth_root = Path(results_root), Path(truth_root)
+    checks = load_truth_check(truth_check) if truth_check is not None else {}
+    if spot_sources is not None:
+        validate_spot_sources(spot_sources, split)
     entries = []
     for g in split["gonads"]:
         stem, tag = g["stem"], g["tag"]
@@ -1126,13 +1390,15 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
             "spot_truth_usable": rg is False,
             "notes": list(g.get("notes", [])),
         })
+        source = spot_source_of(spot_sources, tag)
+        if source is not None:
+            _apply_spot_source(entries[-1], source, Path(spot_sources_truth_root), patterns, checks.get(tag))
     if additions is not None:
         validate_additions(additions)
         if (additions.get("registered_split") or {}).get("roles_sha256") != roles_sha256(
                 {g["tag"]: g["role"] for g in split["gonads"]}):
             raise ValueError("the additions record was made against other roles than this split's")
         aroot = Path(additions_results_root) if additions_results_root else results_root
-        checks = load_truth_check(truth_check) if truth_check is not None else {}
         dec_doc = load_spot_truth_decisions(spot_truth_decisions) if spot_truth_decisions is not None else None
         decisions = (dec_doc or {}).get("decisions", {})
         add_tags = {g["tag"] for g in additions["gonads"]}
@@ -1167,13 +1433,32 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
             "results_root": posix(Path(additions_results_root) if additions_results_root else results_root),
             "tags": [g["tag"] for g in additions["gonads"]]}
         manifest["spot_truth_inputs"] = {
-            "truth_check": ({"path": posix(truth_check), "sha256": file_sha256(truth_check)}
-                            if truth_check is not None else None),
+            "truth_check": _truth_check_record(truth_check),
             "decisions": ({"path": posix(spot_truth_decisions), "sha256": file_sha256(spot_truth_decisions),
                            "changelog_entry": dec_doc.get("changelog_entry")} if dec_doc is not None else None),
             "rule": ("benchmark_split.addition_spot_truth_usable: the export's own checks, then the changelog "
                      "decision, else section 4.4 at least 0.9935 (protocol changelog entries 9 (d) and 10 (c))")}
+    if spot_sources is not None:
+        manifest["spot_sources_file"] = {
+            "path": posix(spot_sources_path) if spot_sources_path else None,
+            "sha256": file_sha256(spot_sources_path) if spot_sources_path else None,
+            "changelog_entry": spot_sources.get("changelog_entry"),
+            "truth_root": posix(spot_sources_truth_root),
+            "tags": [s["tag"] for s in spot_sources["sources"]],
+            "truth_check": _truth_check_record(truth_check),
+            "rule": ("benchmark_split.spot_source_truth_usable: the export's own checks (E1 to E9 and the frame "
+                     "check), then a changelog decision, else section 4.4 at least 0.9935 (protocol changelog entry "
+                     "11)")}
     return manifest
+
+
+def _truth_check_record(truth_check):
+    """Path and sha256 of the section 4.4 table (a list of them when several were given)."""
+    if truth_check is None:
+        return None
+    if isinstance(truth_check, (list, tuple)):
+        return [{"path": posix(p), "sha256": file_sha256(p)} for p in truth_check]
+    return {"path": posix(truth_check), "sha256": file_sha256(truth_check)}
 
 
 def write_manifest(manifest: dict, out_root, file_name: str = "manifest.json") -> Path:

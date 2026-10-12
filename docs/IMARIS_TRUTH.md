@@ -128,7 +128,11 @@ Checked with h5py on the files under `C:/Users/ryane/n2_rad51_local/imaris/`:
 * Region growing: two HS male exports have `mEnableRegionGrowing="true"` on the spots
   (`20251105_n2_hs_MALE _.ims` with 772,485 spots and only one class label, and
   `20251105_n2_hs_MALE _002.ims`, 13,951 spots, saved by Imaris 11.0). Their radii vary per spot.
-  The flag is `region_growing` in the params JSON.
+  The flag is `region_growing` in the params JSON. (Corrected 2026-10-12, protocol changelog entry 11: in
+  `20251105_n2_hs_MALE _.ims` the radii do not vary. Its 772,485 spots are unthresholded, unclassified
+  candidates, every one at radius 0.2 um, saved under creation parameters that say region growing on and
+  Quality 13.358; its curated 7,628 spots are in the project's 2025-12-31 statistics export, see "The
+  recorded earlier export" below.)
 * The mask channel: Imaris filled every surface with its own value in `Masked 405` (the lab's
   coloc-channel trick). The values run 1..N in roughly surface order but are neither the surface IDs
   nor the row indices, and the channel holds a few values no surface claims: nuclei deleted after
@@ -274,6 +278,48 @@ whose spots come from the .ims; protocol changelog entry 10 (d)).
 The params also carry `creation_parameter_summary` (`benchmark_split.creation_parameter_summary`): the Spots and
 Surfaces settings entry 9 (d)(4) compares with sections 4.1 and 4.2 of the protocol.
 
+## The recorded earlier export (protocol changelog entry 11)
+
+    germquant imaris-truth "<project>.ims" --out <folder> --nd2 "<image>.nd2" --spot-source tests/golden/rad51_spot_sources.json
+
+For a registered TRAIN gonad whose saved Spots object is not the curated set but whose curated spots survive in an
+earlier Imaris statistics export of the same project (n2rad51_HS_male_000: 772,485 unthresholded candidates in the
+.ims, the curated 7,628 in its 2025-12-31 export `20251105_n2_hs_MALE_3.xlsx`), `--spot-source` takes the gonad's
+entry from the record of entry 11 (`benchmark_split.load_spot_sources`) and builds the spot truth from the export
+without replacing the .ims as the file of record:
+
+* the guard: the project must be the gonad's registered one (by its stem), the export is admitted only as the file
+  pinned in code (`benchmark_split.SPOT_SOURCE_EXPORTS`: name and size before anything is read, sha256 when it is
+  read), behind the role guard (a train gonad); the 2025-12-31 exports of the other heat-shock males stay sealed,
+  and `--pre-flight` is refused;
+* the spots: the .ims spots the export names, matched one to one by position within 0.005 um (the export
+  renumbers the IDs and writes positions to 0.001 um), with their .ims IDs, positions and radius, in the .ims's
+  order, converted with the frame the check of entry 9 (d)(3) chooses on the .ims's own spots (the frame check is
+  implied); the class from the project's own one-dimensional classification (`classification_rule`: Class A below
+  the threshold stored in the Spots creation parameters, Class B at or above) applied to the Average Distance To
+  3 Nearest Neighbours recomputed among the matched spots (`average_distance_to_neighbours`), not to the export's
+  rounded sheet (on n2rad51_HS_male_000 the rounded values move one spot across 4.11504 um); `imaris_mask_label`
+  the export's per-spot Intensity Max of the mask channel; `spots_object` "Spots 1 (export subset)";
+* the checks, in `spots_source.verification`: E1 the sha256 is the pinned one; E2 the Overall totals and class
+  counts and the Position sheet hold the recorded numbers, and the image's voxel count is the .ims's; E3 the
+  export's surfaces equal the .ims Surfaces one to one (position within 0.005 um, volume within 0.0005 um^3, half
+  the export's last digit, plus two float32 steps; the mask Intensity Max equal); E4 every truth spot inside the
+  image; E5 the Intensity Center test on the export's own values chooses the frame of the .ims spots; E6 every spot
+  at the recorded diameter (0.4 x 0.4 x 0.9 um: region growing off by the rule of protocol section 4.1); E7 the
+  position match is one to one, every export spot within 0.005 um of exactly one .ims spot; E8 the classification
+  reproduces the export's Overall class counts; E9 the export's mask Intensity Max equals the .ims's for every
+  matched spot; E10 the section 4.4 agreement at least 99.35 percent. `passed` is true only when all ten pass;
+* the files: the four truth files as always (the nuclei and the label image from the .ims, which must equal the
+  registered export of the project: `scripts/check_truth_assignment.py --spot-sources` compares them) and
+  `spot_source_id_map.csv` (export ID, .ims ID, match distance, the recomputed and the exported 3-neighbour
+  distance, the class). `region_growing` in the params is that of the spots used (false when E6 passes); the flag
+  of the saved Spots object is kept as `region_growing_saved_spots_object`.
+
+The manifest (`scripts/benchmark_manifest.py --spot-sources --spot-sources-truth-root`) reads this export for the
+gonad and marks its spot truth usable by `benchmark_split.spot_source_truth_usable`: E1 to E9 and the frame check,
+which no decision overrides, then a changelog decision, else the section 4.4 agreement of the `--truth-check` table
+of at least 99.35 percent.
+
 ## Tests
 
 `tests/test_imaris_truth.py` writes a tiny synthetic HDF5 in the .ims layout (padded arrays, Spot
@@ -298,3 +344,12 @@ voxel, the nuclei in the chosen frame), with and without the float32 allowance (
 value taken from the export's Intensity Max of the mask channel, not its Intensity Center; and the refusals of the
 read guard (a test gonad's project or .nd2, a sealed xlsx or .nd2) before any file is opened, with `allow_test`
 letting a test-named project through.
+
+The recorded earlier export (entry 11): the classification parsed from a creation-parameter text and the class
+boundary (4.115 rounded falls below 4.11504, 4.115243 above), the 3-neighbour distance, the one-to-one position
+match (a spot taken twice, an ambiguous second neighbour, a spot beyond the tolerance), the volume rule of E3; on
+the synthetic project under n2rad51_HS_male_000's registered stem with an export that renumbers the IDs, rounds the
+positions and carries a misleading distance sheet: every criterion passes, the truth spots carry the .ims IDs and
+the recomputed classes, and the nuclei equal the plain export's; E1, E2, E3, E5, E6, E7, E8, E9 and E10 each fail
+alone on a defect of their own; another gonad's project, an export of another size than the pin and two spot
+sources at once are refused before anything is opened.
