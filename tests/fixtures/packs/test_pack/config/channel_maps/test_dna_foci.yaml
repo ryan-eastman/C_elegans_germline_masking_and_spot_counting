@@ -1,0 +1,13 @@
+# Channel map of the test pack: a nuclear stain and a puncta channel. Hashed with every recipe of the pack.
+match_by: name
+roles:
+  dna:
+    names: ["DAPI", "Hoechst", "DNA"]
+    index: 0
+    required: true
+    marker: DNA
+  foci:
+    names: ["foci", "puncta", "spots"]
+    index: 1
+    required: false
+    marker: foci

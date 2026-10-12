@@ -1,0 +1,31 @@
+# Budding yeast pack, recipe cells_spots (the default; dims projected). budding_yeast 0.1.0, provisional: these
+# are starting values (docs/DESIGN_system_packs.md, section 3.12), not yet tuned, and the recipe is not validated.
+#
+# Whole cells are segmented by Cellpose-SAM on one plane of the transmitted channel (the sharpest plane), and the
+# 2D masks are copied through every plane; spots are counted per cell in 3D by SpotMAX. One row of the nuclei
+# table is one whole cell. The spot settings are seeded from the authors' SUT509 SpotMAX INI in S-BIAD3750:
+# radii (1.0, 0.244, 0.244) um and a Gaussian sigma of 0.75 px at 0.072 um. sharpen is on, so effect_size and
+# effect_size_min are on the sharpened (difference of Gaussians) scale, as in the authors' runs.
+# Every worm stage switch, the neutral file-name regex and the QC settings sit in pack_base.yaml.
+extends: pack_base.yaml
+
+segmentation:
+  nuclei:
+    method: cellpose
+    channel: transmitted
+    cellpose_model: cpsam_v2@0f1cc3f7
+    diameter_um: 4.0
+    project: plane
+    project_plane: sharpest
+    min_area_um2: 3.0
+    require_channel: true
+
+spots:
+  spot_radius_um: 0.244
+  spot_radius_z_um: 1.0
+  gauss_sigma_um: 0.054
+  thresholding_method: threshold_triangle
+  effect_size_min: 2.5
+  remove_hot_pixels: true
+  sharpen: true
+  merge_z_columns: false

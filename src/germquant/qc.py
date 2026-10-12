@@ -3,13 +3,16 @@ from __future__ import annotations
 
 
 def qc_flags(*, n_nuclei: int, channel_flags: list[str], axis_flags: list[str],
-             spots_found: bool, spots_enabled: bool = True) -> tuple[bool, list[str]]:
+             spots_found: bool, spots_enabled: bool = True, min_nuclei: int = 10) -> tuple[bool, list[str]]:
+    """(qc_pass, flags). ``min_nuclei`` is the threshold of the advisory qc:few_nuclei_<n> flag (raised when
+    0 < n_nuclei < min_nuclei). Its default, 10, is the validated rule; process_image passes qc.min_nuclei
+    only when a recipe sets it (an outside pack: fields of a few cells are not a gonad)."""
     flags: list[str] = []
     flags += channel_flags + axis_flags
 
     if n_nuclei == 0:
         flags.append("qc:NO_NUCLEI")
-    elif n_nuclei < 10:
+    elif n_nuclei < min_nuclei:
         flags.append(f"qc:few_nuclei_{n_nuclei}")
 
     if not spots_enabled:

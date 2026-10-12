@@ -6,6 +6,13 @@
   germquant register results/SERIES [--reference previous|t0] [--upsample 10] [--max-step-um 5] [--channel ROLE] [--rigid]
   germquant register results/SERIES --mode piecewise [--segments 4] [--margin-um 6] [--taper 0.25]
   germquant batch /nas/folder --config config/config.yaml --out /nas/folder_results
+  germquant run   STACK.nd2 --pack celegans_germline [--recipe rad51_foci] --out results/   (a system pack)
+  germquant pack  list | show | check | fetch-models | fetch-example | install | verify | build-sums | lint | golden
+  germquant assemble --channels A.tif B.tif --names Bright Cy3 --spacing DZ DY DX --out X.ome.tif
+  germquant --version
+
+System packs (docs/PACKS.md) bundle the recipes and pinned models for one kind of sample; `--pack ID[@VER]`
+runs one of a pack's recipes with the config_hash of `--config <that recipe file>`.
 
 `info` and `run` also take TIFF / OME-TIFF, CZI, LIF and OME-Zarr files when the optional `readers`
 extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders.
@@ -72,8 +79,22 @@ from .config import find_profile, load_config
 from .io import image_format, read_image_metadata
 
 
+class _VersionAction(argparse.Action):
+    """``germquant --version``: the engine version, git sha and python (computed only when asked)."""
+
+    def __init__(self, option_strings, dest, **kw):
+        super().__init__(option_strings, dest, nargs=0, default=argparse.SUPPRESS, **kw)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        from .packs import version_line
+
+        print(version_line())
+        parser.exit(0)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="germquant", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--version", action=_VersionAction, help="print the engine version, git sha and python, then exit")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("info", help="print the channels + voxel size of an image (no pixels loaded)")
@@ -81,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
 
     pr = sub.add_parser("run", help="process a single image (.nd2; other formats with the readers extra)")
     pr.add_argument("nd2", help="an .nd2 (or .tif / .ome.tif / .czi / .lif / .zarr with the readers extra)")
-    _add_config_args(pr)
+    _add_config_args(pr, packs=True)
     pr.add_argument("--out", required=True)
     pr.add_argument("--xy-stride", type=int, default=1, help="downsample xy for a quick test")
     pr.add_argument("--z-range", type=int, nargs=2, default=None, metavar=("Z0", "Z1"))
@@ -97,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
 
     pb = sub.add_parser("batch", help="process every .nd2 under a folder, mirroring the tree")
     pb.add_argument("folder")
-    _add_config_args(pb)
+    _add_config_args(pb, packs=True)
     pb.add_argument("--out", required=True)
     pb.add_argument("--xy-stride", type=int, default=1)
     pb.add_argument("--resume", action="store_true",
@@ -395,12 +416,18 @@ def main(argv: list[str] | None = None) -> int:
     prm.add_argument("--name", help="registry name (default: the card's name, else the file name)")
 
     _add_track_parsers(sub)
+    from . import cli_assemble, cli_packs
+
+    cli_packs.add_parsers(sub)                     # germquant pack ... (docs/PACKS.md)
+    cli_assemble.add_parsers(sub)                  # germquant assemble (one TIFF per channel -> one OME-TIFF)
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     return {
+        "pack": lambda: cli_packs.dispatch(args),
+        "assemble": lambda: cli_assemble.dispatch(args),
         "info": lambda: _info(args.nd2),
         "run": lambda: _run(args),
         "batch": lambda: _batch(args),
@@ -592,11 +619,49 @@ def _track_validate(args) -> int:
     return 0 if res["verdict"]["pass"] else 2
 
 
-def _add_config_args(parser) -> None:
+def _add_config_args(parser, packs: bool = False) -> None:
     g = parser.add_mutually_exclusive_group(required=True)
     g.add_argument("--config", help="config yaml (config/config.yaml, or any file; may use `extends:`)")
     g.add_argument("--profile", help="name of a profile in config/profiles/<NAME>.yaml (a small overlay "
                                      "on config/config.yaml that switches the stages a study needs)")
+    if packs:
+        g.add_argument("--pack", metavar="ID[@VER]",
+                       help="a system pack (germquant pack list); the run uses one of its recipes, with the same "
+                            "config_hash as --config <the recipe file> (docs/PACKS.md)")
+        parser.add_argument("--recipe", default=None, help="with --pack: the pack's recipe (default: its default recipe)")
+        parser.add_argument("--no-pack-check", action="store_true",
+                            help="with --pack: run even when `germquant pack check` reports the pack unusable")
+
+
+def _pack_config(args):
+    """The Config of a ``--pack`` run (with its pack record), after the pack check; None without --pack.
+    Raises SystemExit(2) with every fix printed when the pack is unusable and --no-pack-check is not given."""
+    if getattr(args, "recipe", None) and not getattr(args, "pack", None):
+        print("ERROR: --recipe needs --pack", file=sys.stderr)
+        raise SystemExit(2)
+    if not getattr(args, "pack", None):
+        return None
+    from . import packs as P
+    from .api import resolve_config
+
+    try:
+        pack = P.find_pack(args.pack)
+        recipe = pack.recipe(args.recipe)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        raise SystemExit(2) from None
+    if not getattr(args, "no_pack_check", False):
+        image = getattr(args, "nd2", None)
+        st = P.pack_status(pack, recipe=recipe.id, image=image)
+        if not st["usable"]:
+            print(f"REFUSED: pack {pack.ref} recipe {recipe.id} is not usable here (run anyway with --no-pack-check):",
+                  file=sys.stderr)
+            for b in st["blockers"]:
+                print(f"  {b['what']}\n      fix: {b['fix']}", file=sys.stderr)
+            raise SystemExit(2)
+        for w in st["warnings"]:
+            print(f"warning: {w['what']} ({w['fix']})")
+    return resolve_config(pack=pack.ref, recipe=recipe.id)
 
 
 def _resolve_config_path(args) -> Path:
@@ -675,7 +740,9 @@ def _print_acquisition(nd2: str) -> None:
 def _run(args) -> int:
     from .api import run
 
-    cfg = load_config(_resolve_config_path(args))
+    cfg = _pack_config(args)               # --pack ID[@VER] [--recipe R]: None for --config / --profile
+    if cfg is None:
+        cfg = load_config(_resolve_config_path(args))
     _apply_switches(cfg, args)
     if getattr(args, "t", None) is not None:
         return _run_series(args, cfg)
@@ -720,7 +787,9 @@ def _batch(args) -> int:
     from . import batch as B
     from .pipeline import process_image
 
-    cfg = load_config(_resolve_config_path(args))
+    cfg = _pack_config(args)               # --pack ID[@VER] [--recipe R]: None for --config / --profile
+    if cfg is None:
+        cfg = load_config(_resolve_config_path(args))
     _apply_switches(cfg, args)
     root = Path(args.folder)
     out_root = Path(args.out)
@@ -746,11 +815,17 @@ def _batch(args) -> int:
     # the segmentation backend's own provenance ({} on the default run), as process_image hashes it
     segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
                                    segment_backend=segment_backend_provenance(cfg))["segment"]
-    prov = provenance.write_manifest(out_root, config_hash=cfg.hash, config=cfg.as_dict(),
-                                     extra={"n_files": len(files), "input_root": str(root),
-                                            "excluded": [str(f) for f, _ in dropped],
-                                            "xy_stride": int(args.xy_stride), "model_sha256": model_sha,
-                                            "enabled_stages": B.enabled_stage_names(cfg)})
+    batch_extra = {"n_files": len(files), "input_root": str(root), "excluded": [str(f) for f, _ in dropped],
+                   "xy_stride": int(args.xy_stride), "model_sha256": model_sha,
+                   "enabled_stages": B.enabled_stage_names(cfg)}
+    if getattr(cfg, "pack_record", None):
+        # batch --pack: the pack and runtime records go into the batch-root manifest, the only manifest a
+        # batch writes (process_image gets it as prov); a --config batch writes exactly what it always has
+        from .device import runtime_record
+
+        batch_extra["pack"] = dict(cfg.pack_record)
+        batch_extra["runtime"] = runtime_record(cfg.get("segmentation.nuclei.device"))
+    prov = provenance.write_manifest(out_root, config_hash=cfg.hash, config=cfg.as_dict(), extra=batch_extra)
     print(f"Processing {len(files)} files -> {out_root}")
     summaries = []
     resume = bool(getattr(args, "resume", False))

@@ -1,0 +1,30 @@
+# CPU pins for the macOS continuous-integration job (.github/workflows/ci.yml: macos-14, Apple Silicon arm64,
+# Python 3.11; docs/DESIGN_system_packs.md, gate G1). The same pins as ci-cpu-2026-10.txt (the validated
+# workstation set minus the CUDA-only packages, plus pytest, ruff and laptrack, which mac-arm64-2026-09.txt does
+# not pin), but torch and torchvision come from PyPI: the macOS arm64 wheels there are the CPU and Metal build
+# (no PyTorch CPU-index build is needed or offered for macOS). Install with
+#   uv pip install "torch==2.11.0" "torchvision==0.26.0"
+#   uv pip install -c constraints/ci-mac-arm64-2026-10.txt -e ".[gpu,spots,sc,dev,timelapse]" numba
+# Keep these pins equal to ci-cpu-2026-10.txt; bump both together, and only with the golden check.
+cellacdc==1.7.1
+cellpose==4.2.1.1
+dask==2026.6.0
+laptrack==0.17.1
+matplotlib==3.11.0
+nd2==0.11.3
+numba==0.65.1
+numpy==2.4.6
+opencv-python-headless==4.13.0.92
+pandas==3.0.3
+pyarrow==24.0.0
+pytest==9.1.0
+PyYAML==6.0.3
+ruff==0.17.0
+scikit-image==0.26.0
+scikit-learn==1.9.0
+scipy==1.17.1
+skan==0.13.1
+spotmax==1.3.1
+tifffile==2026.3.3
+torch==2.11.0
+torchvision==0.26.0

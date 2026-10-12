@@ -1,0 +1,31 @@
+# Channel map of the budding yeast pack (budding_yeast 0.1.0). Hashed with every recipe of the pack.
+#
+# Names match as a case-insensitive part of the channel name (germquant info FILE prints the names).
+# transmitted: the transmitted-light channel the cells are segmented on (phase contrast, bright field, DIC).
+#   It binds by name only, with no index fallback: a stack without such a channel gets the QC failure
+#   channel:transmitted:MISSING_REQUIRED, and the recipes set segmentation.nuclei.require_channel, so the image
+#   fails instead of segmenting channel 0 (which could be a fluorescence channel). The token BF is left out on
+#   purpose, because it would also match BFP.
+# foci: the spot channel (smFISH probes, a fluorescent protein focus); channel 1 when no name matches, with the
+#   advisory flag channel:foci:name_unmatched_used_index_1.
+# dna: an optional nuclear stain, never bound by position.
+# These names cover the S-BIAD3750 SUT509 channels (Bright, Cy3) and the mtDNA channels (phase_contr, mNeon).
+# Channels named after genes (MDN1, ACT1) match no name: bind them with the role editor or a study copy of
+# this map, never by editing this file.
+match_by: name
+roles:
+  transmitted:
+    names: ["phase", "contr", "PhC", "Bright", "DIC", "trans"]
+    index: null
+    required: true
+    marker: transmitted
+  foci:
+    names: ["smFISH", "FISH", "Quasar", "Cy3", "Cy5", "mNeon", "GFP", "YFP", "foci", "spots"]
+    index: 1
+    required: true
+    marker: foci
+  dna:
+    names: ["DAPI", "Hoechst"]
+    index: null
+    required: false
+    marker: DNA

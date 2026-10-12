@@ -42,21 +42,24 @@ class Stage:
     default_from: str | None = None   # another stage's key whose value is the default when ours is absent
     legacy_cli_help: str | None = None
     config_sections: tuple[str, ...] = ()   # top-level config sections whose text feeds the stage sub-hash
+    # runs on 2D objects (projected and single-plane runs, germquant.planar.check_planar); outside every hash payload
+    planar_ok: bool = False
 
 
 STAGES: tuple[Stage, ...] = (
     Stage("read", None, True, ("dna",), False, "read the .nd2, resolve channel roles, parse the sample",
-          config_sections=("io", "metadata")),
+          config_sections=("io", "metadata"), planar_ok=True),
     Stage("acquisition", "acquisition.read_exposures", False, (), True,
           "per-channel exposure and laser power from the .nd2 description -> image_summary",
-          config_sections=("acquisition",)),
+          config_sections=("acquisition",), planar_ok=True),
     Stage("segment", None, True, (), False, "Cellpose 3D nucleus segmentation (falls back to classical)",
-          config_sections=("segmentation",)),
-    Stage("measure", None, True, (), False, "3D regionprops + per-role mean intensities per nucleus"),
+          config_sections=("segmentation",), planar_ok=True),
+    Stage("measure", None, True, (), False, "3D regionprops + per-role mean intensities per nucleus",
+          planar_ok=True),
     Stage("signal_qc", "signal_qc.enabled", True, (), True,
           "per-channel background, noise, SNR, saturation and exposure-normalized levels (image_summary sig_*) "
           "and pairwise channel cross-talk in nuclei / perinuclear ring / cytoplasm (channel_crosstalk table); "
-          "its flags are off unless signal_qc.flags.enabled", config_sections=("signal_qc",)),
+          "its flags are off unless signal_qc.flags.enabled", config_sections=("signal_qc",), planar_ok=True),
     Stage("germline", "germline.enabled", True, ("central_element",), True,
           "drop nuclei outside the gonad (SYP-seeded connected component)", config_sections=("germline",)),
     Stage("envelope", "envelope.enabled", False, ("lamin",), True,
@@ -73,7 +76,7 @@ STAGES: tuple[Stage, ...] = (
           "SpotMAX spot counting in the `foci` channel (RAD-51); further instances (COSA-1 crossover foci) "
           "via spots.instances, each on its own channel role with its own table and column",
           legacy_cli_help="segmentation only: skip RAD-51/SpotMAX spot detection (fast, never wedges)",
-          config_sections=("spots",)),
+          config_sections=("spots",), planar_ok=True),
     Stage("sc_trace", "sc.trace.enabled", False, ("central_element",), True,
           "per-nucleus SC tracing: SC length, fragment lower bound, fragmentation index (needs skan)",
           config_sections=("sc",)),
@@ -90,9 +93,10 @@ STAGES: tuple[Stage, ...] = (
     Stage("granule_tail", "granule_tail.enabled", False, ("granule", "central_element"), True,
           "per-granule SYP-3 excess in nuclear units and the lit fraction (no-envelope nuclei dropped)",
           config_sections=("granule_tail", "envelope", "granule")),
-    Stage("qc", None, True, (), False, "QC flags and pass/fail", config_sections=("qc",)),
-    Stage("render", "render.montage", True, (), False, "montage PNG", config_sections=("render",)),
-    Stage("write", None, True, (), False, "tables, label images, masks, manifest", config_sections=("output",)),
+    Stage("qc", None, True, (), False, "QC flags and pass/fail", config_sections=("qc",), planar_ok=True),
+    Stage("render", "render.montage", True, (), False, "montage PNG", config_sections=("render",), planar_ok=True),
+    Stage("write", None, True, (), False, "tables, label images, masks, manifest", config_sections=("output",),
+          planar_ok=True),
 )
 
 BY_NAME: dict[str, Stage] = {s.name: s for s in STAGES}
@@ -165,10 +169,17 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
     ``spot_backend`` is the provenance a non-default spot backend declares (net3d: its model file's
     sha256 and the extra channel roles it reads); it enters the spots payload only when not empty, so
     the hashes of a default run are unchanged. ``segment_backend`` is the same for the segmentation
-    backend (nuclei3d: its model file's sha256), entering the segment payload only when not empty."""
+    backend (nuclei3d: its model file's sha256), entering the segment payload only when not empty.
+
+    Portable payload (docs/DESIGN_system_packs.md, section 3.4): in a chain that went through one of the
+    two new extends forms (``pack:<id>@<v>/<r>`` or a bare name under a built-in root), an inherited path
+    that load_config made absolute is hashed by its original relative value, so an edited pack recipe hashes
+    alike on every machine (the model digest stays in the segment payload). Every other config, the shipped
+    ones and out-of-repo overlays with an absolute extends path included, hashes exactly as before."""
     import hashlib
     import json
 
+    portable = _portable_paths(cfg)
     out = {}
     for st in STAGES:
         payload = {
@@ -177,6 +188,8 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
             "roles": {r: role_to_idx.get(r) for r in st.required_roles},
             "tools": {k: extras.get(k, "not-installed") for k in _STAGE_TOOLS.get(st.name, ())},
         }
+        if portable:
+            payload["config"] = _with_relative_paths(payload["config"], portable)
         if st.name == "segment":
             payload["model_sha256"] = model_sha
         if st.name == "segment" and segment_backend:
@@ -184,6 +197,35 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
         if st.name == "spots" and spot_backend:
             payload["spot_backend"] = spot_backend
         out[st.name] = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:12]
+    return out
+
+
+def _portable_paths(cfg) -> dict[str, str]:
+    """``{dotted key: original relative value}`` for the anchored paths a portable chain hashes by their
+    relative value (empty unless ``cfg.anchors`` says the chain used a new extends form). A key whose value
+    no longer equals the anchored absolute path (a runtime override) keeps its own value."""
+    anchors = getattr(cfg, "anchors", None)
+    if not isinstance(anchors, dict) or not anchors.get("portable"):
+        return {}
+    out = {}
+    for key, rec in (anchors.get("paths") or {}).items():
+        if isinstance(rec, dict) and cfg.get(key) == rec.get("absolute"):
+            out[key] = rec.get("relative")
+    return out
+
+
+def _with_relative_paths(sections: dict, portable: dict[str, str]) -> dict:
+    """A copy of a stage's config sections with each anchored path replaced by its relative value."""
+    import copy
+
+    out = copy.deepcopy(sections)
+    for key, rel in portable.items():
+        parts = key.split(".")
+        node = out.get(parts[0])
+        for part in parts[1:-1]:
+            node = node.get(part) if isinstance(node, dict) else None
+        if isinstance(node, dict) and parts[-1] in node:
+            node[parts[-1]] = rel
     return out
 
 

@@ -1,0 +1,28 @@
+# Cultured cells pack, recipe nuclei_foci_3d (dims 3d). cultured_cells 0.1.0, provisional: these are starting
+# values (docs/DESIGN_system_packs.md, section 3.12), not yet tuned, and the recipe is not validated.
+#
+# Nuclei are segmented by Cellpose-SAM in 3D (do_3D with the anisotropy dz / dy, the engine's validated 3D call)
+# and objects under 60 um3 are dropped (a sphere about 4.9 um across, the 3D match of the 20 um2 gate of
+# nuclei_foci); foci are counted per nucleus in 3D by SpotMAX with the same settings as nuclei_foci. A GPU is
+# recommended. sharpen is off, so effect_size and effect_size_min are on SpotMAX's usual (unsharpened) scale.
+# Every worm stage switch, the neutral file-name regex and the QC settings sit in pack_base.yaml.
+extends: pack_base.yaml
+
+segmentation:
+  nuclei:
+    method: cellpose
+    channel: dna
+    cellpose_model: cpsam_v2@0f1cc3f7
+    diameter_um: 12.0
+    min_volume_um3: 60.0
+    require_channel: true
+
+spots:
+  spot_radius_um: 0.3
+  spot_radius_z_um: 0.6
+  gauss_sigma_um: 0.08
+  thresholding_method: threshold_triangle
+  effect_size_min: 3.0
+  merge_z_columns: true
+  instances:
+    - {name: foci2, role: foci2, expected_from_germ_cell: false}

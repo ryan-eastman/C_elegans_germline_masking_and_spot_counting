@@ -1,0 +1,25 @@
+{
+ "name": "cpsam_v2",
+ "what": "Cellpose-SAM, the cpsam_v2 weights: the stock generalist Cellpose model that Cellpose 4.2.x loads by default (its built-in names are cpsam_v2, cpdino, cpdino-vitb and cpsam). Not trained for this pack. The budding yeast pack runs it on one 2D plane of the transmitted channel (the projected recipe cells_spots), where each mask is a whole cell.",
+ "kind": "cellpose",
+ "dims": "2d",
+ "pixel_um": null,
+ "pixel_um_note": "Cellpose-SAM runs at the image's own scale; no training pixel size applies. The pack expects pixels of 0.05 to 0.15 um.",
+ "object_kind": "cell",
+ "model_file": "cpsam_v2",
+ "model_sha256": "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667",
+ "model_size": 1233586851,
+ "base_model": {"name": "none", "kind": "cellpose_builtin", "path": null, "sha256": null, "note": "a stock model, not a fine-tune"},
+ "date": "2026-05-17",
+ "date_note": "the last change of the Hugging Face repository commit below; Cellpose 4.2.0 (2026-06-11) made these weights its default",
+ "source_url": "https://huggingface.co/mouseland/cellpose-sam/resolve/7c61431b5fbb078f3296754bd15d9f51b320f837/cpsam_v2",
+ "source_commit": "7c61431b5fbb078f3296754bd15d9f51b320f837",
+ "training": {
+  "by": "the Cellpose authors (Pachitariu, Rariden and Stringer)",
+  "data": "the Cellpose-SAM training collection; YeaZ budding yeast images are part of it (sampled at 1 to 2 percent), so yeast scores of this model are not independent of YeaZ data",
+  "paper": "Pachitariu M, Rariden M, Stringer C. Cellpose-SAM: superhuman generalization for cellular segmentation. bioRxiv (2025)"
+ },
+ "holdout_metrics": null,
+ "holdout_note": "not measured for this pack yet: the pack is provisional (0.1.0) and its recipes are not validated",
+ "licence_note": "Weights: BSD-3-Clause (Hugging Face mouseland/cellpose-sam). The Cellpose training data include CC BY-NC sets, so commercial use of the weights is an open question. The weights are never stored in the pack: germquant pack fetch-models adopts the copy in Cellpose's cache after a size and sha256 check, or downloads the pinned address."
+}

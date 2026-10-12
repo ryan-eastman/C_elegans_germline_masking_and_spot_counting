@@ -1,0 +1,16 @@
+# Test pack recipe "with_model": the same field segmented by Cellpose with a pinned pack model. The model is a
+# 64-byte stand-in (models/tinynet.card.json, stand_in_content), so pack status, fetch-models and the pin
+# check can be exercised without real weights; the recipe golden forces the classical segmenter, which never
+# resolves the model, so it runs with an empty model store.
+extends: pack_base.yaml
+segmentation:
+  nuclei:
+    method: cellpose
+    cellpose_model: tinynet@f5055f8a
+    diameter_um: 3.0
+    min_volume_um3: 2.0
+    require_channel: true
+spots:
+  backend: log
+  log:
+    min_snr: 2.0

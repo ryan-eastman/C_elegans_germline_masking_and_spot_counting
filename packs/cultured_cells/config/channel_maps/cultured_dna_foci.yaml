@@ -1,0 +1,27 @@
+# Channel map of the cultured cells pack (cultured_cells 0.1.0). Hashed with every recipe of the pack.
+#
+# Names match as a case-insensitive part of the channel name (germquant info FILE prints the names).
+# dna: the nuclear stain the nuclei are segmented on; channel 0 when no name matches.
+# foci: the first focus channel (gamma-H2AX, RAD51, any DNA repair focus); channel 1 when no name matches.
+# foci2: an optional second focus channel (53BP1), counted as the spots instance foci2; channel 2 when no
+#   name matches.
+# Laser-line names (405, 488, 561, 640) are left out on purpose: such channels bind by position, with the
+# advisory flag channel:<role>:name_unmatched_used_index_<n>. Channels named another way: bind them with the
+# role editor or a study copy of this map, never by editing this file.
+match_by: name
+roles:
+  dna:
+    names: ["DAPI", "Hoechst", "DNA", "SiR-DNA", "DRAQ5", "H2B"]
+    index: 0
+    required: true
+    marker: DNA
+  foci:
+    names: ["gH2AX", "gammaH2AX", "H2AX", "RAD51", "foci", "puncta"]
+    index: 1
+    required: true
+    marker: foci
+  foci2:
+    names: ["53BP1", "foci2"]
+    index: 2
+    required: false
+    marker: foci2

@@ -63,11 +63,29 @@ def _read(p: Path) -> pd.DataFrame:
 
 # The goldens were made on the lab workstation and are compared exactly there. Other CPUs sum in a different
 # vector order, so a correlation or a mean can differ in its last bits (coloc.pearson_r differed by one part
-# in 1e14 between the workstation and the GitHub runners). CI sets GERMQUANT_GOLDEN_RTOL (1e-12) to allow
-# exactly that and nothing more; leave it unset on the workstation so a real change of any size fails.
+# in 1e14 between the workstation and the GitHub runners). CI sets GERMQUANT_GOLDEN_RTOL (1e-12 on ubuntu and
+# windows; 1e-6 on macos-14, where arm64 moves a float32 intensity mean by one float32 step) to allow exactly
+# that and nothing more; leave it unset on the workstation so a real change of any size fails.
 _RTOL_ENV = os.environ.get("GERMQUANT_GOLDEN_RTOL")
 _FLOAT_TOLERANCE = ({"check_exact": False, "rtol": float(_RTOL_ENV), "atol": 0.0} if _RTOL_ENV
                     else {"check_exact": True})
+# Row order. On the workstation every table is compared row by row. Another CPU can swap two spots whose sort
+# key ties within floating-point noise (macos-14 swapped two spots of synthetic_4ch, CI run 37), so in CI
+# tolerance mode the spots table is put in coordinate order on both sides first; the workstation keeps the
+# exact row-by-row check, and every value is still compared.
+_ORDER_KEYS = {"spots": ["z_um", "y_um", "x_um"]}
+# spot_id numbers the spots in detection order, so two swapped spots also swap their ids: in CI tolerance mode
+# it is compared as a set of ids (the same ids, each once) instead of row by row.
+_ORDINAL_COLUMNS = {"spots": {"spot_id"}}
+
+
+def _canonical(df: pd.DataFrame, table: str) -> pd.DataFrame:
+    keys = _ORDER_KEYS.get(table)
+    if not _RTOL_ENV or not keys or not set(keys) <= set(df.columns):
+        return df
+    k = df[keys].astype(float).round(6)
+    order = k.sort_values(keys, kind="mergesort").index
+    return df.loc[order].reset_index(drop=True)
 
 
 @pytest.mark.parametrize("name", list(CASES))
@@ -87,6 +105,7 @@ def test_synthetic_golden(tmp_path, request, name):
                                   "existing runs would no longer reproduce (roadmap rule)")
     for t, f in files.items():
         got, ref = _read(f), pd.read_csv(gold / f"{t}.csv", low_memory=False, float_precision="round_trip")
+        got, ref = _canonical(got, t), _canonical(ref, t)
         # append-only schema rule: every golden column is still present, in the same relative order
         # (new declared columns may land before the per-role extras; nothing is renamed or removed)
         common = [c for c in got.columns if c in set(ref.columns)]
@@ -95,6 +114,9 @@ def test_synthetic_golden(tmp_path, request, name):
         assert len(got) == len(ref), f"{t}: row count {len(got)} vs {len(ref)}"
         for col in ref.columns:
             a, b = got[col], ref[col]
+            if _RTOL_ENV and col in _ORDINAL_COLUMNS.get(t, ()):
+                assert sorted(a.astype(float)) == sorted(b.astype(float)), f"{t}.{col}: not the same set of ids"
+                continue
             if pd.api.types.is_numeric_dtype(b):
                 pd.testing.assert_series_equal(a.astype(float), b.astype(float), check_names=False,
                                                obj=f"{t}.{col}", **_FLOAT_TOLERANCE)

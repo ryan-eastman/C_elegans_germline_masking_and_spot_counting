@@ -63,3 +63,16 @@ cv_results*/
 
 # benchmark manifests are rebuilt by scripts/benchmark_manifest.py (machine paths and exists flags)
 benchmarks/*/manifest.json
+
+# System packs are tracked in full: their model cards sit under models/ and their examples are .ome.tif, both
+# ignored everywhere above (docs/DESIGN_system_packs.md 3.7). Only folder-wide negations work: git never
+# re-includes a file whose parent folder is excluded. These lines must stay LAST.
+!/packs/**
+!/tests/fixtures/packs/**
+# ...and re-ignore inside packs what the negations would otherwise bring back (caches and .DS_Store)
+/packs/**/__pycache__/
+/packs/**/*.py[cod]
+/packs/**/.DS_Store
+/tests/fixtures/packs/**/__pycache__/
+/tests/fixtures/packs/**/*.py[cod]
+/tests/fixtures/packs/**/.DS_Store

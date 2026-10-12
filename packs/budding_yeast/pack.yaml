@@ -1,0 +1,75 @@
+# The budding yeast pack (docs/PACKS.md; docs/DESIGN_system_packs.md, section 3.12). Version 0.1.0 is
+# provisional: its settings are starting values, not yet tuned, and no recipe is validated (README.md says what
+# that means). The recipe extends the pack's own frozen pack_base.yaml, never config/config.yaml, so a change to
+# the engine's config files never moves this pack's config hash.
+format: 1
+id: budding_yeast
+version: 0.1.0
+title: "Budding yeast: cells and spots"
+summary: "Whole cells from one transmitted-light plane, spots counted per cell in 3D."
+system: {organism: Saccharomyces cerevisiae, sample: "fixed or live cells", imaging: "widefield or confocal z-stacks"}
+object_kind: cell
+maintainer: "Cahoon lab"
+licence: MIT
+citation: {text: "Eastman R. et al. germquant budding yeast pack, version 0.1.0 (provisional), with Cellpose-SAM (Pachitariu et al. 2025) and SpotMAX (Padovani et al. 2026).", doi: null, cff: CITATION.cff}
+requires: {germquant: ">=0.2.0.dev0,<0.3", extras: [gpu, spots, readers]}
+root: pack
+expects: {pixel_um: [0.05, 0.15], z_step_um: [0.15, 0.5]}
+recipes:
+  - id: cells_spots
+    title: "Cells and spots, z-stack"
+    profile: config/profiles/cells_spots.yaml
+    dims: projected
+    default: true
+    status: provisional
+    validated: false
+    expected_config_hash: "fb4daf6a1992"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: [spotmax]
+      models: ["cpsam_v2@0f1cc3f7"]
+      modules: [cellpose, torch, spotmax]
+      accelerator: optional
+    tunables:
+      - {key: spots.effect_size_min, label: "Spot strength threshold (sharpened scale)", type: float, min: 0.5, max: 10}
+      - {key: spots.spot_radius_um, label: "Spot radius (xy)", type: float, unit: um, min: 0.05, max: 1.0}
+      - {key: segmentation.nuclei.project_plane, label: "Plane to segment", type: choice, choices: [mid, sharpest]}
+      - {key: segmentation.nuclei.min_area_um2, label: "Smallest cell", type: float, unit: um2, min: 0.0, max: 50.0}
+    validation: null
+models:
+  - name: "cpsam_v2@0f1cc3f7"
+    kind: cellpose
+    file_name: cpsam_v2
+    sha256: 0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667
+    size: 1233586851
+    sources:
+      - {type: cellpose_cache, name: cpsam_v2}
+      - {type: url, url: "https://huggingface.co/mouseland/cellpose-sam/resolve/7c61431b5fbb078f3296754bd15d9f51b320f837/cpsam_v2"}
+    card: models/cpsam_v2.card.json
+    licence: "weights BSD-3-Clause; training data includes CC BY-NC sets"
+examples:
+  - {id: synthetic, image: example/yeast_synthetic.ome.tif}
+  # S-BIAD3750 (BioImage Archive, CC0), yeast smFISH of SUT509, Position_1: two 700 x 700 x 15 uint16 TIFFs, one per
+  # channel. The voxel size is the position's metadata.csv (PhysicalSizeZ 0.24, PhysicalSizeY and X 0.0720635 um).
+  # expect gives the ranges a run of cells_spots lands in (a CPU run gave 11 cells and 8 spots; the two annotators
+  # of the deposit marked 6 and 9 spots in this position).
+  - id: sbiad3750_sut509_p1
+    recipe: cells_spots
+    base_url: "https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/750/S-BIAD3750/Files/"
+    sources:
+      - {path: "SpotMAX_gt_dataset/Yeast_smFISH/SUT509_gene/Position_1/Images/Y7092_WT_SUT509_q570_1xprobe_SCD_08022022-10_s10_Bright.tif",
+         size: 14701884, sha256: "143b73fffefcae515757e88ec2cf18071fbcbfa09429748658fc10666cca3cb3"}
+      - {path: "SpotMAX_gt_dataset/Yeast_smFISH/SUT509_gene/Position_1/Images/Y7092_WT_SUT509_q570_1xprobe_SCD_08022022-10_s10_Cy3.tif",
+         size: 14701884, sha256: "6361dcc0dc6f7faa51716fa56b7bb86508c906bbee812963b16d22e5d214998c"}
+    assemble: {axes: ZYX, channels: [Bright, Cy3], spacing_zyx_um: [0.24, 0.0720635, 0.0720635]}
+    pixels_sha256: "f1150374eabf333641b3e4e2b53f9edce7e0702048f0ce4832aa642c0334641e"
+    licence: CC0
+    licence_spdx: CC0-1.0
+    licence_url: "https://creativecommons.org/publicdomain/zero/1.0/"
+    attribution: "Padovani et al. 2026, Science Advances (SpotMAX); BioImage Archive S-BIAD3750, doi 10.6019/S-BIAD3750 (CC0)"
+    expect: {n_objects: [8, 15], spots_per_object: [0.3, 1.5]}
+    checked:
+      date: "2026-10-11"
+      files: "ImageJ hyperstacks of 15 planes of 700 x 700 uint16 pixels each, one channel per file, no calibration, so the declared axes are ZYX"
+      voxel_size: "the position's metadata.csv: PhysicalSizeZ 0.24, PhysicalSizeY and PhysicalSizeX 0.0720635 um"
+      plane: "Cell-ACDC segmented plane 7 (data prep) or 10 (its GUI) of the Bright channel (segmInfo.csv); the recipe's sharpest plane is 9"

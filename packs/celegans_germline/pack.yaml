@@ -1,0 +1,133 @@
+# The C. elegans germline pack: the engine's own validated recipes, by name (docs/PACKS.md). root: checkout
+# means every recipe IS a frozen file of the engine checkout (never a copy: a copy would change base_dir, and
+# models/models and config/channel_maps would stop resolving), so --pack celegans_germline and
+# --config config/config.yaml give the same config_hash, 84bdda5a5230, and the same numbers.
+format: 1
+id: celegans_germline
+version: 0.1.0
+title: "C. elegans germline: nuclei, RAD-51 foci, SC and P granules"
+summary: "The germquant recipes for the C. elegans meiotic germline, exactly as the frozen engine config files define them."
+system: {organism: Caenorhabditis elegans, sample: "fixed dissected gonads (immunofluorescence); live GFP::SYP-2 worms", imaging: "confocal z-stacks (Nikon .nd2)"}
+object_kind: nucleus
+maintainer: "Cahoon lab"
+licence: MIT
+citation: {text: "Eastman R. et al. germquant: reproducible 3D quantification of the C. elegans meiotic germline (software).", doi: null, cff: CITATION.cff}
+requires: {germquant: ">=0.2.0.dev0,<0.3", extras: [gpu, spots]}
+root: checkout
+expects: {pixel_um: [0.04, 0.25], z_step_um: [0.1, 0.6]}
+recipes:
+  - id: default
+    title: "Full germline recipe: nuclei, germline, axis, RAD-51 foci, P granules and coloc (config/config.yaml)"
+    profile: config/config.yaml
+    dims: 3d
+    default: true
+    status: provisional
+    expected_config_hash: "84bdda5a5230"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: [spotmax]
+      models: [germline_nuclei_combined]
+      modules: [cellpose, torch, spotmax]
+      accelerator: recommended
+    tunables:
+      - {key: spots.effect_size_min, label: "Spot strength threshold", type: float, min: 0.5, max: 10}
+      - {key: spots.spot_radius_um, label: "Spot radius", type: float, unit: um, min: 0.05, max: 1.0}
+      - {key: segmentation.nuclei.min_volume_um3, label: "Smallest nucleus", type: float, unit: um3, min: 0.0, max: 50.0}
+    validation: null
+  - id: rad51_foci
+    title: "RAD-51 foci counting: nuclei, germline, axis, SpotMAX spots (config/profiles/rad51_foci.yaml)"
+    profile: config/profiles/rad51_foci.yaml
+    dims: 3d
+    status: provisional
+    expected_config_hash: "77d5094e2cd2"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: [spotmax]
+      models: [germline_nuclei_combined]
+      modules: [cellpose, torch, spotmax]
+      accelerator: recommended
+    tunables:
+      - {key: spots.effect_size_min, label: "Spot strength threshold", type: float, min: 0.5, max: 10}
+      - {key: spots.spot_radius_um, label: "Spot radius", type: float, unit: um, min: 0.05, max: 1.0}
+    validation: null
+  - id: segmentation_only
+    title: "Nuclei and germline isolation only, for Imaris surfaces (config/profiles/segmentation_only.yaml)"
+    profile: config/profiles/segmentation_only.yaml
+    dims: 3d
+    status: provisional
+    expected_config_hash: "80f725befef3"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: []
+      models: [germline_nuclei_combined]
+      modules: [cellpose, torch]
+      accelerator: recommended
+    tunables:
+      - {key: segmentation.nuclei.min_volume_um3, label: "Smallest nucleus", type: float, unit: um3, min: 0.0, max: 50.0}
+    validation: null
+  - id: n2_sc
+    title: "SC tracing for fragmentation, plus RAD-51 foci when present (config/profiles/n2_sc.yaml)"
+    profile: config/profiles/n2_sc.yaml
+    dims: 3d
+    status: provisional
+    expected_config_hash: "d3a23628a124"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: [spotmax]
+      models: [germline_nuclei_combined]
+      modules: [cellpose, torch, spotmax, skan]
+      accelerator: recommended
+    tunables:
+      - {key: sc.min_fragment_length_um, label: "Shortest SC fragment", type: float, unit: um, min: 0.0, max: 5.0}
+    validation: null
+  - id: ccw77_partition
+    title: "ccw77 SYP-3 / PGL-1 partitioning with envelope, staging and controls (config/profiles/ccw77_partition.yaml)"
+    profile: config/profiles/ccw77_partition.yaml
+    dims: 3d
+    status: provisional
+    expected_config_hash: "689966d14925"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: [spotmax]
+      models: [germline_nuclei_combined]
+      modules: [cellpose, torch, spotmax]
+      accelerator: recommended
+    tunables: []
+    validation: null
+  - id: live_syp2
+    title: "Live GFP::SYP-2 time-lapse, one timepoint at a time (config/profiles/live_syp2.yaml)"
+    profile: config/profiles/live_syp2.yaml
+    dims: 3d+t
+    status: provisional
+    expected_config_hash: "1ff18698d698"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: []
+      models: [germline_nuclei_combined]
+      modules: [cellpose, torch]
+      accelerator: recommended
+    tunables:
+      - {key: segmentation.nuclei.min_volume_um3, label: "Smallest nucleus", type: float, unit: um3, min: 0.0, max: 50.0}
+    validation: null
+models:
+  - name: germline_nuclei_combined
+    kind: release
+    file_name: germline_nuclei_combined
+    sha256: e4e32320cfc321a145ccbc0c52138eded50e37b87130f34bae2296c88b148f57
+    size: 1218646375
+    sources:
+      - {type: release, name: germline_nuclei_combined}
+    card: models/germline_nuclei_combined.card.json
+    licence: "weights: Cellpose-SAM fine-tune (BSD-3-Clause base); the Cellpose training data include CC BY-NC sets"
+# the LF-normalised sha256 of every engine file the recipes reference (frozen by rule R1; pack verify checks them)
+engine_files:
+  config/channel_maps/ccw77_dapi_syp_pgl_lamin.yaml: 7dac727682e7fb281cda789950ac9f8f592c47ae98ce4780d135e890466b7844
+  config/channel_maps/live_gfp_syp2.yaml: 8618c8b6ecb02f04718b65e9202ada7dc6e8d315a9eecc973c3b41fdb9ac55b6
+  config/channel_maps/n2_dapi_syp_rad51_pgl1.yaml: c040a07a7274c453358f86a4a4e3b1b10c199818e72043d0c72c0d90b130e37c
+  config/config.yaml: ce28c4ff517e351563ba8e99f1c7503ec897a7b08fcc2af22a2a95b0a8b07de0
+  config/config_ccw77.yaml: d2c1b5805eab27d37a9f9be71129595f3d8d582f74c4a65a54ef57ca9cc669e9
+  config/profiles/ccw77_partition.yaml: 1a57da24366d088d2d7dd1993eedb34a54ca99ff4c1c5dace044422cb147de76
+  config/profiles/live_syp2.yaml: 315bbc62a1172a0fc83e81c73c8a980f343f78b1ee1292a174b35c269325ff06
+  config/profiles/n2_sc.yaml: 6a1ca5b401aa705c8067b8c0804d418934a9f1017af5d97458e8ea60b74fca19
+  config/profiles/rad51_foci.yaml: 6740f092f13746a38419081415cf7f144fce2c4365093fff037c52f283797fc6
+  config/profiles/segmentation_only.yaml: 7211561999bf78bca6fb0ce0b0650025e40aeaa06a4ea13fe0aadb105802523b
