@@ -42,8 +42,9 @@ A+B spots and from Class A spots only. ``pool_scores`` adds the cluster bootstra
 Test guard. Under docs/BENCHMARK_PROTOCOL.md the test gonads are scored once, by a frozen method. Every
 entry point here refuses a test gonad unless the caller passes ``allow_test=True``, which only
 ``scripts/bench_detector.py --final`` does. The pre-registered roles come from
-``germquant.validate.benchmark_split.PREREGISTERED_ROLES`` (the split never changes) and the manifest;
-a disagreement between the two is an error.
+``germquant.validate.benchmark_split.PREREGISTERED_ROLES`` (the split never changes), the roles of the
+additions of protocol changelog entry 9 from ``benchmark_split.ADDITION_ROLES`` (train only), and the
+manifest; a disagreement between the code and the manifest is an error.
 """
 from __future__ import annotations
 
@@ -101,11 +102,20 @@ class TestSetGuardError(PermissionError):
 
 # ----------------------------------------------------------------------------------- roles
 def preregistered_role(tag: str) -> str | None:
-    """The role the pre-registration gives ``tag`` (train, val or test), or None for a tag outside the
-    N2 RAD-51 split (a synthetic or future gonad, whose role then comes from its manifest)."""
-    from germquant.validate.benchmark_split import PREREGISTERED_ROLES
+    """The role the code fixes for ``tag``: the pre-registration's (train, val or test) for a gonad of the
+    N2 RAD-51 split, train for an addition of protocol changelog entry 9 (``ADDITION_ROLES``), None for any
+    other tag (a synthetic or future gonad, whose role then comes from its manifest)."""
+    from germquant.validate.benchmark_split import ADDITION_ROLES, PREREGISTERED_ROLES
 
-    return PREREGISTERED_ROLES.get(str(tag))
+    return PREREGISTERED_ROLES.get(str(tag)) or ADDITION_ROLES.get(str(tag))
+
+
+def is_addition(tag: str, entry: Entry | None = None) -> bool:
+    """True for an addition of protocol changelog entry 9 (``ADDITION_ROLES``, or a manifest entry flagged
+    ``addition``). An addition trains; it is never a selection gonad of a leave-one-gonad-out fold."""
+    from germquant.validate.benchmark_split import ADDITION_ROLES
+
+    return str(tag) in ADDITION_ROLES or bool(entry is not None and entry.extra.get("addition"))
 
 
 def gonad_role(tag: str, manifest_role: str | None = None) -> str:
@@ -418,7 +428,9 @@ def cache_gonad(entry: Entry, cache_root=DEFAULT_CACHE_ROOT, *, split_record: di
         "marker_source": marker_source,
         "spots_config": spots_cfg,
         "nd2": {"path": str(nd2_path).replace("\\", "/"), "size_bytes": size,
-                "sha256": nd2_rec.get("sha256"), "sha256_source": "split record" if nd2_rec.get("sha256") else None,
+                "sha256": nd2_rec.get("sha256"),
+                "sha256_source": (("additions record" if is_addition(tag, entry) else "split record")
+                                  if nd2_rec.get("sha256") else None),
                 "sha256_verified": sha_verified},
         "labels": {
             "source": str(paths["nuclei_labels"]).replace("\\", "/"),

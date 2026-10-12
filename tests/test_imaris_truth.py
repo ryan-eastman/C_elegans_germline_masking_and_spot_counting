@@ -84,10 +84,11 @@ def _label_tables(g, sets, label_ids, object_ids):
     g.create_dataset("LabelSetObjectIDs", data=_rec([(i,) for i in object_ids], [("IDObject", "<i8")]))
 
 
-def build_ims(path, *, mask_mode="unique", surface_stats=True, surfaces=True):
+def build_ims(path, *, mask_mode="unique", surface_stats=True, surfaces=True, ic_stats=False):
     """Write a synthetic .ims. ``mask_mode`` 'unique' gives every nucleus its own value (8 and 9 collide),
     'binary' fills every nucleus with 1; ``surface_stats=False`` leaves out the per-surface intensity
-    statistics so the pixel probe has to find the mask channel."""
+    statistics so the pixel probe has to find the mask channel; ``ic_stats`` stores Imaris's per-spot
+    Intensity Center of the spot channel (0) and of the mask channel (1), the frame check's input."""
     rng = np.random.default_rng(0)
     raw = np.zeros(PAD, np.uint16)
     raw[:Z, :Y, :X] = rng.integers(60, 400, size=(Z, Y, X))
@@ -129,13 +130,19 @@ def build_ims(path, *, mask_mode="unique", surface_stats=True, surfaces=True):
         spot_dtype = [("ID", "<i8"), ("PositionX", "<f4"), ("PositionY", "<f4"), ("PositionZ", "<f4"), ("Radius", "<f4")]
         rows = [(sid, *_spot_position_um(v, fr), rad) for sid, (v, fr, _c, _q, _m, rad) in SPOTS.items()]
         pts.create_dataset("Spot", data=_rec(rows, spot_dtype))
+        ic_types = [(4, 0, 2, "Intensity Center", ""), (5, 0, 1, "Intensity Center", "")] if ic_stats else []
         pts.create_dataset("StatisticsType", data=_rec([(1, 0, 0, "Quality", ""), (2, 0, 1, "Intensity Max", ""),
-                                                        (3, 1, 0, "Total Number of Spots", "")], stype))
+                                                        (3, 1, 0, "Total Number of Spots", "")] + ic_types, stype))
         pts.create_dataset("Category", data=_rec([(0, "Spot", "Spot"), (1, "Overall", "Overall")], category))
-        pts.create_dataset("Factor", data=_rec([(1, "Channel", str(MASK_CH + 1)), (1, "Image", "Image 1")], factor))
+        ic_factors = [(2, "Channel", "1"), (2, "Image", "Image 1")] if ic_stats else []
+        pts.create_dataset("Factor", data=_rec([(1, "Channel", str(MASK_CH + 1)), (1, "Image", "Image 1")] + ic_factors,
+                                               factor))
         vals = [(0, -1, 3, float(len(SPOTS)))]
         for sid, (_v, _fr, _c, q, m, _r) in SPOTS.items():
             vals += [(0, sid, 1, q), (0, sid, 2, float(m if mask_mode == "unique" else min(m, 1)))]
+            if ic_stats:
+                xi, yi, zi = _v
+                vals += [(0, sid, 4, float(raw[zi, yi, xi])), (0, sid, 5, float(mask[zi, yi, xi]))]
         pts.create_dataset("StatisticsValue", data=_rec(vals, svalue))
         _label_tables(pts, sets=[(1, 3), (2, 5)], label_ids=[0, 1], object_ids=[11, 13, 12, 14, 15])
 
@@ -393,13 +400,221 @@ def test_cli_wiring(monkeypatch):
 
     called = {}
 
-    def fake_export(ims, out, *, nd2=None, masks=True):
+    def fake_export(ims, out, *, nd2=None, masks=True, frame_check_on=False, spots_xlsx=None, xlsx_expect=None):
         called.update(ims=ims, out=out, nd2=nd2, masks=masks)
+        called.update(frame=frame_check_on, xlsx=spots_xlsx, expect=xlsx_expect)
         return {"stem": "x", "n_spots": 3, "n_surfaces": 2, "warnings": ["w1"],
                 "mask": {"labels_file": None, "reason_no_labels": "masks not requested (--no-masks)"}}
 
     monkeypatch.setattr(imaris_ims, "export_imaris_truth", fake_export)
     assert cli.main(["imaris-truth", "a.ims", "--out", "o", "--nd2", "a.nd2", "--no-masks"]) == 0
-    assert called == {"ims": "a.ims", "out": "o", "nd2": "a.nd2", "masks": False}
+    assert called == {"ims": "a.ims", "out": "o", "nd2": "a.nd2", "masks": False, "frame": False, "xlsx": None,
+                      "expect": None}
+    assert cli.main(["imaris-truth", "c.ims", "--out", "o3", "--frame-check", "--spots-xlsx", "c.xlsx",
+                     "--xlsx-expect-sha256", "ab", "--xlsx-expect-spots", "5", "--xlsx-expect-surfaces", "4"]) == 0
+    assert called["frame"] is True and called["xlsx"] == "c.xlsx"
+    assert called["expect"] == {"sha256": "ab", "n_spots": 5, "n_surfaces": 4}
     assert cli.main(["imaris-truth", "b.ims", "--out", "o2"]) == 0
     assert called["nd2"] is None and called["masks"] is True
+
+
+# ---------------------------------------------------------------- the frame check (entry 9 (d)(3))
+def _frame_case(seed=5, n=3000, shape_xyz=(200, 150, 10)):
+    rng = np.random.default_rng(seed)
+    v = np.array([0.1, 0.1, 0.2])
+    ext = np.array([16249.93, 4614.7, 2742.24])
+    img = rng.integers(0, 4000, size=shape_xyz[::-1]).astype(np.uint16)
+    msk = rng.integers(0, 50, size=shape_xyz[::-1]).astype(np.uint16)
+    idx = np.stack([rng.integers(0, s, n) for s in shape_xyz], axis=1)
+    frac = rng.uniform(0.02, 0.98, size=(n, 3))
+    pos = (ext + (idx + frac) * v).astype(np.float32).astype(float)       # Imaris stores float32
+    exp = {"spot_channel": img[idx[:, 2], idx[:, 1], idx[:, 0]].astype(float),
+           "mask_channel": msk[idx[:, 2], idx[:, 1], idx[:, 0]].astype(float)}
+    geom = {"ext_min_xyz": ext, "voxel_xyz_um": v, "shape_xyz": np.array(shape_xyz)}
+    return pos, exp, {"spot_channel": img, "mask_channel": msk}, geom
+
+
+def test_frame_check_rule():
+    assert I.text_rounding_halfwidth(16249.9) == pytest.approx(0.05)
+    assert I.text_rounding_halfwidth(8150.1) == pytest.approx(0.005)
+    assert I.text_rounding_halfwidth(-10921.1) == pytest.approx(0.05)
+    assert I.text_rounding_halfwidth(2742.24) == pytest.approx(0.005)
+    pos, exp, img, geom = _frame_case()
+    r = I.frame_check(pos, geom, exp, img)
+    assert r["chosen"]["name"] == "stored" and r["search"] is None
+    assert r["candidates"][0]["channels"]["spot_channel"]["agreement"] == 1.0
+    # a voxel read from six-significant-digit extents (0.10004 where the grid is 0.1): the far third of x
+    # drifts, the stored frame fails there and the rounded voxel passes
+    drift = dict(geom, voxel_xyz_um=np.array([0.10004, 0.1, 0.2]))
+    r = I.frame_check(pos, drift, exp, img)
+    stored = r["candidates"][0]["channels"]["spot_channel"]
+    assert not r["candidates"][0]["passes"] and stored["thirds_x"][2] < 0.995 and stored["thirds_x"][0] > 0.995
+    assert r["chosen"]["name"] == "rounded" and r["chosen"]["voxel_xyz_um"] == pytest.approx([0.1, 0.1, 0.2])
+    # an ExtMin whose text lost 0.03 um: both fail, the search inside the +-0.05 um of the text finds it
+    lost = dict(geom, ext_min_xyz=np.array([16249.9, 4614.7, 2742.24]))
+    r = I.frame_check(pos, lost, exp, img)
+    assert [c["passes"] for c in r["candidates"][:2]] == [False, False]
+    assert r["chosen"]["name"].startswith("search") and r["chosen"]["ext_min_xyz"][0] == pytest.approx(16249.93, abs=0.004)
+    assert r["search"]["rounding_halfwidth_um"][0] == pytest.approx(0.05)
+    # values that belong to no frame: nothing passes, nothing is chosen
+    rng = np.random.default_rng(1)
+    junk = {k: rng.permutation(v) for k, v in exp.items()}
+    assert I.frame_check(pos, geom, junk, img)["chosen"] is None
+    # a spot within float32 precision of a voxel boundary may read the voxel across it
+    one = np.array([[geom["ext_min_xyz"][0] + 50 * 0.1 - 1e-7, 4614.7 + 0.05, 2742.24 + 0.1]])
+    vals = {"spot_channel": np.array([float(img["spot_channel"][0, 0, 50])])}
+    a = I.frame_agreement(one, geom["ext_min_xyz"], geom["voxel_xyz_um"], geom["shape_xyz"], vals,
+                          {"spot_channel": img["spot_channel"]})["channels"]["spot_channel"]
+    assert a["agreement"] == 1.0
+
+
+def test_export_with_the_frame_check(tmp_path):
+    ims = tmp_path / "f.ims"
+    build_ims(ims, ic_stats=True)
+    plain = I.export_imaris_truth(ims, tmp_path / "plain", nd2_voxel_xyz_um=OUR_VOX)
+    p = I.export_imaris_truth(ims, tmp_path / "fc", nd2_voxel_xyz_um=OUR_VOX, frame_check_on=True)
+    fc = p["frame_check"]
+    assert fc["chosen"]["name"] == "stored" and fc["image_source"] == "ims" and fc["spot_channel"] == 0
+    assert fc["mask_channel"] == MASK_CH and fc["n_spots"] == len(SPOTS)
+    assert fc["candidates"][0]["channels"]["spot_channel"]["agreement"] == 1.0
+    assert fc["candidates"][0]["channels"]["mask_channel"]["agreement"] == 1.0
+    a = pd.read_csv(I.truth_paths(tmp_path / "plain", "f")["spots"])
+    b = pd.read_csv(I.truth_paths(tmp_path / "fc", "f")["spots"])
+    pd.testing.assert_frame_equal(a, b)                    # the stored frame: the same truth
+    assert p["spots_source"] == {"source": "ims"} and "frame_check" not in plain
+    assert p["creation_parameter_summary"]["spots"]["source_channel_index"] == 0
+    assert p["voxel_imaris_xyz_um_stored"] == pytest.approx(VOX.tolist())
+    # an export without the statistic cannot be tested: no frame is chosen, the stored one is kept
+    build_ims(tmp_path / "n.ims")
+    q = I.export_imaris_truth(tmp_path / "n.ims", tmp_path / "n", nd2_voxel_xyz_um=OUR_VOX, frame_check_on=True)
+    assert q["frame_check"]["chosen"] is None and "untestable" in q["frame_check"]
+
+
+# ------------------------------------------------------------- the xlsx spot source (entry 9 (e))
+def _write_export(path, ims_path, *, drop_spot=None, move_surface=0.0, radius=0.2, extra_spot=None):
+    """A synthetic Imaris statistics export of the synthetic .ims: Overall, Position, Diameter, the Intensity
+    Center of channels 1 and 2, the Intensity Max of channel 2 and Volume, in the export's layout."""
+    import h5py
+    import openpyxl
+
+    with h5py.File(ims_path, "r") as f:
+        raw = f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data"][:Z, :Y, :X]
+        mask = f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 1/Data"][:Z, :Y, :X]
+        smi = f["Scene8/Content/MegaSurfaces0/SurfaceModelInfo"][:]
+    spots = [(sid, *_spot_position_um(v, fr), v) for sid, (v, fr, *_rest) in SPOTS.items() if sid != drop_spot]
+    if extra_spot is not None:
+        spots.append(extra_spot)
+    surf = []
+    for k, sid in enumerate(SURFACE_IDS):
+        mval = BOXES[sid][1] if sid in BOXES else 0
+        surf.append((sid, smi["CenterOfMassX"][k] + (move_surface if k == 0 else 0.0), smi["CenterOfMassY"][k],
+                     smi["CenterOfMassZ"][k], float(smi["Volume"][k]), mval))
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    def sheet(name, header, rows):
+        ws = wb.create_sheet(name)
+        ws.append([name] + [""] * (len(header) - 1))
+        ws.append(header)
+        for r in rows:
+            ws.append(list(r))
+
+    sheet("Overall", ["Variable", "Value", "Unit", "Channel", "Class", "Image", "Name", "Surpass Object", "Time", "ID"],
+          [("Number of Voxels", X * Y * Z, "", "", "", "Image 1", "", "Volume", "", ""),
+           ("Total Number of Spots", len(spots), "", "", "", "", "", "Spots 1", "", ""),
+           ("Total Number of Surfaces", len(surf), "", "", "", "", "", "Surfaces 1", "", "")])
+    pos_h = ["Position X", "Position Y", "Position Z", "Unit", "Category", "Collection", "Name", "Surpass Object",
+             "Time", "ID"]
+    sheet("Position", pos_h, [(x, y, z, "um", "Spot", "Position", "", "Spots 1", 1, sid) for sid, x, y, z, _v in spots]
+          + [(x, y, z, "um", "Surface", "Position", "", "Surfaces 1", 1, sid) for sid, x, y, z, _vol, _m in surf])
+    sheet("Diameter", ["Diameter X", "Diameter Y", "Diameter Z", "Unit", "Category", "Collection", "Surpass Object",
+                       "Time", "ID"],
+          [(2 * radius, 2 * radius, 0.9, "um", "Spot", "Diameter", "Spots 1", 1, sid) for sid, *_r in spots])
+
+    def at(arr, v):
+        x, y, z = v
+        return int(arr[z, y, x]) if 0 <= x < X and 0 <= y < Y and 0 <= z < Z else 0
+
+    ic_h = ["Intensity Center", "Unit", "Category", "Channel", "Image", "Name", "Surpass Object", "Time", "ID"]
+    sheet("Intensity Center Ch=1 Img=1", ic_h, [(at(raw, v), "", "Spot", 1, "Image 1", "", "Spots 1", 1, sid)
+                                                for sid, _x, _y, _z, v in spots])
+    sheet("Intensity Center Ch=2 Img=1", ic_h, [(at(mask, v), "", "Spot", 2, "Image 1", "", "Spots 1", 1, sid)
+                                                for sid, _x, _y, _z, v in spots])
+    mx_h = ["Intensity Max", "Unit", "Category", "Channel", "Image", "Surpass Object", "Time", "ID"]
+    sheet("Intensity Max Ch=2 Img=1", mx_h, [(m, "", "Surface", 2, "Image 1", "Surfaces 1", 1, sid)
+                                             for sid, _x, _y, _z, _vol, m in surf]
+          + [(at(mask, v), "", "Spot", 2, "Image 1", "Spots 1", 1, sid) for sid, _x, _y, _z, v in spots])
+    sheet("Volume", ["Volume", "Unit", "Category", "Surpass Object", "Time", "ID"],
+          [(vol, "um^3", "Surface", "Surfaces 1", 1, sid) for sid, _x, _y, _z, vol, _m in surf])
+    wb.save(path)
+
+
+def test_xlsx_spot_source_and_its_verification(tmp_path, monkeypatch):
+    import hashlib
+
+    from germquant.benchmark import spots as bsp
+
+    pytest.importorskip("openpyxl")
+    ims = tmp_path / "h.ims"
+    build_ims(ims, ic_stats=True)
+    # the synthetic nuclei are far below the protocol's 1000-voxel fragment size and two share a coloc value
+    monkeypatch.setattr(bsp, "TRUTH_MASK_MIN_VOXELS", 1)
+    monkeypatch.setattr(I, "TRUTH_ASSIGNMENT_MIN", 0.75)
+
+    def run(name, **kw):
+        x = tmp_path / f"{name}.xlsx"
+        _write_export(x, ims, **kw)
+        sha = hashlib.sha256(x.read_bytes()).hexdigest()
+        n = len(SPOTS) - (1 if kw.get("drop_spot") else 0) + (1 if kw.get("extra_spot") else 0)
+        expect = {"sha256": "0" * 64 if name == "badsha" else sha, "n_spots": n, "n_surfaces": len(SURFACE_IDS)}
+        return I.export_imaris_truth(ims, tmp_path / name, nd2_voxel_xyz_um=OUR_VOX, spots_xlsx=x, xlsx_expect=expect)
+
+    p = run("good", radius=0.2)
+    ver = p["spots_source"]["verification"]
+    assert {k: v["passes"] for k, v in ver.items() if k.startswith("V")} == {
+        "V1_sha256": True, "V2_totals": True, "V3_surfaces": True, "V5_intensity_center": True, "V4_inside_extent": True,
+        "V6_radius": True, "V7_truth_assignment": True}
+    assert ver["passed"] is True and ver["V3_surfaces"]["matched_by"] == "ID"
+    assert ver["V7_truth_assignment"]["agreement"] == pytest.approx(0.8)   # spot 13: coloc 12, its split label 13
+    assert p["frame_check"]["chosen"]["name"] == "stored" and p["spots_source"]["frame_used"]["name"] == "stored"
+    rep = p["spots_source"]["reported_not_a_criterion"]
+    assert rep["n_ims_spots_saved"] == len(SPOTS) and rep["fraction_of_xlsx_spots_within_0.005_um_of_a_saved_ims_spot"] == 1.0
+    spots = pd.read_csv(I.truth_paths(tmp_path / "good", "h")["spots"])
+    assert list(spots.columns) == I.SPOT_COLUMNS + I.SPOT_EXTRA_COLUMNS and len(spots) == len(SPOTS)
+    assert spots["spot_class"].isna().all() and spots["quality"].isna().all() and (spots["radius_um"] == 0.2).all()
+    assert spots["spots_object"].eq("Spots 1 (xlsx)").all()
+    by = spots.set_index("spot_id")
+    for sid, (v, _fr, _c, _q, m, _r) in SPOTS.items():
+        assert (int(by.loc[sid, "xi"]), int(by.loc[sid, "yi"]), int(by.loc[sid, "zi"])) == v
+        assert int(by.loc[sid, "imaris_mask_label"]) == m and by.loc[sid, "x_um"] == pytest.approx(v[0] * OUR_VOX[0])
+    # each criterion fails on its own defect, and then the gonad is nucleus truth only
+    assert run("badsha")["spots_source"]["verification"]["V1_sha256"]["passes"] is False
+    moved = run("moved", move_surface=0.02)["spots_source"]["verification"]
+    assert moved["V3_surfaces"]["passes"] is False and moved["passed"] is False
+    assert run("radius", radius=0.35)["spots_source"]["verification"]["V6_radius"]["passes"] is False
+    out = run("outside", extra_spot=(99, EXT_MIN[0] - 0.5, EXT_MIN[1] + 0.05, EXT_MIN[2] + 0.1, (-5, 0, 0)))
+    ver = out["spots_source"]["verification"]
+    assert ver["V4_inside_extent"]["n_outside"] == 1 and ver["passed"] is False
+    assert any("nucleus truth only" in w for w in out["warnings"])
+
+
+def test_addition_image_check_compares_planes(tmp_path):
+    """scripts/check_addition_images.py, entry 9 (d)(2): the .ims planes against the .nd2 planes."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "check_addition_images", Path(__file__).resolve().parents[1] / "scripts" / "check_addition_images.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ims = tmp_path / "p.ims"
+    build_ims(ims)
+    with h5py.File(ims, "r") as f:
+        raw = f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data"][:Z, :Y, :X]
+    r = mod.compare_planes(ims, {0: raw.copy()}, [0, 5, 99])
+    assert [(p["plane"], p["equal"]) for p in r] == [(0, True), (5, True)]          # plane 99 is outside
+    other = raw.copy()
+    other[5, 3, 4] += 1
+    r = mod.compare_planes(ims, {0: other}, [5])
+    assert r == [{"channel": 0, "plane": 5, "equal": False, "n_different": 1}]
+    assert mod.compare_planes(ims, {0: raw[:, :10]}, [0])[0]["equal"] is False

@@ -207,6 +207,57 @@ TIFF writer; the mask channel itself is never held as float.
 * The exports with region growing have per-spot radii and, for `20251105_n2_hs_MALE _.ims`, 772,485
   spots (the detector flooded); its spots table is large and its class labels are empty.
 
+## The frame check and the xlsx spot source (protocol changelog entry 9)
+
+    germquant imaris-truth "<project>.ims" --out <folder> --nd2 "<the same image>.nd2" --frame-check
+    germquant imaris-truth "<project>.ims" --out <folder> --nd2 "<image>.nd2" --spots-xlsx "<export>.xlsx" \
+        --xlsx-expect-sha256 <hex> --xlsx-expect-spots <n> --xlsx-expect-surfaces <n>
+
+**Why.** Imaris stores the extents as text with six significant digits. On the 12 registered projects that is
+exact (2600 x 0.108 = 280.8), but a field whose stage position exceeds 10000 um in magnitude loses the second
+decimal: the 2026-01-05 males read ExtMin 16249.9 and ExtMax 16543.7 on x, so the stored-extent voxel is 0.1080147
+um on that axis and 0.108 on the other, and ExtMin itself is known only to +-0.05 um, half a voxel. Spot positions
+are sub-voxel, so the frame decides which voxel a spot is in.
+
+**The test** (`frame_check`, `frame_agreement`). Imaris stores per spot the Intensity Center of every channel: the
+value of the voxel that holds the spot's centre, an integer. For a candidate frame (ExtMin, voxel), a spot agrees
+when the image of its source channel (from the .nd2 given with `--nd2`, else the .ims channel) at
+floor((p - ExtMin) / v) equals its Intensity Center, and when the mask channel there equals its Intensity Center of
+the mask channel. Positions are float32, so a spot within two float32 steps of a voxel boundary also agrees with
+the voxel across it (`agreement`; the plain comparison is `agreement_strict`). A frame passes with at least 99.5
+percent of the spots overall and, for the spot channel, in each third of the field in x and in y. The frames are
+tried in order: `stored` (the reader's rule), `rounded` (the voxel rounded to 4 decimals), then a search that moves
+ExtMin in 0.001 um steps inside the rounding interval of its text, for either voxel. The first that passes
+converts every Imaris position of the export (spots and surfaces): `ext_min_xyz_um` and `voxel_imaris_xyz_um` in
+the params are then that frame (the stored ones are kept under `*_stored`), and `frame_check` lists every
+candidate with its agreement overall and per third. When nothing passes, the stored frame is kept,
+`frame_check.chosen` is None, and the benchmark manifest marks the spot truth unusable. An export whose Spots do not
+store the Intensity Center cannot be tested (`frame_check.untestable`).
+
+On the eight registered train and val gonads the stored frame agrees for every spot on both channels; the strict
+comparison misses 0 to 330 spots per gonad (0 to 0.27 percent), every one within 0.003 voxel of a boundary
+(docs/BENCHMARK.md, "Entry 9").
+
+**The xlsx spot source** (`--spots-xlsx`; entry 9 (e)). For a project whose saved Spots object is not the curated
+set (20260105_n2_hs_1_MALE_1 holds 1,226,263 saved spots; its 2026-01-13 export the curated 6,512), the spots come
+from the Imaris statistics export (`imaris_xlsx.read_export_objects`: the Position, Diameter, Intensity Center,
+Intensity Max and Volume sheets and the Overall totals). The export is verified first, and every criterion is in
+`spots_source.verification` of the params: V1 the sha256 is the expected one; V2 the Overall totals and the
+Position sheet hold the expected numbers of spots and surfaces; V3 the export's surfaces equal the .ims Surfaces
+one to one (by ID, or by position when the ID sets differ): position within 0.005 um, volume within 1e-5 relative,
+the same Intensity Max of the mask channel; V4 every spot lies inside the .ims extent; V5 the frame test above
+passes on the export's own Intensity Center values; V6 every radius (Diameter X and Y over two) is 0.2 um; V7 the
+section 4.4 agreement (`truth_assignment_agreement`, the rule of `scripts/check_truth_assignment.py`) is at least
+99.35 percent. `passed` is true only when all seven pass. The spots table then holds the export's spots, placed
+with the frame V5 chose; `imaris_mask_label` is the export's Intensity Max of the mask channel (the lab's coloc
+value); Quality and the class are empty (the export holds no per-spot class); `spots_object` is "Spots 1 (xlsx)".
+Reported, not a criterion: the fraction of the export's spots within 0.005 um of a spot of the saved object. The
+nuclei and the label image come from the .ims as always. A failed verification still writes the files, with
+`passed` false and a warning; the manifest then marks the spot truth unusable and the gonad stays nucleus truth.
+
+The params also carry `creation_parameter_summary` (`benchmark_split.creation_parameter_summary`): the Spots and
+Surfaces settings entry 9 (d)(4) compares with sections 4.1 and 4.2 of the protocol.
+
 ## Tests
 
 `tests/test_imaris_truth.py` writes a tiny synthetic HDF5 in the .ims layout (padded arrays, Spot
@@ -216,3 +267,11 @@ the mask recovery (a shared value on two nuclei split into two labels, an orphan
 surface without a mask), the four written files and the params JSON, the `--no-masks` path, the
 binary-mask fallback, an export without surface statistics, the Imaris-voxel fallback, the nd2
 header path, and the CLI wiring.
+
+The frame check and the xlsx spot source (entry 9): the frame rule on synthetic spots (the stored frame; a voxel
+that drifts over the field, caught in the far third and fixed by the rounded voxel; an ExtMin that lost 0.03 um,
+found by the search; values that belong to no frame; the float32 boundary allowance), the export with
+`frame_check_on` on a synthetic project that stores the Intensity Center (the same truth as without it), an
+export without the statistic (untestable), and the xlsx spot source on a synthetic export written with openpyxl:
+all seven criteria pass, and a wrong sha256, a moved surface, a wrong radius and a spot outside the extent each
+fail their criterion.

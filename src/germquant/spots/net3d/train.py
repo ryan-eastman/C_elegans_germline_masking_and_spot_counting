@@ -10,6 +10,12 @@ stopping, model selection and the threshold use the val gonads (n2rad51_HS_herm_
 n2rad51_noHS_herm_001, both hermaphrodites). No heat-shock male is in train or val. The test gonads are
 never opened: every gonad this module loads passes ``guard_test`` first.
 
+The additions of protocol changelog entry 9 (``additions_file``, tests/golden/rad51_additions.json): gonads of
+another session added to train in a record of their own. With the file, they are train gonads here too
+(their role is fixed in ``benchmark_split.ADDITION_ROLES``; the manifest's ``spot_truth_usable`` says whether
+their spot truth may be used), after the split's own train gonads, in record order. The model card names
+every session a model was trained on.
+
 What is learned. data.py: Gaussian heatmap targets at the Class A spots, Class B ignored, the loss
 masked to the germline and down-weighted outside the traced coverage. The loss is the weighted binary
 cross-entropy of the logits against the targets, normalised by the summed weight of the batch.
@@ -258,9 +264,11 @@ def choose_gonads(gon: dict, train_tags=None, val_tags=None) -> tuple[list[str],
 
 
 # ------------------------------------------------------------------------- gonads and roles
-def resolve_gonads(split_file, manifest) -> dict:
+def resolve_gonads(split_file, manifest, additions_file=None) -> dict:
     """The train gonads with usable spot truth, the val gonads, what was left out and why, and the
-    test gonads (named, never opened)."""
+    test gonads (named, never opened). ``additions_file`` (the record of protocol changelog entry 9) adds its
+    gonads as train gonads after the split's own, in record order; ``sessions`` maps every tag to its
+    imaging session."""
     from germquant.benchmark import detector as bd
     from germquant.benchmark.manifest import load_manifest
 
@@ -275,7 +283,20 @@ def resolve_gonads(split_file, manifest) -> dict:
     for role, tags in roles_doc.items():
         for t in tags:
             roles[str(t)] = bd.gonad_role(str(t), role)     # refuses a split that moves a registered gonad
-    out = {"train": [], "val": [], "test": [], "excluded": [], "roles": roles, "entries": entries}
+    sessions = {t: None for t in roles}
+    if additions_file:
+        from germquant.validate.benchmark_split import load_additions
+
+        for g in load_additions(additions_file)["gonads"]:
+            t = str(g["tag"])
+            if t in roles:
+                raise ValueError(f"{t}: an addition cannot also be a gonad of the split file")
+            roles[t] = bd.gonad_role(t, g["role"])            # train only (benchmark_split.ADDITION_ROLES)
+            sessions[t] = g.get("session")
+            # the spot source of an addition may be the xlsx export (entry 9 (e)); the manifest decides
+            rg[t] = bool((g.get("ims") or {}).get("region_growing")) and (g.get("spot_truth") or {}).get("source") == "ims"
+    out = {"train": [], "val": [], "test": [], "excluded": [], "roles": roles, "entries": entries,
+           "sessions": sessions}
     for t, role in roles.items():
         if role == "test":
             out["test"].append(t)
@@ -288,8 +309,8 @@ def resolve_gonads(split_file, manifest) -> dict:
         if man_role in ("train", "val", "test") and man_role != role:
             raise ValueError(f"{t}: the split file says {role!r}, the manifest says {man_role!r}")
         if not bd.spot_truth_usable(e) or rg.get(t):
-            out["excluded"].append({"tag": t, "role": role,
-                                    "reason": "spot truth unusable (Imaris region growing)"})
+            why = e.extra.get("spot_truth_reason") or "spot truth unusable (Imaris region growing)"
+            out["excluded"].append({"tag": t, "role": role, "reason": why})
             continue
         if role in ("train", "val"):
             out[role].append(t)
@@ -588,7 +609,8 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
            wait_minutes: float = 120.0, name: str | None = None, check_harness: bool = True,
            tol_xy_um: float = 0.3, tol_z_um: float = 0.4,
            select_tolerance: float = TRAIN_DEFAULTS["select_tolerance"], train_tags=None, val_tags=None,
-           run_epochs: int | None = None, fixed_threshold: float | None = None, recipe: dict | None = None) -> dict:
+           run_epochs: int | None = None, fixed_threshold: float | None = None, recipe: dict | None = None,
+           additions_file=None) -> dict:
     import torch
     import torch.nn.functional as F
 
@@ -623,7 +645,7 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
         free = wait_for_gpu(float(min_free_gb), max_minutes=float(wait_minutes))
         log.info("GPU: %.1f GB free", free)
 
-    gon = resolve_gonads(split_file, manifest)
+    gon = resolve_gonads(split_file, manifest, additions_file)
     train_list, val_list = choose_gonads(gon, train_tags, val_tags)
     if not train_list:
         raise ValueError("no train gonad with usable spot truth")
@@ -666,7 +688,14 @@ def _train(cache_root, split_file, out_dir, *, manifest=None, epochs: int = TRAI
     if run_epochs is not None or fixed_threshold is not None or recipe is not None:
         settings.update({"run_epochs": n_epochs, "fixed_threshold": fixed_threshold, "frozen_recipe": bool(frozen),
                          "recipe": recipe})
-    gonad_rec = {"train": [{"tag": g.tag, "condition": g.condition, "sex": g.sex, **g.info} for g in train_g],
+    if additions_file:
+        from germquant.validate.benchmark_split import file_sha256 as _sha
+
+        settings["additions_file"] = {"path": str(additions_file).replace("\\", "/"), "sha256": _sha(additions_file)}
+    sessions = gon.get("sessions") or {}
+    gonad_rec = {"train": [{"tag": g.tag, "condition": g.condition, "sex": g.sex,
+                            **({"session": sessions[g.tag]} if sessions.get(g.tag) else {}), **g.info}
+                           for g in train_g],
                  "val": [{"tag": v.tag, "condition": v.condition, "sex": v.sex,
                           "n_germline_nuclei": int(len(v.scorer.nucleus_ids)), "n_traced": int(v.scorer.traced.sum()),
                           "n_expert_spots": int(len(v.scorer.truth_xyz)), "traced_rule": v.scorer.rule,
@@ -824,8 +853,12 @@ def _frozen_limitations(gonad_rec: dict, recipe: dict | None) -> list[str]:
     cells = ", ".join(f"{g['tag']} ({g.get('condition') or '?'} {g.get('sex') or '?'})" for g in tr)
     hs_male = [g["tag"] for g in tr if g.get("condition") == "HS" and g.get("sex") == "male"]
     src = (recipe or {}).get("from_model_dir", "the source model")
+    sessions = sorted({g.get("session") or "2025-11-05" for g in tr})
+    where = (f"one imaging session ({sessions[0]})" if len(sessions) == 1 else
+             f"{len(sessions)} imaging sessions ({', '.join(sessions)}; the additions of protocol changelog entry 9 "
+             "are the gonads after 2025-11-05)")
     return [
-        f"Trained on {len(tr)} N2 gonads of one imaging session (2025-11-05): {cells}.",
+        f"Trained on {len(tr)} N2 gonads of {where}: {cells}.",
         ("No heat-shock male with usable spot truth is among the training gonads (both train heat-shock males were "
          "exported with Imaris region growing and are excluded)." if not hs_male else
          f"Heat-shock males among the training gonads: {hs_male}."),

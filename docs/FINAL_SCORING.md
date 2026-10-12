@@ -34,6 +34,27 @@ message that listed the five decisions. That does not settle this choice by itse
 for the re-export, the reading that keeps both options open: no test gonad is scored until he confirms one
 option explicitly.
 
+Status (2026-10-12, protocol changelog entry 9): still open. The project lead accepted the 2026-01-05
+heat-shocked males as training data ("2 whatever you recommend") and allowed a check of the two training males'
+2025-12-31 exports ("1 yes"). Entry 9 adds three or four heat-shocked males to train (four if the xlsx spots of
+20260105_n2_hs_1_MALE_1 verify), so the main reason to wait is met without the Imaris re-export. The methods this
+decision names change in a revision declared there before any test scoring: net3d retrained by the frozen recipe,
+the tuned log's D3 procedure replayed, leave-one-gonad-out redone. SpotMAX re-tuned and SpotMAX deployed do not
+change. The check of the 2025-12-31 exports, made by name, size and file time only with no file of the test male
+and no 20251105_* file opened, reported (entry 9 (i) gives it in full): which file is which is known with high
+confidence, confirmed by a second agent (MALE_1 is the sealed test male n2rad51_HS_male_001, its export mirroring
+the registered 10,411 spots and 68 surfaces; MALE_2 is n2rad51_HS_male_002; MALE_3 is n2rad51_HS_male_000). The
+exports are separable but not clean: MALE_2 looks region-grown and holds 13,690 to 13,695 spots with every
+statistic (258 fewer than the registered 13,951) or exactly 13,951 with one statistic missing, so it gives no clean
+spot set with region growing off; MALE_3's .xls holds about 0.75 to 0.77 million spots, and its .xlsx, of
+unexplained origin, about 7,300 to 7,700 spots with about 64 surfaces, the only 2025-12-31 file that might give
+n2rad51_HS_male_000 a usable spot set, which only opening it could settle; it was not opened (the check closed
+without a content check). The lab's aggregate tables that very likely compile the test male's per-nucleus rows are
+sealed as well. So the revision runs with the additions only, and n2rad51_HS_male_000 and _002 stay out of every
+spot metric. The options are now: (1) score after the entry-9 revision (recommended: the additions supply the
+heat-shocked male training signal), or (2) wait for an Imaris re-export. No test gonad is scored until he confirms
+one.
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not
@@ -156,6 +177,9 @@ row of section 2 open. Decision 1 is still open: if the re-exported heat-shock m
 names change in a declared revision before any test scoring. The two D3 parameter files stay in `final_params/` for
 the record and are not scored.
 
+Status (2026-10-12, protocol changelog entry 9): the net3d row, and the tuned log row if its replayed selection
+differs, are replaced by entry-9 files before test scoring; both are post hoc. The SpotMAX rows stand.
+
 ## 2. The frozen methods
 
 | competitor | backend | parameters (`--params` file) | weights | what it is |
@@ -164,6 +188,10 @@ the record and are not scored.
 | SpotMAX re-tuned (grid selection `pg_otsu_e4.0_z0.8`; decision 2) | spotmax | `final_params/spotmax_retuned_grid.json` (sha256 919c4ab5...) | none | `threshold_otsu`, effect size 4.0, z merge gap 0.8 um, every other `spots:` key as deployed (radius 0.3 um, smoothing 0.08 um): the section 8 item 2 grid, selected on val by the rule of protocol changelog entry 6 (d), whose readings are post hoc (entries 6 to 8), and, by section 7, the SpotMAX reference |
 | tuned log | log | `final_params/log_tuned.json` (sha256 3a65e844...) | none | diameter 0.5 um, SNR 2.5, pre-gate 2, z merge off (profile `bench_log_tuned`) |
 | net3d (train plus val) | net3d | `final_params/net3d_trainval.json` (sha256 2f9097e6...) | `models/net3d_trainval_20261010/model.pt`, sha256 d091b9ef58850783387a4f5aa0fea5ecc9310abc027145771936fecd0de001c0 (commit 240cc72) | the frozen recipe of net3d_20261010 (epoch 4 of the 40-epoch schedule, threshold 0.40) retrained on the six train and val gonads with usable spot truth (protocol section 6.1) |
+
+Entry 9: the net3d and tuned log rows hold until the entry-9 revision runs; `net3d_trainval_entry9.json` (a new
+model sha256) and, if written, `log_tuned_entry9.json` replace them, and the pre-scoring entry names them. The
+revision does not touch the SpotMAX rows.
 
 `final_params/` is `C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/`; its six files have
 the sha256 given here. Five were written on 2026-10-10: the three files above other than SpotMAX re-tuned's, and
@@ -211,8 +239,11 @@ $env:CUDA_VISIBLE_DEVICES = "-1"
 python scripts/bench_cache.py --tags n2rad51_noHS_male_002 --verify-sha256
 # the golden run of that gonad must be the deployed pipeline (git sha 8666f07..., config hash 84bdda5a5230)
 python -c "import json; m = json.load(open(r'C:/Users/ryane/germquant_golden/8666f07/n2rad51_noHS_male_002/run_manifest.json')); print(m['git_sha'], m['config_hash'])"
-# the net3d weights are the frozen ones (d091b9ef...)
+# the net3d weights are the frozen ones (d091b9ef...; after the entry-9 revision the model of
+# net3d_trainval_entry9.json, whose sha256 the pre-scoring entry gives)
 python -c "from germquant.provenance import file_sha256; print(file_sha256(r'C:/Users/ryane/germquant_golden/models/net3d_trainval_20261010/model.pt'))"
+# the additions of protocol changelog entry 9 are the recorded files (must print [])
+python -c "from germquant.validate import benchmark_split as bs; print(bs.check_addition_files(bs.load_additions('tests/golden/rad51_additions.json'), hashes=True))"
 # the parameter files are the frozen ones (sha256 as in section 2; Get-FileHash prints them in upper case):
 # spotmax_retuned_grid.json, the grid selection of decision 2, is 919C4AB5... (protocol changelog entry 8)
 Get-FileHash -Algorithm SHA256 C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/*.json
@@ -240,9 +271,10 @@ Append to section 11 of docs/BENCHMARK_PROTOCOL.md (fill the brackets), then com
 > on val under the primary metric (truth-mask CCC 0.822 against 0.556 for the deployed recipe, a comparison in
 > sample; decision 2, entry 8); if W1 fails, SpotMAX stays deployed with [the 8666f07 recipe or the grid selection]
 > (section 10); tuned log (backend log,
-> params file sha256 3a65e844...); net3d (backend net3d, model.pt sha256 [sha256], the frozen recipe of
-> net3d_20261010 retrained on the six train and val gonads with usable spot truth). Decisions 1 to 5 of
-> docs/FINAL_SCORING.md: [one line each]. No test result has been computed at this point.
+> params file sha256 [3a65e844..., or that of log_tuned_entry9.json]); net3d (backend net3d, model.pt sha256
+> [sha256], the frozen recipe of net3d_20261010 retrained on the [ten] train and val gonads with usable spot truth
+> ([six] registered, [four] additions of entry 9)). Decisions 1 to 5 of docs/FINAL_SCORING.md: [one line each].
+> No test result has been computed at this point.
 
 ### 4.3 SpotMAX deployed
 
@@ -345,7 +377,9 @@ decision 2, SpotMAX re-tuned (`spotmax_retuned` in the report):
 * W3 does not apply: no method changes the nucleus segmentation.
 * Fragility (section 6.2): for every pair, compare the direction of the test difference with the
   leave-one-gonad-out difference of docs/BENCHMARK.md ("Leave-one-gonad-out"); a test result whose direction
-  the leave-one-gonad-out estimate contradicts is reported as fragile. The leave-one-gonad-out directions, for
+  the leave-one-gonad-out estimate contradicts is reported as fragile. Once the entry-9 revision has run, the
+  directions are read from its leave-one-gonad-out report (all folds, with the six registered folds and the
+  heat-shocked males reported next to it; docs/BENCHMARK.md, "Entry 9"), not from the six-fold report below. The leave-one-gonad-out directions, for
   reference: net3d and the tuned log are above both SpotMAX configurations on the truth-mask CCC, the germline
   and traced CCC and spot F1 (the paired intervals exclude zero); net3d against the tuned log shows no
   difference (truth-mask CCC -0.015 [-0.084, +0.073]); SpotMAX re-tuned against deployed shows none except a

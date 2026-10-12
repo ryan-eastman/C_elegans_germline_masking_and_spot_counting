@@ -771,6 +771,333 @@ def recover_surface_masks(f, geom: dict, channel: int, surfaces: pd.DataFrame, *
     return labels, per, report
 
 
+# ---- the frame check (protocol changelog entry 9 (d)(3)) --------------------------------------------
+#
+# Imaris stores the image extents as TEXT with six significant digits. On the 2600-pixel fields of the
+# registered gonads 2600 x 0.108 = 280.8 is exact at that precision, so both xy axes read 0.108. On a field
+# above 10000 um of stage position (the 2026-01-05 males: ExtMin0 16249.9) the last stored digit is 0.1 um,
+# ExtMin is known only to +-0.05 um and the two xy axes read 0.10801 and 0.108. Spot positions are sub-voxel,
+# so the frame is tested, not assumed: Imaris's own per-spot "Intensity Center" of the spot channel (the pixel
+# value at the voxel holding the spot centre, an integer) and of the mask channel must equal the image at
+# floor((p - ExtMin) / v). ``frame_check`` runs the rule declared in entry 9.
+
+FRAME_PASS_FRACTION = 0.995      # entry 9 (d)(3): overall and in each third of the field in x and in y
+FRAME_SEARCH_STEP_UM = 0.001     # the ExtMin search grid inside the text's rounding interval
+
+
+def text_rounding_halfwidth(value: float, significant: int = 6) -> float:
+    """Half the last digit of ``value`` printed with ``significant`` significant digits (C's %g, which
+    Imaris uses for the extents): 0.05 for 16249.9, 0.005 for 8150.1 (printed 8150.10 before the zero is
+    dropped)."""
+    v = abs(float(value))
+    if v == 0 or not np.isfinite(v):
+        return 0.0
+    return 0.5 * 10.0 ** (int(np.floor(np.log10(v))) - (significant - 1))
+
+
+def read_nd2_channel_zyx(path, channel: int) -> np.ndarray:
+    """One channel of an .nd2 as a (Z, Y, X) array in the file's dtype (T and P loops take index 0)."""
+    import nd2
+
+    with nd2.ND2File(str(path)) as f:
+        sizes = dict(f.sizes)
+        darr = f.to_dask()
+    dims = list(sizes)
+    sl = tuple(0 if d in ("T", "P") else (int(channel) if d == "C" else slice(None)) for d in dims)
+    keep = [d for d in dims if d not in ("T", "P", "C")]
+    arr = darr[sl]
+    if "Z" not in keep:
+        arr = arr[None]
+        keep = ["Z"] + keep
+    return np.asarray(arr.transpose([keep.index(d) for d in ("Z", "Y", "X")]))
+
+
+FLOAT32_ULPS = 2                 # a spot this many float32 steps from a voxel boundary may read either side
+
+
+def _values_at(img, idx, ok) -> np.ndarray:
+    got = np.full(len(idx), np.nan)
+    got[ok] = np.asarray(img[idx[ok, 2], idx[ok, 1], idx[ok, 0]], float)
+    return got
+
+
+def frame_agreement(pos_xyz, ext_min_xyz, voxel_xyz, shape_xyz, expected: dict, images: dict) -> dict:
+    """For one candidate frame (ExtMin, voxel): the fraction of spots whose expected value (Imaris's per-spot
+    Intensity Center, one array per key of ``expected``) equals ``images[key]`` (ZYX) at the voxel
+    floor((p - ExtMin) / v), overall and in each third of the field in x and in y (by the spot's voxel under
+    this frame). Imaris stores positions as float32, so a spot within ``FLOAT32_ULPS`` float32 steps of a voxel
+    boundary also agrees when the voxel across that boundary holds the value (``agreement``; the plain floor
+    comparison is ``agreement_strict``). On the registered gonads every strict disagreement lies within 0.003
+    voxel of a boundary. A spot outside the image or without an expected value counts as a disagreement."""
+    pos = np.asarray(pos_xyz, float).reshape(-1, 3)
+    vox = np.asarray(voxel_xyz, float)
+    rel = (pos - np.asarray(ext_min_xyz, float)) / vox
+    idx = np.floor(rel).astype(np.int64)
+    frac = rel - idx
+    tol = FLOAT32_ULPS * np.spacing(np.abs(pos).astype(np.float32)).astype(float) / vox
+    shape = np.asarray(shape_xyz, int)
+    inside = ((idx >= 0) & (idx < shape)).all(axis=1)
+    # the alternative voxels of a spot at a boundary: a step of -1 or +1 on each axis where it is that close
+    steps = np.zeros_like(idx)
+    steps[frac < tol] = -1
+    steps[(1.0 - frac) < tol] = 1
+    alts = []
+    for mask_bits in range(1, 8):
+        use = np.array([(mask_bits >> a) & 1 for a in range(3)], bool)
+        alt = idx + np.where(use, steps, 0)
+        valid = (steps[:, use] != 0).all(axis=1) & ((alt >= 0) & (alt < shape)).all(axis=1)
+        if valid.any():
+            alts.append((alt, valid))
+    out = {"n_spots": int(len(pos)), "n_outside_image": int((~inside).sum()),
+           "n_within_float32_of_a_boundary": int((steps != 0).any(axis=1).sum()), "channels": {}}
+    thirds = {ax: np.clip(idx[:, i] * 3 // max(int(shape[i]), 1), 0, 2) for i, ax in ((0, "x"), (1, "y"))}
+    for key, exp in expected.items():
+        exp = np.asarray(exp, float)
+        img = images[key]
+        strict = np.isfinite(exp) & (_values_at(img, idx, inside) == exp)
+        same = strict.copy()
+        for alt, valid in alts:
+            same |= valid & (_values_at(img, alt, valid) == exp)
+        n = len(pos)
+        rec = {"agreement": float(same.mean()) if n else float("nan"), "n_agree": int(same.sum()),
+               "agreement_strict": float(strict.mean()) if n else float("nan"), "n_agree_strict": int(strict.sum())}
+        for ax, t in thirds.items():
+            rec[f"thirds_{ax}"] = [float(same[t == k].mean()) if (t == k).any() else None for k in range(3)]
+            rec[f"thirds_{ax}_n"] = [int((t == k).sum()) for k in range(3)]
+        out["channels"][key] = rec
+    return out
+
+
+def frame_passes(rec: dict, spot_key: str, mask_key: str | None, min_fraction: float = FRAME_PASS_FRACTION) -> bool:
+    """The pass rule of entry 9 (d)(3): the spot channel's agreement at least ``min_fraction`` overall and in
+    every third of x and of y that holds spots, and the mask channel's at least ``min_fraction`` overall."""
+    s = rec["channels"][spot_key]
+    ok = s["agreement"] >= min_fraction and all(v is None or v >= min_fraction
+                                                for ax in ("x", "y") for v in s[f"thirds_{ax}"])
+    if mask_key is not None and mask_key in rec["channels"]:
+        ok = ok and rec["channels"][mask_key]["agreement"] >= min_fraction
+    return bool(ok)
+
+
+def frame_check(pos_xyz, geom: dict, expected: dict, images: dict, *, spot_key: str = "spot_channel",
+                mask_key: str | None = "mask_channel", min_fraction: float = FRAME_PASS_FRACTION,
+                step_um: float = FRAME_SEARCH_STEP_UM) -> dict:
+    """The frame rule of protocol changelog entry 9 (d)(3), in order:
+
+    1. ``stored``: ExtMin as stored and the stored-extent voxel ((ExtMax - ExtMin) / size), the reader's rule;
+    2. ``rounded``: ExtMin as stored and that voxel rounded to 4 decimals (0.10801 -> 0.108);
+    3. ``search``: per axis, ExtMin moved inside the rounding interval of its six-significant-digit text in
+       steps of ``step_um``, for each of the two voxels, coordinate-wise (x, y, z, twice) to the highest
+       spot-channel agreement;
+    the first frame that passes (``frame_passes``) is ``chosen``; None when none does (a truth-side defect:
+    the spot truth of the gonad is then not usable). Every candidate's agreement is returned."""
+    ext = np.asarray(geom["ext_min_xyz"], float)
+    shape = np.asarray(geom["shape_xyz"], int)
+    v_stored = np.asarray(geom["voxel_xyz_um"], float)
+    v_round = np.round(v_stored, 4)
+    cands = [{"name": "stored", "ext_min_xyz": ext.tolist(), "voxel_xyz_um": v_stored.tolist()},
+             {"name": "rounded", "ext_min_xyz": ext.tolist(), "voxel_xyz_um": v_round.tolist()}]
+    results = []
+    chosen = None
+    for c in cands:
+        rec = frame_agreement(pos_xyz, c["ext_min_xyz"], c["voxel_xyz_um"], shape, expected, images)
+        rec.update(c, passes=frame_passes(rec, spot_key, mask_key, min_fraction))
+        results.append(rec)
+        if chosen is None and rec["passes"]:
+            chosen = rec
+    search = None
+    if chosen is None:
+        half = np.array([text_rounding_halfwidth(v) for v in ext])
+        best_overall = None
+        for vname, vox in (("stored", v_stored), ("rounded", v_round)):
+            e = ext.copy()
+            for _ in range(2):
+                for ax in range(3):
+                    n = int(round(half[ax] / step_um))
+                    trial = []
+                    for k in range(-n, n + 1):
+                        e2 = e.copy()
+                        e2[ax] = ext[ax] + k * step_um
+                        a = frame_agreement(pos_xyz, e2, vox, shape, {spot_key: expected[spot_key]},
+                                            {spot_key: images[spot_key]})["channels"][spot_key]["agreement"]
+                        trial.append((a, -abs(k), k))
+                    a, _neg, k = max(trial)
+                    e[ax] = ext[ax] + k * step_um
+            rec = frame_agreement(pos_xyz, e, vox, shape, expected, images)
+            rec.update(name=f"search_{vname}_voxel", ext_min_xyz=e.tolist(), voxel_xyz_um=vox.tolist(),
+                       ext_min_shift_um=(e - ext).round(6).tolist(), passes=frame_passes(rec, spot_key, mask_key,
+                                                                                        min_fraction))
+            results.append(rec)
+            if best_overall is None or rec["channels"][spot_key]["agreement"] > \
+                    best_overall["channels"][spot_key]["agreement"]:
+                best_overall = rec
+            if chosen is None and rec["passes"]:
+                chosen = rec
+        search = {"rounding_halfwidth_um": half.tolist(), "step_um": float(step_um),
+                  "best": best_overall["name"] if best_overall else None}
+    return {"rule": "entry 9 (d)(3): stored, then rounded voxel, then an ExtMin search inside the text's "
+                    "rounding interval; the first frame passing on the spot and mask channels is chosen",
+            "min_fraction": float(min_fraction), "candidates": results, "search": search,
+            "chosen": None if chosen is None else {"name": chosen["name"], "ext_min_xyz": chosen["ext_min_xyz"],
+                                                    "voxel_xyz_um": chosen["voxel_xyz_um"]}}
+
+
+
+# ---- the frame check and the xlsx spot source of an export (protocol changelog entry 9) ---------------
+
+#: entry 9 (e) V7: the section 4.4 agreement must lie in the range of the registered train and val gonads
+TRUTH_ASSIGNMENT_MIN = 0.9935
+XLSX_POSITION_TOL_UM = 0.005     # entry 9 (e) V3: surface position, xlsx against the .ims
+XLSX_VOLUME_RTOL = 1e-5          # entry 9 (e) V3: surface volume, relative
+XLSX_RADIUS_UM = 0.2             # entry 9 (e) V6: every spot radius (Diameter X and Y / 2)
+
+
+def read_channel_zyx(f, geom: dict, channel: int) -> np.ndarray:
+    """The image part of a DataSet channel in its own dtype, (Z, Y, X), read in z-chunks."""
+    X, Y, Z = (int(v) for v in geom["shape_xyz"])
+    ds = _channel_dataset(f, channel)
+    out = np.zeros((Z, Y, X), ds.dtype)
+    step = int(ds.chunks[0]) if ds.chunks else 8
+    for z0 in range(0, Z, step):
+        out[z0:min(z0 + step, Z)] = ds[z0:min(z0 + step, Z), :Y, :X]
+    return out
+
+
+def spot_source_channel(f) -> int | None:
+    """The DataSet channel the first Spots object was detected on (``mSourceChannelIndex``)."""
+    for _gname, g in _object_groups(_content_group(f), "Points"):
+        m = re.search(r'mSourceChannelIndex="(\d+)"', read_creation_parameters(g))
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _slim_frame(res: dict) -> dict:
+    """A frame-check result without the per-third spot counts (they stay in the candidates)."""
+    return {k: v for k, v in res.items() if k != "candidates"} | {"candidates": res["candidates"]}
+
+
+def _frame_check_ims(f, geom: dict, mask_channel: int | None, nd2) -> tuple[dict, dict]:
+    """Entry 9 (d)(3) on the .ims's own Spots: their stored Intensity Center of the spot source channel against
+    the nd2 pixel (the .ims channel when no nd2 is given) and of the mask channel against the .ims mask channel.
+    Returns (the ``frame_check`` result with the images' source, the images for reuse)."""
+    src = spot_source_channel(f)
+    groups = [(n, g) for n, g in _object_groups(_content_group(f), "Points") if "Spot" in g]
+    if src is None or not groups:
+        return {"chosen": None, "untestable": "no Spots object or no source channel in its creation parameters"}, {}
+    g = groups[0][1]
+    sp = g["Spot"][:]
+    ids = sp["ID"].astype(np.int64)
+    pos = np.c_[sp["PositionX"], sp["PositionY"], sp["PositionZ"]].astype(float)
+    wanted = {"spot_channel": ("Intensity Center", src)}
+    if mask_channel is not None:
+        wanted["mask_channel"] = ("Intensity Center", int(mask_channel))
+    st = read_object_statistics(g, wanted)
+    if "spot_channel" not in st:
+        return {"chosen": None, "untestable": "the Spots object stores no Intensity Center of its source channel"}, {}
+    expected = {k: v.reindex(ids).to_numpy() for k, v in st.items()}
+    images = {"spot_channel": (read_nd2_channel_zyx(nd2, src) if nd2 is not None else read_channel_zyx(f, geom, src))}
+    if tuple(images["spot_channel"].shape) != tuple(int(v) for v in geom["shape_xyz"][::-1]):
+        raise ValueError(f"the spot channel image is {images['spot_channel'].shape}, the .ims image "
+                         f"{tuple(int(v) for v in geom['shape_xyz'][::-1])} (ZYX)")
+    if "mask_channel" in expected:
+        images["mask_channel"] = read_channel_zyx(f, geom, int(mask_channel))
+    res = frame_check(pos, geom, expected, images, mask_key="mask_channel" if "mask_channel" in expected else None)
+    res.update(image_source=(f"nd2:{nd2}" if nd2 is not None else "ims"), spot_channel=int(src),
+               mask_channel=None if mask_channel is None else int(mask_channel), spots_object=groups[0][0],
+               n_spots=int(len(pos)))
+    return res, images
+
+
+def _surface_info(f) -> pd.DataFrame:
+    """surface_id, Position (px, py, pz), centre of mass (cx, cy, cz) and volume of every surface, in the
+    order of ``read_surfaces_table``."""
+    rows = []
+    for _gname, g in _object_groups(_content_group(f), "MegaSurfaces"):
+        if "SurfaceModelInfo" not in g:
+            continue
+        smi = g["SurfaceModelInfo"][:]
+        n = len(smi)
+        ids = (g["SurfaceModel"][:]["ID"].astype(np.int64) if "SurfaceModel" in g and len(g["SurfaceModel"]) == n
+               else np.arange(n, dtype=np.int64))
+        names = smi.dtype.names
+        pxyz = [smi[k].astype(float) if k in names else np.full(n, np.nan) for k in ("PositionX", "PositionY", "PositionZ")]
+        rows.append(pd.DataFrame({"surface_id": ids, "px": pxyz[0], "py": pxyz[1], "pz": pxyz[2],
+                                  "cx": smi["CenterOfMassX"].astype(float), "cy": smi["CenterOfMassY"].astype(float),
+                                  "cz": smi["CenterOfMassZ"].astype(float), "volume": smi["Volume"].astype(float)}))
+    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(
+        columns=["surface_id", "px", "py", "pz", "cx", "cy", "cz", "volume"])
+
+
+def compare_xlsx_surfaces(xl: pd.DataFrame, info: pd.DataFrame, ims_mask_max) -> dict:
+    """Entry 9 (e) V3: the export's surfaces against the .ims Surfaces, one to one by ID (by nearest position
+    when the ID sets differ): position within ``XLSX_POSITION_TOL_UM`` (the .ims Position, else its centre of
+    mass), volume within ``XLSX_VOLUME_RTOL`` relative, and the mask channel's Intensity Max equal."""
+    from scipy.spatial import cKDTree
+
+    info = info.reset_index(drop=True).copy()
+    info["imax"] = np.asarray(ims_mask_max, float) if ims_mask_max is not None else np.nan
+    pos_cols = ["px", "py", "pz"] if info[["px", "py", "pz"]].notna().all().all() else ["cx", "cy", "cz"]
+    out = {"n_xlsx": int(len(xl)), "n_ims": int(len(info)), "position_fields": "Position" if pos_cols[0] == "px"
+           else "CenterOfMass"}
+    if set(xl["ID"].astype(int)) == set(info["surface_id"].astype(int)):
+        out["matched_by"] = "ID"
+        m = info.set_index("surface_id").loc[xl["ID"].astype(int).to_numpy()]
+    else:
+        out["matched_by"] = "position (the ID sets differ)"
+        out["ids_only_in_xlsx"] = sorted(set(xl["ID"].astype(int)) - set(info["surface_id"].astype(int)))[:20]
+        out["ids_only_in_ims"] = sorted(set(info["surface_id"].astype(int)) - set(xl["ID"].astype(int)))[:20]
+        if len(info) == 0 or len(xl) == 0:
+            out.update(passes=False, n_matched=0)
+            return out
+        d, j = cKDTree(info[pos_cols].to_numpy(float)).query(xl[["x", "y", "z"]].to_numpy(float))
+        if len(set(j.tolist())) != len(j):
+            out.update(passes=False, n_matched=int(len(set(j.tolist()))), reason="not one to one")
+            return out
+        m = info.iloc[j]
+    dpos = np.linalg.norm(xl[["x", "y", "z"]].to_numpy(float) - m[pos_cols].to_numpy(float), axis=1)
+    dvol = np.abs(xl["volume"].to_numpy(float) - m["volume"].to_numpy(float)) / np.maximum(np.abs(m["volume"].to_numpy(float)), 1e-12)
+    same_imax = np.round(xl["imax_mask"].to_numpy(float)) == np.round(m["imax"].to_numpy(float))
+    out.update(n_matched=int(len(m)), max_position_diff_um=float(dpos.max()) if len(dpos) else None,
+               max_volume_rel_diff=float(dvol.max()) if len(dvol) else None,
+               n_mask_intensity_max_equal=int(same_imax.sum()))
+    out["passes"] = bool(len(xl) == len(info) == len(m) and len(m) > 0 and dpos.max() <= XLSX_POSITION_TOL_UM
+                         and dvol.max() <= XLSX_VOLUME_RTOL and same_imax.all())
+    return out
+
+
+def truth_assignment_agreement(labels: np.ndarray, zi, yi, xi, coloc) -> dict:
+    """Protocol section 4.4 for one gonad: the geometric assignment of the truth spots (the mask label at the
+    centre voxel, else the 3 x 3 x 3 majority, fragments below the protocol's size removed) against the lab's
+    mask-channel value ``coloc``; the rule of scripts/check_truth_assignment.py."""
+    from ..benchmark.spots import TRUTH_MASK_MIN_VOXELS, assign_to_masks, truth_mask_lut
+
+    lut, _keep, _sizes, _frag = truth_mask_lut(labels, TRUTH_MASK_MIN_VOXELS)
+    geo = assign_to_masks(labels, np.asarray(zi, np.int64), np.asarray(yi, np.int64), np.asarray(xi, np.int64), lut=lut)
+    col = np.nan_to_num(np.asarray(coloc, float), nan=0.0).astype(np.int64)
+    agree = geo == col
+    return {"n_spots": int(len(col)), "n_agree": int(agree.sum()),
+            "agreement": float(agree.mean()) if len(col) else float("nan")}
+
+
+def xlsx_spots_table(xl: pd.DataFrame, geom: dict, our_vox) -> pd.DataFrame:
+    """The truth spots table of an xlsx spot source (entry 9 (e)): placed with the .ims ExtMin and voxel of
+    ``geom`` (floor((p - ExtMin) / v), then index times the nd2 voxel), the xlsx positions as the Imaris
+    columns, the xlsx Intensity Max of the mask channel as ``imaris_mask_label``, radius half the Diameter X,
+    no Quality and no class (the export holds no per-spot class)."""
+    pos = xl[["x", "y", "z"]].to_numpy(float)
+    idx = imaris_to_voxel_index(pos, geom)
+    ours = voxel_index_to_our_um(idx, our_vox)
+    n = len(xl)
+    df = pd.DataFrame({
+        "spot_id": xl["ID"].astype(np.int64).to_numpy(), "x_um": ours[:, 0], "y_um": ours[:, 1], "z_um": ours[:, 2],
+        "xi": idx[:, 0], "yi": idx[:, 1], "zi": idx[:, 2], "radius_um": xl["diameter_x"].to_numpy(float) / 2.0,
+        "quality": np.full(n, np.nan), "spot_class": [""] * n,
+        "imaris_x_um": pos[:, 0], "imaris_y_um": pos[:, 1], "imaris_z_um": pos[:, 2],
+        "imaris_mask_label": _nullable_int(xl["imax_mask"].to_numpy(float)), "spots_object": "Spots 1 (xlsx)"})
+    return df[SPOT_COLUMNS + SPOT_EXTRA_COLUMNS]
+
+
 # ---- the export --------------------------------------------------------------------------------------
 
 def _jsonable(o):
@@ -792,6 +1119,16 @@ def _jsonable(o):
     return o
 
 
+def file_sha256_path(path, chunk_bytes: int = 1 << 24) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(chunk_bytes), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _write_labels(labels: np.ndarray, path: Path, spacing_zyx) -> None:
     """Write the truth label image exactly as the pipeline writes its label images (int32 OME-TIFF with
     PhysicalSize tags, zlib), through the same function; raise when nothing was written."""
@@ -803,13 +1140,24 @@ def _write_labels(labels: np.ndarray, path: Path, spacing_zyx) -> None:
 
 
 def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path | None = None,
-                        nd2_voxel_xyz_um=None, masks: bool = True, tol_um: float = _TOL_UM) -> dict:
+                        nd2_voxel_xyz_um=None, masks: bool = True, tol_um: float = _TOL_UM,
+                        frame_check_on: bool = False, spots_xlsx: str | Path | None = None,
+                        xlsx_expect: dict | None = None) -> dict:
     """Write the truth file contract for one Imaris .ims into ``out_dir`` and return the params dict.
 
     ``nd2`` (or ``nd2_voxel_xyz_um`` as (dx, dy, dz) um) defines OUR frame; without either a sibling
     ``<stem>.nd2`` is used, else Imaris's own voxel size. ``masks=False`` skips the mask channel work
     (no label image; the nuclei ``label`` then comes from the per-surface intensity statistic of the
-    mask channel when that statistic exists)."""
+    mask channel when that statistic exists).
+
+    ``frame_check_on`` runs the frame test of protocol changelog entry 9 (d)(3) (``frame_check``) on the .ims's
+    own spots, with the spot channel from ``nd2`` when it is given; the frame it chooses converts every Imaris
+    position (``ext_min_xyz_um`` and ``voxel_imaris_xyz_um`` of the params are then that frame; the stored ones
+    are kept under ``*_stored``), and ``frame_check`` in the params records every candidate. When no frame
+    passes, the stored frame is kept and ``frame_check.chosen`` is None (the manifest then marks the spot truth
+    unusable). ``spots_xlsx`` (entry 9 (e)) takes the spots from an Imaris statistics export instead of the
+    .ims's saved Spots object, verifies them (criteria V1 to V7, ``spots_source.verification``; ``xlsx_expect``
+    gives the recorded sha256 and Overall totals) and implies the frame check."""
     import h5py
 
     ims = Path(ims)
@@ -817,8 +1165,11 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = truth_paths(out_dir, ims.stem)
     warnings: list[str] = []
+    frame_rep, xlsx_rep = None, None
+    frame_check_on = bool(frame_check_on or spots_xlsx is not None)
     with h5py.File(str(ims), "r") as f:
         geom = read_geometry(f)
+        geom_stored = dict(geom)
         our_vox, vox_source = resolve_our_voxel(ims, nd2, nd2_voxel_xyz_um, geom)
         if vox_source == "imaris_fallback":
             warnings.append("no nd2 voxel size: our frame uses Imaris's rounded voxel size (the frames coincide)")
@@ -841,6 +1192,67 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
                 warnings.append(mask_rep["reason_no_labels"])
         else:
             mask_rep["reason_no_labels"] = "the file holds no surfaces"
+        images = {}
+        if frame_check_on:
+            frame_rep, images = _frame_check_ims(f, geom, channel, nd2)
+            chosen = frame_rep.get("chosen")
+            if chosen is None:
+                warnings.append("no frame passed the Intensity Center test of protocol changelog entry 9 (d)(3); "
+                                "the stored frame is kept and the spot truth is not usable")
+            elif chosen["name"] != "stored":
+                geom = {**geom, "ext_min_xyz": np.asarray(chosen["ext_min_xyz"], float),
+                        "voxel_xyz_um": np.asarray(chosen["voxel_xyz_um"], float)}
+                surfaces_new, surf_reports = read_surfaces_table(f, geom, our_vox)
+                for c in ("label", "n_voxels_mask", "mask_centroid_dist_um"):
+                    surfaces_new[c] = surfaces[c].to_numpy()
+                surfaces = surfaces_new
+                warnings.append(f"frame {chosen['name']} used (entry 9 (d)(3)): ExtMin {chosen['ext_min_xyz']}, "
+                                f"voxel {chosen['voxel_xyz_um']}")
+        if spots_xlsx is not None:
+            from .imaris_xlsx import read_export_objects
+
+            src_ch = frame_rep.get("spot_channel") if frame_rep else spot_source_channel(f)
+            xl = read_export_objects(spots_xlsx, spot_channel=int(src_ch if src_ch is not None else 2),
+                                     mask_channel=int(channel if channel is not None else 3))
+            xlsx_rep = {"source": "xlsx", "file": str(spots_xlsx), "verification": {}}
+            ver = xlsx_rep["verification"]
+            exp = dict(xlsx_expect or {})
+            sha = file_sha256_path(spots_xlsx)
+            ver["V1_sha256"] = {"sha256": sha, "expected": exp.get("sha256"), "passes": bool(exp.get("sha256")) and sha == exp.get("sha256")}
+            ov = xl["overall"]
+            n_img = int(np.prod([int(v) for v in geom["shape_xyz"]]))
+            ver["V2_totals"] = {"overall": ov, "position_sheet_spots": int(len(xl["spots"])),
+                                "position_sheet_surfaces": int(len(xl["surfaces"])),
+                                "expected_spots": exp.get("n_spots"), "expected_surfaces": exp.get("n_surfaces"),
+                                "image_voxels_match_ims": ov.get("n_voxels_image") == n_img,
+                                "passes": bool(exp.get("n_spots") is not None and exp.get("n_surfaces") is not None
+                                               and ov.get("n_spots") == exp["n_spots"] == len(xl["spots"])
+                                               and ov.get("n_surfaces") == exp["n_surfaces"] == len(xl["surfaces"]))}
+            ver["V3_surfaces"] = compare_xlsx_surfaces(xl["surfaces"], _surface_info(f), stat_label)
+            xs = xl["spots"]
+            vchk = frame_check(xs[["x", "y", "z"]].to_numpy(float), geom_stored,
+                               {"spot_channel": xs["ic_spot"].to_numpy(float), "mask_channel": xs["ic_mask"].to_numpy(float)},
+                               images, mask_key="mask_channel" if "mask_channel" in images else None) if images else \
+                {"chosen": None, "untestable": "no images (the .ims frame check could not run)"}
+            ver["V5_intensity_center"] = {"chosen": vchk.get("chosen"), "candidates": vchk.get("candidates"),
+                                          "search": vchk.get("search"),
+                                          "same_frame_as_ims_spots": bool(vchk.get("chosen") and frame_rep and frame_rep.get("chosen")
+                                                                          and vchk["chosen"]["name"] == frame_rep["chosen"]["name"]),
+                                          "passes": vchk.get("chosen") is not None}
+            xgeom = geom if vchk.get("chosen") is None else {**geom_stored,
+                                                              "ext_min_xyz": np.asarray(vchk["chosen"]["ext_min_xyz"], float),
+                                                              "voxel_xyz_um": np.asarray(vchk["chosen"]["voxel_xyz_um"], float)}
+            xidx = imaris_to_voxel_index(xs[["x", "y", "z"]].to_numpy(float), xgeom)
+            inside = ((xidx >= 0) & (xidx < np.asarray(geom["shape_xyz"]))).all(axis=1)
+            ver["V4_inside_extent"] = {"n_outside": int((~inside).sum()), "passes": bool(inside.all() and len(xs))}
+            r = np.concatenate([xs["diameter_x"].to_numpy(float), xs["diameter_y"].to_numpy(float)]) / 2.0
+            ver["V6_radius"] = {"min_um": float(np.nanmin(r)) if len(r) else None, "max_um": float(np.nanmax(r)) if len(r) else None,
+                                "diameter_z_values_um": sorted({round(float(v), 6) for v in xs["diameter_z"]})[:10],
+                                "passes": bool(len(r) and np.all(np.abs(r - XLSX_RADIUS_UM) <= 1e-6))}
+            xlsx_rep["frame_used"] = {"name": (vchk.get("chosen") or {}).get("name"),
+                                      "ext_min_xyz_um": xgeom["ext_min_xyz"], "voxel_imaris_xyz_um": xgeom["voxel_xyz_um"]}
+            xlsx_spots = xlsx_spots_table(xs, xgeom, our_vox)
+        del images
         if masks and channel is not None:
             labels, per, rec = recover_surface_masks(f, geom, channel, surfaces, values_unique=values_unique,
                                                      tol_um=tol_um)
@@ -867,6 +1279,36 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
         if not masks:
             mask_rep["reason_no_labels"] = "masks not requested (--no-masks)"
         spots, spot_reports = read_spots_table(f, geom, our_vox, mask_channel=channel)
+        if xlsx_rep is not None:
+            from scipy.spatial import cKDTree
+
+            ver = xlsx_rep["verification"]
+            if labels is not None:
+                ta = truth_assignment_agreement(labels, xlsx_spots["zi"], xlsx_spots["yi"], xlsx_spots["xi"],
+                                                xlsx_spots["imaris_mask_label"].astype("float").to_numpy())
+                ver["V7_truth_assignment"] = {**ta, "minimum": TRUTH_ASSIGNMENT_MIN,
+                                              "passes": bool(ta["agreement"] >= TRUTH_ASSIGNMENT_MIN)}
+            else:
+                ver["V7_truth_assignment"] = {"passes": False, "reason": "no label image"}
+            ims_pos = spots[["imaris_x_um", "imaris_y_um", "imaris_z_um"]].to_numpy(float)
+            if len(ims_pos) and len(xlsx_spots):
+                d, _j = cKDTree(ims_pos).query(xlsx_spots[["imaris_x_um", "imaris_y_um", "imaris_z_um"]].to_numpy(float))
+                frac = float((d <= XLSX_POSITION_TOL_UM).mean())
+            else:
+                frac = None
+            xlsx_rep["reported_not_a_criterion"] = {
+                "n_ims_spots_saved": int(len(spots)),
+                "fraction_of_xlsx_spots_within_0.005_um_of_a_saved_ims_spot": frac}
+            ver["passed"] = bool(all(v.get("passes") for k, v in ver.items() if k.startswith("V")))
+            xlsx_rep["criteria"] = ("protocol changelog entry 9 (e): V1 sha256 as recorded; V2 Overall totals as "
+                                    "recorded; V3 surfaces equal the .ims Surfaces one to one; V4 every spot inside "
+                                    "the .ims extent; V5 the Intensity Center test of (d)(3) on the export's own "
+                                    "values; V6 every radius 0.2 um; V7 the section 4.4 agreement at least "
+                                    f"{TRUTH_ASSIGNMENT_MIN}")
+            if not ver["passed"]:
+                warnings.append("the xlsx spots failed the verification of entry 9 (e): the gonad is nucleus truth only")
+            spot_reports = [{**r, "used_as_spot_truth": False} for r in spot_reports]
+            spots = xlsx_spots
 
     # ---- write ----
     spots[SPOT_COLUMNS + SPOT_EXTRA_COLUMNS].to_csv(long_path(paths["spots"]), index=False)
@@ -894,8 +1336,11 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
         "ims_file": str(ims), "stem": ims.stem, "imaris_version": geom["imaris_version"],
         "image_name": geom["image_name"], "imaris_source_file": geom["source_file"],
         "nd2_file": str(nd2) if nd2 is not None else None, "our_voxel_source": vox_source,
-        "voxel_imaris_xyz_um": geom["voxel_xyz_um"], "voxel_ours_xyz_um": our_vox,
-        "ext_min_xyz_um": geom["ext_min_xyz"], "ext_max_xyz_um": geom["ext_max_xyz"],
+        "voxel_imaris_xyz_um": (xlsx_rep["frame_used"]["voxel_imaris_xyz_um"] if xlsx_rep else geom["voxel_xyz_um"]),
+        "voxel_ours_xyz_um": our_vox,
+        "ext_min_xyz_um": (xlsx_rep["frame_used"]["ext_min_xyz_um"] if xlsx_rep else geom["ext_min_xyz"]),
+        "ext_max_xyz_um": geom["ext_max_xyz"],
+        "voxel_imaris_xyz_um_stored": geom_stored["voxel_xyz_um"], "ext_min_xyz_um_stored": geom_stored["ext_min_xyz"],
         "shape_xyz": geom["shape_xyz"], "data_shape_zyx_padded": geom["data_shape_zyx"],
         "data_dtype": geom["data_dtype"], "channel_names": geom["channel_names"], "n_channels": geom["n_channels"],
         "frame_note": "xi,yi,zi = floor((imaris - ext_min) / voxel_imaris); x_um,y_um,z_um = index * voxel_ours",
@@ -910,7 +1355,18 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
         "mask": mask_rep,
         "files": {k: p.name for k, p in paths.items() if k != "labels" or mask_rep["labels_file"]},
         "warnings": warnings,
+        "spots_source": xlsx_rep if xlsx_rep is not None else {"source": "ims"},
     }
+    if frame_rep is not None:
+        params["frame_check"] = frame_rep
+    try:
+        from .benchmark_split import creation_parameter_summary
+
+        params["creation_parameter_summary"] = creation_parameter_summary(
+            params["creation_parameters"].get(next((r["name"] for r in spot_reports), ""), None),
+            params["creation_parameters"].get(next((r["name"] for r in surf_reports), ""), None))
+    except Exception as e:  # noqa: BLE001 - a summary, never a reason to lose the export
+        params["creation_parameter_summary"] = {"error": f"{type(e).__name__}: {e}"}
     for r in params["objects"]:
         r.pop("creation_parameters", None)   # kept once, under creation_parameters
     with open(long_path(paths["params"]), "w", encoding="utf-8") as fh:

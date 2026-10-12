@@ -7,7 +7,7 @@ docs/BENCHMARK.md, "Leave-one-gonad-out"). Train and val gonads only; a test gon
     python scripts/bench_logo.py heldout --detector NAME --backend B (--params JSON | --selection FILE)
         --out-root DIR [--tags TAG ...]
     python scripts/bench_logo.py net3d-fold --held-out TAG --recipe-from MODELDIR --models-root DIR
-        --out-root DIR [--device cuda] [--prep-dir DIR] [--min-free-gb 8]
+        --out-root DIR [--device cuda] [--prep-dir DIR] [--min-free-gb 8] [--additions FILE]
     python scripts/bench_logo.py net3d-folds --recipe-from MODELDIR --models-root DIR --out-root DIR
         --log-dir DIR [--gpu-lock LOCK.py] [--tags TAG ...] (the same options as net3d-fold)
     python scripts/bench_logo.py report --heldout NAME=DIR ... --out DIR [--tags TAG ...]
@@ -16,7 +16,9 @@ folds        the six folds of section 6.2 (germquant.benchmark.logo.logo_folds) 
 select       replays the D3 search of a tuned classical detector on every fold's own gonads
              (germquant.benchmark.logo.replay_log_search / replay_spotmax_search) from the bench_tune.py
              and bench_detector.py run folders given with --runs, and writes the selected parameter set of
-             every fold, or the parameter sets and gonads still to be run (exit code 3).
+             every fold and of the designated split ("designated": the split's own train and val gonads,
+             the replay the frozen set of a tuned detector comes from), or the parameter sets and gonads
+             still to be run (exit code 3).
              --search prereg-grid (backend spotmax; --search d3, the D3 replay, is the default) applies the
              rule of the pre-registered SpotMAX grid instead (protocol section 8 item 2, sections 6.1 and
              6.4; germquant.benchmark.logo.replay_grid). On every fold and on the designated split (the
@@ -34,10 +36,12 @@ heldout      scores the held-out gonad of every fold (or of --tags) with scripts
              --detector-only: one run, one trial record (with a "note" naming the fold) and one output folder
              <out-root>/<tag>/ per gonad. --params gives one parameter set for every fold (the deployed
              SpotMAX recipe and the log defaults are {}); --selection the per-fold sets of `select`.
-net3d-fold   trains net3d on the fold's five gonads by the frozen recipe of a selected model (germquant
+net3d-fold   trains net3d on the fold's other gonads by the frozen recipe of a selected model (germquant
              train-spots --recipe-from: its settings, seed, schedule, epoch count and threshold, no
              validation) into <models-root>/fold_<held-out>/, then scores the held-out gonad as `heldout`
-             does. Run it under the workstation's GPU lock.
+             does. Run it under the workstation's GPU lock. The training order is the recipe's train
+             gonads, then its val gonads, then, with --additions (the record of protocol changelog entry
+             9), the additions in record order that take part in the folds, the held-out gonad left out.
 net3d-folds  runs net3d-fold for every fold (or --tags) in turn, each in its own process and, with
              --gpu-lock, each under that lock script; logs in --log-dir.
 report       pools the held-out gonads of every detector (cluster bootstrap by gonad, 1000 resamples, seed
@@ -113,6 +117,14 @@ def cmd_select(args) -> int:
         print(f"{f['held_out']}: train {f['train']}, val {f['val']} -> "
               + (f"selected {r['selected']} (finalists {r['finalists']})" if r.get("complete")
                  else f"incomplete at stage {r.get('stage')}: {len(r['missing'])} sets to run"))
+    designated = logo.designated_split(folds)
+    r = replay(idx, designated["train"], designated["val"])
+    out["designated"] = {**designated, **r}
+    if not r.get("complete"):
+        missing += [{**m, "fold": "designated", "stage": r.get("stage")} for m in r["missing"]]
+    print(f"designated: train {designated['train']}, val {designated['val']} -> "
+          + (f"selected {r['selected']} (finalists {r['finalists']})" if r.get("complete")
+             else f"incomplete at stage {r.get('stage')}: {len(r['missing'])} sets to run"))
     out["complete"] = not missing
     out["missing"] = missing
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -240,11 +252,14 @@ def cmd_net3d_fold(args) -> int:
     folds = _folds(args)
     fold = _fold_of(folds, args.held_out)
     kw, recipe = recipe_from(args.recipe_from)
-    # the five gonads, in the recipe's order: its train gonads, then its val gonads, the held-out one left out
-    order = [t for t in recipe["from_train_gonads"] + recipe["from_val_gonads"] if t != fold["held_out"]]
+    # the fold's gonads in the recipe's order: its train gonads, then its val gonads, then the additions of
+    # entry 9 in record order (those that take part in the folds), the held-out one left out
+    additions = net3d_addition_order(args, folds)
+    order = [t for t in recipe["from_train_gonads"] + recipe["from_val_gonads"] + additions if t != fold["held_out"]]
     fold_tags = set(fold["train"]) | set(fold["val"])
-    if set(order) != fold_tags:
-        print(f"REFUSED: the recipe's gonads {order} are not the fold's {sorted(fold_tags)}")
+    if set(order) != fold_tags or len(order) != len(set(order)):
+        print(f"REFUSED: the recipe's gonads {order} are not the fold's {sorted(fold_tags)}"
+              + ("" if args.additions else " (if the folds hold additions of entry 9, pass --additions)"))
         return 2
     model_dir = Path(args.models_root) / f"fold_{fold['held_out']}"
     if (model_dir / "model.pt").is_file() and not args.retrain:
@@ -252,15 +267,30 @@ def cmd_net3d_fold(args) -> int:
     else:
         res = train_spots(args.cache_root, args.split_file, model_dir, manifest=args.manifest, device=args.device,
                           prep_dir=args.prep_dir, min_free_gb=args.min_free_gb, train_tags=order, val_tags=[],
-                          recipe=recipe, name=f"net3d_logo_fold_{fold['held_out']}", **kw)
+                          recipe=recipe, name=f"net3d_logo_fold_{fold['held_out']}",
+                          additions_file=args.additions, **kw)
         print(f"trained {res['model_path']} (sha256 {res['model_sha256'][:12]}...) on {order}: {res['stop_reason']}")
     from germquant.spots.net3d.infer import file_sha256
 
     model = (model_dir / "model.pt").as_posix()
     params = {"net3d": {"model": model, "device": args.device}}
-    return score_heldout(args, fold, "net3d", "net3d", params,
-                         {"model": model, "model_sha256": file_sha256(model), "trained_on": order,
-                          "recipe_from": recipe["from_model_dir"], "recipe_model_sha256": recipe["from_model_sha256"]})
+    extra = {"model": model, "model_sha256": file_sha256(model), "trained_on": order,
+             "recipe_from": recipe["from_model_dir"], "recipe_model_sha256": recipe["from_model_sha256"]}
+    if args.additions:
+        extra["additions_file"] = str(args.additions)
+    return score_heldout(args, fold, "net3d", "net3d", params, extra)
+
+
+def net3d_addition_order(args, folds: list[dict]) -> list[str]:
+    """The additions of protocol changelog entry 9 (``--additions``) in record order that take part in the
+    folds (usable spot truth and a bench cache), the order in which a fold model trains on them; [] without
+    --additions."""
+    if not getattr(args, "additions", None):
+        return []
+    from germquant.validate.benchmark_split import load_additions
+
+    in_folds = {f["held_out"] for f in folds}
+    return [g["tag"] for g in load_additions(args.additions)["gonads"] if g["tag"] in in_folds]
 
 
 def cmd_net3d_folds(args) -> int:
@@ -282,7 +312,7 @@ def cmd_net3d_folds(args) -> int:
                "--recipe-from", str(args.recipe_from), "--models-root", str(args.models_root), "--out-root",
                str(args.out_root), "--split-file", str(args.split_file), "--device", args.device,
                "--min-free-gb", str(args.min_free_gb)] + (["--prep-dir", str(args.prep_dir)] if args.prep_dir else []) \
-            + (["--retrain"] if args.retrain else [])
+            + (["--retrain"] if args.retrain else []) + (["--additions", str(args.additions)] if args.additions else [])
         if args.gpu_lock:
             cmd = [sys.executable, str(args.gpu_lock), "run", "--name", f"net3d LOGO fold held-out {t}", "--", *cmd]
         with open(log_dir / f"net3d_fold_{t}.out.log", "w", encoding="utf-8") as fo, \
@@ -395,6 +425,7 @@ def parse_args(argv=None):
     n.add_argument("--prep-dir", default=None)
     n.add_argument("--min-free-gb", type=float, default=0.0)
     n.add_argument("--retrain", action="store_true")
+    n.add_argument("--additions", default=None, help="the additions record of protocol changelog entry 9")
     na = sub.add_parser("net3d-folds")
     na.add_argument("--recipe-from", required=True)
     na.add_argument("--models-root", required=True)
@@ -407,6 +438,7 @@ def parse_args(argv=None):
     na.add_argument("--prep-dir", default=None)
     na.add_argument("--min-free-gb", type=float, default=0.0)
     na.add_argument("--retrain", action="store_true")
+    na.add_argument("--additions", default=None, help="the additions record of protocol changelog entry 9")
     r = sub.add_parser("report")
     r.add_argument("--heldout", nargs="+", required=True,
                    help="NAME=DIR, DIR holding <tag>/ held-out folders or one bench_detector.py output folder")

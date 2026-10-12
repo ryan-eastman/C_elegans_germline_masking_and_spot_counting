@@ -14,6 +14,17 @@ docs/BENCHMARK_PROTOCOL.md is the pre-registration; this module is its machine-r
   truth export) and records, per gonad, every path and whether it exists. scripts/benchmark_manifest.py
   writes it to benchmarks/<name>/manifest.json; the scoring step reads that manifest.
 
+* The additions (protocol changelog entry 9). ``tests/golden/rad51_additions.json`` lists gonads of
+  another imaging session added to TRAIN after the split was registered, in a record of their own, so
+  the split file stays byte-identical (``REGISTERED_SPLIT_SHA256``) and no registered role moves.
+  ``ADDITION_ROLES`` fixes their roles in code (train only; an addition is never val or test and never
+  stands in for a val gonad in a leave-one-gonad-out fold); ``build_additions`` assembles the record
+  (scripts/make_rad51_additions.py), ``load_additions`` reads and validates it, ``check_addition_files``
+  confirms the files are the recorded ones, and ``build_manifest(..., additions=...)`` appends them to a
+  manifest without changing the registered entries. ``SEALED_NAME_MARKERS`` names files that are never
+  read for the additions: anything of 2025-11-05 (the sealed test male's exports among them) and the
+  lab's aggregate tables that compile the 2025-11-05 per-nucleus rows.
+
 Nothing here touches the pipeline: the module reads files and writes JSON. The Imaris reading is kept
 separate from validate/imaris_ims.py on purpose, so the truth-export work can change that module
 without touching the split record.
@@ -366,6 +377,514 @@ def check_split_files(split: dict, hashes: bool = False) -> list[str]:
     return problems
 
 
+# ----------------------------------------------------------------------------- the additions (entry 9)
+
+ADDITIONS_NAME = "n2rad51_additions"
+ADDITIONS_REGISTERED_ON = "2026-10-11"
+ADDITIONS_CHANGELOG_ENTRY = 9
+#: the session of the registered split (every gonad of PREREGISTERED_ROLES was imaged that day)
+REGISTERED_SESSION = "2025-11-05"
+#: sha256 of tests/golden/rad51_split.json as registered (and as it was when entry 9 added the additions): the
+#: workstation checkout (CRLF line endings, the digest every manifest records) and the same bytes with LF line
+#: endings (the git blob, a Linux checkout). The file never changes; tests/test_rad51_additions.py pins both, so
+#: any edit has to be deliberate and logged
+REGISTERED_SPLIT_SHA256 = "955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f"
+REGISTERED_SPLIT_SHA256_LF = "989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85"
+#: the additions of protocol changelog entry 9 and their roles: train only, fixed here so that no manifest or
+#: record can move them (detector.gonad_role refuses a conflict); an addition leaves the benchmark only for a
+#: defect on the truth side, recorded in the changelog
+ADDITION_ROLES = {
+    "n2rad51_20260105a_HS_male_001": "train",
+    "n2rad51_20260105a_HS_male_002": "train",
+    "n2rad51_20260105a_HS_male_003": "train",
+    "n2rad51_20260105b_HS_male_001": "train",
+}
+ADDITION_TAG_RE = re.compile(
+    r"^n2rad51_(?P<session>\d{8}[a-z])_(?P<condition>noHS|HS)_(?P<sex>herm|male)_(?P<replicate>\d{3})$")
+#: lower-case markers of file names that are never read for the additions: anything of the 2025-11-05 session
+#: (the sealed test male's exports among them) and the lab's aggregate tables that compile the 2025-11-05
+#: per-nucleus rows (the decision-1 export check of entry 9 lists them)
+SEALED_NAME_MARKERS = ("20251105", "temp_compiledtdata", "compiled_data", "master_data", "rad51_stats", ".prism")
+SPOT_TRUTH_SOURCES = ("ims", "xlsx")
+SPOT_TRUTH_STATUS = ("usable", "pending")
+ADDITION_FILE_KEYS = ("nd2", "ims", "xlsx")
+
+# the protocol's text (sections 4.1 and 4.2) as values, for the creation-parameter comparison of entry 9 (d)(4)
+PROTOCOL_TEXT_PARAMETERS = {
+    "spots.source_channel_index": 2, "spots.estimated_diameter_um": [0.4, 0.4, 0.9],
+    "spots.background_subtraction": True, "spots.roi_enabled": False, "spots.region_growing": False,
+    "surfaces.source_channel_index": 0, "surfaces.grain_um": 0.4, "surfaces.background_subtraction": True,
+    "surfaces.largest_sphere_um": 2.5, "surfaces.automatic_threshold": False, "surfaces.seed_split": True,
+    "surfaces.seed_diameter_um": 2.5, "surfaces.voxel_filter_enabled": True, "surfaces.roi_enabled": True,
+}
+# numbers that vary per gonad by design; compared with the range of the registered projects, not with one value
+PER_GONAD_RANGE_KEYS = ("spots.quality_threshold", "spots.class_threshold_um", "surfaces.manual_threshold",
+                        "surfaces.voxel_filter_min", "surfaces.voxel_filter_max", "surfaces.class_threshold")
+
+
+def canonical_json(obj) -> str:
+    """Key-sorted compact JSON (the form a sha256 of a mapping is taken of)."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def roles_sha256(roles: dict | None = None) -> str:
+    """sha256 of the canonical JSON of the registered roles (``PREREGISTERED_ROLES`` by default). The additions
+    record carries it, so a record cannot be read against a split whose roles moved."""
+    return hashlib.sha256(canonical_json(PREREGISTERED_ROLES if roles is None else roles).encode("utf-8")).hexdigest()
+
+
+def split_file_unchanged(path) -> bool:
+    """True when ``path`` holds the registered split file byte for byte (with CRLF or with LF line endings)."""
+    b = Path(path).read_bytes()
+    return (hashlib.sha256(b).hexdigest() == REGISTERED_SPLIT_SHA256
+            or lf_sha256(b) == REGISTERED_SPLIT_SHA256_LF)
+
+
+def lf_sha256(data: bytes) -> str:
+    """sha256 of ``data`` with CRLF line endings turned into LF (the git blob of a text file)."""
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def addition_tag_parts(tag: str) -> dict:
+    """session (yyyymmdd plus a set letter), condition, sex and replicate of an addition's tag."""
+    m = ADDITION_TAG_RE.match(str(tag))
+    if not m:
+        raise ValueError(f"{tag!r} is not an addition tag (n2rad51_<yyyymmdd><set letter>_<noHS|HS>_<herm|male>_<nnn>)")
+    return m.groupdict()
+
+
+def addition_role(tag: str) -> str | None:
+    """The role entry 9 gives an addition (train), None for any other tag."""
+    return ADDITION_ROLES.get(str(tag))
+
+
+def is_sealed_path(path) -> bool:
+    """True when a file name or folder of ``path`` carries a sealed marker (``SEALED_NAME_MARKERS``)."""
+    text = str(path).replace("\\", "/").lower()
+    return any(m in text for m in SEALED_NAME_MARKERS)
+
+
+def refuse_sealed(path) -> None:
+    """Raise PermissionError for a sealed path before anything opens it."""
+    if is_sealed_path(path):
+        raise PermissionError(f"refused: {path} is sealed (protocol changelog entry 9: no 2025-11-05 file and no "
+                              "aggregate of the 2025-11-05 per-nucleus tables is read for the additions)")
+
+
+# ---- the Imaris and nd2 facts of a project ----
+
+def _xml_attr(text: str | None, name: str) -> str | None:
+    m = re.search(rf'\b{name}="([^"]*)"', text or "")
+    return None if m is None else m.group(1)
+
+
+def _xml_bool(text: str | None, name: str) -> bool | None:
+    v = _xml_attr(text, name)
+    return None if v is None else v.lower() == "true"
+
+
+def _xml_float(text: str | None, name: str) -> float | None:
+    v = _xml_attr(text, name)
+    try:
+        return None if v is None else float(v)
+    except ValueError:
+        return None
+
+
+def _filters(text: str | None, block: str) -> list[dict]:
+    """The statistics filters inside ``<block>...</block>`` of a creation-parameter text: statistic name,
+    lower and upper threshold (enabled flag, manual flag, value)."""
+    m = re.search(rf"<{block}>(.*?)</{block}>", text or "", re.S)
+    out = []
+    if not m:
+        return out
+    for f in re.finditer(r"<bpStatisticsFilter\s+([^>]*)>(.*?)</bpStatisticsFilter>", m.group(1), re.S):
+        attrs = dict(re.findall(r'(\w+)="([^"]*)"', f.group(1)))
+        name = re.search(r'mName="([^"]*)"', f.group(2))
+
+        def num(k):
+            try:
+                return float(attrs[k])
+            except (KeyError, ValueError):
+                return None
+
+        out.append({"statistic": name.group(1) if name else None,
+                    "lower_enabled": attrs.get("mLowerThresholdEnable", "").lower() == "true",
+                    "lower_manual": attrs.get("mLowerThresholdManual", "").lower() == "true",
+                    "lower": num("mLowerThresholdManualValue"),
+                    "upper_enabled": attrs.get("mUpperThresholdEnable", "").lower() == "true",
+                    "upper": num("mUpperThresholdManualValue")})
+    return out
+
+
+def _classification(text: str | None) -> dict:
+    """The one-dimensional class split of a creation-parameter text: statistic and the Class A upper bound."""
+    m = re.search(r"<bpCObjectsClassifyFilter1D>(.*?)</bpCObjectsClassifyFilter1D>", text or "", re.S)
+    if not m:
+        return {"statistic": None, "threshold": None}
+    stat = re.search(r'mName="([^"]*)"', m.group(1))
+    thr = re.search(r'<cThresholdValue mClassName="0"[^>]*mThresholdHigh="([^"]*)"', m.group(1))
+    return {"statistic": stat.group(1) if stat else None, "threshold": float(thr.group(1)) if thr else None}
+
+
+def _roi_boxes(text: str | None) -> list[dict]:
+    out = []
+    for m in re.finditer(r"<bpRegionOfInterest\s+([^>]*?)/?>", text or ""):
+        a = dict(re.findall(r'(\w+)="([^"]*)"', m.group(1)))
+        out.append({"min_xyz_voxel": [int(float(v)) for v in a.get("mMinXYZ", "").split()],
+                    "max_xyz_voxel": [int(float(v)) for v in a.get("mMaxXYZ", "").split()]})
+    return out
+
+
+def creation_parameter_summary(points_cp: str | None, surfaces_cp: str | None) -> dict:
+    """The creation parameters entry 9 (d)(4) compares, from the Spots and the Surfaces creation-parameter
+    texts of an Imaris project (``{"spots": {...}, "surfaces": {...}}``; None where a text lacks a value)."""
+    spot_filters = _filters(points_cp, "mSpotFilter")
+    quality = [f for f in spot_filters if f["statistic"] == "Quality"]
+    diam = _xml_attr(points_cp, "mEstimatedDiameter")
+    spots = {
+        "source_channel_index": int(_xml_float(points_cp, "mSourceChannelIndex")) if _xml_attr(points_cp, "mSourceChannelIndex") else None,
+        "estimated_diameter_um": [round(float(v), 6) for v in diam.split()] if diam else None,
+        "background_subtraction": _xml_bool(points_cp, "mBackgroundSubtraction"),
+        "roi_enabled": _xml_bool(points_cp, "mEnableRegionOfInterest"),
+        "region_growing": _xml_bool(points_cp, "mEnableRegionGrowing"),
+        "quality_threshold": quality[0]["lower"] if quality else None,
+        "spot_filters": [f["statistic"] for f in spot_filters],
+        "class_statistic": _classification(points_cp)["statistic"],
+        "class_threshold_um": _classification(points_cp)["threshold"],
+        "roi_boxes": _roi_boxes(points_cp),
+    }
+    voxel_filter = [f for f in _filters(surfaces_cp, "mSurfacesFilter") if f["statistic"] == "Number of Voxels"]
+    vf = voxel_filter[0] if voxel_filter else None
+    surfaces = {
+        "source_channel_index": int(_xml_float(surfaces_cp, "mSourceChannelIndex")) if _xml_attr(surfaces_cp, "mSourceChannelIndex") else None,
+        "smoothing": _xml_bool(surfaces_cp, "mEnableSmooth"),
+        "grain_um": _xml_float(surfaces_cp, "mSurfaceGrainSize"),
+        "background_subtraction": _xml_bool(surfaces_cp, "mEnableEliminateBackground"),
+        "largest_sphere_um": _xml_float(surfaces_cp, "mDiameterOfLargestSphere"),
+        "automatic_threshold": _xml_bool(surfaces_cp, "mEnableAutomaticThreshold"),
+        "manual_threshold": _xml_float(surfaces_cp, "mManualThresholdValue"),
+        "seed_split": _xml_bool(surfaces_cp, "mEnableRegionGrowing"),
+        "seed_diameter_um": _xml_float(surfaces_cp, "mRegionGrowingEstimatedDiameter"),
+        "voxel_filter_enabled": bool(vf and (vf["lower_enabled"] or vf["upper_enabled"])),
+        "voxel_filter_min": vf["lower"] if vf and vf["lower_enabled"] else None,
+        "voxel_filter_max": vf["upper"] if vf and vf["upper_enabled"] else None,
+        "surface_filters": [f["statistic"] for f in _filters(surfaces_cp, "mSurfacesFilter")],
+        "roi_enabled": _xml_bool(surfaces_cp, "mEnableRegionOfInterest"),
+        "roi_boxes": _roi_boxes(surfaces_cp),
+        "class_statistic": _classification(surfaces_cp)["statistic"],
+        "class_threshold": _classification(surfaces_cp)["threshold"],
+    }
+    return {"spots": spots, "surfaces": surfaces}
+
+
+def _flat(summary: dict) -> dict:
+    return {f"{obj}.{k}": v for obj, d in summary.items() for k, v in d.items() if k not in ("roi_boxes",)}
+
+
+def compare_creation_parameters(summary: dict, registered: dict[str, dict]) -> list[dict]:
+    """Where a project's creation parameters (``creation_parameter_summary``) differ from the protocol's text
+    (sections 4.1 and 4.2, ``PROTOCOL_TEXT_PARAMETERS``) and from the registered projects (``registered``: tag
+    -> summary; entry 9 uses the eight train and val projects). Per-gonad numbers (``PER_GONAD_RANGE_KEYS``)
+    are compared with the registered range; every other key with the set of registered values. A difference is
+    recorded, not a defect."""
+    mine = _flat(summary)
+    reg = {t: _flat(s) for t, s in registered.items()}
+    out = []
+    for key, value in mine.items():
+        rec = {"parameter": key, "value": value}
+        if key in PROTOCOL_TEXT_PARAMETERS and value != PROTOCOL_TEXT_PARAMETERS[key]:
+            rec["protocol_text"] = PROTOCOL_TEXT_PARAMETERS[key]
+        vals = [r.get(key) for r in reg.values()]
+        if key in PER_GONAD_RANGE_KEYS:
+            nums = [v for v in vals if isinstance(v, (int, float)) and not isinstance(v, bool)]
+            if value is None:
+                if reg and not any(v is None for v in vals):
+                    rec["registered_range"] = [min(nums), max(nums)] if nums else None
+            elif nums:
+                lo, hi = min(nums), max(nums)
+                if isinstance(value, bool) or not lo <= value <= hi:
+                    rec["registered_range"] = [lo, hi]
+        else:
+            seen = sorted({json.dumps(v, sort_keys=True) for v in vals})
+            if reg and json.dumps(value, sort_keys=True) not in seen:
+                rec["registered_values"] = [json.loads(s) for s in seen]
+        if len(rec) > 2:
+            out.append(rec)
+    return out
+
+
+def read_ims_facts(path) -> dict:
+    """What the additions record keeps about an Imaris project (entry 9 (b)): the summary of ``read_ims_summary``
+    plus the raw extent text (six significant digits; ``frame`` in the record explains why it matters), the
+    per-axis Imaris voxel, channel names, Imaris version, the spot source channel, the stored spot statistics,
+    whether a Masked channel is present and the creation parameters (``creation_parameter_summary``)."""
+    import h5py
+
+    refuse_sealed(path)
+    out = read_ims_summary(path)
+    with h5py.File(str(path), "r") as f:
+        info = f["DataSetInfo/Image"]
+        out["ext_min_xyz_text"] = [_attr_text(info, f"ExtMin{i}") for i in range(3)]
+        out["ext_max_xyz_text"] = [_attr_text(info, f"ExtMax{i}") for i in range(3)]
+        lo = [float(v) for v in out["ext_min_xyz_text"]]
+        hi = [float(v) for v in out["ext_max_xyz_text"]]
+        out["imaris_voxel_um"] = [round((b - a) / max(n, 1), 7) for a, b, n in zip(lo, hi, out["shape_xyz"])]
+        names = []
+        for k in sorted((k for k in f["DataSetInfo"].keys() if k.startswith("Channel ")), key=lambda k: int(k.split()[-1])):
+            names.append(_attr_text(f["DataSetInfo"][k], "Name"))
+        out["channel_names"] = names
+        out["masked_channel_present"] = any("mask" in (n or "").lower() for n in names)
+        out["imaris_version"] = _attr_text(f["DataSetInfo/Imaris"], "Version") if "DataSetInfo/Imaris" in f else None
+        pcp = _text_dataset(f, _POINTS_CP)
+        scp = _text_dataset(f, "Scene8/Content/MegaSurfaces0/CreationParameters")
+        summ = creation_parameter_summary(pcp, scp)
+        idx = summ["spots"]["source_channel_index"]
+        out["spot_source_channel"] = {"index": idx, "name": names[idx] if idx is not None and idx < len(names) else None}
+        stats = set()
+        g = f.get("Scene8/Content/Points0")
+        if g is not None and "StatisticsType" in g:
+            cats = {int(r["ID"]): r["CategoryName"].decode("latin1") for r in g["Category"][:]} if "Category" in g else {}
+            for r in g["StatisticsType"][:]:
+                if cats.get(int(r["ID_Category"])) != "Overall":
+                    stats.add(r["Name"].decode("latin1").rstrip("\x00"))
+        out["spot_statistics"] = sorted(stats)
+    out["creation_parameters"] = summ
+    return out
+
+
+def nd2_facts(path) -> dict:
+    """The .nd2 header facts of the additions record: axis sizes, voxel size (x, y, z), channel names, dtype,
+    the camera and each channel's exposure (from the Nikon description). No pixel is read."""
+    import nd2
+
+    from ..io.acquisition import parse_description, read_description
+
+    refuse_sealed(path)
+    out = nd2_summary(path)
+    with nd2.ND2File(str(path)) as f:
+        out["channel_names"] = [str(c.channel.name) for c in (f.metadata.channels or [])]
+        out["dtype"] = str(f.dtype)
+    try:
+        desc = read_description(path)
+        cam = re.search(r"Camera Name:\s*([^\r\n]+)", desc)
+        out["camera"] = cam.group(1).strip() if cam else None
+        per = parse_description(desc)
+        out["exposure_ms"] = {name: rec.get("exposure_ms") for name, rec in per.items()}
+    except Exception as e:  # noqa: BLE001 - the description is a convenience, not a fact the record needs
+        out["camera"], out["exposure_ms"] = None, {"error": f"{type(e).__name__}: {e}"}
+    return out
+
+
+# ---- the record ----
+
+def _copy_manifest_index(path) -> dict:
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    return {posix(r["dest"]): r for r in doc.get("files", [])}
+
+
+def _addition_file(local, copies: dict, hash_files: bool) -> dict:
+    """{path, nas_path, nas_mtime, size_bytes, sha256} of one copied file, its size and sha256 re-verified
+    against the copy manifest (ValueError on a difference)."""
+    refuse_sealed(local)
+    p = Path(local)
+    c = copies.get(posix(p))
+    if c is None:
+        raise ValueError(f"{p}: not in the copy manifest")
+    refuse_sealed(c.get("source", ""))
+    size = p.stat().st_size
+    if size != int(c["size"]):
+        raise ValueError(f"{p}: {size} bytes, the copy manifest says {c['size']}")
+    sha = file_sha256(p) if hash_files else c["sha256"]
+    if sha != c["sha256"]:
+        raise ValueError(f"{p}: sha256 {sha} is not the copy manifest's {c['sha256']}")
+    return {"path": posix(p), "nas_path": c.get("source"), "nas_mtime": c.get("source_mtime"), "size_bytes": size,
+            "sha256": sha, "sha256_verified_against_copy_manifest": bool(hash_files)}
+
+
+def build_additions(specs: list[dict], copy_manifest, *, registered_split_path, decided_by: dict,
+                    registered_params: dict | None = None, not_added: list | None = None,
+                    hash_files: bool = True, read_metadata: bool = True,
+                    registered_on: str = ADDITIONS_REGISTERED_ON) -> dict:
+    """The additions record (entry 9 (b)). ``specs``: one dict per gonad with ``tag``, ``set`` (the NAS folder),
+    ``genotype``, ``stem``, local ``nd2``, ``ims`` and optional ``xlsx`` paths, ``xlsx_use``, ``spot_truth``
+    ({source, status}), ``nucleus_truth`` and ``notes``. Every file is hashed and compared with the copy manifest;
+    with ``read_metadata`` the nd2 header and the Imaris facts are read and the creation parameters compared with
+    ``registered_params`` (tag -> ``creation_parameter_summary`` of the registered train and val projects)."""
+    copies = _copy_manifest_index(copy_manifest)
+    split_sha = file_sha256(registered_split_path)
+    gonads = []
+    for s in specs:
+        tag = s["tag"]
+        parts = addition_tag_parts(tag)
+        g = {"tag": tag, "role": ADDITION_ROLES.get(tag), "session": s["session"], "set": s["set"],
+             "genotype": s.get("genotype", "N2"), "condition": parts["condition"], "sex": parts["sex"],
+             "replicate": parts["replicate"], "stem": s["stem"]}
+        for key in ADDITION_FILE_KEYS:
+            if s.get(key):
+                g[key] = _addition_file(s[key], copies, hash_files)
+        if read_metadata:
+            g["nd2"].update(nd2_facts(g["nd2"]["path"]))
+            g["ims"].update(read_ims_facts(g["ims"]["path"]))
+        if "xlsx" in g:
+            g["xlsx"]["use"] = s.get("xlsx_use")
+            for k in ("overall_n_spots", "overall_n_surfaces", "overall_source"):
+                if k in s:
+                    g["xlsx"][k] = s[k]
+        g["spot_truth"] = dict(s["spot_truth"])
+        g["nucleus_truth"] = s.get("nucleus_truth")
+        if read_metadata and registered_params:
+            g["creation_parameter_differences"] = compare_creation_parameters(g["ims"]["creation_parameters"],
+                                                                             registered_params)
+        g["notes"] = list(s.get("notes", []))
+        gonads.append(g)
+    rec = {
+        "name": ADDITIONS_NAME,
+        "registered_on": registered_on,
+        "protocol": "docs/BENCHMARK_PROTOCOL.md",
+        "changelog_entry": ADDITIONS_CHANGELOG_ENTRY,
+        "description": ("Gonads added to TRAIN after the split of tests/golden/rad51_split.json was registered "
+                        "(protocol changelog entry 9). The split file and its roles are unchanged; these gonads are "
+                        "never val or test, never stand in for a val gonad, and leave the benchmark only for a "
+                        "defect on the truth side, recorded in the changelog."),
+        "decided_by": decided_by,
+        "registered_split": {"path": "tests/golden/rad51_split.json", "sha256": split_sha,
+                             "sha256_lf": lf_sha256(Path(registered_split_path).read_bytes()),
+                             "roles_sha256": roles_sha256(),
+                             "unchanged": split_file_unchanged(registered_split_path)},
+        "rules": [
+            "train only: an addition is never val or test (ADDITION_ROLES in germquant.validate.benchmark_split)",
+            "an addition never stands in for a held-out val gonad in a leave-one-gonad-out fold",
+            "an addition leaves the benchmark only for a defect on the truth side, recorded in the changelog",
+            "nothing runs on these files before this record and changelog entry 9 are committed",
+            "no 2025-11-05 file and no aggregate of the 2025-11-05 per-nucleus tables is read (SEALED_NAME_MARKERS)",
+        ],
+        "frame": {
+            "rule": ("As in the split record: floor((coordinate - ExtMin) / imaris_voxel) per axis, placed at index "
+                     "times the .nd2 voxel."),
+            "per_axis_voxel_note": ("Imaris stores the extents as text with six significant digits. On these "
+                                    "2720-pixel fields at stage x above 10000 um the x extent reads 293.8 um "
+                                    "(0.10801 um per voxel) where y reads 293.76 um (0.108 um), and ExtMin x is known "
+                                    "only to +-0.05 um. The frame used for each gonad is decided by the test of entry "
+                                    "9 (d)(3) and recorded in its truth params JSON (frame_check)."),
+        },
+        "copy_manifest": {"path": posix(copy_manifest), "sha256": file_sha256(copy_manifest)},
+        "roles": {r: sorted(g["tag"] for g in gonads if g["role"] == r) for r in ROLES},
+        "gonads": gonads,
+        "not_added": list(not_added or []),
+    }
+    validate_additions(rec)
+    return rec
+
+
+def validate_additions(rec: dict) -> None:
+    """Raise ValueError when the additions record is malformed or would move a registered role: a tag that is
+    not an addition tag, a registered tag, a tag outside ``ADDITION_ROLES`` or with another role than it gives
+    (so never val or test), a duplicate, a file record without path, positive size and 64-hex sha256, a stem
+    that is not the .nd2 name, condition or sex disagreeing with the tag, a sealed path, a spot-truth source or
+    status outside the allowed ones, a roles header that disagrees with the entries, or a record made against
+    other registered roles (``registered_split.roles_sha256``)."""
+    gonads = rec.get("gonads")
+    if not isinstance(gonads, list) or not gonads:
+        raise ValueError("the additions record has no 'gonads' list")
+    reg = rec.get("registered_split") or {}
+    if reg.get("roles_sha256") != roles_sha256():
+        raise ValueError("the additions record was made against other registered roles (roles_sha256 differs)")
+    tags = [g.get("tag") for g in gonads]
+    if len(set(tags)) != len(tags):
+        raise ValueError("addition tags are not unique")
+    for g in gonads:
+        tag = g.get("tag")
+        if tag in PREREGISTERED_ROLES:
+            raise ValueError(f"{tag}: a registered gonad cannot be an addition (rule 4: the split never changes)")
+        parts = addition_tag_parts(tag)
+        if tag not in ADDITION_ROLES:
+            raise ValueError(f"{tag}: not an addition of entry 9 (ADDITION_ROLES)")
+        if g.get("role") != ADDITION_ROLES[tag]:
+            raise ValueError(f"{tag}: role {g.get('role')!r}; entry 9 makes it {ADDITION_ROLES[tag]!r} "
+                             "(an addition is never val or test)")
+        if g.get("condition") != parts["condition"] or g.get("sex") != parts["sex"]:
+            raise ValueError(f"{tag}: condition/sex disagree with the tag")
+        for key in ADDITION_FILE_KEYS:
+            r = g.get(key)
+            if r is None and key == "xlsx":
+                continue
+            if not isinstance(r, dict) or not r.get("path"):
+                raise ValueError(f"{tag}: {key} record has no path")
+            if not isinstance(r.get("size_bytes"), int) or r["size_bytes"] <= 0:
+                raise ValueError(f"{tag}: {key} size_bytes is not a positive integer")
+            if not isinstance(r.get("sha256"), str) or not _SHA256_RE.match(r["sha256"]):
+                raise ValueError(f"{tag}: {key} sha256 is not a 64-digit hex string")
+            for k in ("path", "nas_path"):
+                if r.get(k) and is_sealed_path(r[k]):
+                    raise ValueError(f"{tag}: {key} {k} {r[k]} is sealed")
+        if Path(g["nd2"]["path"]).stem != g.get("stem"):
+            raise ValueError(f"{tag}: stem {g.get('stem')!r} is not the .nd2 file name")
+        st = g.get("spot_truth") or {}
+        if st.get("source") not in SPOT_TRUTH_SOURCES or st.get("status") not in SPOT_TRUTH_STATUS:
+            raise ValueError(f"{tag}: spot_truth needs a source in {SPOT_TRUTH_SOURCES} and a status in "
+                             f"{SPOT_TRUTH_STATUS}")
+        if st["source"] == "xlsx" and not g.get("xlsx"):
+            raise ValueError(f"{tag}: spot truth from the xlsx needs an xlsx record")
+    header = rec.get("roles")
+    if header is not None:
+        expect = {role: sorted(g["tag"] for g in gonads if g["role"] == role) for role in ROLES}
+        got = {role: sorted(header.get(role, [])) for role in ROLES}
+        if got != expect:
+            raise ValueError("the 'roles' header disagrees with the gonad entries")
+
+
+def load_additions(path) -> dict:
+    """Read and validate an additions record."""
+    rec = json.loads(Path(path).read_text(encoding="utf-8"))
+    validate_additions(rec)
+    return rec
+
+
+def check_addition_files(rec: dict, hashes: bool = False) -> list[str]:
+    """Problems with the recorded files of the additions (missing, another size, with ``hashes`` another
+    sha256); an empty list means the files on disk are the recorded ones."""
+    problems = []
+    for g in rec["gonads"]:
+        for key in ADDITION_FILE_KEYS:
+            r = g.get(key)
+            if r is None:
+                continue
+            p = Path(r["path"])
+            if not p.is_file():
+                problems.append(f"{g['tag']}: {key} missing: {r['path']}")
+                continue
+            if p.stat().st_size != r["size_bytes"]:
+                problems.append(f"{g['tag']}: {key} size {p.stat().st_size} differs from the recorded {r['size_bytes']}")
+                continue
+            if hashes and file_sha256(p) != r["sha256"]:
+                problems.append(f"{g['tag']}: {key} sha256 differs from the recorded digest")
+    return problems
+
+
+def addition_spot_truth_usable(g: dict, truth_params: dict | None) -> tuple[bool, str]:
+    """Whether an addition's spot truth may be scored, and why: from the .ims, when the record calls it usable,
+    region growing is off and the truth export's frame check (entry 9 (d)(3)) found a frame, or the export has
+    not been made yet; from the xlsx (entry 9 (e)), only when the truth export verified it
+    (``spots_source.verification.passed``)."""
+    st = g.get("spot_truth") or {}
+    params = truth_params or {}
+    if st.get("source") == "xlsx":
+        ver = ((params.get("spots_source") or {}).get("verification") or {})
+        if ver.get("passed") is True:
+            return True, "xlsx spots verified (entry 9 (e))"
+        return False, ("xlsx spots not verified yet (entry 9 (e))" if not ver else
+                       "xlsx spots failed the verification of entry 9 (e)")
+    if g.get("ims", {}).get("region_growing") is not False:
+        return False, "spot truth unusable (Imaris region growing, or unknown)"
+    if st.get("status") != "usable":
+        return False, f"spot truth status {st.get('status')!r}"
+    fc = params.get("frame_check")
+    if fc is not None and fc.get("chosen") is None:
+        return False, "no frame passed the Intensity Center test of entry 9 (d)(3)"
+    return True, "Imaris spots, region growing off"
+
+
 # ----------------------------------------------------------------------------- the manifest
 
 
@@ -378,14 +897,60 @@ def _exists_record(path, expected_size: int | None = None) -> dict:
     return rec
 
 
+def _addition_entry(g: dict, results_root: Path, truth_root: Path, patterns: dict) -> dict:
+    """One manifest entry for an addition of entry 9: the registered entries' fields plus ``addition``,
+    ``session``, ``set``, the xlsx record and the reason for ``spot_truth_usable``."""
+    stem, tag = g["stem"], g["tag"]
+    rdir = results_root / tag
+    outputs = {k: _exists_record(rdir / pat.format(stem=stem)) for k, pat in OUTPUT_FILES.items()}
+    tdir = truth_root / tag if (truth_root / tag).is_dir() else truth_root
+    truth = {k: _exists_record(tdir / pat.format(stem=stem)) for k, pat in patterns.items()}
+    found = sorted(p.name for p in tdir.iterdir() if p.name.startswith(f"{stem}__imaris_")) if tdir.is_dir() else []
+    params = None
+    if truth.get("params", {}).get("exists"):
+        try:
+            params = json.loads(Path(truth["params"]["path"]).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            params = None
+    usable, why = addition_spot_truth_usable(g, params)
+    entry = {
+        "tag": tag, "role": g["role"], "split": g["role"], "condition": g["condition"], "sex": g["sex"],
+        "stem": stem, "addition": True, "session": g.get("session"), "set": g.get("set"),
+        "nd2": posix(g["nd2"]["path"]), "ims": posix(g["ims"]["path"]),
+        "nd2_record": _exists_record(g["nd2"]["path"], g["nd2"].get("size_bytes")),
+        "ims_record": {**_exists_record(g["ims"]["path"], g["ims"].get("size_bytes")),
+                       "region_growing": g["ims"].get("region_growing")},
+        "results_dir": posix(rdir),
+        "truth_dir": posix(truth_root / tag) if (truth_root / tag).is_dir() else posix(truth_root),
+        "outputs": outputs,
+        "outputs_complete": all(outputs[k]["exists"] for k in REQUIRED_OUTPUTS),
+        "truth": {**truth, "found": found},
+        "truth_complete": all(truth[k]["exists"] for k in REQUIRED_TRUTH if k in truth),
+        "spot_truth_source": (g.get("spot_truth") or {}).get("source"),
+        "spot_truth_usable": usable,
+        "spot_truth_reason": why,
+        "notes": list(g.get("notes", [])),
+    }
+    if g.get("xlsx"):
+        entry["xlsx_record"] = {**_exists_record(g["xlsx"]["path"], g["xlsx"].get("size_bytes")),
+                                "use": g["xlsx"].get("use")}
+    return entry
+
+
 def build_manifest(split: dict, results_root, truth_root, name: str | None = None,
-                   truth_files: dict | None = None, split_path=None) -> dict:
+                   truth_files: dict | None = None, split_path=None, additions: dict | None = None,
+                   additions_results_root=None, additions_path=None) -> dict:
     """One entry per gonad of the split: role, condition, sex, stem, the .nd2 and .ims (exists, size
     matches the registered size), the pipeline outputs under <results_root>/<tag>/ and the truth files
     under <truth_root>, each with its path and an exists flag, plus ``outputs_complete`` (nuclei table,
     label image and spots table all present), ``truth_complete`` (spots, surfaces and masks present),
     ``spot_truth_usable`` (false when the spots were exported with region growing, or when that is
-    unknown) and the split's notes. Nothing is computed from the data."""
+    unknown) and the split's notes. Nothing is computed from the data.
+
+    ``additions`` (a record of ``load_additions``) appends one entry per addition after the registered ones,
+    which stay exactly as they are without it: pipeline outputs under <additions_results_root>/<tag>/ (default
+    the results root), truth files under <truth_root>, ``addition`` true, and ``spot_truth_usable`` from
+    ``addition_spot_truth_usable`` (which reads the truth params JSON when it exists)."""
     patterns = dict(TRUTH_FILES, **(truth_files or {}))
     results_root, truth_root = Path(results_root), Path(truth_root)
     entries = []
@@ -414,6 +979,13 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
             "spot_truth_usable": rg is False,
             "notes": list(g.get("notes", [])),
         })
+    if additions is not None:
+        validate_additions(additions)
+        if (additions.get("registered_split") or {}).get("roles_sha256") != roles_sha256(
+                {g["tag"]: g["role"] for g in split["gonads"]}):
+            raise ValueError("the additions record was made against other roles than this split's")
+        aroot = Path(additions_results_root) if additions_results_root else results_root
+        entries += [_addition_entry(g, aroot, truth_root, patterns) for g in additions["gonads"]]
     manifest = {
         "name": name or split.get("name", "benchmark"),
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -432,12 +1004,23 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
         },
         "gonads": entries,
     }
+    if additions is not None:
+        manifest["additions_file"] = {
+            "path": posix(additions_path) if additions_path else None,
+            "sha256": file_sha256(additions_path) if additions_path else None,
+            "changelog_entry": additions.get("changelog_entry"),
+            "results_root": posix(Path(additions_results_root) if additions_results_root else results_root),
+            "tags": [g["tag"] for g in additions["gonads"]]}
     return manifest
 
 
-def write_manifest(manifest: dict, out_root) -> Path:
-    """Write benchmarks/<name>/manifest.json under ``out_root`` and return its path."""
-    out = Path(out_root) / manifest["name"] / "manifest.json"
+def write_manifest(manifest: dict, out_root, file_name: str = "manifest.json") -> Path:
+    """Write benchmarks/<name>/<file_name> (manifest.json by default) under ``out_root`` and return its path.
+    A revised manifest goes next to the registered one under another file name, so the trial and final logs
+    that the scripts find next to the manifest stay the same files."""
+    if Path(file_name).name != file_name or not file_name.endswith(".json"):
+        raise ValueError(f"{file_name!r}: a plain .json file name, no folder")
+    out = Path(out_root) / manifest["name"] / file_name
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
     return out

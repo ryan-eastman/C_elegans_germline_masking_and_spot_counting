@@ -1,0 +1,988 @@
+{
+ "name": "n2rad51_additions",
+ "registered_on": "2026-10-11",
+ "protocol": "docs/BENCHMARK_PROTOCOL.md",
+ "changelog_entry": 9,
+ "description": "Gonads added to TRAIN after the split of tests/golden/rad51_split.json was registered (protocol changelog entry 9). The split file and its roles are unchanged; these gonads are never val or test, never stand in for a val gonad, and leave the benchmark only for a defect on the truth side, recorded in the changelog.",
+ "decided_by": {
+  "who": "Ryan Eastman (project lead)",
+  "date": "2026-10-11",
+  "question": "How should the 3 new full-truth males be used? I recommend training data, recorded in a changelog entry",
+  "reply": "2 whatever you recommend",
+  "reading": "read as accepting the recommendation (train), for the three males and for 20260105_n2_hs_1_MALE_1 if its spot truth verifies (entry 9 (e)); a reading, not his words"
+ },
+ "registered_split": {
+  "path": "tests/golden/rad51_split.json",
+  "sha256": "955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f",
+  "sha256_lf": "989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85",
+  "roles_sha256": "32e2ee0b4a0dc193fe941b995449447d11004a377289e5ce8e3eda5af5ddec00",
+  "unchanged": true
+ },
+ "rules": [
+  "train only: an addition is never val or test (ADDITION_ROLES in germquant.validate.benchmark_split)",
+  "an addition never stands in for a held-out val gonad in a leave-one-gonad-out fold",
+  "an addition leaves the benchmark only for a defect on the truth side, recorded in the changelog",
+  "nothing runs on these files before this record and changelog entry 9 are committed",
+  "no 2025-11-05 file and no aggregate of the 2025-11-05 per-nucleus tables is read (SEALED_NAME_MARKERS)"
+ ],
+ "frame": {
+  "rule": "As in the split record: floor((coordinate - ExtMin) / imaris_voxel) per axis, placed at index times the .nd2 voxel.",
+  "per_axis_voxel_note": "Imaris stores the extents as text with six significant digits. On these 2720-pixel fields at stage x above 10000 um the x extent reads 293.8 um (0.10801 um per voxel) where y reads 293.76 um (0.108 um), and ExtMin x is known only to +-0.05 um. The frame used for each gonad is decided by the test of entry 9 (d)(3) and recorded in its truth params JSON (frame_check)."
+ },
+ "copy_manifest": {
+  "path": "C:/Users/ryane/n2_rad51_hs_2026/copy_manifest.json",
+  "sha256": "0af21b42e265369166012a493d8a2793477ddac94d4e72d0f881458a27097613"
+ },
+ "roles": {
+  "train": [
+   "n2rad51_20260105a_HS_male_001",
+   "n2rad51_20260105a_HS_male_002",
+   "n2rad51_20260105a_HS_male_003",
+   "n2rad51_20260105b_HS_male_001"
+  ],
+  "val": [],
+  "test": []
+ },
+ "gonads": [
+  {
+   "tag": "n2rad51_20260105a_HS_male_001",
+   "role": "train",
+   "session": "2026-01-05",
+   "set": "CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS",
+   "genotype": "N2",
+   "condition": "HS",
+   "sex": "male",
+   "replicate": "001",
+   "stem": "20260105_n2_hs_MALE_1",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_1.nd2",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_1.nd2",
+    "nas_mtime": "2026-01-05T12:28:46",
+    "size_bytes": 4706336768,
+    "sha256": "52506c93445a732c5625fde7925c2efb369162398ae95d10e6b1ed1e07d139fd",
+    "sha256_verified_against_copy_manifest": true,
+    "sizes": {
+     "Z": 106,
+     "C": 3,
+     "Y": 2720,
+     "X": 2720
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ],
+    "channel_names": [
+     "405",
+     "477",
+     "545"
+    ],
+    "dtype": "uint16",
+    "camera": "Kinetix, A25D723034",
+    "exposure_ms": {
+     "405": 20.0,
+     "477": 40.0,
+     "545": 10.0
+    }
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_1.ims",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_1.ims",
+    "nas_mtime": "2026-01-21T14:18:13",
+    "size_bytes": 2585587852,
+    "sha256": "be530d6c629e383e4ff3ac73869a2e110ff306c4bc8e2558b4689e9b766a6f5f",
+    "sha256_verified_against_copy_manifest": true,
+    "n_spots": 5187,
+    "n_surfaces": 98,
+    "region_growing": false,
+    "spot_quality_threshold": 18.9129,
+    "shape_xyz": [
+     2720,
+     2720,
+     106
+    ],
+    "imaris_voxel_um": [
+     0.1080147,
+     0.108,
+     0.2
+    ],
+    "ext_min_xyz_text": [
+     "16249.9",
+     "4614.7",
+     "2742.24"
+    ],
+    "ext_max_xyz_text": [
+     "16543.7",
+     "4908.46",
+     "2763.44"
+    ],
+    "channel_names": [
+     "405",
+     "477",
+     "545",
+     "Masked 405"
+    ],
+    "masked_channel_present": true,
+    "imaris_version": "10.2",
+    "spot_source_channel": {
+     "index": 2,
+     "name": "545"
+    },
+    "spot_statistics": [
+     "Area",
+     "Average Distance To 3 Nearest Neighbours",
+     "Average Distance To 5 Nearest Neighbours",
+     "Average Distance To 9 Nearest Neighbours",
+     "Diameter X",
+     "Diameter Y",
+     "Diameter Z",
+     "Distance To Nearest Neighbour",
+     "Distance from Origin",
+     "Distance to Image Border XY",
+     "Distance to Image Border XYZ",
+     "Generation",
+     "Intensity Center",
+     "Intensity Max",
+     "Intensity Mean",
+     "Intensity Median",
+     "Intensity Min",
+     "Intensity StdDev",
+     "Intensity Sum",
+     "Intensity Sum of Square",
+     "Number of Voxels",
+     "Position X",
+     "Position Y",
+     "Position Z",
+     "Shortest Distance to Surfaces",
+     "Time",
+     "Time Index",
+     "Volume"
+    ],
+    "creation_parameters": {
+     "spots": {
+      "source_channel_index": 2,
+      "estimated_diameter_um": [
+       0.4,
+       0.4,
+       0.9
+      ],
+      "background_subtraction": true,
+      "roi_enabled": false,
+      "region_growing": false,
+      "quality_threshold": 18.9129,
+      "spot_filters": [
+       "Quality"
+      ],
+      "class_statistic": "Average Distance To 3 Nearest Neighbours",
+      "class_threshold_um": 13.6536,
+      "roi_boxes": []
+     },
+     "surfaces": {
+      "source_channel_index": 0,
+      "smoothing": true,
+      "grain_um": 0.4,
+      "background_subtraction": true,
+      "largest_sphere_um": 3.0,
+      "automatic_threshold": true,
+      "manual_threshold": 111.234,
+      "seed_split": true,
+      "seed_diameter_um": 3.0,
+      "voxel_filter_enabled": true,
+      "voxel_filter_min": 10.0,
+      "voxel_filter_max": null,
+      "surface_filters": [
+       "Number of Voxels"
+      ],
+      "roi_enabled": true,
+      "roi_boxes": [
+       {
+        "min_xyz_voxel": [
+         0,
+         1306,
+         0
+        ],
+        "max_xyz_voxel": [
+         1665,
+         2719,
+         105
+        ]
+       }
+      ],
+      "class_statistic": "Distance from Origin",
+      "class_threshold": 17300.4
+     }
+    }
+   },
+   "xlsx": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/imaris_exports_20260113/20260105_n2_hs_MALE_1.xlsx",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/202601_imaris_mutants/20260105_n2_hs_MALE_1.xlsx",
+    "nas_mtime": "2026-01-13T09:19:02",
+    "size_bytes": 10701531,
+    "sha256": "1360cd0d94a9431708db531bb8ffcdc6c8d914fe66e8d1df045b1df955ed814e",
+    "sha256_verified_against_copy_manifest": true,
+    "use": "cross-check (4.4)",
+    "overall_n_spots": 5187,
+    "overall_n_surfaces": 98,
+    "overall_source": "the Overall sheet totals read by the NAS inventory of 2026-10-11 (germquant_inventory/ims_inspection/export_checks.json); not re-read here"
+   },
+   "spot_truth": {
+    "source": "ims",
+    "status": "usable",
+    "rule": "entry 9 (d)"
+   },
+   "nucleus_truth": "Imaris Surfaces (the lab's wizard recipe, independent of germquant) with the Masked 405 channel; recovered as in docs/IMARIS_TRUTH.md",
+   "creation_parameter_differences": [
+    {
+     "parameter": "spots.class_threshold_um",
+     "value": 13.6536,
+     "registered_range": [
+      3.16774,
+      12.6205
+     ]
+    },
+    {
+     "parameter": "surfaces.largest_sphere_um",
+     "value": 3.0,
+     "protocol_text": 2.5
+    },
+    {
+     "parameter": "surfaces.automatic_threshold",
+     "value": true,
+     "protocol_text": false
+    },
+    {
+     "parameter": "surfaces.manual_threshold",
+     "value": 111.234,
+     "registered_range": [
+      36.2618,
+      82.2877
+     ]
+    },
+    {
+     "parameter": "surfaces.seed_diameter_um",
+     "value": 3.0,
+     "protocol_text": 2.5
+    },
+    {
+     "parameter": "surfaces.class_threshold",
+     "value": 17300.4,
+     "registered_range": [
+      5189.84,
+      13845.6
+     ]
+    }
+   ],
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_20260105a_HS_male_002",
+   "role": "train",
+   "session": "2026-01-05",
+   "set": "CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS",
+   "genotype": "N2",
+   "condition": "HS",
+   "sex": "male",
+   "replicate": "002",
+   "stem": "20260105_n2_hs_MALE_2",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_2.nd2",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_2.nd2",
+    "nas_mtime": "2026-01-05T12:29:40",
+    "size_bytes": 4706336768,
+    "sha256": "4d5ebd368a32407915d133dcf911cb4ec087f8b5ccbcbb4a3d219315d585128a",
+    "sha256_verified_against_copy_manifest": true,
+    "sizes": {
+     "Z": 106,
+     "C": 3,
+     "Y": 2720,
+     "X": 2720
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ],
+    "channel_names": [
+     "405",
+     "477",
+     "545"
+    ],
+    "dtype": "uint16",
+    "camera": "Kinetix, A25D723034",
+    "exposure_ms": {
+     "405": 20.0,
+     "477": 40.0,
+     "545": 10.0
+    }
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_2.ims",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_2.ims",
+    "nas_mtime": "2026-01-21T14:19:54",
+    "size_bytes": 2567000688,
+    "sha256": "269857a2d0f572e6bb2c2519ebbc2af87a91bdee63df1c41cabc9b5fe49d1d2c",
+    "sha256_verified_against_copy_manifest": true,
+    "n_spots": 12028,
+    "n_surfaces": 88,
+    "region_growing": false,
+    "spot_quality_threshold": 7.96068,
+    "shape_xyz": [
+     2720,
+     2720,
+     106
+    ],
+    "imaris_voxel_um": [
+     0.1080147,
+     0.108,
+     0.2
+    ],
+    "ext_min_xyz_text": [
+     "15529.9",
+     "3323.4",
+     "2739.18"
+    ],
+    "ext_max_xyz_text": [
+     "15823.7",
+     "3617.16",
+     "2760.38"
+    ],
+    "channel_names": [
+     "405",
+     "477",
+     "545",
+     "Masked 405"
+    ],
+    "masked_channel_present": true,
+    "imaris_version": "10.2",
+    "spot_source_channel": {
+     "index": 2,
+     "name": "545"
+    },
+    "spot_statistics": [
+     "Area",
+     "Average Distance To 3 Nearest Neighbours",
+     "Average Distance To 5 Nearest Neighbours",
+     "Average Distance To 9 Nearest Neighbours",
+     "Diameter X",
+     "Diameter Y",
+     "Diameter Z",
+     "Distance To Nearest Neighbour",
+     "Distance from Origin",
+     "Distance to Image Border XY",
+     "Distance to Image Border XYZ",
+     "Generation",
+     "Intensity Center",
+     "Intensity Max",
+     "Intensity Mean",
+     "Intensity Median",
+     "Intensity Min",
+     "Intensity StdDev",
+     "Intensity Sum",
+     "Intensity Sum of Square",
+     "Number of Voxels",
+     "Position X",
+     "Position Y",
+     "Position Z",
+     "Shortest Distance to Surfaces",
+     "Time",
+     "Time Index",
+     "Volume"
+    ],
+    "creation_parameters": {
+     "spots": {
+      "source_channel_index": 2,
+      "estimated_diameter_um": [
+       0.4,
+       0.4,
+       0.9
+      ],
+      "background_subtraction": true,
+      "roi_enabled": false,
+      "region_growing": false,
+      "quality_threshold": 7.96068,
+      "spot_filters": [
+       "Quality"
+      ],
+      "class_statistic": "Average Distance To 3 Nearest Neighbours",
+      "class_threshold_um": 6.95437,
+      "roi_boxes": []
+     },
+     "surfaces": {
+      "source_channel_index": 0,
+      "smoothing": true,
+      "grain_um": 0.4,
+      "background_subtraction": true,
+      "largest_sphere_um": 3.0,
+      "automatic_threshold": true,
+      "manual_threshold": 111.412,
+      "seed_split": true,
+      "seed_diameter_um": 3.0,
+      "voxel_filter_enabled": true,
+      "voxel_filter_min": 10.0,
+      "voxel_filter_max": null,
+      "surface_filters": [
+       "Number of Voxels"
+      ],
+      "roi_enabled": true,
+      "roi_boxes": [
+       {
+        "min_xyz_voxel": [
+         0,
+         767,
+         0
+        ],
+        "max_xyz_voxel": [
+         1513,
+         2719,
+         105
+        ]
+       }
+      ],
+      "class_statistic": "Distance from Origin",
+      "class_threshold": 16259.7
+     }
+    }
+   },
+   "xlsx": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/imaris_exports_20260113/20260105_n2_hs_MALE_2.xlsx",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/202601_imaris_mutants/20260105_n2_hs_MALE_2.xlsx",
+    "nas_mtime": "2026-01-13T09:33:22",
+    "size_bytes": 24256824,
+    "sha256": "a023068b08c9c1e779a2fe6b6f5dcebe9dd83f59491d35789f65be4d32ee8285",
+    "sha256_verified_against_copy_manifest": true,
+    "use": "cross-check (4.4)",
+    "overall_n_spots": 12028,
+    "overall_n_surfaces": 88,
+    "overall_source": "the Overall sheet totals read by the NAS inventory of 2026-10-11 (germquant_inventory/ims_inspection/export_checks.json); not re-read here"
+   },
+   "spot_truth": {
+    "source": "ims",
+    "status": "usable",
+    "rule": "entry 9 (d)"
+   },
+   "nucleus_truth": "Imaris Surfaces (the lab's wizard recipe, independent of germquant) with the Masked 405 channel; recovered as in docs/IMARIS_TRUTH.md",
+   "creation_parameter_differences": [
+    {
+     "parameter": "surfaces.largest_sphere_um",
+     "value": 3.0,
+     "protocol_text": 2.5
+    },
+    {
+     "parameter": "surfaces.automatic_threshold",
+     "value": true,
+     "protocol_text": false
+    },
+    {
+     "parameter": "surfaces.manual_threshold",
+     "value": 111.412,
+     "registered_range": [
+      36.2618,
+      82.2877
+     ]
+    },
+    {
+     "parameter": "surfaces.seed_diameter_um",
+     "value": 3.0,
+     "protocol_text": 2.5
+    },
+    {
+     "parameter": "surfaces.class_threshold",
+     "value": 16259.7,
+     "registered_range": [
+      5189.84,
+      13845.6
+     ]
+    }
+   ],
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_20260105a_HS_male_003",
+   "role": "train",
+   "session": "2026-01-05",
+   "set": "CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS",
+   "genotype": "N2",
+   "condition": "HS",
+   "sex": "male",
+   "replicate": "003",
+   "stem": "20260105_n2_hs_MALE_3",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_3.nd2",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_3.nd2",
+    "nas_mtime": "2026-01-05T12:30:32",
+    "size_bytes": 4706336768,
+    "sha256": "c42e4a95e63136ce81cbccb6c7919988e8e2037f019ed21da1f9ae0c1007ea53",
+    "sha256_verified_against_copy_manifest": true,
+    "sizes": {
+     "Z": 106,
+     "C": 3,
+     "Y": 2720,
+     "X": 2720
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ],
+    "channel_names": [
+     "405",
+     "477",
+     "545"
+    ],
+    "dtype": "uint16",
+    "camera": "Kinetix, A25D723034",
+    "exposure_ms": {
+     "405": 20.0,
+     "477": 40.0,
+     "545": 10.0
+    }
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_3.ims",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_3.ims",
+    "nas_mtime": "2026-01-21T14:21:17",
+    "size_bytes": 2550716664,
+    "sha256": "49a0a990820a5cd0b8ca8c9a237312442485f48ec676fcf91a8d5b861e4bbb87",
+    "sha256_verified_against_copy_manifest": true,
+    "n_spots": 6462,
+    "n_surfaces": 127,
+    "region_growing": false,
+    "spot_quality_threshold": 12.0885,
+    "shape_xyz": [
+     2720,
+     2720,
+     106
+    ],
+    "imaris_voxel_um": [
+     0.1080147,
+     0.108,
+     0.2
+    ],
+    "ext_min_xyz_text": [
+     "14084.4",
+     "5717.9",
+     "2739.56"
+    ],
+    "ext_max_xyz_text": [
+     "14378.2",
+     "6011.66",
+     "2760.76"
+    ],
+    "channel_names": [
+     "405",
+     "477",
+     "545",
+     "Masked 405"
+    ],
+    "masked_channel_present": true,
+    "imaris_version": "10.2",
+    "spot_source_channel": {
+     "index": 2,
+     "name": "545"
+    },
+    "spot_statistics": [
+     "Area",
+     "Average Distance To 3 Nearest Neighbours",
+     "Average Distance To 5 Nearest Neighbours",
+     "Average Distance To 9 Nearest Neighbours",
+     "Diameter X",
+     "Diameter Y",
+     "Diameter Z",
+     "Distance To Nearest Neighbour",
+     "Distance from Origin",
+     "Distance to Image Border XY",
+     "Distance to Image Border XYZ",
+     "Generation",
+     "Intensity Center",
+     "Intensity Max",
+     "Intensity Mean",
+     "Intensity Median",
+     "Intensity Min",
+     "Intensity StdDev",
+     "Intensity Sum",
+     "Intensity Sum of Square",
+     "Number of Voxels",
+     "Position X",
+     "Position Y",
+     "Position Z",
+     "Shortest Distance to Surfaces",
+     "Time",
+     "Time Index",
+     "Volume"
+    ],
+    "creation_parameters": {
+     "spots": {
+      "source_channel_index": 2,
+      "estimated_diameter_um": [
+       0.4,
+       0.4,
+       0.9
+      ],
+      "background_subtraction": true,
+      "roi_enabled": false,
+      "region_growing": false,
+      "quality_threshold": 12.0885,
+      "spot_filters": [
+       "Quality"
+      ],
+      "class_statistic": "Average Distance To 3 Nearest Neighbours",
+      "class_threshold_um": 8.64852,
+      "roi_boxes": []
+     },
+     "surfaces": {
+      "source_channel_index": 0,
+      "smoothing": true,
+      "grain_um": 0.4,
+      "background_subtraction": true,
+      "largest_sphere_um": 3.0,
+      "automatic_threshold": true,
+      "manual_threshold": 97.6177,
+      "seed_split": true,
+      "seed_diameter_um": 3.0,
+      "voxel_filter_enabled": true,
+      "voxel_filter_min": 6954.15,
+      "voxel_filter_max": 20595.2,
+      "surface_filters": [
+       "Number of Voxels"
+      ],
+      "roi_enabled": true,
+      "roi_boxes": [
+       {
+        "min_xyz_voxel": [
+         1041,
+         879,
+         0
+        ],
+        "max_xyz_voxel": [
+         2719,
+         1985,
+         105
+        ]
+       }
+      ],
+      "class_statistic": "Distance from Origin",
+      "class_threshold": 15630.9
+     }
+    }
+   },
+   "xlsx": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/imaris_exports_20260113/20260105_n2_hs_MALE_3.xlsx",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/202601_imaris_mutants/20260105_n2_hs_MALE_3.xlsx",
+    "nas_mtime": "2026-01-13T09:45:46",
+    "size_bytes": 13364007,
+    "sha256": "ce24e9278d7a2fee32cfa39bf50ef38eafb429c612c8521e1d133c364aa63586",
+    "sha256_verified_against_copy_manifest": true,
+    "use": "cross-check (4.4)",
+    "overall_n_spots": 6462,
+    "overall_n_surfaces": 127,
+    "overall_source": "the Overall sheet totals read by the NAS inventory of 2026-10-11 (germquant_inventory/ims_inspection/export_checks.json); not re-read here"
+   },
+   "spot_truth": {
+    "source": "ims",
+    "status": "usable",
+    "rule": "entry 9 (d)"
+   },
+   "nucleus_truth": "Imaris Surfaces (the lab's wizard recipe, independent of germquant) with the Masked 405 channel; recovered as in docs/IMARIS_TRUTH.md",
+   "creation_parameter_differences": [
+    {
+     "parameter": "surfaces.largest_sphere_um",
+     "value": 3.0,
+     "protocol_text": 2.5
+    },
+    {
+     "parameter": "surfaces.automatic_threshold",
+     "value": true,
+     "protocol_text": false
+    },
+    {
+     "parameter": "surfaces.manual_threshold",
+     "value": 97.6177,
+     "registered_range": [
+      36.2618,
+      82.2877
+     ]
+    },
+    {
+     "parameter": "surfaces.seed_diameter_um",
+     "value": 3.0,
+     "protocol_text": 2.5
+    },
+    {
+     "parameter": "surfaces.voxel_filter_min",
+     "value": 6954.15,
+     "registered_range": [
+      10.0,
+      5387.31
+     ]
+    },
+    {
+     "parameter": "surfaces.class_threshold",
+     "value": 15630.9,
+     "registered_range": [
+      5189.84,
+      13845.6
+     ]
+    }
+   ],
+   "notes": []
+  },
+  {
+   "tag": "n2rad51_20260105b_HS_male_001",
+   "role": "train",
+   "session": "2026-01-05",
+   "set": "CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1",
+   "genotype": "N2",
+   "condition": "HS",
+   "sex": "male",
+   "replicate": "001",
+   "stem": "20260105_n2_hs_1_MALE_1",
+   "nd2": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS_1/20260105_n2_hs_1_MALE_1.nd2",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_MALE_1.nd2",
+    "nas_mtime": "2026-01-05T13:43:02",
+    "size_bytes": 4706336768,
+    "sha256": "794d7df003e2bb06af04cdd9e0fa8784062ef145ed2e18ff2b336be79615a1c8",
+    "sha256_verified_against_copy_manifest": true,
+    "sizes": {
+     "Z": 106,
+     "C": 3,
+     "Y": 2720,
+     "X": 2720
+    },
+    "voxel_um": [
+     0.108333333,
+     0.108333333,
+     0.2
+    ],
+    "channel_names": [
+     "405",
+     "477",
+     "545"
+    ],
+    "dtype": "uint16",
+    "camera": "Kinetix, A25D723034",
+    "exposure_ms": {
+     "405": 10.0,
+     "477": 10.0,
+     "545": 7.0
+    }
+   },
+   "ims": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS_1/20260105_n2_hs_1_MALE_1.ims",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_MALE_1.ims",
+    "nas_mtime": "2026-01-21T14:28:01",
+    "size_bytes": 4565983901,
+    "sha256": "0673323ca99ab75569f6eefd4aa17363ac94d92bb37b9b5ed77656f0bf9fea64",
+    "sha256_verified_against_copy_manifest": true,
+    "n_spots": 1226263,
+    "n_surfaces": 112,
+    "region_growing": false,
+    "spot_quality_threshold": 12.5014,
+    "shape_xyz": [
+     2720,
+     2720,
+     106
+    ],
+    "imaris_voxel_um": [
+     0.108,
+     0.1080147,
+     0.2
+    ],
+    "ext_min_xyz_text": [
+     "2889.2",
+     "-10921.1",
+     "2742.64"
+    ],
+    "ext_max_xyz_text": [
+     "3182.96",
+     "-10627.3",
+     "2763.84"
+    ],
+    "channel_names": [
+     "405",
+     "477",
+     "545",
+     "Masked 405"
+    ],
+    "masked_channel_present": true,
+    "imaris_version": "10.2",
+    "spot_source_channel": {
+     "index": 2,
+     "name": "545"
+    },
+    "spot_statistics": [
+     "Area",
+     "Average Distance To 3 Nearest Neighbours",
+     "Average Distance To 5 Nearest Neighbours",
+     "Average Distance To 9 Nearest Neighbours",
+     "Diameter X",
+     "Diameter Y",
+     "Diameter Z",
+     "Distance To Nearest Neighbour",
+     "Distance from Origin",
+     "Distance to Image Border XY",
+     "Distance to Image Border XYZ",
+     "Generation",
+     "Intensity Center",
+     "Intensity Max",
+     "Intensity Mean",
+     "Intensity Median",
+     "Intensity Min",
+     "Intensity StdDev",
+     "Intensity Sum",
+     "Intensity Sum of Square",
+     "Position X",
+     "Position Y",
+     "Position Z",
+     "Shortest Distance to Surfaces",
+     "Time",
+     "Time Index",
+     "Volume"
+    ],
+    "creation_parameters": {
+     "spots": {
+      "source_channel_index": 2,
+      "estimated_diameter_um": [
+       0.4,
+       0.4,
+       0.9
+      ],
+      "background_subtraction": true,
+      "roi_enabled": false,
+      "region_growing": false,
+      "quality_threshold": 12.5014,
+      "spot_filters": [
+       "Quality"
+      ],
+      "class_statistic": "Average Distance To 3 Nearest Neighbours",
+      "class_threshold_um": 8.03318,
+      "roi_boxes": []
+     },
+     "surfaces": {
+      "source_channel_index": 0,
+      "smoothing": true,
+      "grain_um": 0.4,
+      "background_subtraction": true,
+      "largest_sphere_um": 3.0,
+      "automatic_threshold": true,
+      "manual_threshold": 24.2415,
+      "seed_split": true,
+      "seed_diameter_um": 3.0,
+      "voxel_filter_enabled": true,
+      "voxel_filter_min": 5728.41,
+      "voxel_filter_max": 20011.5,
+      "surface_filters": [
+       "Number of Voxels"
+      ],
+      "roi_enabled": true,
+      "roi_boxes": [
+       {
+        "min_xyz_voxel": [
+         0,
+         802,
+         0
+        ],
+        "max_xyz_voxel": [
+         1553,
+         2648,
+         105
+        ]
+       }
+      ],
+      "class_statistic": "Distance from Origin",
+      "class_threshold": 11545.5
+     }
+    }
+   },
+   "xlsx": {
+    "path": "C:/Users/ryane/n2_rad51_hs_2026/imaris_exports_20260113/20260105_n2_hs_1_MALE_1.xlsx",
+    "nas_path": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/202601_imaris_mutants/20260105_n2_hs_1_MALE_1.xlsx",
+    "nas_mtime": "2026-01-13T10:00:43",
+    "size_bytes": 13355586,
+    "sha256": "8e035d67690229a325bbe85c9a51c1df55e58cdac46eed199a111057dab195ac",
+    "sha256_verified_against_copy_manifest": true,
+    "use": "spot source (entry 9 (e): used only if the criteria V1 to V7 pass)",
+    "overall_n_spots": 6512,
+    "overall_n_surfaces": 112,
+    "overall_source": "the Overall sheet totals read by the NAS inventory of 2026-10-11 (germquant_inventory/ims_inspection/export_checks.json); not re-read here"
+   },
+   "spot_truth": {
+    "source": "xlsx",
+    "status": "pending",
+    "rule": "entry 9 (e)"
+   },
+   "nucleus_truth": "Imaris Surfaces (the lab's wizard recipe, independent of germquant) with the Masked 405 channel; recovered as in docs/IMARIS_TRUTH.md",
+   "creation_parameter_differences": [
+    {
+     "parameter": "surfaces.largest_sphere_um",
+     "value": 3.0,
+     "protocol_text": 2.5
+    },
+    {
+     "parameter": "surfaces.automatic_threshold",
+     "value": true,
+     "protocol_text": false
+    },
+    {
+     "parameter": "surfaces.manual_threshold",
+     "value": 24.2415,
+     "registered_range": [
+      36.2618,
+      82.2877
+     ]
+    },
+    {
+     "parameter": "surfaces.seed_diameter_um",
+     "value": 3.0,
+     "protocol_text": 2.5
+    },
+    {
+     "parameter": "surfaces.voxel_filter_min",
+     "value": 5728.41,
+     "registered_range": [
+      10.0,
+      5387.31
+     ]
+    }
+   ],
+   "notes": [
+    "The saved Spots object of the .ims (re-saved 2026-01-21) holds 1,226,263 spots under the recorded filter (Quality 12.5, region growing off): it is not the curated set. The 2026-01-13 export holds the curated 6,512 spots and 112 surfaces. Its spot truth is used only if the export verifies (entry 9 (e)); otherwise the gonad is nucleus truth only."
+   ]
+  }
+ ],
+ "not_added": [
+  {
+   "gonads": [
+    "20260105_n2_hs_1_MALE_2",
+    "20260105_n2_hs_1_MALE_3",
+    "20260105_n2_hs_1_MALE_4",
+    "20260105_n2_hs_2_MALE_1",
+    "20260105_n2_hs_2_MALE_2",
+    "20260105_n2_hs_2_MALE_3"
+   ],
+   "where": "CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1 and 20260105_N2_HS_2",
+   "reason": "raw only: an nd2 and a plain .ims conversion without Spots or Surfaces. Not copied, not opened and not used for anything."
+  },
+  {
+   "gonads": [
+    "20260521_n2_hs_dapi_rad51_syp1_M",
+    "_M001",
+    "_M002",
+    "_M003",
+    "and the 2026-05-21 N2 HS herms"
+   ],
+   "where": "CahoonLab/Madeleine Coffman/imaris_files/n2_ims_files/20260521_N2_HS_DAPI_RAD51_SYP1_ims",
+   "reason": "spot truth only (their Surfaces are germquant nuclei imported into Imaris) and RAD-51 on 477, another session. Not used for anything; entry 9 (c) opens no image of another session for method development."
+  }
+ ],
+ "registered_creation_parameters_compared": [
+  "n2rad51_HS_herm_000",
+  "n2rad51_HS_herm_001",
+  "n2rad51_HS_male_000",
+  "n2rad51_HS_male_002",
+  "n2rad51_noHS_herm_000",
+  "n2rad51_noHS_herm_001",
+  "n2rad51_noHS_male_000",
+  "n2rad51_noHS_male_001"
+ ]
+}

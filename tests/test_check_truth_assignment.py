@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,3 +38,33 @@ def test_check_gonad_counts_agreement_and_each_kind_of_disagreement():
     assert r["n_coloc_only"] == 1                                 # spot 4: geometric 0, coloc 9
     assert r["n_coloc_on_removed_fragment"] == 1                  # spot 5: coloc 7, a removed fragment
     assert r["fragments_removed"] == [7]
+
+
+def test_xlsx_cross_check_counts_per_surface_and_matches_spots():
+    """Entry 9 (d)(5): the xlsx coloc join per surface against the truth's coloc and geometric counts, and the
+    xlsx spots against the truth spots by ID and by position."""
+    mod = _load()
+    lab = np.zeros((10, 20, 20), np.int32)
+    lab[2:8, 2:12, 2:12] = 5
+    lab[2:8, 14:19, 14:19] = 9
+    spots = pd.DataFrame({"spot_id": [1, 2, 3, 4], "zi": [4, 4, 4, 0], "yi": [5, 6, 16, 0], "xi": [5, 6, 16, 0],
+                          "imaris_mask_label": [5, 5, 9, 0],
+                          "imaris_x_um": [10.0, 11.0, 12.0, 13.0], "imaris_y_um": 1.0, "imaris_z_um": 2.0})
+    nuclei = pd.DataFrame({"surface_id": [100, 101], "label": [5, 9]})
+    xl = {"spots": pd.DataFrame({"ID": [1, 2, 3, 4], "x": [10.0, 11.0, 12.0, 13.001], "y": 1.0, "z": 2.0,
+                                 "imax_mask": [5.0, 5.0, 9.0, 0.0]}),
+          "surfaces": pd.DataFrame({"ID": [100, 101], "imax_mask": [5.0, 9.0]})}
+    r = mod.xlsx_cross_check(lab, spots, nuclei, xl, min_voxels=10)
+    per = r.pop("per_surface")
+    assert per[["surface_id", "xlsx_coloc", "truth_coloc", "truth_geometric"]].values.tolist() == [[100, 2, 2, 2],
+                                                                                                    [101, 1, 1, 1]]
+    assert r["n_surfaces_coloc_equal"] == 2 and r["n_surfaces_geometric_equal"] == 2
+    assert r["n_spot_ids_common"] == 4 and r["max_position_diff_common_ids_um"] == pytest.approx(0.001)
+    assert r["one_to_one_within_tol"] is True
+    # a spot the export has and the truth does not, and a moved one
+    xl["spots"].loc[3, "x"] = 20.0
+    xl["spots"] = pd.concat([xl["spots"], pd.DataFrame({"ID": [7], "x": [30.0], "y": [1.0], "z": [2.0],
+                                                        "imax_mask": [9.0]})], ignore_index=True)
+    r = mod.xlsx_cross_check(lab, spots, nuclei, xl, min_voxels=10)
+    assert r["n_spot_ids_only_xlsx"] == 1 and r["one_to_one_within_tol"] is False
+    assert r["n_xlsx_spots_within_tol_of_a_truth_spot"] == 3 and r["n_surfaces_coloc_equal"] == 1

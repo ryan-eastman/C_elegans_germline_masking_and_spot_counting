@@ -3,6 +3,7 @@
     python scripts/benchmark_manifest.py --truth-root <dir> [--name n2rad51]
         [--split tests/golden/rad51_split.json] [--results-root C:/Users/ryane/germquant_golden/8666f07]
         [--out benchmarks] [--truth-file masks={stem}__imaris_labels.tif ...]
+        [--additions tests/golden/rad51_additions.json --additions-results-root DIR] [--manifest-file NAME.json]
 
 One entry per gonad: the split role, condition and sex, the .nd2 and .ims (exists, size matches the
 registered size), the pipeline output files under <results-root>/<tag>/ (nuclei table, nuclei_labels.tif,
@@ -14,6 +15,13 @@ available when it was built (created_utc, and the sha256 of the split file it wa
 
 --truth-file overrides one expected truth file name (kind=pattern, {stem} is the image id); files the
 export wrote under any other name still appear in each entry's "found" list.
+
+--additions appends the gonads of the additions record of protocol changelog entry 9 after the registered
+ones, which stay exactly as they are (their pipeline outputs under --additions-results-root/<tag>/, default
+the results root; their truth files under the truth root; spot_truth_usable from the record and the truth
+params JSON). --manifest-file names the file written in <out>/<name>/ (default manifest.json): a revised
+manifest goes next to the registered one under another name, so trials.jsonl and final_runs.jsonl, which the
+scoring scripts find next to the manifest, stay the same files.
 """
 from __future__ import annotations
 
@@ -38,6 +46,11 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=str(REPO / "benchmarks"), help="root for <name>/manifest.json")
     ap.add_argument("--truth-file", action="append", default=[], metavar="KIND=PATTERN",
                     help="override an expected truth file name, e.g. masks={stem}__imaris_labels.tif")
+    ap.add_argument("--additions", default=None, help="the additions record of protocol changelog entry 9")
+    ap.add_argument("--additions-results-root", default=None,
+                    help="pipeline outputs of the additions, one folder per tag (default: --results-root)")
+    ap.add_argument("--manifest-file", default="manifest.json",
+                    help="file name of the manifest in <out>/<name>/ (default manifest.json)")
     args = ap.parse_args(argv)
 
     overrides = {}
@@ -48,9 +61,11 @@ def main(argv=None) -> int:
         overrides[kind] = pattern
 
     split = bs.load_split(args.split)
+    additions = bs.load_additions(args.additions) if args.additions else None
     manifest = bs.build_manifest(split, args.results_root, args.truth_root, name=args.name,
-                                 truth_files=overrides or None, split_path=args.split)
-    out = bs.write_manifest(manifest, args.out)
+                                 truth_files=overrides or None, split_path=args.split, additions=additions,
+                                 additions_results_root=args.additions_results_root, additions_path=args.additions)
+    out = bs.write_manifest(manifest, args.out, args.manifest_file)
 
     print(f"{'tag':28s} {'role':5s} {'outputs':8s} {'truth':8s} {'spot truth':10s}")
     for e in manifest["gonads"]:

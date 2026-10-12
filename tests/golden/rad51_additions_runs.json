@@ -1,0 +1,6 @@
+[
+ {"tag": "n2rad51_20260105a_HS_male_001", "nd2": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_1.nd2", "config": "config/config.yaml", "xy_stride": 1},
+ {"tag": "n2rad51_20260105a_HS_male_002", "nd2": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_2.nd2", "config": "config/config.yaml", "xy_stride": 1},
+ {"tag": "n2rad51_20260105a_HS_male_003", "nd2": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_3.nd2", "config": "config/config.yaml", "xy_stride": 1},
+ {"tag": "n2rad51_20260105b_HS_male_001", "nd2": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS_1/20260105_n2_hs_1_MALE_1.nd2", "config": "config/config.yaml", "xy_stride": 1}
+]
