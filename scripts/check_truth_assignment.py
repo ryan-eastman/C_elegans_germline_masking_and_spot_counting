@@ -17,7 +17,10 @@ pre-flight of docs/FINAL_SCORING.md by naming them with --tags.
 the cross-checks of entry 9 (d)(5): the per-nucleus counts of the lab's xlsx coloc join (spots grouped by the
 mask channel's Intensity Max, the value of their surface) against the same join on the truth spots and against
 the geometric assignment, per surface; and the xlsx spot positions against the truth spots (by ID, then one
-to one by position within 0.005 um). Only the additions' own exports are read (never a 2025-11-05 file).
+to one by position within 0.005 um). Only the additions' own exports are read (never a 2025-11-05 file), and with
+--additions a test gonad is refused before anything is read (protocol changelog entry 10).
+
+Its --out table is the section 4.4 input of scripts/benchmark_manifest.py --truth-check.
 """
 from __future__ import annotations
 
@@ -139,6 +142,10 @@ def main(argv: list[str] | None = None) -> int:
         entries = [e for e in entries if e.tag in want]
     else:
         entries = [e for e in entries if e.split in ("train", "val")]
+    if a.additions:
+        # the additions' checks never read a test gonad (protocol changelog entry 10); the test gonads are checked
+        # only in the pre-flight of docs/FINAL_SCORING.md, by naming them with --tags and without --additions
+        bd.guard_test([e.tag for e in entries], roles={e.tag: e.split for e in entries})
     rows = []
     import tifffile
 

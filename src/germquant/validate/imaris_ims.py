@@ -918,10 +918,12 @@ def frame_check(pos_xyz, geom: dict, expected: dict, images: dict, *, spot_key: 
                     for k in range(-n, n + 1):
                         e2 = e.copy()
                         e2[ax] = ext[ax] + k * step_um
-                        a = frame_agreement(pos_xyz, e2, vox, shape, {spot_key: expected[spot_key]},
-                                            {spot_key: images[spot_key]})["channels"][spot_key]["agreement"]
-                        trial.append((a, -abs(k), k))
-                    a, _neg, k = max(trial)
+                        r = frame_agreement(pos_xyz, e2, vox, shape, {spot_key: expected[spot_key]},
+                                            {spot_key: images[spot_key]})["channels"][spot_key]
+                        # ties on the float32-tolerant agreement go to the higher strict agreement: the edge of
+                        # the agreeing plateau puts a spot on the wrong side of a voxel boundary (entry 10 (f))
+                        trial.append((r["agreement"], r["agreement_strict"], -abs(k), k))
+                    a, _strict, _neg, k = max(trial)
                     e[ax] = ext[ax] + k * step_um
             rec = frame_agreement(pos_xyz, e, vox, shape, expected, images)
             rec.update(name=f"search_{vname}_voxel", ext_min_xyz=e.tolist(), voxel_xyz_um=vox.tolist(),
@@ -945,7 +947,8 @@ def frame_check(pos_xyz, geom: dict, expected: dict, images: dict, *, spot_key: 
 
 # ---- the frame check and the xlsx spot source of an export (protocol changelog entry 9) ---------------
 
-#: entry 9 (e) V7: the section 4.4 agreement must lie in the range of the registered train and val gonads
+#: entry 9 (e) V7 and (d)(5): the section 4.4 agreement must reach the lowest of the registered train and val
+#: gonads (a minimum, entry 10 (b); benchmark_split.SECTION_4_4_MIN applies it to every addition)
 TRUTH_ASSIGNMENT_MIN = 0.9935
 XLSX_POSITION_TOL_UM = 0.005     # entry 9 (e) V3: surface position, xlsx against the .ims
 XLSX_VOLUME_RTOL = 1e-5          # entry 9 (e) V3: surface volume, relative
@@ -1142,7 +1145,7 @@ def _write_labels(labels: np.ndarray, path: Path, spacing_zyx) -> None:
 def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path | None = None,
                         nd2_voxel_xyz_um=None, masks: bool = True, tol_um: float = _TOL_UM,
                         frame_check_on: bool = False, spots_xlsx: str | Path | None = None,
-                        xlsx_expect: dict | None = None) -> dict:
+                        xlsx_expect: dict | None = None, allow_test: bool = False) -> dict:
     """Write the truth file contract for one Imaris .ims into ``out_dir`` and return the params dict.
 
     ``nd2`` (or ``nd2_voxel_xyz_um`` as (dx, dy, dz) um) defines OUR frame; without either a sibling
@@ -1157,16 +1160,25 @@ def export_imaris_truth(ims: str | Path, out_dir: str | Path, *, nd2: str | Path
     passes, the stored frame is kept and ``frame_check.chosen`` is None (the manifest then marks the spot truth
     unusable). ``spots_xlsx`` (entry 9 (e)) takes the spots from an Imaris statistics export instead of the
     .ims's saved Spots object, verifies them (criteria V1 to V7, ``spots_source.verification``; ``xlsx_expect``
-    gives the recorded sha256 and Overall totals) and implies the frame check."""
+    gives the recorded sha256 and Overall totals) and implies the frame check.
+
+    With the frame check or the xlsx source, the files are guarded before anything is opened
+    (``benchmark_split.guard_truth_read``, protocol changelog entry 10): a registered gonad's project passes the
+    role guard, so a test gonad is refused unless ``allow_test`` (the pre-flight of docs/FINAL_SCORING.md), and
+    any other sealed file (a 2025-11-05 export, an aggregate table) is refused."""
     import h5py
 
     ims = Path(ims)
+    frame_check_on = bool(frame_check_on or spots_xlsx is not None)
+    if frame_check_on:
+        from .benchmark_split import guard_truth_read
+
+        guard_truth_read([ims, nd2, spots_xlsx], allow_test=allow_test)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = truth_paths(out_dir, ims.stem)
     warnings: list[str] = []
     frame_rep, xlsx_rep = None, None
-    frame_check_on = bool(frame_check_on or spots_xlsx is not None)
     with h5py.File(str(ims), "r") as f:
         geom = read_geometry(f)
         geom_stored = dict(geom)

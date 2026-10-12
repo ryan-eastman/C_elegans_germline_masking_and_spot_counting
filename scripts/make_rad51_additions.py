@@ -15,13 +15,15 @@ statistics export (.xlsx). The script
   statistics, Masked 405, the creation parameters) and compares the creation parameters with protocol sections
   4.1 and 4.2 and with the eight registered train and val projects (their truth params JSONs under
   --truth-root; a test gonad is refused before any read);
-* refuses any 2025-11-05 path and any aggregate of the 2025-11-05 per-nucleus tables
-  (benchmark_split.SEALED_NAME_MARKERS);
+* refuses, among the additions' files, any 2025-11-05 path and any aggregate of the per-nucleus tables
+  (benchmark_split.SEALED_NAME_MARKERS); the only 2025-11-05 files it reads are the eight registered train and
+  val truth params JSONs above, behind the role guard (protocol changelog entry 10 (g)(2));
 * writes the record, validated by germquant.validate.benchmark_split.validate_additions: roles fixed by
   ADDITION_ROLES (train), the registered split file's sha256 and the sha256 of its roles.
 
-The xlsx exports are hashed, not opened: their Overall totals were read by the inventory of 2026-10-11 and are
-copied here from its export_checks.json. The record never changes after it is committed; the verification of
+The xlsx exports are hashed, not opened, by this script (the decision-1 calibration of 2026-10-11 opened them;
+protocol changelog entry 10): their Overall totals were read by the inventory of 2026-10-11 and are copied here
+from its export_checks.json. The record never changes after it is committed; the verification of
 20260105_n2_hs_1_MALE_1's xlsx spots (entry 9 (e)) goes into its truth params JSON.
 """
 from __future__ import annotations

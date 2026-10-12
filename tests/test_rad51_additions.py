@@ -184,16 +184,13 @@ def test_manifest_with_additions_keeps_the_registered_entries(tmp_path):
     add = {e["tag"]: e for e in m["gonads"][12:]}
     assert list(add) == [MALES[0], HS1] and all(e["addition"] and e["role"] == "train" for e in add.values())
     assert add[MALES[0]]["results_dir"] == (tmp_path / "add_results" / MALES[0]).as_posix()
-    assert add[MALES[0]]["spot_truth_usable"] is True and add[HS1]["spot_truth_usable"] is False
-    assert "not verified yet" in add[HS1]["spot_truth_reason"]
+    # no truth export exists here: neither addition is usable
+    assert add[MALES[0]]["spot_truth_usable"] is False and add[HS1]["spot_truth_usable"] is False
+    assert add[MALES[0]]["spot_truth_reason"] == add[HS1]["spot_truth_reason"] == "no truth export yet"
+    assert add[MALES[0]]["section_4_4"] is None and add[MALES[0]]["spot_truth_decision"] is None
     assert m["roles"]["train"][-2:] == [MALES[0], HS1] and m["roles"]["test"] == plain["roles"]["test"]
     assert m["additions_file"]["sha256"] == bs.file_sha256(ADDITIONS) and "additions_file" not in plain
-    # the spot-truth rule reads the truth params JSON
-    g_ims, g_x = rec["gonads"]
-    assert bs.addition_spot_truth_usable(g_ims, {"frame_check": {"chosen": None}})[0] is False
-    assert bs.addition_spot_truth_usable(g_ims, {"frame_check": {"chosen": {"name": "rounded"}}})[0] is True
-    assert bs.addition_spot_truth_usable(g_x, {"spots_source": {"verification": {"passed": True}}})[0] is True
-    assert bs.addition_spot_truth_usable(g_x, {"spots_source": {"verification": {"passed": False}}})[0] is False
+    assert m["spot_truth_inputs"]["truth_check"] is None and m["spot_truth_inputs"]["decisions"] is None
     # a revised manifest goes next to the registered one under its own name
     out = bs.write_manifest(m, tmp_path / "benchmarks", "manifest_entry9.json")
     assert out.name == "manifest_entry9.json" and out.parent.name == m["name"]
@@ -205,8 +202,188 @@ def test_manifest_with_additions_keeps_the_registered_entries(tmp_path):
     moved["roles"] = {r: sorted(g["tag"] for g in moved["gonads"] if g["role"] == r) for r in bs.ROLES}
     with pytest.raises(ValueError, match="other roles"):
         bs.build_manifest(moved, results, truth, additions=rec)
+    # the section 4.4 table and the decisions belong to the additions
+    with pytest.raises(ValueError, match="additions only"):
+        bs.build_manifest(split, results, truth, truth_check=tmp_path / "x.csv")
 
 
+# the frame check as the four real truth params record it (entry 9 (d)(3))
+FC_ROUNDED = {"frame_check": {"chosen": {"name": "rounded", "ext_min_xyz": [0, 0, 0], "voxel_xyz_um": [0.108] * 3}}}
+
+
+def _xlsx_params(**fails) -> dict:
+    ver = {k: {"passes": k not in fails} for k in ("V1_sha256", "V2_totals", "V3_surfaces", "V4_inside_extent",
+                                                   "V5_intensity_center", "V6_radius")}
+    ver["V7_truth_assignment"] = {"passes": "V7_truth_assignment" not in fails,
+                                  "agreement": fails.get("V7_truth_assignment", 0.996)}
+    ver["passed"] = not fails
+    return {**FC_ROUNDED, "spots_source": {"source": "xlsx", "verification": ver}}
+
+
+def test_the_spot_truth_rule_of_entries_9_and_10(tmp_path):
+    """addition_spot_truth_usable: the export's own checks first (no decision overrides them), then the changelog
+    decision, else section 4.4 at least 0.9935."""
+    rec, _cm = _stub_additions(tmp_path)
+    g_ims, g_x = rec["gonads"]
+    dec_keep = {"usable": True, "entry": 10, "reason": "kept post hoc"}
+    dec_drop = {"usable": False, "entry": 10, "reason": "4.4 failed"}
+    ok, low = {"agreement": 0.9960}, {"agreement": 0.9807}
+    # no truth export, or one made without --frame-check, or one whose frame check chose nothing: never usable
+    assert bs.addition_spot_truth_usable(g_ims, None, ok, dec_keep) == (False, "no truth export yet")
+    for params in ({}, {"frame_check": {"chosen": None}}, {"frame_check": {"untestable": "no statistic"}}):
+        usable, why = bs.addition_spot_truth_usable(g_ims, params, ok, dec_keep)
+        assert usable is False and "frame check of entry 9 (d)(3) missing or failed" in why
+    # region growing on, or unknown: never usable
+    for rg in (True, None):
+        grown = {**g_ims, "ims": {**g_ims["ims"], "region_growing": rg}}
+        assert bs.addition_spot_truth_usable(grown, FC_ROUNDED, ok, dec_keep)[0] is False
+    assert bs.addition_spot_truth_usable({**g_ims, "spot_truth": {"source": "ims", "status": "pending"}},
+                                         FC_ROUNDED, ok)[0] is False
+    # section 4.4: a male at 0.9807 without a decision is not usable; not run is not usable; 0.9960 is
+    usable, why = bs.addition_spot_truth_usable(g_ims, FC_ROUNDED, low)
+    assert usable is False and "needs a changelog entry" in why and "0.9807" in why
+    assert bs.addition_spot_truth_usable(g_ims, FC_ROUNDED)[0] is False
+    assert bs.addition_spot_truth_usable(g_ims, FC_ROUNDED, {"agreement": None})[0] is False
+    assert bs.addition_spot_truth_usable(g_ims, FC_ROUNDED, ok)[0] is True
+    assert bs.addition_spot_truth_usable(g_ims, FC_ROUNDED, {"agreement": bs.SECTION_4_4_MIN})[0] is True
+    # the same male with an entry-10 decision follows the decision, either way
+    assert bs.addition_spot_truth_usable(g_ims, FC_ROUNDED, low, dec_keep) == (True, "changelog entry 10: kept post hoc")
+    assert bs.addition_spot_truth_usable(g_ims, FC_ROUNDED, ok, dec_drop) == (False, "changelog entry 10: 4.4 failed")
+    # the xlsx source: V1 to V6 must pass whatever is decided; V7 is the 4.4 check, decided like the others
+    assert bs.addition_spot_truth_usable(g_x, _xlsx_params())[0] is True
+    usable, why = bs.addition_spot_truth_usable(g_x, _xlsx_params(V3_surfaces=1, V7_truth_assignment=0.9899), None,
+                                                dec_keep)
+    assert usable is False and why == "xlsx spots failed V3, V7 of entry 9 (e)"
+    assert bs.addition_spot_truth_usable(g_x, {**FC_ROUNDED, "spots_source": {"source": "xlsx"}})[0] is False
+    v7 = _xlsx_params(V7_truth_assignment=0.9899)
+    assert bs.addition_spot_truth_usable(g_x, v7)[0] is False
+    assert bs.addition_spot_truth_usable(g_x, v7, None, dec_keep)[0] is True
+    no_fc = {k: v for k, v in _xlsx_params().items() if k != "frame_check"}
+    assert bs.addition_spot_truth_usable(g_x, no_fc, None, dec_keep)[0] is False
+    from germquant.validate import imaris_ims
+
+    assert bs.SECTION_4_4_MIN == imaris_ims.TRUTH_ASSIGNMENT_MIN == pytest.approx(0.9935)   # one minimum, V7 and 4.4
+
+
+def _write_decisions(path: Path, decisions: dict) -> Path:
+    path.write_text(json.dumps({"changelog_entry": 10, "decisions": decisions}), encoding="utf-8")
+    return path
+
+
+def test_the_decisions_file_is_validated(tmp_path):
+    good = {"usable": False, "entry": 10, "reason": "r"}
+    assert bs.load_spot_truth_decisions(_write_decisions(tmp_path / "a.json", {MALES[0]: good}))["decisions"]
+    for bad, match in (({"n2rad51_HS_male_000": good}, "not an addition"),
+                       ({MALES[0]: {**good, "usable": "no"}}, "true or false"),
+                       ({MALES[0]: {**good, "entry": 9}}, "10 or later"),
+                       ({MALES[0]: {**good, "reason": " "}}, "reason"),
+                       ({}, "decisions")):
+        with pytest.raises(ValueError, match=match):
+            bs.load_spot_truth_decisions(_write_decisions(tmp_path / "b.json", bad))
+
+
+def test_a_decision_removes_the_fold_of_an_addition(tmp_path):
+    """The manifest carries the section 4.4 table and the decisions file (path and sha256); an addition decided
+    unusable takes no part in the leave-one-gonad-out folds, the one kept by its 4.4 agreement does."""
+    from germquant.benchmark import logo
+    from germquant.benchmark.manifest import load_manifest
+
+    rec, _cm = _stub_additions(tmp_path / "a")
+    data = tmp_path / "data"
+    data.mkdir()
+    entries = []
+    for tag, role in bs.PREREGISTERED_ROLES.items():
+        p = data / f"{tag}.nd2"
+        p.write_bytes(tag.encode())
+        q = data / f"{tag}.ims"
+        q.write_bytes(tag.encode())
+        entries.append((tag, role, p, q))
+    split = _synthetic_split(entries)
+    truth = tmp_path / "truth"
+    for g in rec["gonads"]:
+        d = truth / g["tag"]
+        d.mkdir(parents=True)
+        params = _xlsx_params() if g["tag"] == HS1 else FC_ROUNDED
+        (d / f"{g['stem']}__imaris_params.json").write_text(json.dumps(params), encoding="utf-8")
+    check = tmp_path / "check.csv"
+    check.write_text("tag,split,n_spots,n_agree,n_coloc_on_removed_fragment,n_both_different,agreement\n"
+                     f"{MALES[0]},train,5187,5087,95,0,0.9807210333526123\n"
+                     f"{HS1},train,6512,6486,10,0,0.996\n", encoding="utf-8")
+
+    def folds(decisions: dict | None):
+        dpath = _write_decisions(tmp_path / "dec.json", decisions) if decisions is not None else None
+        m = bs.build_manifest(split, tmp_path / "results", truth, additions=rec, truth_check=check,
+                              spot_truth_decisions=dpath)
+        out = bs.write_manifest(m, tmp_path / "benchmarks", "manifest_entry9.json")
+        return m, {f["held_out"] for f in logo.logo_folds(load_manifest(out), require_cache=False)}
+
+    m, held = folds(None)
+    add = {e["tag"]: e for e in m["gonads"] if e.get("addition")}
+    assert add[MALES[0]]["spot_truth_usable"] is False and add[MALES[0]]["section_4_4"]["agreement"] == pytest.approx(0.9807, abs=1e-4)
+    assert add[HS1]["spot_truth_usable"] is True
+    assert MALES[0] not in held and HS1 in held
+    assert m["spot_truth_inputs"]["truth_check"]["sha256"] == bs.file_sha256(check)
+    m, held = folds({MALES[0]: {"usable": True, "entry": 10, "reason": "kept"},
+                     HS1: {"usable": False, "entry": 10, "reason": "dropped"}})
+    assert MALES[0] in held and HS1 not in held
+    assert m["spot_truth_inputs"]["decisions"]["sha256"] == bs.file_sha256(tmp_path / "dec.json")
+    assert m["spot_truth_inputs"]["decisions"]["changelog_entry"] == 10
+    assert {e["tag"]: e["spot_truth_reason"] for e in m["gonads"] if e.get("addition")}[HS1] == "changelog entry 10: dropped"
+    with pytest.raises(ValueError, match="not in the additions record"):
+        folds({MALES[1]: {"usable": True, "entry": 10, "reason": "x"}})
+
+
+DECISIONS = ROOT / "tests" / "golden" / "rad51_additions_decisions.json"
+
+
+def test_the_decisions_of_entry_10():
+    doc = bs.load_spot_truth_decisions(DECISIONS)
+    assert doc["changelog_entry"] == 10 and set(doc["decisions"]) == set(bs.ADDITION_ROLES)
+    assert {t: d["usable"] for t, d in doc["decisions"].items()} == {
+        MALES[0]: False, MALES[1]: True, MALES[2]: False, HS1: False}
+    assert all(d["entry"] == 10 for d in doc["decisions"].values())
+
+
+def test_the_decisions_on_the_real_truth_files():
+    """On the workstation: the rule with the real truth params, the 4.4 table and the decisions gives what entry 10
+    states; without the decisions only n2rad51_20260105a_HS_male_002 passes section 4.4."""
+    truth_root = Path("C:/Users/ryane/germquant_golden/imaris_truth")
+    table = Path("C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/entry9/truth_assignment_check_additions.csv")
+    if not table.is_file() or not truth_root.is_dir():
+        pytest.skip("the entry-9 truth files are not on this machine")
+    rec = bs.load_additions(ADDITIONS)
+    checks = bs.load_truth_check(table)
+    dec = bs.load_spot_truth_decisions(DECISIONS)["decisions"]
+    with_dec, without = {}, {}
+    for g in rec["gonads"]:
+        params = json.loads((truth_root / g["tag"] / f"{g['stem']}__imaris_params.json").read_text(encoding="utf-8"))
+        with_dec[g["tag"]] = bs.addition_spot_truth_usable(g, params, checks[g["tag"]], dec[g["tag"]])[0]
+        without[g["tag"]] = bs.addition_spot_truth_usable(g, params, checks[g["tag"]])[0]
+    assert with_dec == without == {MALES[0]: False, MALES[1]: True, MALES[2]: False, HS1: False}
+
+
+def test_registered_stems_are_the_split_files():
+    assert bs.REGISTERED_STEMS == {g["tag"]: g["stem"] for g in bs.load_split(SPLIT)["gonads"]}
+    assert set(bs.REGISTERED_STEMS) == set(bs.PREREGISTERED_ROLES)
+
+
+def test_the_truth_read_guard():
+    """guard_truth_read: a registered train or val project passes by its stem; a test gonad's project is refused
+    unless allow_test (the pre-flight); any other sealed file is refused; an addition's files pass."""
+    assert bs.registered_tag_of("C:/x/20251105_n2_hs_MALE _001.ims") == "n2rad51_HS_male_001"
+    assert bs.registered_tag_of("C:/x/20251105_N2_NOHS_herm _.nd2") == "n2rad51_noHS_herm_000"
+    assert bs.registered_tag_of("C:/x/20251105_n2_hs_MALE_1.xlsx") is None
+    assert bs.guard_truth_read(["C:/x/20251105_n2_hs_HERM _.ims", "C:/x/20251105_n2_hs_HERM _.nd2", None]) == [
+        "n2rad51_HS_herm_000"]
+    with pytest.raises(bd.TestSetGuardError):
+        bs.guard_truth_read(["C:/x/20251105_n2_hs_MALE _001.ims"])
+    with pytest.raises(bd.TestSetGuardError):
+        bs.guard_truth_read(["C:/x/20251105_n2_hs_HERM _.ims", "C:/x/20251105_n2_hs_MALE _001.nd2"])
+    assert bs.guard_truth_read(["C:/x/20251105_n2_hs_MALE _001.ims"], allow_test=True) == ["n2rad51_HS_male_001"]
+    for sealed in ("C:/nas/20251105_n2_hs_MALE_1.xlsx", "C:/x/temp_compiledtdata.xlsx", "C:/x/20251105_other.ims"):
+        with pytest.raises(PermissionError, match="sealed"):
+            bs.guard_truth_read(["C:/y/20260105_n2_hs_MALE_1.ims", sealed])
+    assert bs.guard_truth_read(["C:/y/20260105_n2_hs_MALE_1.ims", "C:/y/20260105_n2_hs_MALE_1.nd2"]) == []
 CP_SPOTS = ('<bpPointsCreationParameters mEnableRegionOfInterest="false" mEnableRegionGrowing="false" '
             'mSourceChannelIndex="2" mEstimatedDiameter="0.400000 0.400000 0.900000" mBackgroundSubtraction="true">\n'
             '<mSpotFilter>\n<bpStatisticsFilter mLowerThresholdEnable="true" mLowerThresholdManual="true" '

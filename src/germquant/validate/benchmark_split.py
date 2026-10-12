@@ -22,8 +22,14 @@ docs/BENCHMARK_PROTOCOL.md is the pre-registration; this module is its machine-r
   (scripts/make_rad51_additions.py), ``load_additions`` reads and validates it, ``check_addition_files``
   confirms the files are the recorded ones, and ``build_manifest(..., additions=...)`` appends them to a
   manifest without changing the registered entries. ``SEALED_NAME_MARKERS`` names files that are never
-  read for the additions: anything of 2025-11-05 (the sealed test male's exports among them) and the
-  lab's aggregate tables that compile the 2025-11-05 per-nucleus rows.
+  read for the additions: the 2025-11-05 heat-shock male exports (the sealed test male's among them) and the
+  lab's aggregate tables that compile the per-nucleus rows; a 2025-11-05 file is read only when it is a
+  registered train or val project, by its stem behind the role guard (``guard_truth_read``,
+  ``REGISTERED_STEMS``; protocol changelog entry 10).
+* The spot truth of an addition (protocol changelog entries 9 (d) and 10): ``addition_spot_truth_usable``
+  applies the export's own checks, then the decision of a changelog entry (``load_spot_truth_decisions``,
+  tests/golden/rad51_additions_decisions.json), else the section 4.4 minimum (``SECTION_4_4_MIN``, read from
+  the table of scripts/check_truth_assignment.py by ``load_truth_check``).
 
 Nothing here touches the pipeline: the module reads files and writes JSON. The Imaris reading is kept
 separate from validate/imaris_ims.py on purpose, so the truth-export work can change that module
@@ -386,8 +392,9 @@ ADDITIONS_CHANGELOG_ENTRY = 9
 REGISTERED_SESSION = "2025-11-05"
 #: sha256 of tests/golden/rad51_split.json as registered (and as it was when entry 9 added the additions): the
 #: workstation checkout (CRLF line endings, the digest every manifest records) and the same bytes with LF line
-#: endings (the git blob, a Linux checkout). The file never changes; tests/test_rad51_additions.py pins both, so
-#: any edit has to be deliberate and logged
+#: endings (the git blob, a Linux checkout). The file changes only by the re-export of protocol section 4.1, with a
+#: changelog line and new pinned digests here, in the same commit (protocol changelog entry 10 (g)(8));
+#: tests/test_rad51_additions.py pins both, so any edit has to be deliberate and logged
 REGISTERED_SPLIT_SHA256 = "955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f"
 REGISTERED_SPLIT_SHA256_LF = "989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85"
 #: the additions of protocol changelog entry 9 and their roles: train only, fixed here so that no manifest or
@@ -401,10 +408,29 @@ ADDITION_ROLES = {
 }
 ADDITION_TAG_RE = re.compile(
     r"^n2rad51_(?P<session>\d{8}[a-z])_(?P<condition>noHS|HS)_(?P<sex>herm|male)_(?P<replicate>\d{3})$")
-#: lower-case markers of file names that are never read for the additions: anything of the 2025-11-05 session
-#: (the sealed test male's exports among them) and the lab's aggregate tables that compile the 2025-11-05
-#: per-nucleus rows (the decision-1 export check of entry 9 lists them)
+#: lower-case markers of file names that are never read for the additions (protocol changelog entries 9 and 10):
+#: no test-gonad file, no 2025-11-05 heat-shock male export and no aggregate of the per-nucleus tables (the
+#: decision-1 export check of entry 9 lists them). A file of the 2025-11-05 session is refused unless it is a
+#: registered project read by its registered stem behind the role guard (``guard_truth_read``): the eight train
+#: and val projects were read that way for entry 9 (d)(3) and (d)(4)
 SEALED_NAME_MARKERS = ("20251105", "temp_compiledtdata", "compiled_data", "master_data", "rad51_stats", ".prism")
+#: the stems of the registered split (tests/golden/rad51_split.json; tests/test_rad51_additions.py checks them
+#: against the file), so a truth-side read can tell a registered project, which the role guard admits or refuses,
+#: from any other 2025-11-05 file, which is sealed
+REGISTERED_STEMS = {
+    "n2rad51_noHS_herm_000": "20251105_N2_nohs_HERM _",
+    "n2rad51_noHS_herm_001": "20251105_N2_nohs_HERM _001",
+    "n2rad51_noHS_herm_002": "20251105_N2_nohs_HERM _002",
+    "n2rad51_noHS_male_000": "20251105_N2_nohs_MALE _",
+    "n2rad51_noHS_male_001": "20251105_N2_nohs_MALE _001",
+    "n2rad51_noHS_male_002": "20251105_N2_nohs_MALE _002",
+    "n2rad51_HS_herm_000": "20251105_n2_hs_HERM _",
+    "n2rad51_HS_herm_001": "20251105_n2_hs_HERM _001",
+    "n2rad51_HS_herm_002": "20251105_n2_hs_HERM _002",
+    "n2rad51_HS_male_000": "20251105_n2_hs_MALE _",
+    "n2rad51_HS_male_001": "20251105_n2_hs_MALE _001",
+    "n2rad51_HS_male_002": "20251105_n2_hs_MALE _002",
+}
 SPOT_TRUTH_SOURCES = ("ims", "xlsx")
 SPOT_TRUTH_STATUS = ("usable", "pending")
 ADDITION_FILE_KEYS = ("nd2", "ims", "xlsx")
@@ -467,8 +493,40 @@ def is_sealed_path(path) -> bool:
 def refuse_sealed(path) -> None:
     """Raise PermissionError for a sealed path before anything opens it."""
     if is_sealed_path(path):
-        raise PermissionError(f"refused: {path} is sealed (protocol changelog entry 9: no 2025-11-05 file and no "
-                              "aggregate of the 2025-11-05 per-nucleus tables is read for the additions)")
+        raise PermissionError(f"refused: {path} is sealed (protocol changelog entries 9 and 10: no test-gonad file, "
+                              "no 2025-11-05 heat-shock male export and no aggregate of the per-nucleus tables is "
+                              "read; a registered train or val project is read only by its registered stem, behind "
+                              "the role guard)")
+
+
+def registered_tag_of(path) -> str | None:
+    """The tag of the registered gonad whose stem is the file name of ``path`` without its extension (letter case
+    and surrounding spaces ignored), None for any other file."""
+    stem = Path(str(path).replace("\\", "/")).stem.strip().lower()
+    for tag, s in REGISTERED_STEMS.items():
+        if s.strip().lower() == stem:
+            return tag
+    return None
+
+
+def guard_truth_read(paths, *, allow_test: bool = False) -> list[str]:
+    """Before a truth-side read (the frame check or the xlsx spot source of ``germquant imaris-truth``): a file of a
+    registered gonad passes the role guard (train and val; test only with ``allow_test``, the pre-flight of
+    docs/FINAL_SCORING.md), and any other file must not be sealed (``refuse_sealed``). None entries are skipped.
+    Returns the registered tags found. Raises before anything is opened."""
+    from germquant.benchmark.detector import guard_test
+
+    tags = []
+    for p in paths:
+        if p is None:
+            continue
+        tag = registered_tag_of(p)
+        if tag is None:
+            refuse_sealed(p)
+        elif tag not in tags:
+            tags.append(tag)
+    guard_test(tags, allow_test=allow_test)
+    return tags
 
 
 # ---- the Imaris and nd2 facts of a project ----
@@ -862,27 +920,104 @@ def check_addition_files(rec: dict, hashes: bool = False) -> list[str]:
     return problems
 
 
-def addition_spot_truth_usable(g: dict, truth_params: dict | None) -> tuple[bool, str]:
-    """Whether an addition's spot truth may be scored, and why: from the .ims, when the record calls it usable,
-    region growing is off and the truth export's frame check (entry 9 (d)(3)) found a frame, or the export has
-    not been made yet; from the xlsx (entry 9 (e)), only when the truth export verified it
-    (``spots_source.verification.passed``)."""
+#: the section 4.4 minimum of entry 9 (d)(5) and (e) V7, read as a minimum by entry 10 (b): the lowest agreement of
+#: the registered train and val gonads (entry 4 (a)); the same number as imaris_ims.TRUTH_ASSIGNMENT_MIN
+SECTION_4_4_MIN = 0.9935
+#: the xlsx criterion that is the section 4.4 check (entry 9 (e)); the others are checks of the export itself
+XLSX_SECTION_4_4_CRITERION = "V7_truth_assignment"
+
+
+def addition_spot_truth_usable(g: dict, truth_params: dict | None, truth_check: dict | None = None,
+                               decision: dict | None = None) -> tuple[bool, str]:
+    """Whether an addition's spot truth may be scored, and why. The rules, in order (protocol changelog entries 9
+    (d), (e) and 10 (c)):
+
+    1. no truth params (no truth export yet): not usable;
+    2. the export itself: from the .ims, the record calls the spot truth usable and region growing is off; from
+       the xlsx (entry 9 (e)), every criterion of its verification but the section 4.4 one (V7) passes; and in
+       both cases the export ran the frame check of entry 9 (d)(3) and it chose a frame (an export made without
+       ``--frame-check`` is not usable). A decision cannot override this;
+    3. ``decision`` (an entry of the decisions file of a later changelog entry, ``load_spot_truth_decisions``):
+       its ``usable`` and its reason;
+    4. otherwise section 4.4: ``truth_check`` (this gonad's row of scripts/check_truth_assignment.py, at least
+       ``agreement``; for an xlsx source V7's own agreement when no row is given) must reach ``SECTION_4_4_MIN``.
+       A failed or missing check leaves the spot truth unusable until a changelog entry decides it."""
+    if truth_params is None:
+        return False, "no truth export yet"
     st = g.get("spot_truth") or {}
-    params = truth_params or {}
+    params = truth_params
+    agreement = None if truth_check is None else truth_check.get("agreement")
     if st.get("source") == "xlsx":
         ver = ((params.get("spots_source") or {}).get("verification") or {})
-        if ver.get("passed") is True:
-            return True, "xlsx spots verified (entry 9 (e))"
-        return False, ("xlsx spots not verified yet (entry 9 (e))" if not ver else
-                       "xlsx spots failed the verification of entry 9 (e)")
-    if g.get("ims", {}).get("region_growing") is not False:
-        return False, "spot truth unusable (Imaris region growing, or unknown)"
-    if st.get("status") != "usable":
-        return False, f"spot truth status {st.get('status')!r}"
+        crit = {k: v for k, v in ver.items() if k.startswith("V")}
+        if not crit:
+            return False, "xlsx spots not verified (entry 9 (e))"
+        failed = sorted(k for k, v in crit.items() if not (v or {}).get("passes"))
+        if any(k != XLSX_SECTION_4_4_CRITERION for k in failed):
+            return False, f"xlsx spots failed {', '.join(k.split('_')[0] for k in failed)} of entry 9 (e)"
+        if agreement is None:
+            agreement = (crit.get(XLSX_SECTION_4_4_CRITERION) or {}).get("agreement")
+    else:
+        if g.get("ims", {}).get("region_growing") is not False:
+            return False, "spot truth unusable (Imaris region growing, or unknown)"
+        if st.get("status") != "usable":
+            return False, f"spot truth status {st.get('status')!r}"
     fc = params.get("frame_check")
-    if fc is not None and fc.get("chosen") is None:
-        return False, "no frame passed the Intensity Center test of entry 9 (d)(3)"
-    return True, "Imaris spots, region growing off"
+    if fc is None or fc.get("chosen") is None:
+        return False, "frame check of entry 9 (d)(3) missing or failed"
+    if decision is not None:
+        return bool(decision["usable"]), f"changelog entry {decision['entry']}: {decision['reason']}"
+    try:
+        a = float(agreement)
+    except (TypeError, ValueError):
+        a = float("nan")
+    if not a >= SECTION_4_4_MIN:
+        return False, ("section 4.4 below 99.35 percent or not run (entry 9 (d)(5)); needs a changelog entry"
+                       + ("" if agreement is None else f" (agreement {a:.4f})"))
+    return True, f"section 4.4 agreement {a:.4f}, at least {SECTION_4_4_MIN} (entry 9 (d)(5))"
+
+
+def load_truth_check(path) -> dict[str, dict]:
+    """The rows of a section 4.4 table written by scripts/check_truth_assignment.py --out, by tag, with
+    ``agreement`` and the counts as numbers."""
+    import csv
+
+    out = {}
+    with open(path, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            rec = dict(row)
+            for k in ("agreement",):
+                try:
+                    rec[k] = float(row[k]) if row.get(k) not in (None, "") else None
+                except ValueError:
+                    rec[k] = None
+            for k in ("n_spots", "n_agree", "n_coloc_on_removed_fragment", "n_both_different"):
+                try:
+                    rec[k] = int(float(row[k])) if row.get(k) not in (None, "") else None
+                except (KeyError, ValueError):
+                    rec[k] = None
+            out[str(row["tag"])] = rec
+    return out
+
+
+def load_spot_truth_decisions(path) -> dict:
+    """The decisions file of a changelog entry on the additions' spot truth (tests/golden/rad51_additions_decisions.json,
+    entry 10): ``{"changelog_entry": n, "decisions": {tag: {"usable": bool, "entry": n, "reason": str}}}``.
+    Refuses a tag that is not an addition of entry 9 and an entry before 10."""
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    dec = doc.get("decisions")
+    if not isinstance(dec, dict) or not dec:
+        raise ValueError(f"{path}: a 'decisions' mapping of tag -> {{usable, entry, reason}} is required")
+    for tag, d in dec.items():
+        if tag not in ADDITION_ROLES:
+            raise ValueError(f"{path}: {tag} is not an addition of protocol changelog entry 9")
+        if not isinstance(d, dict) or not isinstance(d.get("usable"), bool):
+            raise ValueError(f"{path}: {tag}: 'usable' must be true or false")
+        if not isinstance(d.get("entry"), int) or d["entry"] < 10:
+            raise ValueError(f"{path}: {tag}: 'entry' must be the changelog entry that decided it (10 or later)")
+        if not str(d.get("reason") or "").strip():
+            raise ValueError(f"{path}: {tag}: a reason is required")
+    return doc
 
 
 # ----------------------------------------------------------------------------- the manifest
@@ -897,9 +1032,11 @@ def _exists_record(path, expected_size: int | None = None) -> dict:
     return rec
 
 
-def _addition_entry(g: dict, results_root: Path, truth_root: Path, patterns: dict) -> dict:
+def _addition_entry(g: dict, results_root: Path, truth_root: Path, patterns: dict,
+                    truth_check: dict | None = None, decision: dict | None = None) -> dict:
     """One manifest entry for an addition of entry 9: the registered entries' fields plus ``addition``,
-    ``session``, ``set``, the xlsx record and the reason for ``spot_truth_usable``."""
+    ``session``, ``set``, the xlsx record, its section 4.4 row and changelog decision when given, and the reason
+    for ``spot_truth_usable``."""
     stem, tag = g["stem"], g["tag"]
     rdir = results_root / tag
     outputs = {k: _exists_record(rdir / pat.format(stem=stem)) for k, pat in OUTPUT_FILES.items()}
@@ -912,7 +1049,7 @@ def _addition_entry(g: dict, results_root: Path, truth_root: Path, patterns: dic
             params = json.loads(Path(truth["params"]["path"]).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             params = None
-    usable, why = addition_spot_truth_usable(g, params)
+    usable, why = addition_spot_truth_usable(g, params, truth_check, decision)
     entry = {
         "tag": tag, "role": g["role"], "split": g["role"], "condition": g["condition"], "sex": g["sex"],
         "stem": stem, "addition": True, "session": g.get("session"), "set": g.get("set"),
@@ -929,6 +1066,10 @@ def _addition_entry(g: dict, results_root: Path, truth_root: Path, patterns: dic
         "spot_truth_source": (g.get("spot_truth") or {}).get("source"),
         "spot_truth_usable": usable,
         "spot_truth_reason": why,
+        "section_4_4": (None if truth_check is None else
+                        {k: truth_check.get(k) for k in ("agreement", "n_spots", "n_agree",
+                                                         "n_coloc_on_removed_fragment", "n_both_different")}),
+        "spot_truth_decision": decision,
         "notes": list(g.get("notes", [])),
     }
     if g.get("xlsx"):
@@ -939,7 +1080,8 @@ def _addition_entry(g: dict, results_root: Path, truth_root: Path, patterns: dic
 
 def build_manifest(split: dict, results_root, truth_root, name: str | None = None,
                    truth_files: dict | None = None, split_path=None, additions: dict | None = None,
-                   additions_results_root=None, additions_path=None) -> dict:
+                   additions_results_root=None, additions_path=None, truth_check=None,
+                   spot_truth_decisions=None) -> dict:
     """One entry per gonad of the split: role, condition, sex, stem, the .nd2 and .ims (exists, size
     matches the registered size), the pipeline outputs under <results_root>/<tag>/ and the truth files
     under <truth_root>, each with its path and an exists flag, plus ``outputs_complete`` (nuclei table,
@@ -950,7 +1092,12 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
     ``additions`` (a record of ``load_additions``) appends one entry per addition after the registered ones,
     which stay exactly as they are without it: pipeline outputs under <additions_results_root>/<tag>/ (default
     the results root), truth files under <truth_root>, ``addition`` true, and ``spot_truth_usable`` from
-    ``addition_spot_truth_usable`` (which reads the truth params JSON when it exists)."""
+    ``addition_spot_truth_usable`` (which reads the truth params JSON when it exists). ``truth_check`` is the
+    section 4.4 table of scripts/check_truth_assignment.py (a CSV path) and ``spot_truth_decisions`` the decisions
+    file of a changelog entry (a JSON path, ``load_spot_truth_decisions``); both are recorded with their sha256
+    under ``spot_truth_inputs``. Without them no ims-sourced addition is usable (entry 10 (c))."""
+    if (truth_check is not None or spot_truth_decisions is not None) and additions is None:
+        raise ValueError("truth_check and spot_truth_decisions apply to the additions only")
     patterns = dict(TRUTH_FILES, **(truth_files or {}))
     results_root, truth_root = Path(results_root), Path(truth_root)
     entries = []
@@ -985,7 +1132,15 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
                 {g["tag"]: g["role"] for g in split["gonads"]}):
             raise ValueError("the additions record was made against other roles than this split's")
         aroot = Path(additions_results_root) if additions_results_root else results_root
-        entries += [_addition_entry(g, aroot, truth_root, patterns) for g in additions["gonads"]]
+        checks = load_truth_check(truth_check) if truth_check is not None else {}
+        dec_doc = load_spot_truth_decisions(spot_truth_decisions) if spot_truth_decisions is not None else None
+        decisions = (dec_doc or {}).get("decisions", {})
+        add_tags = {g["tag"] for g in additions["gonads"]}
+        unknown = sorted(set(decisions) - add_tags)
+        if unknown:
+            raise ValueError(f"the decisions file names gonads that are not in the additions record: {unknown}")
+        entries += [_addition_entry(g, aroot, truth_root, patterns, checks.get(g["tag"]), decisions.get(g["tag"]))
+                    for g in additions["gonads"]]
     manifest = {
         "name": name or split.get("name", "benchmark"),
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1011,6 +1166,13 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
             "changelog_entry": additions.get("changelog_entry"),
             "results_root": posix(Path(additions_results_root) if additions_results_root else results_root),
             "tags": [g["tag"] for g in additions["gonads"]]}
+        manifest["spot_truth_inputs"] = {
+            "truth_check": ({"path": posix(truth_check), "sha256": file_sha256(truth_check)}
+                            if truth_check is not None else None),
+            "decisions": ({"path": posix(spot_truth_decisions), "sha256": file_sha256(spot_truth_decisions),
+                           "changelog_entry": dec_doc.get("changelog_entry")} if dec_doc is not None else None),
+            "rule": ("benchmark_split.addition_spot_truth_usable: the export's own checks, then the changelog "
+                     "decision, else section 4.4 at least 0.9935 (protocol changelog entries 9 (d) and 10 (c))")}
     return manifest
 
 

@@ -57,8 +57,11 @@ gonads are built inside the fixtures.
 - `test_rad51_additions.py`: the additions of protocol changelog entry 9 (`golden/rad51_additions.json`):
   the registered split file byte-identical and its roles pinned, the record validated with roles fixed in
   code (train only), its refusals, the role guard, the sealed names, the builder on stub files and the
-  manifest with additions keeping the registered entries identical. The check that the 12 recorded files
-  exist with their sizes skips when the 2026-01-05 copies are not on the machine.
+  manifest with additions keeping the registered entries identical; since protocol changelog entry 10 the
+  spot-truth rule (the export's own checks, the decisions file `golden/rad51_additions_decisions.json`, the
+  section 4.4 minimum), a decision removing an addition's fold, and the truth read guard. The check that the 12
+  recorded files exist with their sizes, and the decisions on the real truth files, skip when the 2026-01-05
+  copies and truth exports are not on the machine.
 - `test_gpu.py`: the real Cellpose-SAM 3D path. See the markers.
 - `test_benchmark.py`: the benchmark harness (`germquant.benchmark`, see `docs/BENCHMARK.md`) on
   synthetic label volumes and spot sets with known answers for every metric (a split, a merge, an

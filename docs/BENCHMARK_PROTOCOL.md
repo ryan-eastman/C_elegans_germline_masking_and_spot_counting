@@ -987,3 +987,159 @@ point.
    `germquant.validate.imaris_xlsx` (`read_export_objects`, `overall_totals`); `scripts/check_truth_assignment.py
    --additions`; `scripts/check_addition_images.py` ((d)(1) and (d)(2)); `scripts/bench_cache.py --additions`;
    `scripts/benchmark_manifest.py --additions --additions-results-root --manifest-file`.
+
+10. 2026-10-12. The results of the CPU truth steps of entry 9, the spot-truth decisions they call for, the code that
+   enforces them, and corrections and disclosures for entry 9. Written after those results and before any pipeline
+   output exists on the additions: step 2 of the plan in docs/BENCHMARK.md has not run, and no detector, trainer,
+   tuning run or bench cache exists for them. No test gonad was run, scored or opened for this entry: no `--final`
+   run was made, `final_runs.jsonl` does not exist, and none of the 387 records of `trials.jsonl` names a test gonad.
+   No test result was computed.
+   (a) The results (docs/BENCHMARK.md, "Entry 9", "Results of the CPU truth steps"; log
+   `germquant_golden/benchmarks/n2rad51_8666f07/entry9/cpu_truth.log`, 09:59 to 10:04 MDT at commit 026ea03). (d)(1)
+   and (d)(2) pass on all four. (d)(3): the stored frame fails on all four (545 agreement 0.883 to 0.898, 0.69 to
+   0.79 in the far third); ExtMin as stored with the voxel rounded to 0.108 passes with every spot (strict 0.9975 to
+   0.9987) and the mask channel at 1.0; no search ran (`frame_check.search` is null in all four truth params). The
+   stored frame would have put 13.4, 13.9, 13.5 and 10.9 percent of the spots one voxel off. Section 4.4
+   (`entry9/truth_assignment_check_additions.csv`, sha256
+   c9ba2408f9345c85441597f597454926054276fcb6bab39ecac99e086129379a): 0.9807, 0.9960, 0.9847 and 0.9899 for _001,
+   _002, _003 and the xlsx spots of 20260105_n2_hs_1_MALE_1. (e): V1, V2, V4, V5 and V6 pass; V3 fails on the volume
+   alone (the export rounds volumes to 0.001 um^3, up to 3.1e-5 relative against the 1e-5 of the criterion); V7 fails
+   (0.9899). The 2026-01-13 exports of the three males hold the .ims spots by ID (positions within 0.0012 um, one to
+   one) and give the same coloc count as the truth spots on every surface. For 20260105_n2_hs_1_MALE_1 that
+   comparison is with itself, since its truth spots are the export's; its export shares no spot ID with the saved
+   1,226,263-spot object, and all 6,512 of its spots lie within 0.005 um of a saved spot.
+   (b) The section 4.4 result. Entry 9 (d)(5) wrote the criterion as a range ("99.35 to 99.99 percent"); read
+   literally, an agreement of 100 percent would fail it. It is applied as a minimum of 99.35 percent, by
+   `benchmark_split.addition_spot_truth_usable` for every addition ((d)) and by V7 for the xlsx source. No addition
+   is near the top of the range, so this reading changes no result. The excess disagreement is the category "coloc on
+   an unclaimed value" (95, 30, 79 and 55 spots; 0 to 58 on the eight registered train and val gonads): 256 of the
+   259 spots lie in whole nuclei that are present in Masked 405 but were deleted from the Surfaces after masking (5,
+   2, 4 and 3 nuclei, 14 in all), and 3 in small fragments. No truth nucleus counts those spots. The lab's coloc join
+   counts 101 of them (38, 16, 26 and 21) toward a traced neighbour whose Intensity Max of Masked 405 reaches the
+   deleted nucleus's fill value (the coloc-max collision of docs/IMARIS_TRUTH.md; 5 of the 14 deleted nuclei); there
+   the geometric truth is the correct count. docs/BENCHMARK.md as committed in 26993dd said the lab's join counted
+   none of them; that is corrected. Like for like, with that category taken out of both the count and the total on
+   both sides, the registered train and val gonads range from 99.74 to 100.00 percent (99.78 to 99.96 for the six
+   without region growing). _001 (99.90), _002 (99.85) and the fourth gonad (99.83) lie inside that range and _003
+   (99.69) does not; _003 also has 2 spots that the two rules give to two different nuclei, which entry 4 (a) saw
+   only on the region-grown n2rad51_HS_male_002. No truth-export bug was found, and a reviewer's independent
+   recomputation of 4.4 (the centre voxel, then the 3 x 3 x 3 majority) gave the same counts.
+   (c) The decisions. Entry 9 declared the consequence before the results: a failed 4.4 check with no export bug is a
+   data defect that removes the gonad's spot truth ((d)(5)), and a gonad whose xlsx spots fail a criterion of (e) is
+   nucleus truth only. Applied as declared: n2rad51_20260105a_HS_male_002 keeps its spot truth;
+   n2rad51_20260105a_HS_male_001 and _003 lose theirs; n2rad51_20260105b_HS_male_001 is nucleus truth only. All four
+   stay train gonads with their nucleus truth; no role changes. The other reading, that spots in deleted nuclei are
+   no disagreement about a truth nucleus and the males keep their spot truth, is post hoc under rule 3.
+   docs/BENCHMARK.md recommended it for _001 and _003 on a basis that (b) shows to be wrong, and like for like it
+   would keep _001 and not _003. It is not adopted here. It is put to the project lead with decision 1, one male at a
+   time; if he accepts it for either, a later entry changes the decisions file, labelled post hoc. The 1e-5 volume
+   tolerance of V3 is an error in the criterion (finer than the export's precision), but correcting it would leave V7
+   failing, so the fourth gonad stays out under either reading and the criterion is not changed. The decisions are in
+   `tests/golden/rad51_additions_decisions.json`, committed with this entry (sha256
+   a9d34fbf7048df27981e8f0c8f42fa41848508d5fbe5d8954d4842778e481e3d as checked out on the workstation, with CRLF line
+   endings; 7cf0d3ccc26ec7cc3e218edae95a171878d3e08c2413c40a753f23ffe1d9aaea with LF). Consequences for entry 9 (g)
+   and (h): train gains one heat-shocked male with spot truth instead of three or four, and leave-one-gonad-out has
+   seven folds (the six registered and _002), up to nine if the project lead accepts the other reading for both
+   males. The steps of the revision that use spot truth (step 4 of the plan) wait for his answer, so that they run
+   once on the final set of folds; the pipeline runs and caches of steps 2 and 3 do not depend on it.
+   (d) Code that enforces the decisions. Entry 9's code did not apply the 4.4 criterion: the manifest called _001 and
+   _003 usable, and an export made without `--frame-check`, or no export at all, also counted as usable, so the
+   folds, the D3 replay and the net3d folds would have taken the two males whatever this entry decided.
+   `benchmark_split.addition_spot_truth_usable(g, truth_params, truth_check, decision)` now applies, in order: no
+   truth export, not usable; the export's own checks (region growing off and the record's status for the .ims source,
+   every criterion of (e) but V7 for the xlsx source, and the frame check of (d)(3) run and passed), which no
+   decision can override; the changelog decision; otherwise a 4.4 agreement of at least 99.35 percent.
+   `scripts/benchmark_manifest.py --truth-check CSV --spot-truth-decisions JSON` passes both into the manifest, which
+   records their path and sha256 (`spot_truth_inputs`); the folds, the D3 replay, the held-out runs and the net3d
+   folds follow the manifest. `manifest_entry9.json` was written again with both at 10:53 MDT (sha256
+   542ee30245f516ddb0f25201d252741c22443c757e53d6dab6abeddd0455f189): _002 usable and the other three excluded, its
+   twelve registered entries equal to those of `manifest.json` apart from the output flags; it is written again in
+   step 3 with the pipeline outputs.
+   (e) The test seal on the truth-reading paths. `germquant imaris-truth --frame-check` and `--spots-xlsx`, and
+   `scripts/check_truth_assignment.py --additions`, opened whatever they were given: only the record's readers, the
+   image checks and the xlsx readers refused sealed paths, and the frame baseline was guarded only because its script
+   called the role guard itself. They now refuse a test gonad and any sealed file before anything is opened
+   (`benchmark_split.guard_truth_read`, `REGISTERED_STEMS`): a registered project, known by its stem, passes the role
+   guard (train and val), and any other file must not be sealed. No test-gonad file had been opened by these paths.
+   The pre-flight of docs/FINAL_SCORING.md gains a frame check of each test gonad (the Intensity Center test only, no
+   metric; `--pre-flight` allows a test gonad there), since the test gonads' truth was exported with the stored frame
+   and never tested; it must choose the stored frame, otherwise that gonad's truth is exported again with the chosen
+   frame, through a changelog entry, before scoring.
+   (f) Fixed in the frame check, without effect on any result: the ExtMin search broke ties toward the smallest
+   shift, which can sit at the edge of the agreeing range and floor a spot on a voxel boundary into the wrong voxel;
+   ties now go to the higher strict agreement. The search did not run on any of the four additions. New tests cover
+   the export with a frame other than the stored one, each criterion of (e) failing on its own, the thirds and the
+   mask channel of the pass rule, the rounding of the voxel to four decimals, the coloc value taken from the
+   Intensity Max, the decisions and the 4.4 minimum in the manifest and the folds, and every refusal of (e).
+   (g) Corrections to entry 9, stated here because the changelog is append-only. (1) Reads that entry 9 did not
+   state. Before entry 9, the decision-1 calibration of 2026-10-11 20:27 to 20:45 MDT opened the four 2026-01-13
+   exports (local and NAS copies) and read their sheet row counts, Overall sheets, the first rows of Position, Area,
+   Diameter and Volume, every spot Diameter (constant 0.4 x 0.4 x 0.9 um) and the object ID ranges and counts. V2 and
+   V6 of entry 9 (e) were therefore declared with their outcome known. The inventory of 2026-10-11 read the .ims
+   headers of the six raw-only males of the record's `not_added` and listed their names and sizes, and nothing else
+   of them; the record's "Not copied, not opened" means not copied and not opened beyond that header probe. The inventory also rendered maximum
+   projections (`germquant_inventory/channel_check`) of 20260521_n2_hs_dapi_rad51_syp1_M,
+   20260521_ccw66_hs_dapi_rad51_syp1001_H, 20260529_ccw66_nohs_dapi_rad51_syp1001_HERM and 20251021_n2_nohs_HERM_2.
+   The 2026-05-21, 2026-05-29 and 2025-10-21 sessions are the ones a new test set of section 10 would come from; this
+   is recorded so that such a registration can weigh it. (2) The scope of the seal. The record's rule "no 2025-11-05
+   file and no aggregate of the 2025-11-05 per-nucleus tables is read" was broader than what was done: the frame
+   baseline of (d)(3) read the .ims and .nd2 of the eight registered train and val gonads, and the record builder
+   read their eight truth params JSONs for (d)(4), each behind the role guard. The rule as kept: no test-gonad file,
+   no 2025-11-05 heat-shock male export and no aggregate of the per-nucleus tables is read, and the eight registered
+   train and val projects are read only behind the role guard. The record stays as committed; the comment on
+   `SEALED_NAME_MARKERS`, the message of `refuse_sealed` and the docstring of `scripts/make_rad51_additions.py` now
+   say this, and that docstring now says that the xlsx exports were opened by the calibration of (1), not by the
+   script. The seal statement of the entry-9 build ("neither was any 20251105_* file") had the same fault. (3) Entry
+   9 (i)(2) says MALE_3.xls has no OLE container. That is an inference: its size is not a multiple of 512, unlike
+   every other .xls listed, which suggests it has no OLE container; the file was never opened. (4) (d)(4) left out
+   one recorded difference: the Surfaces class threshold of _001, _002 and _003 (17,300, 16,260 and 15,631) is above
+   the registered 5,190 to 13,846. It is a difference, not a defect. (5) The pass rule of (d)(3) was first run
+   without the float32 allowance on the eight registered train and val gonads (09:23 MDT). It then rejected
+   n2rad51_HS_herm_000 (first x third 0.993, 2 of 286 spots, each within 0.003 voxel of a boundary). The two-step
+   allowance was added before entry 9 was written, and the baseline was run again (09:24). On the additions it
+   amounts to at most 0.036 voxel (two float32 steps above x = 16,384 um, on part of _001's field; 0.018 voxel or
+   less elsewhere). `probe_ic.py`, an exploration with no saved output that tested the 0.108 voxel and an ExtMin
+   scan, was run before the commit; its docstring names one registered train gonad (n2rad51_noHS_herm_000), and no
+   log was kept. From now on the console log of every exploration run that reads benchmark or addition data is kept.
+   (6) Entry 9 (a) paraphrased the replies on the IR set. His words: "1k = 1,000 rads" and "1 hour recovery". (7)
+   Entry 9 (a) extends "2 whatever you recommend", an answer about "the 3 new full-truth males", to
+   20260105_n2_hs_1_MALE_1, and (c) adds a consequence he was not asked about: 2026-01-05 cannot be the new test set
+   of section 10. Both are put to him explicitly with decision 1, and his answers are recorded verbatim in a later
+   entry. (8) Entry 9 (i) says both "the revision runs once, now" and "after it it is another declared development
+   revision". Read: the revision runs now; a later content check or re-export is a further declared development
+   revision before test scoring. A re-export under option (2) of decision 1 updates `tests/golden/rad51_split.json`
+   and its pinned digests (`REGISTERED_SPLIT_SHA256`, `REGISTERED_SPLIT_SHA256_LF`, `tests/test_rad51_additions.py`)
+   in the same commit as its changelog line (section 4.1); the comment on those pins said "The file never changes"
+   and now says this.
+   (h) Labels. docs/FINAL_SCORING.md section 4.7, changed with entry 9, makes the all-fold leave-one-gonad-out report
+   of the entry-9 revision the reference for "fragile" under section 6.2, with the six registered folds reported next
+   to it. That changes how a test result is labelled, and entry 9 did not name it; it was chosen before any test
+   result. docs/BENCHMARK.md now heads its entry-9 section with the post hoc label of rule 3, and the pre-scoring
+   template of docs/FINAL_SCORING.md (section 4.2) labels the entry-9 net3d and tuned log post hoc. Everything in
+   this entry belongs to the entry-9 revision and is post hoc under rule 3. The decisions of (c) apply criteria
+   declared before the results; reading 4.4 as a minimum, the code of (d) to (f) and the corrections of (g) change no
+   result.
+   (i) Disclosed, as entries 6 (g) and 8 (f) did: reruns of the pipeline on the test gonads since entry 8. The
+   tranche-5 baseline of 8 (f) finished at 19:03 MDT on 2026-10-11 (`germquant_golden/t5_baseline.log`; every step
+   exited 0). The t5 GPU queue (`germquant_golden/run_t5_gpu_queue.ps1`, log `t5_gpu_queue.log`) ran from 19:06 MDT
+   on 2026-10-11 to 03:34 MDT on 2026-10-12: after three packaging checks on non-benchmark example images, the
+   pipeline at commit 0521abf on all 23 tags of `tests/golden/real_manifest.json`, the four test gonads among them
+   (into `germquant_candidates/0521abf`), then the tranche-5 gate (`scripts/t5_gate.py --require-golden`), which
+   compared every output only with the bc62476 outputs of the tranche-5 baseline (strict columns and IDs) and with
+   the pinned 8666f07 outputs (`scripts/regression_diff.py`): 23 images and 0 failing comparisons in each
+   (`germquant_golden/t5_gate_0521abf.md`). The gate of 09:43 MDT on 2026-10-12 (`t5_gate_docsfix.log`) ran ruff, the
+   unit tests, the scope check and the workstation pins, and no gonad. Running while this entry is written: since
+   10:17 MDT on 2026-10-12, the same pipeline from main at b90ebdf on all 23 tags, the test gonads among them (into
+   `germquant_candidates/b90ebdf`), then the same gate against the bc62476 and 8666f07 outputs
+   (`run_g4_main_b90ebdf.ps1`, log `g4_main_b90ebdf.log`). None of these runs opens a truth file or computes a metric
+   against truth. They test the code of the deployed pipeline, not a method under development, and nothing is tuned
+   or selected on them. The b90ebdf run and the gate planned for tonight are disclosed in the next entry, with their
+   end times and results.
+   (j) Code changed with this entry, each part tested on synthetic stand-ins: `germquant.validate.benchmark_split`
+   (`addition_spot_truth_usable`, `SECTION_4_4_MIN`, `load_truth_check`, `load_spot_truth_decisions`,
+   `build_manifest(truth_check=..., spot_truth_decisions=...)`, `REGISTERED_STEMS`, `registered_tag_of`,
+   `guard_truth_read`, and the comments and message of (g)(2) and (g)(8)); `germquant.validate.imaris_ims`
+   (`export_imaris_truth(allow_test=...)` and its read guard, the search tie-break); `germquant imaris-truth
+   --pre-flight`; `scripts/benchmark_manifest.py --truth-check --spot-truth-decisions`;
+   `scripts/check_truth_assignment.py` (the role guard with `--additions`); `scripts/make_rad51_additions.py` (its
+   docstring); `tests/golden/rad51_additions_decisions.json`.

@@ -227,7 +227,9 @@ the mask channel. Positions are float32, so a spot within two float32 steps of a
 the voxel across it (`agreement`; the plain comparison is `agreement_strict`). A frame passes with at least 99.5
 percent of the spots overall and, for the spot channel, in each third of the field in x and in y. The frames are
 tried in order: `stored` (the reader's rule), `rounded` (the voxel rounded to 4 decimals), then a search that moves
-ExtMin in 0.001 um steps inside the rounding interval of its text, for either voxel. The first that passes
+ExtMin in 0.001 um steps inside the rounding interval of its text, for either voxel (per axis to the highest
+agreement; ties go to the higher strict agreement, then to the smaller shift, so the search does not stop at the
+edge of the agreeing range where a spot sits on a voxel boundary). The first that passes
 converts every Imaris position of the export (spots and surfaces): `ext_min_xyz_um` and `voxel_imaris_xyz_um` in
 the params are then that frame (the stored ones are kept under `*_stored`), and `frame_check` lists every
 candidate with its agreement overall and per third. When nothing passes, the stored frame is kept,
@@ -237,6 +239,18 @@ store the Intensity Center cannot be tested (`frame_check.untestable`).
 On the eight registered train and val gonads the stored frame agrees for every spot on both channels; the strict
 comparison misses 0 to 330 spots per gonad (0 to 0.27 percent), every one within 0.003 voxel of a boundary
 (docs/BENCHMARK.md, "Entry 9").
+
+**The read guard** (protocol changelog entry 10). With `--frame-check` or `--spots-xlsx`, the .ims, the .nd2 and
+the xlsx are checked before anything is opened (`benchmark_split.guard_truth_read`): a file whose name is the stem
+of a registered gonad (`benchmark_split.REGISTERED_STEMS`) passes the role guard, so a train or val project is read
+and a test gonad's project is refused; any other file must not be sealed (`SEALED_NAME_MARKERS`: a 2025-11-05
+export, the lab's aggregate tables). `--pre-flight` allows a test gonad, for the frame check of each test gonad in
+the pre-flight of docs/FINAL_SCORING.md only (the Intensity Center test, no metric).
+
+**What the benchmark does with it.** The manifest marks an addition's spot truth usable only when the export ran
+the frame check and it chose a frame (an export without `--frame-check` is not usable), and then by the decision of
+a changelog entry or a section 4.4 agreement of at least 99.35 percent (`benchmark_split.addition_spot_truth_usable`;
+docs/BENCHMARK.md, "Entry 9").
 
 **The xlsx spot source** (`--spots-xlsx`; entry 9 (e)). For a project whose saved Spots object is not the curated
 set (20260105_n2_hs_1_MALE_1 holds 1,226,263 saved spots; its 2026-01-13 export the curated 6,512), the spots come
@@ -253,7 +267,9 @@ with the frame V5 chose; `imaris_mask_label` is the export's Intensity Max of th
 value); Quality and the class are empty (the export holds no per-spot class); `spots_object` is "Spots 1 (xlsx)".
 Reported, not a criterion: the fraction of the export's spots within 0.005 um of a spot of the saved object. The
 nuclei and the label image come from the .ims as always. A failed verification still writes the files, with
-`passed` false and a warning; the manifest then marks the spot truth unusable and the gonad stays nucleus truth.
+`passed` false and a warning; the manifest then marks the spot truth unusable and the gonad stays nucleus truth
+(a failure of V7 alone, the section 4.4 check, can be decided otherwise only by a changelog entry, as for a gonad
+whose spots come from the .ims; protocol changelog entry 10 (d)).
 
 The params also carry `creation_parameter_summary` (`benchmark_split.creation_parameter_summary`): the Spots and
 Surfaces settings entry 9 (d)(4) compares with sections 4.1 and 4.2 of the protocol.
@@ -274,4 +290,11 @@ found by the search; values that belong to no frame; the float32 boundary allowa
 `frame_check_on` on a synthetic project that stores the Intensity Center (the same truth as without it), an
 export without the statistic (untestable), and the xlsx spot source on a synthetic export written with openpyxl:
 all seven criteria pass, and a wrong sha256, a moved surface, a wrong radius and a spot outside the extent each
-fail their criterion.
+fail their criterion. Added with protocol changelog entry 10: V2 (one spot more expected), the volume part of V3
+(volumes 5e-5 off), V5 (Intensity Centers off by one) and V7 (the 99.35 percent minimum) each fail alone; the pass
+rule's thirds and mask channel; the voxel rounded to four decimals (0.10801 on a 0.108 um grid of 2720 voxels); an
+export whose stored x extent lost 0.03 um, converted with the frame the search chose (every spot in its true
+voxel, the nuclei in the chosen frame), with and without the float32 allowance (the search's tie-break); the coloc
+value taken from the export's Intensity Max of the mask channel, not its Intensity Center; and the refusals of the
+read guard (a test gonad's project or .nd2, a sealed xlsx or .nd2) before any file is opened, with `allow_test`
+letting a test-named project through.

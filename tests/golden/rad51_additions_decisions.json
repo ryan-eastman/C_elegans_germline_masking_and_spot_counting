@@ -1,0 +1,34 @@
+{
+ "name": "n2rad51_additions_spot_truth_decisions",
+ "changelog_entry": 10,
+ "decided_on": "2026-10-12",
+ "protocol": "docs/BENCHMARK_PROTOCOL.md",
+ "description": "The spot-truth decisions of protocol changelog entry 10 (c) for the additions of entry 9 (tests/golden/rad51_additions.json), read by scripts/benchmark_manifest.py --spot-truth-decisions (germquant.validate.benchmark_split.addition_spot_truth_usable). They apply the criteria entry 9 (d)(5) and (e) declared before the results, with the section 4.4 criterion read as a minimum of 99.35 percent (entry 10 (b)). A decision cannot make usable a gonad whose frame check failed or whose xlsx export failed a criterion other than V7. Roles do not change: all four stay train gonads, and a gonad without spot truth keeps its nucleus truth. A later changelog entry may replace a decision; it then names itself in 'entry'.",
+ "inputs": {
+  "truth_check": "C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/entry9/truth_assignment_check_additions.csv",
+  "truth_check_sha256": "c9ba2408f9345c85441597f597454926054276fcb6bab39ecac99e086129379a",
+  "truth_params": "C:/Users/ryane/germquant_golden/imaris_truth/<tag>/<stem>__imaris_params.json"
+ },
+ "decisions": {
+  "n2rad51_20260105a_HS_male_001": {
+   "usable": false,
+   "entry": 10,
+   "reason": "section 4.4 agreement 0.9807 (5087 of 5187 spots), below the minimum 0.9935 of entry 9 (d)(5); no truth-export bug found (95 spots carry the fill value of nuclei present in Masked 405 but deleted from the Surfaces); spot truth removed as entry 9 (d)(5) declares, nucleus truth kept; the post hoc reading that would keep it is put to the project lead (entry 10 (c))"
+  },
+  "n2rad51_20260105a_HS_male_002": {
+   "usable": true,
+   "entry": 10,
+   "reason": "section 4.4 agreement 0.9960 (11980 of 12028 spots), at least the minimum 0.9935 of entry 9 (d)(5); frame check passed with the rounded voxel (entry 9 (d)(3)); spot truth kept"
+  },
+  "n2rad51_20260105a_HS_male_003": {
+   "usable": false,
+   "entry": 10,
+   "reason": "section 4.4 agreement 0.9847 (6363 of 6462 spots), below the minimum 0.9935 of entry 9 (d)(5), and 0.9969 like for like, below the registered 0.9974, with 2 spots assigned to two different nuclei; no truth-export bug found; spot truth removed as entry 9 (d)(5) declares, nucleus truth kept; the post hoc reading is put to the project lead (entry 10 (c))"
+  },
+  "n2rad51_20260105b_HS_male_001": {
+   "usable": false,
+   "entry": 10,
+   "reason": "the xlsx spots failed V3 (surface volumes differ by up to 3.1e-5 relative; the export rounds volumes to 0.001 um^3) and V7 (section 4.4 agreement 0.9899) of entry 9 (e); nucleus truth only, as entry 9 (e) declares"
+  }
+ }
+}

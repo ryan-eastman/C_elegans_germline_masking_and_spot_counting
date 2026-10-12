@@ -226,6 +226,10 @@ def main(argv: list[str] | None = None) -> int:
                      help="with --spots-xlsx: the recorded Overall total of spots (V2)")
     pit.add_argument("--xlsx-expect-surfaces", type=int, default=None,
                      help="with --spots-xlsx: the recorded Overall total of surfaces (V2)")
+    pit.add_argument("--pre-flight", action="store_true",
+                     help="with --frame-check: allow a test gonad of the registered split (only in the pre-flight of "
+                          "docs/FINAL_SCORING.md, the Intensity Center test of each test gonad, no metric); without "
+                          "it a test gonad and any sealed file are refused before anything is opened")
 
     pe = sub.add_parser("export-training",
                         help="write paired 2D training slices (image/ and labels/ TIFs plus manifest.csv) from the "
@@ -1139,7 +1143,8 @@ def _imaris_truth(args) -> int:
         expect = {"sha256": args.xlsx_expect_sha256, "n_spots": args.xlsx_expect_spots,
                   "n_surfaces": args.xlsx_expect_surfaces}
     p = export_imaris_truth(args.ims, args.out, nd2=args.nd2, masks=not args.no_masks,
-                            frame_check_on=args.frame_check, spots_xlsx=args.spots_xlsx, xlsx_expect=expect)
+                            frame_check_on=args.frame_check, spots_xlsx=args.spots_xlsx, xlsx_expect=expect,
+                            allow_test=args.pre_flight)
     m = p["mask"]
     line = f"{p['stem']}: {p['n_spots']} spots, {p['n_surfaces']} surfaces"
     if m.get("labels_file"):

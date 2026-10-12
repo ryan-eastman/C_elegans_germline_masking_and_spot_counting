@@ -400,22 +400,25 @@ def test_cli_wiring(monkeypatch):
 
     called = {}
 
-    def fake_export(ims, out, *, nd2=None, masks=True, frame_check_on=False, spots_xlsx=None, xlsx_expect=None):
+    def fake_export(ims, out, *, nd2=None, masks=True, frame_check_on=False, spots_xlsx=None, xlsx_expect=None,
+                    allow_test=False):
         called.update(ims=ims, out=out, nd2=nd2, masks=masks)
-        called.update(frame=frame_check_on, xlsx=spots_xlsx, expect=xlsx_expect)
+        called.update(frame=frame_check_on, xlsx=spots_xlsx, expect=xlsx_expect, allow_test=allow_test)
         return {"stem": "x", "n_spots": 3, "n_surfaces": 2, "warnings": ["w1"],
                 "mask": {"labels_file": None, "reason_no_labels": "masks not requested (--no-masks)"}}
 
     monkeypatch.setattr(imaris_ims, "export_imaris_truth", fake_export)
     assert cli.main(["imaris-truth", "a.ims", "--out", "o", "--nd2", "a.nd2", "--no-masks"]) == 0
     assert called == {"ims": "a.ims", "out": "o", "nd2": "a.nd2", "masks": False, "frame": False, "xlsx": None,
-                      "expect": None}
+                      "expect": None, "allow_test": False}
     assert cli.main(["imaris-truth", "c.ims", "--out", "o3", "--frame-check", "--spots-xlsx", "c.xlsx",
                      "--xlsx-expect-sha256", "ab", "--xlsx-expect-spots", "5", "--xlsx-expect-surfaces", "4"]) == 0
-    assert called["frame"] is True and called["xlsx"] == "c.xlsx"
+    assert called["frame"] is True and called["xlsx"] == "c.xlsx" and called["allow_test"] is False
     assert called["expect"] == {"sha256": "ab", "n_spots": 5, "n_surfaces": 4}
     assert cli.main(["imaris-truth", "b.ims", "--out", "o2"]) == 0
     assert called["nd2"] is None and called["masks"] is True
+    assert cli.main(["imaris-truth", "d.ims", "--out", "o4", "--frame-check", "--pre-flight"]) == 0
+    assert called["frame"] is True and called["allow_test"] is True
 
 
 # ---------------------------------------------------------------- the frame check (entry 9 (d)(3))
@@ -468,6 +471,36 @@ def test_frame_check_rule():
     assert a["agreement"] == 1.0
 
 
+def test_frame_passes_needs_every_third_and_the_mask_channel():
+    """The pass rule of entry 9 (d)(3) on hand-built results: a third of x or of y below 99.5 percent fails even
+    when the overall agreement passes, and so does the mask channel below 99.5 percent."""
+    good = {"agreement": 0.999, "thirds_x": [1.0, 1.0, 1.0], "thirds_y": [1.0, 1.0, None]}
+    assert I.frame_passes({"channels": {"s": good}}, "s", None)
+    assert not I.frame_passes({"channels": {"s": {**good, "thirds_x": [1.0, 1.0, 0.9]}}}, "s", None)
+    assert not I.frame_passes({"channels": {"s": {**good, "thirds_y": [0.99, 1.0, 1.0]}}}, "s", None)
+    assert not I.frame_passes({"channels": {"s": {**good, "agreement": 0.99}}}, "s", None)
+    assert I.frame_passes({"channels": {"s": good, "m": {"agreement": 0.996}}}, "s", "m")
+    assert not I.frame_passes({"channels": {"s": good, "m": {"agreement": 0.99}}}, "s", "m")
+
+
+def test_the_rounded_voxel_is_rounded_to_four_decimals():
+    """The real case of the 2026-01-05 males: a 0.108 um grid of 2720 voxels whose stored extents give 0.10801 on
+    x. Rounded to 4 decimals the voxel is 0.108 and passes; rounded to 2 decimals (0.11) it would not."""
+    rng = np.random.default_rng(7)
+    shape_xyz = (2720, 20, 4)
+    v = np.array([0.108, 0.108, 0.2])
+    ext = np.array([2889.2, 4614.7, 2742.24])
+    img = rng.integers(0, 4000, size=shape_xyz[::-1]).astype(np.uint16)
+    n = 3000
+    idx = np.stack([rng.integers(0, s, n) for s in shape_xyz], axis=1)
+    pos = (ext + (idx + rng.uniform(0.02, 0.98, size=(n, 3))) * v).astype(np.float32).astype(float)
+    exp = {"spot_channel": img[idx[:, 2], idx[:, 1], idx[:, 0]].astype(float)}
+    geom = {"ext_min_xyz": ext, "voxel_xyz_um": np.array([0.10801, 0.108, 0.2]), "shape_xyz": np.array(shape_xyz)}
+    r = I.frame_check(pos, geom, exp, {"spot_channel": img}, mask_key=None)
+    assert not r["candidates"][0]["passes"]
+    assert r["chosen"]["name"] == "rounded" and r["chosen"]["voxel_xyz_um"] == pytest.approx([0.108, 0.108, 0.2])
+
+
 def test_export_with_the_frame_check(tmp_path):
     ims = tmp_path / "f.ims"
     build_ims(ims, ic_stats=True)
@@ -490,10 +523,80 @@ def test_export_with_the_frame_check(tmp_path):
     assert q["frame_check"]["chosen"] is None and "untestable" in q["frame_check"]
 
 
+def _shifted_export(tmp_path, monkeypatch, ulps):
+    """The synthetic project with its stored x extent 0.03 um low (as a six-significant-digit text above 10000 um
+    can be); the positions and Intensity Center statistics stay those of the true frame."""
+    ims = tmp_path / "d.ims"
+    build_ims(ims, ic_stats=True)
+    with h5py.File(ims, "r+") as f:
+        img = f["DataSetInfo/Image"]
+        img.attrs["ExtMin0"] = _s(f"{EXT_MIN[0] - 0.03:g}")
+        img.attrs["ExtMax0"] = _s(f"{EXT_MAX[0] - 0.03:g}")
+    monkeypatch.setattr(I, "text_rounding_halfwidth", lambda v, significant=6: 0.05)
+    monkeypatch.setattr(I, "FLOAT32_ULPS", ulps)
+    return I.export_imaris_truth(ims, tmp_path / "o", nd2_voxel_xyz_um=OUR_VOX, frame_check_on=True)
+
+
+def _check_chosen_frame(tmp_path, p):
+    chosen = p["frame_check"]["chosen"]
+    assert chosen["name"] != "stored"
+    assert p["ext_min_xyz_um"] == pytest.approx(chosen["ext_min_xyz"])
+    assert p["ext_min_xyz_um_stored"][0] == pytest.approx(EXT_MIN[0] - 0.03)
+    sp = pd.read_csv(I.truth_paths(tmp_path / "o", "d")["spots"]).set_index("spot_id")
+    for sid, (v, *_rest) in SPOTS.items():
+        assert tuple(int(sp.loc[sid, c]) for c in ("xi", "yi", "zi")) == v, sid
+        assert sp.loc[sid, "x_um"] == pytest.approx(v[0] * OUR_VOX[0])
+    nuc = pd.read_csv(I.truth_paths(tmp_path / "o", "d")["nuclei"])
+    ext = np.asarray(chosen["ext_min_xyz"], float)
+    vox = np.asarray(chosen["voxel_xyz_um"], float)
+    idx = np.floor((nuc[["imaris_x_um", "imaris_y_um", "imaris_z_um"]].to_numpy(float) - ext) / vox).astype(int)
+    assert (nuc[["xi", "yi", "zi"]].to_numpy() == idx).all()
+
+
+def test_export_applies_a_non_stored_frame(tmp_path, monkeypatch):
+    """The path that produced the four real truth tables of entry 9: every spot and surface is converted with the
+    frame the check chose, not the stored one (no float32 allowance, so the search's choice is unambiguous)."""
+    _check_chosen_frame(tmp_path, _shifted_export(tmp_path, monkeypatch, 0))
+
+
+def test_search_does_not_stop_on_a_voxel_boundary(tmp_path, monkeypatch):
+    """With the float32 allowance, ties on the tolerant agreement go to the higher strict agreement: the edge of
+    the agreeing plateau would accept a spot on a voxel boundary and floor it into the wrong voxel."""
+    _check_chosen_frame(tmp_path, _shifted_export(tmp_path, monkeypatch, 2))
+
+
+def test_the_frame_check_and_xlsx_source_refuse_test_and_sealed_files(tmp_path):
+    """Protocol changelog entry 10: with the frame check or the xlsx source, a test gonad's project and any sealed
+    file are refused before anything is opened (the files need not exist, and no output folder is made); the
+    pre-flight may open a test gonad's project with allow_test."""
+    from germquant.benchmark.detector import TestSetGuardError
+
+    out = tmp_path / "never"
+    with pytest.raises(TestSetGuardError):
+        I.export_imaris_truth(tmp_path / "20251105_n2_hs_MALE _001.ims", out, frame_check_on=True)
+    with pytest.raises(TestSetGuardError):
+        I.export_imaris_truth(tmp_path / "x.ims", out, nd2=tmp_path / "20251105_N2_nohs_HERM _002.nd2",
+                              frame_check_on=True)
+    with pytest.raises(PermissionError, match="sealed"):
+        I.export_imaris_truth(tmp_path / "x.ims", out, spots_xlsx=tmp_path / "20251105_n2_hs_MALE_1.xlsx")
+    with pytest.raises(PermissionError, match="sealed"):
+        I.export_imaris_truth(tmp_path / "x.ims", out, nd2=tmp_path / "compiled_dataEP_flat.nd2", frame_check_on=True)
+    assert not out.exists()
+    test_like = tmp_path / "20251105_n2_hs_MALE _001.ims"
+    build_ims(test_like, ic_stats=True)
+    p = I.export_imaris_truth(test_like, tmp_path / "pre", nd2_voxel_xyz_um=OUR_VOX, frame_check_on=True,
+                              allow_test=True)
+    assert p["frame_check"]["chosen"]["name"] == "stored"
+
+
 # ------------------------------------------------------------- the xlsx spot source (entry 9 (e))
-def _write_export(path, ims_path, *, drop_spot=None, move_surface=0.0, radius=0.2, extra_spot=None):
+def _write_export(path, ims_path, *, drop_spot=None, move_surface=0.0, radius=0.2, extra_spot=None,
+                  imax_override=None):
     """A synthetic Imaris statistics export of the synthetic .ims: Overall, Position, Diameter, the Intensity
-    Center of channels 1 and 2, the Intensity Max of channel 2 and Volume, in the export's layout."""
+    Center of channels 1 and 2, the Intensity Max of channel 2 and Volume, in the export's layout.
+    ``imax_override`` ({spot id: value}) gives a spot an Intensity Max of channel 2 other than its Intensity
+    Center (a neighbour's fill value reached by the spot's volume)."""
+    imax_override = dict(imax_override or {})
     import h5py
     import openpyxl
 
@@ -543,7 +646,8 @@ def _write_export(path, ims_path, *, drop_spot=None, move_surface=0.0, radius=0.
     mx_h = ["Intensity Max", "Unit", "Category", "Channel", "Image", "Surpass Object", "Time", "ID"]
     sheet("Intensity Max Ch=2 Img=1", mx_h, [(m, "", "Surface", 2, "Image 1", "Surfaces 1", 1, sid)
                                              for sid, _x, _y, _z, _vol, m in surf]
-          + [(at(mask, v), "", "Spot", 2, "Image 1", "Spots 1", 1, sid) for sid, _x, _y, _z, v in spots])
+          + [(imax_override.get(sid, at(mask, v)), "", "Spot", 2, "Image 1", "Spots 1", 1, sid)
+             for sid, _x, _y, _z, v in spots])
     sheet("Volume", ["Volume", "Unit", "Category", "Surpass Object", "Time", "ID"],
           [(vol, "um^3", "Surface", "Surfaces 1", 1, sid) for sid, _x, _y, _z, vol, _m in surf])
     wb.save(path)
@@ -596,6 +700,59 @@ def test_xlsx_spot_source_and_its_verification(tmp_path, monkeypatch):
     ver = out["spots_source"]["verification"]
     assert ver["V4_inside_extent"]["n_outside"] == 1 and ver["passed"] is False
     assert any("nucleus truth only" in w for w in out["warnings"])
+    # the coloc value is the export's Intensity Max of the mask channel, not its Intensity Center: spot 14 (outside
+    # every nucleus, Intensity Center 0) reaches the fill value 7 of a neighbour
+    p = run("imax", imax_override={14: 7})
+    by = pd.read_csv(I.truth_paths(tmp_path / "imax", "h")["spots"]).set_index("spot_id")
+    assert int(by.loc[14, "imaris_mask_label"]) == 7 and int(by.loc[11, "imaris_mask_label"]) == 7
+    assert p["spots_source"]["verification"]["V5_intensity_center"]["passes"] is True
+
+
+def test_each_xlsx_criterion_fails_on_its_own(tmp_path, monkeypatch):
+    """V2, the volume part of V3, V5 and V7 (V3 volume and V7 decided 20260105_n2_hs_1_MALE_1) each fail alone on
+    a defect of their own."""
+    import hashlib
+
+    from germquant.benchmark import spots as bsp
+    from germquant.validate import imaris_xlsx as X
+
+    pytest.importorskip("openpyxl")
+    monkeypatch.setattr(bsp, "TRUTH_MASK_MIN_VOXELS", 1)
+    ims = tmp_path / "e.ims"
+    build_ims(ims, ic_stats=True)
+    x = tmp_path / "e.xlsx"
+    _write_export(x, ims)
+    sha = hashlib.sha256(x.read_bytes()).hexdigest()
+    real = X.read_export_objects
+
+    def run(name, mutate=None, expect=None, vmin=0.75):
+        monkeypatch.setattr(I, "TRUTH_ASSIGNMENT_MIN", vmin)
+
+        def fake(*a, **k):
+            xl = real(*a, **k)
+            if mutate:
+                mutate(xl)
+            return xl
+
+        monkeypatch.setattr(X, "read_export_objects", fake)
+        e = {"sha256": sha, "n_spots": len(SPOTS), "n_surfaces": len(SURFACE_IDS), **(expect or {})}
+        v = I.export_imaris_truth(ims, tmp_path / name, nd2_voxel_xyz_um=OUR_VOX, spots_xlsx=x,
+                                  xlsx_expect=e)["spots_source"]["verification"]
+        return {k for k, r in v.items() if k.startswith("V") and not r["passes"]}, v["passed"]
+
+    assert run("ok") == (set(), True)
+    assert run("v2", expect={"n_spots": len(SPOTS) + 1}) == ({"V2_totals"}, False)
+
+    def vol(xl):
+        xl["surfaces"]["volume"] = xl["surfaces"]["volume"] * (1 + 5e-5)
+
+    assert run("v3", mutate=vol) == ({"V3_surfaces"}, False)
+
+    def ic(xl):
+        xl["spots"]["ic_spot"] = xl["spots"]["ic_spot"] + 1
+
+    assert run("v5", mutate=ic) == ({"V5_intensity_center"}, False)
+    assert run("v7", vmin=0.9935) == ({"V7_truth_assignment"}, False)
 
 
 def test_addition_image_check_compares_planes(tmp_path):

@@ -55,6 +55,18 @@ spot metric. The options are now: (1) score after the entry-9 revision (recommen
 heat-shocked male training signal), or (2) wait for an Imaris re-export. No test gonad is scored until he confirms
 one.
 
+Status (2026-10-12, after the CPU truth steps of entry 9; protocol changelog entry 10): under the section 4.4
+criterion entry 9 declared, one addition keeps spot truth (n2rad51_20260105a_HS_male_002); three if the project
+lead accepts the post hoc reading for n2rad51_20260105a_HS_male_001 and _003 (like for like, _001 lies in the
+registered range and _003 does not); 20260105_n2_hs_1_MALE_1 is nucleus truth only. "Accepted" above is entry 9
+(a)'s reading of "2 whatever you recommend", not his words. The export check opened no 20251105 file; for
+calibration it opened about 180 non-benchmark exports and processed tables and one lab R script. Under option (1)
+the heat-shocked male training signal is therefore one male unless he keeps more. Put to him with this decision,
+each answer to be recorded verbatim in a changelog entry: (a) for each of n2rad51_20260105a_HS_male_001 and _003,
+keep its spot truth under the post hoc reading of entry 10 (c), or not; (b) whether 20260105_n2_hs_1_MALE_1 may
+enter if a later check verifies it; (c) that 2026-01-05 then cannot serve as the session of a future test set
+(protocol section 10). The steps of the entry-9 revision that use spot truth wait for (a).
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not
@@ -248,10 +260,17 @@ python -c "from germquant.validate import benchmark_split as bs; print(bs.check_
 # spotmax_retuned_grid.json, the grid selection of decision 2, is 919C4AB5... (protocol changelog entry 8)
 Get-FileHash -Algorithm SHA256 C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/*.json
 # protocol section 4.4 on the test gonads: the geometric truth assignment against the lab's mask channel;
-# agreement should match the train and val gonads (99.35 to 99.99 percent); there the differences were
-# boundary spots, spots whose mask-channel value is a removed mask fragment (the larger group), and 3 spots
-# that one region-growing gonad assigns to different nuclei
+# agreement should match the train and val gonads (99.35 to 99.99 percent, read as a minimum of 99.35 by
+# protocol changelog entry 10 (b)); there the differences were boundary spots, spots whose mask-channel value is a
+# removed mask fragment (the larger group), and 3 spots that one region-growing gonad assigns to different nuclei
 python scripts/check_truth_assignment.py --tags n2rad51_HS_herm_002 n2rad51_HS_male_001 n2rad51_noHS_herm_002 n2rad51_noHS_male_002
+# the truth frame of each test gonad (protocol changelog entry 10 (e)): Imaris's per-spot Intensity Center test
+# of entry 9 (d)(3) only, no metric; the export goes to a scratch folder and is not used. Every line must print
+# "stored" (the frame the test gonads' truth was exported with); any other answer stops the scoring until that
+# gonad's truth is exported again with the chosen frame, through a changelog entry
+$S = Get-Content tests/golden/rad51_split.json -Raw | ConvertFrom-Json
+foreach ($g in ($S.gonads | Where-Object { $_.role -eq "test" })) { germquant imaris-truth $g.ims.path --nd2 $g.nd2.path --frame-check --pre-flight --no-masks --out "$env:TEMP/preflight_frame/$($g.tag)" }
+python -c "import glob, json; [print(p, (json.load(open(p))['frame_check'].get('chosen') or {}).get('name')) for p in sorted(glob.glob(r'$env:TEMP/preflight_frame/*/*__imaris_params.json'))]"
 # no test scoring has happened
 Test-Path C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_runs.jsonl   # must be False
 ```
@@ -271,10 +290,12 @@ Append to section 11 of docs/BENCHMARK_PROTOCOL.md (fill the brackets), then com
 > on val under the primary metric (truth-mask CCC 0.822 against 0.556 for the deployed recipe, a comparison in
 > sample; decision 2, entry 8); if W1 fails, SpotMAX stays deployed with [the 8666f07 recipe or the grid selection]
 > (section 10); tuned log (backend log,
-> params file sha256 [3a65e844..., or that of log_tuned_entry9.json]); net3d (backend net3d, model.pt sha256
-> [sha256], the frozen recipe of net3d_20261010 retrained on the [ten] train and val gonads with usable spot truth
-> ([six] registered, [four] additions of entry 9)). Decisions 1 to 5 of docs/FINAL_SCORING.md: [one line each].
-> No test result has been computed at this point.
+> params file sha256 [3a65e844..., or that of log_tuned_entry9.json; post hoc, protocol changelog entry 9, when
+> log_tuned_entry9.json replaces log_tuned.json]); net3d (backend net3d, model.pt sha256
+> [sha256], the frozen recipe of net3d_20261010 retrained on the [seven to nine] train and val gonads with usable
+> spot truth ([six] registered, [one to three] additions of entry 9, as the decisions file of entry 10 and any later
+> entry keeps them); post hoc, protocol changelog entry 9). Decisions 1 to 5 of docs/FINAL_SCORING.md: [one line
+> each]. No test result has been computed at this point.
 
 ### 4.3 SpotMAX deployed
 

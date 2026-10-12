@@ -68,3 +68,21 @@ def test_xlsx_cross_check_counts_per_surface_and_matches_spots():
     r = mod.xlsx_cross_check(lab, spots, nuclei, xl, min_voxels=10)
     assert r["n_spot_ids_only_xlsx"] == 1 and r["one_to_one_within_tol"] is False
     assert r["n_xlsx_spots_within_tol_of_a_truth_spot"] == 3 and r["n_surfaces_coloc_equal"] == 1
+
+
+def test_the_additions_checks_refuse_a_test_gonad(tmp_path):
+    """Protocol changelog entry 10: with --additions a test gonad is refused before any truth file is read (its
+    truth folder does not even exist here); the test gonads are checked only in the pre-flight, without
+    --additions."""
+    import json
+
+    from germquant.benchmark.detector import TestSetGuardError
+
+    mod = _load()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"gonads": [
+        {"tag": "n2rad51_HS_male_001", "split": "test", "role": "test", "results_dir": str(tmp_path / "r"),
+         "truth_dir": str(tmp_path / "missing"), "stem": "20251105_n2_hs_MALE _001"}]}), encoding="utf-8")
+    with pytest.raises(TestSetGuardError):
+        mod.main(["--manifest", str(manifest), "--tags", "n2rad51_HS_male_001",
+                  "--additions", str(ROOT / "tests" / "golden" / "rad51_additions.json")])
