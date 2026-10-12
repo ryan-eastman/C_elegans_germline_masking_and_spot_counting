@@ -9,8 +9,8 @@ Packs are data. Importing this package, listing packs and the shallow pack_statu
 yaml.safe_load and never import a backend, torch, Cellpose, SpotMAX or CuPy (gate G6), so a GUI can refresh a
 pack card cheaply and the cuBLAS load order on the RTX 5090 (torch before CuPy) is never disturbed. Code that
 must stay light imports this package, not germquant.api (which imports the pipeline and with it torch). The
-torch-free command entry is ``python -m germquant.packs`` (list, show, check, fetch-models, install, verify,
-build-sums, lint, --version). No code from a pack folder ever runs.
+torch-free command entry is ``python -m germquant.packs`` (list, show, check, fetch-models, fetch-example,
+install, verify, build-sums, lint, --version). No code from a pack folder ever runs.
 """
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ from .discovery import (
     use_project,
     user_packs_dir,
 )
+from .examples import ExampleError, check_expect, examples_dir, fetch_example, find_example, list_examples
 from .format import (
     MANIFEST,
     SUMS_FILE,
@@ -54,11 +55,12 @@ from .status import engine_files_problems, pack_status
 from .validate import tunable_problems, validate_pack
 
 __all__ = [
-    "MANIFEST", "SUMS_FILE", "Discovery", "ModelPinError", "ModelSpec", "Pack", "PackFormatError",
+    "MANIFEST", "SUMS_FILE", "Discovery", "ExampleError", "ModelPinError", "ModelSpec", "Pack", "PackFormatError",
     "PackInstallError", "Recipe", "check_model_pin", "resolve_model_name",
-    "blobs_dir", "build_sums", "build_sums_text", "check_blob", "discover", "engine_compatible",
-    "engine_files_problems", "engine_root_for", "env_pack_dirs", "fetch_models", "fetch_pack_models",
-    "find_model_spec", "find_pack", "install_pack", "install_root", "lint_pack", "list_packs", "load_pack",
+    "blobs_dir", "build_sums", "build_sums_text", "check_blob", "check_expect", "discover", "engine_compatible",
+    "engine_files_problems", "engine_root_for", "env_pack_dirs", "examples_dir", "fetch_example", "fetch_models",
+    "fetch_pack_models", "find_example", "find_model_spec", "find_pack", "install_pack", "install_root",
+    "lint_pack", "list_examples", "list_packs", "load_pack",
     "load_pack_folder", "model_location", "no_builtin_root_message", "pack_record", "pack_roots", "pack_status",
     "parse_ref", "recipe_profile_path", "refresh", "resolve_pack_model", "resolve_recipe", "sums_sha256",
     "tunable_problems", "use_project", "user_packs_dir", "validate_manifest", "validate_pack", "vendor",

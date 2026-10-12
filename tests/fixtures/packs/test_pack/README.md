@@ -7,7 +7,8 @@ A tiny outside pack for the germquant engine and plugin tests. It is not for rea
 - Checking the pack machinery end to end in CI: discovery through `$GERMQUANT_PACKS`, `germquant pack check`,
   `fetch-models`, `run --pack`, `batch --pack`, the recipe golden, lint and install.
 - A stand-in for the outside packs: it extends its own frozen base (`config/profiles/pack_base.yaml`), switches
-  every worm stage off, uses the neutral filename regex `(?!x)x` and the outside QC settings.
+  every worm stage off, uses the neutral filename regex `(?!x)x` and the outside QC settings, and its recipes
+  set `segmentation.nuclei.require_channel: true`, as every outside recipe does.
 
 ## Recipes
 

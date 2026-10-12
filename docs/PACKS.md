@@ -9,12 +9,22 @@ Packs are new in germquant 0.2. The design is docs/DESIGN_system_packs.md (secti
 
 ## The packs that ship with the engine
 
-| pack | what for | recipes |
-|---|---|---|
-| celegans_germline | the C. elegans germline recipes, exactly as the frozen engine config files define them | default, rad51_foci, segmentation_only, n2_sc, ccw77_partition, live_syp2 |
+| pack | version | what for | recipes |
+|---|---|---|---|
+| celegans_germline | 0.1.0 | the C. elegans germline recipes, exactly as the frozen engine config files define them | default, rad51_foci, segmentation_only, n2_sc, ccw77_partition, live_syp2 |
+| cultured_cells | 0.1.0, provisional | nuclei of cultured cells on the DNA stain, gamma-H2AX and 53BP1 foci per nucleus in 3D | nuclei_foci (default, projected), nuclei_foci_3d |
+| budding_yeast | 0.1.0, provisional | whole yeast cells on one transmitted-light plane, spots per cell in 3D | cells_spots (default, projected) |
 
-The outside packs (cultured cells, budding yeast) arrive in a later package. The test pack used by the test
-suite lives in tests/fixtures/packs/test_pack.
+The two outside packs are provisional: their settings are starting values (docs/DESIGN_system_packs.md, section
+3.12), not yet tuned, and no recipe is validated (`status: provisional`, `validated: false`); each card
+(packs/<id>/README.md) says what that means and what is provisional. Their recipes extend the pack's own frozen
+`pack_base.yaml`, never config/config.yaml, so a change to the engine's config files never moves their config
+hashes. The test pack used by the test suite lives in tests/fixtures/packs/test_pack.
+
+The spot threshold is not on the same scale in every recipe. The yeast recipe sets `spots.sharpen`, as the
+SpotMAX authors did, so its `effect_size` column and `spots.effect_size_min` (2.5) are on the sharpened
+(difference of Gaussians) scale; the cultured cells recipes do not sharpen, so theirs (3.0) are on SpotMAX's
+usual, unsharpened scale. A threshold never carries over from one scale to the other.
 
 ## Using a pack
 
@@ -69,9 +79,91 @@ From Python:
 
 A program that must stay light (a GUI refreshing a pack card) imports `germquant.packs` instead of
 `germquant.api`: listing and checking packs never loads torch, Cellpose, SpotMAX or CuPy. The command
-`python -m germquant.packs list --json` (also `check`, `fetch-models`, `install`, `verify`, `lint`) is the
-torch-free entry the napari plugin uses; `python -m germquant.packs --version` prints the engine version, git
-sha and python.
+`python -m germquant.packs list --json` (also `check`, `fetch-models`, `fetch-example`, `install`, `verify`,
+`lint`) is the torch-free entry the napari plugin uses; `python -m germquant.packs --version` prints the engine
+version, git sha and python.
+
+## Example images
+
+Every pack ships a tiny synthetic example (`example/<name>.ome.tif`, under 2 MB), which its recipe goldens run
+on. A pack may also name a real public image, which is never copied into the pack: `germquant pack show ID`
+lists the examples, and
+
+    germquant pack fetch-example budding_yeast
+    germquant pack fetch-example cultured_cells --out D:\germquant_examples
+
+fetches one (the first real example, or the one `--example NAME` names), checks every downloaded file against the
+size and sha256 the pack records, stacks the files into one OME-TIFF with the channel names and voxel size the
+pack declares, and checks the result's pixels_sha256 (a digest of the pixels alone, because every OME-TIFF header
+carries a fresh UUID). It prints the image path and the command to run it with the pack, and writes
+`<example>.json` beside the image: where every byte came from, the data licence and the address of its text, what
+was changed (which member or files, the crop, the channel names, the voxel size, the re-encoding as an OME-TIFF)
+and the attribution to cite. Share that record with the image: CC BY 4.0 asks a shared copy to name the licence
+and say what was changed. A file that fails a check is discarded; running the command again downloads nothing.
+It also checks the assembled image's channel names and voxel size against the pack: when a later pack version
+corrects them for the same pixels, the image is written again from its pixels (nothing is downloaded) and the
+record is rewritten, as it is whenever it no longer matches the pack. The image goes to
+`<out>/<pack>/<example>/`, where `--out` defaults to `$GERMQUANT_EXAMPLES`, else
+`%LOCALAPPDATA%\germquant\examples` on Windows, `~/Library/Application Support/germquant/examples` on a Mac or
+`~/.local/share/germquant/examples` on Linux. A folder inside a pack or a pack root (the engine's packs/ folder,
+$GERMQUANT_PACKS, the per-user packs folder) is refused, because git tracks every file under packs/ and public
+images are never redistributed. An unusable pack (one whose pack.yaml has problems) fetches nothing. From
+Python: `germquant.packs.fetch_example(pack)` (torch-free) or `api.fetch_example(pack)`.
+
+Some public datasets ship as one zip of many gigabytes. An example can name a single member of such a zip: the
+fetcher then reads only the end of the archive, its table of contents and that member, with HTTP range requests
+(`germquant.datafetch.fetch_zip_member`; ZIP64 archives included). It reads members stored without compression,
+deflated or bzip2-compressed; a member compressed another way (deflate64, LZMA, zstd) or encrypted is refused with
+a message naming the method, and so is a server that does not answer range requests. The archive is not trusted
+to describe itself: a pinned archive size that the server contradicts is named (the deposit changed, so the
+example must be pinned again), a table of contents above 64 MB is refused, a member whose recorded sizes cannot be
+right is refused before any of its data is read, and a compressed member is inflated only up to the size the
+archive records for it. No outside example declares a fallback: when a member cannot be read this way, download
+the whole archive from its deposit and stack the member with `germquant assemble` (next section). The DeepFoci
+zip stores every member without compression, so the fallback the design kept for it (one S-BIAD1494 stack, open
+question O9) was not needed.
+
+| pack | example | data | licence |
+|---|---|---|---|
+| budding_yeast | sbiad3750_sut509_p1 | BioImage Archive S-BIAD3750, SUT509 smFISH, Position_1: two 14.7 MB TIFFs (Bright, Cy3) | CC0 |
+| cultured_cells | deepfoci_valid_258 | DeepFoci, Zenodo 4067741: one member (valid/data_258.tif, 145 MB) of the 10.2 GB validation zip, cropped to its two nuclei | CC BY 4.0 |
+
+Each real example also gives the ranges a run of its recipe should land in (`expect` in pack.yaml: the number of
+objects and the spots per object), and `scripts/make_pack_examples.py --run-real` fetches, runs and compares.
+
+## Images with one file per channel
+
+germquant reads one image per run and binds channels to roles by name. When each channel sits in its own TIFF (as
+Cell-ACDC and many microscopes keep them), stack them first:
+
+    germquant assemble --channels S_Bright.tif S_Cy3.tif --names Bright Cy3 --spacing 0.24 0.072 0.072 --out S.ome.tif
+
+`--spacing` is the z step and the y and x pixel size in micrometres (a z-stack file often records no z step).
+`--axes` declares how each input is laid out, outermost axis first, from the letters C, Z, Y and X: `ZYX` (the
+default) is a z-stack of grey pages or a single plane, `ZCYX` a stack whose channels alternate page by page, and
+`ZYXC` a stack whose pages hold the channels as samples (an RGB-like page per plane). Nothing is guessed: a file
+that does not fit the declared axes is refused with the reason. A file whose own ImageJ or OME metadata records
+both its channels and its planes must be declared in that order: `--axes CZYX` for a ZCYX hyperstack (or a
+declaration without its channels or planes) is refused, because it would mix the channels up without a sign;
+`--force` reads the pages as declared anyway. `--crop-z`, `--crop-y` and `--crop-x START STOP` keep a part of the
+image. `--out` must be a new file, never one of the inputs. The command prints the pixels_sha256 of what it wrote.
+
+## cpsam and cpsam_v2@0f1cc3f7
+
+The outside packs name the Cellpose-SAM weights by digest, `cpsam_v2@0f1cc3f7`, while the generic profile names
+the bare `cpsam`, which Cellpose 4.2 maps to its default weights, cpsam_v2 (docs/DESIGN_system_packs.md, section
+15a). The pack name loads the verified file through `pretrained_model=`, the bare name loads Cellpose's default;
+Cellpose builds the network from the weights, not the file name, so the two should give the same masks.
+`scripts/compare_cpsam_names.py` checks it on the plane the yeast recipe segments (the sharpest transmitted plane
+of the budding_yeast real example). It re-hashes the pack's blob against its pin, records whether the blob is the
+same file as Cellpose's own copy (the file the bare name loads), and stops with exit code 2 when the device asked
+for cannot run, so a CUDA check never passes on the CPU. On the lab workstation, `germquant pack fetch-models`
+hard-linked the blob to ~/.cellpose/models/cpsam_v2, so both names load one file there, through two code paths
+(the default load and `pretrained_model=`); the check is about those paths, not about two copies of the weights.
+On 2026-10-11, on the CPU, the two gave identical masks: 0 of 490,000 pixels differ, 11 cells each (record
+cpsam_names_cpu.json, written by the committed script). The same check on CUDA (`--device cuda`, run through the
+GPU lock; its record must say "device": "cuda" and "cuda_available": true) is the acceptance check for the RTX 5090
+and had not run when this was written.
 
 ## Rows of the nuclei table
 
@@ -185,7 +277,21 @@ The layout (docs/DESIGN_system_packs.md, section 3.2):
       validation/<recipe>.json          validation records, written only by the benchmark tool
 
 tests/fixtures/packs/test_pack is a complete small example; scripts/make_test_pack.py shows how its generated
-files were made, and `germquant.packs.authoring` writes a frozen base from a profile. Recipes must sit at
+files were made, and scripts/make_pack_examples.py does the same for the two outside packs (their frozen bases,
+their synthetic examples, and `--draft-real`, which fetches a real example whose digests are not pinned yet and
+prints the sizes, sha256 and pixels_sha256 to write into pack.yaml). `germquant.packs.authoring` writes a frozen
+base from a profile, once: `make_pack_examples.py --base` leaves an existing base alone when the regenerated text
+is the same and refuses, with the diff, when it differs (after a change to generic.yaml or config.yaml), because
+a new base moves every recipe hash of the pack; `--rebase` replaces it, together with a minor version bump and a
+CHANGELOG entry. A real example in pack.yaml lists `base_url` (https; plain http to this machine only while
+`$GERMQUANT_ALLOW_LOOPBACK_EXAMPLES` is 1, for the stand-in servers of tests, and `pack lint` refuses it in any
+case), `sources` (each a `path` under it with its `size` and `sha256`, plus `member`, `zip_size` and `crc32` for one
+member of a zip; each saves under its file name, which must be a plain name, unique within the example),
+`assemble` (`axes`, `channels`, `spacing_zyx_um` and an optional `crop`), `pixels_sha256`, `licence`,
+`licence_spdx` (the SPDX id, such as CC0-1.0 or CC-BY-4.0), `licence_url` (the https address of the licence
+text), `attribution` and optionally `recipe` and `expect`; the loader refuses a spec with any of them missing or
+malformed. Write every digest and the CRC-32 in quotes: YAML reads an unquoted value of digits only as a number.
+Recipes must sit at
 `config/profiles/<recipe>.yaml` (the place that anchors their relative paths, such as the channel map, to the
 pack folder), and every tunable a recipe lists must be a setting the recipe already has, with a single value:
 the parameter form is built from the tunables (`packs.validate_pack` checks both, and install refuses a pack that
@@ -203,14 +309,21 @@ Steps:
 
 `pack lint` checks, for every pack: ASCII text only (no en or em dashes); no config/config.yaml inside the pack;
 every expected hash current; SHA256SUMS current; versioned pack: lines; no absolute or machine path in a recipe,
-map, card or pack.yaml; every card agrees with its model's digest and size. For outside recipes it also checks
+map, card or pack.yaml; every card agrees with its model's digest and size; the pack's own example exists and
+stays under 2 MB, no other file reaches 2 MB, and no TIFF sits in the pack unless it is a declared local example;
+a real example's address and its licence_url are https and its `licence_spdx` is one of CC0-1.0, CC-BY-4.0,
+CC-BY-3.0, BSD-3-Clause, MIT or Apache-2.0. For outside recipes it also checks
 that every worm stage switch is set explicitly, the file-name regex is the neutral `(?!x)x` (which matches
 nothing) unless pack.yaml declares the pack's own `filename_regex`, `segmentation.nuclei.method` is cellpose or
-classical (never auto, so a missing Cellpose fails loudly), the chain never reaches config/config.yaml, the batch
-framing check is off (`qc.germline_outlier_factor` of at least 1e6), `qc.min_nuclei` is set, every spots instance
-sets `expected_from_germ_cell: false`, and every key is one the engine reads: a key config/config.yaml sets or one
-on the allow-list in `germquant.packs.lint`. Keys config.yaml carries but nothing reads, such as `spots.channel`
-(the spots stage always counts the `foci` role), are refused.
+classical (never auto, so a missing Cellpose fails loudly), `segmentation.nuclei.require_channel` is true (unless
+labels come from files), the chain never reaches config/config.yaml, the batch framing check is off
+(`qc.germline_outlier_factor` of at least 1e6), `qc.min_nuclei` is set, every spots instance sets
+`expected_from_germ_cell: false`, every recipe has its recipe golden (`example/expected/recipe/<recipe>/` with
+nuclei.csv, spots.csv, image_summary.csv and a config_hash.txt equal to the recipe's expected_config_hash), and
+every key is one the engine reads: a key config/config.yaml sets or one on the allow-list in
+`germquant.packs.lint`. Keys config.yaml carries but nothing reads, such as `spots.channel` (the spots stage
+always counts the `foci` role), are refused. `germquant pack golden ID` fails an outside recipe without its golden
+and exits 1 when no golden ran at all.
 
 Versions follow semver. Before 1.0.0, any change to hashed text or a model digest needs a new minor version;
 from 1.0.0 on it needs a new major version. A new recipe or a changed engine range needs at least a minor
@@ -221,4 +334,6 @@ checks the bump. A recipe may say `status: validated` only with a passing valida
 
 The plain `germquant collect` keeps the worm's framing check (an image with 1.8 times the median germline count
 is flagged). For an outside pack collect with `germquant batch FOLDER --pack ID --out OUT --resume`, which reads
-the pack's `qc.germline_outlier_factor`.
+the pack's `qc.germline_outlier_factor`. `germquant batch` runs the .nd2 files of a folder; folders of TIFF or
+OME-TIFF images come with projects in a later germquant package, so run those one at a time with `germquant run`
+for now.

@@ -5,7 +5,10 @@ shadow a bare ``extends: config.yaml``); each recipe's expected_config_hash equa
 tunable is a key the recipe sets, with a scalar value (what packs.validate_pack refuses); SHA256SUMS is
 current; pack: lines are versioned; no absolute or machine path in a recipe, a channel map, a card or
 pack.yaml; every card agrees with its model spec (models_registry.validate_card); a root: checkout pack's
-engine-file digests are current.
+engine-file digests are current; a local example image exists and stays under 2 MB (a real image is fetched by
+`germquant pack fetch-example`, never shipped), no other file of the pack reaches 2 MB and no TIFF sits in it
+that is not a declared local example; a real example's base_url and licence_url are https and its licence_spdx
+is on PERMISSIVE_DATA_LICENCES.
 
 Outside recipes (root: pack) also:
 
@@ -15,9 +18,13 @@ Outside recipes (root: pack) also:
   pack's own regex under ``filename_regex``;
 * set segmentation.nuclei.method explicitly to cellpose (with any backend) or classical, never auto, so a
   missing Cellpose fails loudly instead of falling back to the watershed;
+* set segmentation.nuclei.require_channel: true (unless segmentation.nuclei.labels_from is set), so an image
+  without the segmentation channel fails instead of segmenting channel 0 (design 3.10, item 4);
 * reach no config/config.yaml through their extends chain (they extend the pack's frozen pack_base.yaml);
 * switch the batch framing check off through qc.germline_outlier_factor (at least 1e6), set qc.min_nuclei,
   and set expected_from_germ_cell: false on every spots instance;
+* ship a recipe golden (rule R7): example/expected/recipe/<recipe>/ holds nuclei.csv, spots.csv,
+  image_summary.csv and a config_hash.txt sentinel equal to the recipe's expected_config_hash;
 * set only keys the engine reads: a key config/config.yaml sets (read from the engine checkout) or a key on
   ALLOW_KEYS / ALLOW_PREFIXES (code-default keys config.yaml does not carry, and the keys tranche 5 adds).
   DENY_KEYS wins over config.yaml: keys it carries that nothing reads (spots.channel, the spots stage always
@@ -51,6 +58,10 @@ WORM_SWITCHES = ("germline.enabled", "envelope.enabled", "audit.enabled", "axis.
                  "sc.trace.enabled", "granule.enabled", "coloc.enabled", "partition.enabled", "granule_tail.enabled")
 NEUTRAL_REGEX = "(?!x)x"
 FRAMING_OFF_MIN = 1.0e6
+EXAMPLE_MAX_BYTES = 2_000_000          # a pack's own (synthetic) example; real images are fetched (design 3.2, 6.9)
+# data licences a real example of a published pack may carry (SPDX ids): free to use and to share with attribution
+PERMISSIVE_DATA_LICENCES = frozenset({"CC0-1.0", "CC-BY-4.0", "CC-BY-3.0", "BSD-3-Clause", "MIT", "Apache-2.0"})
+GOLDEN_FILES = ("nuclei.csv", "spots.csv", "image_summary.csv", "config_hash.txt")
 EN_DASH, EM_DASH = chr(0x2013), chr(0x2014)      # refused in pack text (kept out of this source)
 # config.yaml carries these, but nothing reads them (the spots stage always counts the foci role)
 DENY_KEYS = frozenset({"spots.channel", "project", "axis.method", "output.dir"})
@@ -203,6 +214,27 @@ def lint_pack(folder: str | Path, previous: str | Path | None = None) -> dict:
     for path_rel, value in _string_leaves(pack.data):              # pack.yaml
         if _machine_path(value):
             problems.append(f"pack.yaml {path_rel}: a machine path {value!r}")
+    local_images: set[str] = set()
+    for ex in pack.data.get("examples") or []:                       # a local example stays tiny (design 3.2)
+        if isinstance(ex, dict) and ex.get("sources"):
+            problems += [f"example {ex.get('id')!r}: {p}" for p in _remote_example_rules(ex)]
+        if not isinstance(ex, dict) or not ex.get("image"):
+            continue
+        local_images.add(str(ex["image"]))
+        img = folder / str(ex["image"])
+        if not img.is_file():
+            problems.append(f"example {ex.get('id')!r}: {ex['image']} is missing")
+        elif img.stat().st_size >= EXAMPLE_MAX_BYTES:
+            problems.append(f"example {ex.get('id')!r}: {ex['image']} is {img.stat().st_size:,} bytes; a pack's own "
+                            f"example stays under {EXAMPLE_MAX_BYTES:,} (real images are fetched, never shipped)")
+    for rel in pack_files(folder):                                   # nothing else large, no stray image
+        size = (folder / rel).stat().st_size
+        if rel not in local_images and size >= EXAMPLE_MAX_BYTES:
+            problems.append(f"{rel} is {size:,} bytes; no file of a pack reaches {EXAMPLE_MAX_BYTES:,} (weights live "
+                            f"in the model store and public images are fetched by `germquant pack fetch-example`)")
+        if Path(rel).suffix.lower() in (".tif", ".tiff") and rel not in local_images:
+            problems.append(f"{rel}: a TIFF that is not a declared local example (examples: {{id, image}}); a "
+                            f"fetched public image never goes into a pack")
     for spec in pack.models:                                         # cards
         if not spec.card:
             warnings.append(f"model {spec.name}: no card")
@@ -271,12 +303,43 @@ def lint_pack(folder: str | Path, previous: str | Path | None = None) -> dict:
     return {"pack": pack.ref, "problems": problems, "warnings": warnings}
 
 
+def _remote_example_rules(ex: dict) -> list[str]:
+    """A real example of a pack meant for others: https addresses, and a data licence that lets anyone use the
+    image and share what they make from it (PERMISSIVE_DATA_LICENCES), stated by its SPDX id and address."""
+    out = []
+    if not str(ex.get("base_url", "")).startswith("https://"):
+        out.append(f"base_url {ex.get('base_url')!r} is not https (plain http to this machine is for tests only)")
+    spdx = ex.get("licence_spdx")
+    if spdx not in PERMISSIVE_DATA_LICENCES:
+        out.append(f"licence_spdx {spdx!r} is not one of {', '.join(sorted(PERMISSIVE_DATA_LICENCES))} (give the data "
+                   f"licence's SPDX id; data under any other licence is not a pack example)")
+    if not str(ex.get("licence_url", "") or "").startswith("https://"):
+        out.append(f"licence_url {ex.get('licence_url')!r} must be the https address of the licence text")
+    return out
+
+
+def _golden_rules(pack: Pack, recipe) -> list[str]:
+    """Rule R7: every outside recipe ships a recipe golden, with a sentinel that matches its expected hash."""
+    gold = pack.folder / "example" / "expected" / "recipe" / recipe.id
+    rel = gold.relative_to(pack.folder).as_posix()
+    missing = [f for f in GOLDEN_FILES if not (gold / f).is_file()]
+    if missing:
+        return [f"no recipe golden: {rel}/ lacks {', '.join(missing)} (every recipe ships one, rule R7; write it with "
+                f"`germquant pack golden {pack.id} --recipe {recipe.id} --update`)"]
+    sentinel = (gold / "config_hash.txt").read_text(encoding="ascii", errors="replace").strip()
+    if sentinel != recipe.expected_config_hash:
+        return [f"{rel}/config_hash.txt says {sentinel}, the recipe's expected_config_hash is "
+                f"{recipe.expected_config_hash}: the recipe golden is stale (run `germquant pack golden {pack.id} "
+                f"--recipe {recipe.id} --update`)"]
+    return []
+
+
 def _outside_rules(pack: Pack, recipe, path: Path, merged: dict, known: set[str] | None) -> list[str]:
-    out: list[str] = []
+    out: list[str] = _golden_rules(pack, recipe)
     try:
         chain = _chain_files(path)
     except Exception as e:  # noqa: BLE001
-        return [f"extends chain does not resolve ({type(e).__name__}: {e})"]
+        return out + [f"extends chain does not resolve ({type(e).__name__}: {e})"]
     for f in chain:
         if f.name == "config.yaml" and f.parent.name == "config":
             out.append(f"the extends chain reaches {f}: outside recipes extend the pack's frozen pack_base.yaml, "
@@ -303,6 +366,10 @@ def _outside_rules(pack: Pack, recipe, path: Path, merged: dict, known: set[str]
     if "segmentation.nuclei.method" not in own or method not in ("cellpose", "classical"):
         out.append(f"segmentation.nuclei.method must be set to cellpose (any backend) or classical, never auto "
                    f"(got {method!r})")
+    if not _get(merged, "segmentation.nuclei.labels_from") and _get(merged, "segmentation.nuclei.require_channel") is not True:
+        out.append(f"segmentation.nuclei.require_channel must be true (got "
+                   f"{_get(merged, 'segmentation.nuclei.require_channel')!r}), so an image without the segmentation "
+                   f"channel fails instead of segmenting channel 0")
     factor = _get(merged, "qc.germline_outlier_factor")
     if not isinstance(factor, (int, float)) or isinstance(factor, bool) or factor < FRAMING_OFF_MIN:
         out.append(f"qc.germline_outlier_factor must switch the batch framing check off (>= {FRAMING_OFF_MIN:g}, for "

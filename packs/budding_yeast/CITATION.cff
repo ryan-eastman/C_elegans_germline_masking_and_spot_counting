@@ -1,0 +1,55 @@
+cff-version: 1.2.0
+message: "If you use the budding yeast pack of germquant, please cite the software as below, and the methods its recipe runs (Cellpose-SAM and SpotMAX). If you use the S-BIAD3750 example image, also cite Padovani et al. 2026 and the deposit."
+title: "germquant: budding yeast pack"
+version: 0.1.0
+type: software
+license: MIT
+repository-code: "https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting"
+authors:
+  - family-names: "Eastman"
+    given-names: "Ryan"
+references:
+  - type: article
+    title: "Cellpose-SAM: superhuman generalization for cellular segmentation"
+    authors:
+      - family-names: "Pachitariu"
+        given-names: "Marius"
+      - family-names: "Rariden"
+        given-names: "Michael"
+      - family-names: "Stringer"
+        given-names: "Carsen"
+    year: 2025
+    notes: "bioRxiv preprint; the segmentation model of the recipe (weights cpsam_v2, BSD-3-Clause)"
+  - type: article
+    title: "SpotMAX: a generalist framework for multi-dimensional automatic spot detection and quantification"
+    authors:
+      - family-names: "Padovani"
+        given-names: "Francesco"
+    year: 2026
+    journal: "Science Advances"
+    notes: "the spot detection of the recipe, and the authors of the S-BIAD3750 example data"
+  - type: article
+    title: "SpotMAX: a generalist framework for multi-dimensional automatic spot detection and quantification"
+    authors:
+      - family-names: "Padovani"
+        given-names: "Francesco"
+      - family-names: "Schmoller"
+        given-names: "Kurt M."
+    year: 2024
+    journal: "bioRxiv"
+    doi: "10.1101/2024.10.22.619610"
+    notes: "the preprint that SpotMAX's documentation asks users to cite (13 authors; the first and the last are shown)"
+  - type: data
+    title: "SpotMAX: a generalist framework for multi-dimensional automatic spot detection and quantification"
+    authors:
+      - family-names: "Padovani"
+        given-names: "Francesco"
+      - family-names: "Schmoller"
+        given-names: "Kurt M."
+      - family-names: "Koehler"
+        given-names: "Simone"
+    year: 2026
+    doi: "10.6019/S-BIAD3750"
+    url: "https://doi.org/10.6019/S-BIAD3750"
+    license: CC0-1.0
+    notes: "BioImage Archive S-BIAD3750, the SpotMAX ground truth dataset (15 authors; the first author and the two corresponding authors are shown, in ASCII); the source of the real example sbiad3750_sut509_p1, fetched, never redistributed"

@@ -19,7 +19,7 @@ recipes:
     dims: 3d
     default: true
     status: provisional
-    expected_config_hash: "cbc9e1174e51"
+    expected_config_hash: "02bb83cf74f9"
     needs:
       segment_backends: [classical]
       spot_backends: [log]
@@ -36,7 +36,7 @@ recipes:
     dims: 3d
     default: false
     status: provisional
-    expected_config_hash: "a600c387802e"
+    expected_config_hash: "81e38c5cf371"
     needs:
       segment_backends: [cellpose]
       spot_backends: [log]

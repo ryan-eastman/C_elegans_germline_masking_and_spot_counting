@@ -103,10 +103,13 @@ def _edited(tmp_path, rel, transform, *, fix_hashes=True) -> Path:
     pack = copy_pack(TEST_PACK, tmp_path / "test_pack", rebuild=False)
     p = pack / rel
     p.write_bytes(transform(p.read_bytes().decode("ascii")).encode("utf-8"))
-    if fix_hashes:
+    if fix_hashes:                       # the expected hashes and the recipe goldens' sentinels follow the edit
         data = yaml.safe_load((pack / "pack.yaml").read_text(encoding="ascii"))
         for r in data["recipes"]:
             r["expected_config_hash"] = load_config(pack / r["profile"]).hash
+            sentinel = pack / "example" / "expected" / "recipe" / r["id"] / "config_hash.txt"
+            if sentinel.is_file():
+                sentinel.write_bytes((r["expected_config_hash"] + "\n").encode("ascii"))
         (pack / "pack.yaml").write_bytes(yaml.safe_dump(data, sort_keys=False).encode("ascii"))
     packs.write_sums(pack)
     return pack

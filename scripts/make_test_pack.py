@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 """Write the generated files of the test pack (tests/fixtures/packs/test_pack) and print its recipe hashes.
 
-    python scripts/make_test_pack.py [--example] [--base]
+    python scripts/make_test_pack.py [--example] [--base [--rebase]]
 
 --base     config/profiles/pack_base.yaml: the frozen base, written from config/profiles/generic.yaml as resolved
            (germquant.packs.authoring), with the pack's channel map, every worm switch off, the neutral regex and
-           the outside QC settings. Frozen once written: an edit changes every recipe hash of the pack.
+           the outside QC settings. Frozen once written: an existing base is left alone when the regenerated text
+           is the same and refused with the diff when it differs (an edit changes every recipe hash of the pack);
+           --rebase replaces it.
 --example  example/test_pack_synthetic.ome.tif: a small deterministic two-channel field (DAPI and foci, five
            nuclei with two puncta each, 12 x 64 x 96 voxels at 0.5 x 0.2 x 0.2 um), under 2 MB.
 
@@ -24,7 +26,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from germquant.config import load_config  # noqa: E402
-from germquant.packs.authoring import frozen_base_data, write_frozen_base  # noqa: E402
+from germquant.packs.authoring import FrozenBaseError, frozen_base_data, write_frozen_base  # noqa: E402
 
 PACK = REPO / "tests" / "fixtures" / "packs" / "test_pack"
 SPACING = (0.5, 0.2, 0.2)
@@ -67,13 +69,19 @@ def write_example(path: Path) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--base", action="store_true", help="(re)write config/profiles/pack_base.yaml")
+    ap.add_argument("--base", action="store_true", help="write config/profiles/pack_base.yaml once (refused when a "
+                                                        "frozen base exists with other text)")
+    ap.add_argument("--rebase", action="store_true", help="with --base: replace a frozen base whose text differs")
     ap.add_argument("--example", action="store_true", help="(re)write the synthetic example")
     a = ap.parse_args(argv)
     if a.base:
         data = frozen_base_data(REPO / "config" / "profiles" / "generic.yaml",
                                 channel_map="config/channel_maps/test_dna_foci.yaml", min_nuclei=1)
-        print("wrote", write_frozen_base(PACK / "config" / "profiles" / "pack_base.yaml", data))
+        try:
+            print("base:", write_frozen_base(PACK / "config" / "profiles" / "pack_base.yaml", data, rebase=a.rebase))
+        except FrozenBaseError as e:
+            print(f"REFUSED: {e}", file=sys.stderr)
+            return 1
     if a.example:
         out = PACK / "example" / "test_pack_synthetic.ome.tif"
         write_example(out)

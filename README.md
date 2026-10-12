@@ -279,6 +279,16 @@ the run manifest also records the pack and the device. `germquant pack fetch-mod
 in place (it reuses Cellpose's own cache when it can). `docs/PACKS.md` explains packs, where they live, how
 to install one and how to make one.
 
+Two packs for other samples ship as provisional versions (0.1.0, not validated yet): `cultured_cells` (nuclei
+and DNA repair foci) and `budding_yeast` (whole cells and spots). Each can fetch a real public example image:
+
+    germquant pack fetch-models budding_yeast
+    germquant pack fetch-example budding_yeast
+    germquant run IMAGE --pack budding_yeast --out results/example
+
+`germquant assemble` stacks images kept as one TIFF per channel into the one OME-TIFF germquant reads
+(`docs/PACKS.md`).
+
 ### Segmentation only (no spot counting)
 
 Add `--no-spots` to the run or batch command. It skips the RAD-51 spot detection, so it is much

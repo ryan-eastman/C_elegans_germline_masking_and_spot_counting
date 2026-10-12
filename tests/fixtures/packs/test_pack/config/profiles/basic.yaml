@@ -6,6 +6,7 @@ segmentation:
     method: classical
     diameter_um: 3.0
     min_volume_um3: 2.0
+    require_channel: true
 spots:
   backend: log
   log:

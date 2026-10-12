@@ -5,16 +5,23 @@ extends config.yaml), so the planned config.yaml hash bump never moves an outsid
 written ONCE from a resolved profile (yaml.safe_dump, ASCII, no comments), with io.channel_map pointing at the
 pack's own map, no machine path, every worm stage switch off, the neutral filename regex and the QC settings
 of a field that is not a gonad, and without the keys on the lint deny-list (spots.channel and the other keys
-nothing reads). After that it is frozen text: lint and the recipe goldens catch any edit.
+nothing reads). After that it is frozen text: lint and the recipe goldens catch any edit, and write_frozen_base
+refuses to replace an existing base with other text unless told to rebase (which moves every recipe hash of the
+pack, so it goes with a minor version bump and a CHANGELOG entry).
 """
 from __future__ import annotations
 
 import copy
+import difflib
 from pathlib import Path
 
 import yaml
 
 from .lint import DENY_KEYS, NEUTRAL_REGEX, WORM_SWITCHES
+
+
+class FrozenBaseError(ValueError):
+    """An existing frozen pack_base.yaml that a write would replace with other text (the message holds the diff)."""
 
 
 def _set(d: dict, dotted: str, value) -> None:
@@ -61,8 +68,33 @@ def frozen_base_text(data: dict) -> str:
     return text
 
 
-def write_frozen_base(path: str | Path, data: dict) -> Path:
+def base_diff(path: str | Path, text: str, limit: int = 80) -> str:
+    """A unified diff from the base at ``path`` (LF-normalised) to ``text``, at most ``limit`` lines."""
+    old = Path(path).read_bytes().replace(b"\r\n", b"\n").decode("ascii", "replace")
+    lines = list(difflib.unified_diff(old.splitlines(), text.splitlines(), str(path), "regenerated", lineterm=""))
+    return "\n".join(lines[:limit] + ([f"... {len(lines) - limit} more lines"] if len(lines) > limit else []))
+
+
+def base_unchanged(path: str | Path, data: dict) -> bool:
+    """Whether the base at ``path`` already holds exactly the text ``data`` makes (LF-normalised)."""
     p = Path(path)
+    return p.is_file() and p.read_bytes().replace(b"\r\n", b"\n") == frozen_base_text(data).encode("ascii")
+
+
+def write_frozen_base(path: str | Path, data: dict, *, rebase: bool = False) -> Path:
+    """Write the frozen base to ``path`` and return it. An existing base with the same text (LF-normalised) is
+    left as it is. An existing base with other text raises FrozenBaseError with the diff, unless ``rebase``:
+    that moves every recipe hash of the pack, so it needs a minor version bump and a CHANGELOG entry (design 3.7
+    and 3.12)."""
+    p = Path(path)
+    text = frozen_base_text(data)
+    if p.is_file():
+        if base_unchanged(p, data):
+            return p
+        if not rebase:
+            raise FrozenBaseError(f"{p} is frozen and the regenerated text differs; writing it would move every "
+                                  f"recipe hash of the pack. Pass --rebase only together with a minor version bump "
+                                  f"and a CHANGELOG entry.\n{base_diff(p, text)}")
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_bytes(frozen_base_text(data).encode("ascii"))
+    p.write_bytes(text.encode("ascii"))
     return p

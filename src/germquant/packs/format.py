@@ -355,7 +355,8 @@ def validate_manifest(data: dict, folder: Path | None = None) -> list[str]:
     start of its sha256; a release model that is not the registry's; an outside recipe (root: pack) whose
     profile is not config/profiles/<recipe>.yaml, the layout that anchors its relative paths to the pack folder
     (config._base_dir_for); status validated (or validated: true) without a passing validation record (checked
-    when ``folder`` is given). The tunables need the recipes loaded: packs.validate_pack checks them."""
+    when ``folder`` is given); a malformed example, local or fetched (packs.examples.example_problems). The
+    tunables need the recipes loaded: packs.validate_pack checks them."""
     from ..models_registry import MODELS, PACK_MODEL_RE
 
     probs: list[str] = []
@@ -497,6 +498,9 @@ def validate_manifest(data: dict, folder: Path | None = None) -> list[str]:
                     probs.append(f"recipe {rid!r}: claims validated without a passing validation record ({why})")
     if n_default > 1:
         probs.append("more than one recipe is marked default")
+    from .examples import example_problems
+
+    probs += example_problems(data.get("examples"), ids)            # local images and fetch specs (P3)
     files = data.get("engine_files") or {}
     if root == "checkout":
         if not isinstance(files, dict) or any(not _is_plain_relative(k) or not SHA256_RE.fullmatch(str(v))
