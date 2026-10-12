@@ -17,17 +17,23 @@ The member's CRC-32 from the central directory is always checked, and ``size`` a
 a partial transfer is kept and resumed like a plain download. A server that does not honour Range requests
 is refused (RangeNotSupported) instead of streaming the whole archive.
 
+The archive is not trusted to describe itself honestly: a pinned ``zip_size`` that the server contradicts is
+named (the deposit changed), a central directory above MAX_CENTRAL_DIRECTORY bytes is refused before it is
+read, a member whose recorded data cannot fit its recorded size (a stored member whose two sizes differ, a
+compressed one far larger than its output, data past the end of the archive) is refused before any of its
+data is requested, and a compressed member is inflated only up to the size the archive records for it.
+
 The pack model fetcher (``germquant pack fetch-models``) and the example fetcher (``germquant pack
 fetch-example``, germquant.packs.examples) use it.
 """
 from __future__ import annotations
 
-import bz2
 import hashlib
 import logging
 import os
 import struct
 import time
+import urllib.error
 import urllib.request
 import zlib
 from collections.abc import Callable
@@ -157,6 +163,8 @@ _CDIR_SIG, _LOCAL_SIG = b"PK\x01\x02", b"PK\x03\x04"
 _EOCD_LEN, _LOC64_LEN, _EOCD64_LEN, _CDIR_LEN, _LOCAL_LEN = 22, 20, 56, 46, 30
 _TAIL = _EOCD_LEN + 0xFFFF + _LOC64_LEN + _EOCD64_LEN   # the end record with the longest comment, plus ZIP64
 _U16, _U32 = 0xFFFF, 0xFFFFFFFF
+# the largest central directory read into memory (about a million entries; DeepFoci's 122 entries take 10 kB)
+MAX_CENTRAL_DIRECTORY = 64 << 20
 
 
 @dataclass(frozen=True)
@@ -222,26 +230,69 @@ def remote_size(url: str, *, timeout: float = 120.0, headers: dict | None = None
         return int(cr[2])
 
 
-def read_range(url: str, start: int, length: int, *, timeout: float = 120.0, headers: dict | None = None) -> bytes:
+def _unsatisfiable_total(header: str | None) -> int | None:
+    """The size in a ``Content-Range: bytes */n`` header (the answer to a range past the end), or None."""
+    try:
+        unit, rest = str(header or "").strip().split(" ", 1)
+        if unit.lower() != "bytes" or not rest.startswith("*/"):
+            return None
+        return int(rest[2:])
+    except (ValueError, IndexError):
+        return None
+
+
+def _get_range(url: str, start: int, length: int, *, timeout: float, headers: dict | None) -> tuple[bytes, int | None]:
+    """(the bytes that arrived for ``[start, start + length)``, the file's size as the server reports it or None).
+    A range that starts past the end of the file (status 416) gives no bytes and the reported size."""
+    try:
+        with _open(url, {**(headers or {}), "Range": f"bytes={start}-{start + length - 1}"}, timeout) as r:
+            status = getattr(r, "status", None) or r.getcode()
+            cr = _content_range(r.headers.get("Content-Range"))
+            if status != 206 or cr is None or cr[0] != start:
+                raise _no_range(url, status, f"bytes {start} to {start + length - 1}")
+            return r.read(length), cr[2]
+    except urllib.error.HTTPError as e:
+        if e.code == 416:
+            return b"", _unsatisfiable_total(e.headers.get("Content-Range") if e.headers else None)
+        raise
+
+
+def read_range(url: str, start: int, length: int, *, timeout: float = 120.0, headers: dict | None = None,
+               total: int | None = None) -> bytes:
     """Bytes ``[start, start + length)`` of ``url`` through one Range request. RangeNotSupported when the
-    server answers with another range or the whole file; ZipMemberError when fewer bytes arrive."""
+    server answers with another range or the whole file; ZipMemberError when fewer bytes arrive, or when
+    ``total`` (the size the caller expects the file to have, such as a pinned zip_size) differs from the size
+    the server reports, which names both sizes."""
     if length <= 0:
         return b""
-    with _open(url, {**(headers or {}), "Range": f"bytes={start}-{start + length - 1}"}, timeout) as r:
-        status = getattr(r, "status", None) or r.getcode()
-        cr = _content_range(r.headers.get("Content-Range"))
-        if status != 206 or cr is None or cr[0] != start:
-            raise _no_range(url, status, f"bytes {start} to {start + length - 1}")
-        data = r.read(length)
+    data, got_total = _get_range(url, start, length, timeout=timeout, headers=headers)
+    if total is not None and got_total is not None and int(got_total) != int(total):
+        raise ZipMemberError(f"{url}: the server reports {got_total} bytes, not the {total} bytes expected (the "
+                             f"pinned zip_size): the file changed since it was pinned, so pin the example again")
     if len(data) != length:
         raise ZipMemberError(f"{url}: {len(data)} of the {length} bytes at offset {start} arrived")
     return data
 
 
-def _find_eocd(tail: bytes) -> int:
-    """The offset in ``tail`` (the end of the archive) of the end-of-central-directory record: the last
-    signature whose comment length reaches exactly the end of the file."""
+def _plausible_eocd(tail: bytes, tail_start: int, i: int) -> bool:
+    """Whether an end record at ``tail[i:]`` that does not reach the end of the file is the archive's own: a
+    ZIP64 locator right before it, or a central directory that ends exactly where it starts."""
+    if i + _EOCD_LEN > len(tail):
+        return False
+    j = i - _LOC64_LEN
+    if j >= 0 and tail[j:j + 4] == _LOC64_SIG:
+        return True
+    _disk, _cd_disk, _n_disk, _n, cd_size, cd_offset = struct.unpack_from("<HHHHII", tail, i + 4)
+    return cd_offset + cd_size == tail_start + i
+
+
+def _find_eocd(tail: bytes, tail_start: int = 0) -> int:
+    """The offset in ``tail`` (the end of the archive, which starts at ``tail_start`` in the file) of the
+    end-of-central-directory record: the last signature whose comment length reaches exactly the end of the
+    file, else (bytes after the end record, which Python's zipfile also accepts) the last one whose central
+    directory ends where it starts."""
     end = len(tail) - _EOCD_LEN + 4
+    loose = None
     while end >= 4:
         i = tail.rfind(_EOCD_SIG, 0, end)
         if i < 0:
@@ -250,8 +301,15 @@ def _find_eocd(tail: bytes) -> int:
             (comment_len,) = struct.unpack_from("<H", tail, i + 20)
             if i + _EOCD_LEN + comment_len == len(tail):
                 return i
+            if loose is None and i + _EOCD_LEN + comment_len < len(tail) and _plausible_eocd(tail, tail_start, i):
+                loose = i
         end = i + 3
-    raise ZipMemberError("no end-of-central-directory record: not a zip archive, or a truncated one")
+    if loose is not None:
+        (comment_len,) = struct.unpack_from("<H", tail, loose + 20)
+        log.warning("%d bytes after the zip end record are ignored", len(tail) - loose - _EOCD_LEN - comment_len)
+        return loose
+    raise ZipMemberError("no end-of-central-directory record: not a zip archive, a truncated one, or one with "
+                         "bytes after its end record that do not fit its central directory")
 
 
 def _zip64_extra(extra: bytes, usize: int, csize: int, offset: int, disk: int) -> tuple[int, int, int, int]:
@@ -315,13 +373,21 @@ def zip_index(url: str, *, zip_size: int | None = None, timeout: float = 120.0,
               headers: dict | None = None) -> dict[str, ZipMember]:
     """``{name: ZipMember}`` of the remote zip at ``url``, read with Range requests: the end of the archive,
     the ZIP64 record when the locator points at one, and the central directory. ``zip_size`` (the archive's
-    size, when known) saves the request that asks for it."""
+    size, when known) saves the request that asks for it; a server that reports another size is named
+    (ZipMemberError: the deposit changed). A central directory above MAX_CENTRAL_DIRECTORY bytes is refused
+    before it is read."""
+    return _zip_index(url, zip_size=zip_size, timeout=timeout, headers=headers)[0]
+
+
+def _zip_index(url: str, *, zip_size: int | None, timeout: float,
+               headers: dict | None) -> tuple[dict[str, ZipMember], int]:
+    """(zip_index, the archive's size)."""
     kw = {"timeout": timeout, "headers": headers}
     total = int(zip_size) if zip_size else remote_size(url, **kw)
     n = min(total, _TAIL)
     tail_start = total - n
-    tail = read_range(url, tail_start, n, **kw)
-    i = _find_eocd(tail)
+    tail = read_range(url, tail_start, n, total=total, **kw)
+    i = _find_eocd(tail, tail_start)
     disk, cd_disk, _n_disk, n_entries, cd_size, cd_offset = struct.unpack_from("<HHHHII", tail, i + 4)
     j = i - _LOC64_LEN
     if j >= 0 and tail[j:j + 4] == _LOC64_SIG:
@@ -340,11 +406,14 @@ def zip_index(url: str, *, zip_size: int | None = None, timeout: float = 120.0,
     if cd_offset + cd_size > total:
         raise ZipMemberError(f"{url}: the central directory ({cd_size} bytes at {cd_offset}) lies past the end of "
                              f"the {total}-byte archive")
+    if cd_size > MAX_CENTRAL_DIRECTORY:
+        raise ZipMemberError(f"{url}: the central directory is {cd_size} bytes, more than the {MAX_CENTRAL_DIRECTORY} "
+                             f"this reader holds in memory; download the whole archive instead")
     members = parse_central_directory(_slice_or_read(url, tail, tail_start, cd_offset, cd_size, **kw))
     if len(members) != n_entries:
         raise ZipMemberError(f"{url}: the central directory holds {len(members)} entries, the end record says "
                              f"{n_entries}")
-    return {m.name: m for m in members}
+    return {m.name: m for m in members}, total
 
 
 def _stream_range(url: str, part: Path, start: int, length: int, *, resume: bool, timeout: float, chunk: int,
@@ -391,22 +460,63 @@ def _crc32_and_sha256(path: Path, chunk: int = 1 << 24) -> tuple[int, str]:
     return crc & _U32, h.hexdigest()
 
 
-def _decompress(src: Path, dest: Path, method: int, chunk: int) -> None:
-    """Inflate a deflate (8) or bzip2 (12) stream from ``src`` into ``dest``; ZipMemberError when it is corrupt
-    or ends early."""
-    d = zlib.decompressobj(-15) if method == 8 else bz2.BZ2Decompressor()
+def _decompress(src: Path, dest: Path, method: int, chunk: int, limit: int, what: str = "") -> None:
+    """Inflate a deflate (8) or bzip2 (12) stream from ``src`` into ``dest``, writing at most ``limit`` bytes
+    (the member's size in the central directory): ZipMemberError as soon as the output would pass it (so a
+    corrupt or hostile member never fills the disk), and when the stream is corrupt or ends early."""
+    what = what or src.name
+    if method == 12:
+        import bz2                     # here, not at module level: a Python built without _bz2 still fetches
+        d = bz2.BZ2Decompressor()
+    else:
+        d = zlib.decompressobj(-15)
+    written = 0
+
+    def put(out, piece: bytes) -> None:
+        nonlocal written
+        written += len(piece)
+        if written > limit:            # each call may give limit + 1 - written bytes: past the limit by one at most
+            raise ZipMemberError(f"{what}: the member's {ZIP_METHODS[method]} data inflates past the {limit} bytes "
+                                 f"the archive records for it (stopped after {written} bytes)")
+        out.write(piece)
+
     try:
         with open(src, "rb") as fin, open(dest, "wb") as out:
             for block in iter(lambda: fin.read(chunk), b""):
-                out.write(d.decompress(block))
-            if method == 8:
-                out.write(d.flush())
+                # a call that does not reach max_length has consumed its whole input (zlib's unconsumed_tail
+                # and bz2's needs_input), so one call per block is enough below the limit
+                put(out, d.decompress(block, limit + 1 - written))
+                if d.eof:
+                    break
+            if method == 8 and not d.eof:
+                put(out, d.flush())
+    except ZipMemberError:
+        dest.unlink(missing_ok=True)
+        raise
     except (zlib.error, OSError, EOFError) as e:
         dest.unlink(missing_ok=True)
-        raise ZipMemberError(f"{src.name}: the member's {ZIP_METHODS[method]} data is corrupt ({e})") from e
+        raise ZipMemberError(f"{what}: the member's {ZIP_METHODS[method]} data is corrupt ({e})") from e
     if not d.eof:
         dest.unlink(missing_ok=True)
-        raise ZipMemberError(f"{src.name}: the member's {ZIP_METHODS[method]} data ends early")
+        raise ZipMemberError(f"{what}: the member's {ZIP_METHODS[method]} data ends early")
+
+
+def _check_member_sizes(url: str, m: ZipMember, total: int | None, data_start: int) -> None:
+    """Refuse, before any of its data is requested, a member whose recorded sizes cannot be right: a stored
+    member whose compressed and uncompressed sizes differ, a compressed member far larger than its output
+    (deflate and bzip2 never grow data by more than about 1 percent plus a few kB), or data that would run past
+    the end of the archive (``total``, when known; ``data_start`` is where the data begins, or a lower bound)."""
+    if m.method == 0 and m.compressed_size != m.file_size:
+        raise ZipMemberError(f"{url}: member {m.name!r} is stored without compression, but the archive records "
+                             f"{m.compressed_size} bytes of data for a {m.file_size}-byte file; nothing was downloaded")
+    if m.method != 0 and m.compressed_size > m.file_size + m.file_size // 100 + (1 << 16):
+        raise ZipMemberError(f"{url}: member {m.name!r} records {m.compressed_size} compressed bytes for a "
+                             f"{m.file_size}-byte file, more than {m.method_name} ever produces; nothing was "
+                             f"downloaded")
+    if total is not None and data_start + m.compressed_size > total:
+        raise ZipMemberError(f"{url}: the data of member {m.name!r} ({m.compressed_size} bytes from offset "
+                             f"{data_start}) would run past the end of the {total}-byte archive; nothing was "
+                             f"downloaded")
 
 
 def fetch_zip_member(url: str, member: str, dest: str | Path, *, size: int | None = None, sha256: str | None = None,
@@ -419,10 +529,15 @@ def fetch_zip_member(url: str, member: str, dest: str | Path, *, size: int | Non
     are checked when given; the member's CRC-32 from the central directory is always checked. ``zip_size``
     (the archive's size) and ``index`` (a zip_index already read) save requests. A transfer that breaks keeps
     ``<dest>.part`` (``<dest>.zpart`` for a compressed member) for the next call; a mismatch discards it and
-    raises DownloadError. Returns ``dest``."""
+    raises DownloadError. Sizes the archive records that cannot be right are refused before the member's data
+    is requested, and a compressed member is inflated only up to its recorded size (module docstring).
+    Returns ``dest``."""
     dest = Path(dest)
     kw = {"timeout": timeout, "headers": headers}
-    idx = index if index is not None else zip_index(url, zip_size=zip_size, **kw)
+    if index is not None:
+        idx, total = index, (int(zip_size) if zip_size else None)
+    else:
+        idx, total = _zip_index(url, zip_size=zip_size, **kw)
     m = idx.get(member)
     if m is None or m.is_dir:
         files = sorted(n for n in idx if not n.endswith("/"))
@@ -433,8 +548,8 @@ def fetch_zip_member(url: str, member: str, dest: str | Path, *, size: int | Non
     if m.method not in READABLE_METHODS:
         raise UnsupportedZipCompression(
             f"{url}: member {member!r} is compressed with {m.method_name} (zip method {m.method}), which this reader "
-            f"cannot decode; it reads stored, deflate and bzip2 members. Download the whole archive and extract it "
-            f"with a tool that reads {m.method_name}, or take the example's documented fallback")
+            f"cannot decode; it reads stored, deflate and bzip2 members. Download the whole archive and extract the "
+            f"member with a tool that reads {m.method_name}")
     if size is not None and int(size) != m.file_size:
         raise DownloadError(f"{url}: member {member!r} is {m.file_size} bytes in the archive, expected {size}; "
                             f"nothing was downloaded")
@@ -443,11 +558,13 @@ def fetch_zip_member(url: str, member: str, dest: str | Path, *, size: int | Non
         if want_crc != m.crc32:
             raise DownloadError(f"{url}: member {member!r} has CRC-32 {m.crc32:08x} in the archive, expected "
                                 f"{want_crc:08x}; nothing was downloaded")
+    _check_member_sizes(url, m, total, m.header_offset + _LOCAL_LEN)
     local = read_range(url, m.header_offset, _LOCAL_LEN, **kw)
     if local[:4] != _LOCAL_SIG:
         raise ZipMemberError(f"{url}: no local header for member {member!r} at offset {m.header_offset}")
     nlen, xlen = struct.unpack_from("<HH", local, 26)
     data_start = m.header_offset + _LOCAL_LEN + nlen + xlen
+    _check_member_sizes(url, m, total, data_start)
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = part_path(dest)
     stream = dict(resume=resume, timeout=timeout, chunk=chunk, progress=progress, headers=headers)
@@ -457,7 +574,7 @@ def fetch_zip_member(url: str, member: str, dest: str | Path, *, size: int | Non
         zpart = dest.with_name(dest.name + ".zpart")
         _stream_range(url, zpart, data_start, m.compressed_size, **stream)
         try:
-            _decompress(zpart, part, m.method, chunk)
+            _decompress(zpart, part, m.method, chunk, m.file_size, what=f"{url}: member {member!r}")
         finally:
             zpart.unlink(missing_ok=True)
     got_size = part.stat().st_size

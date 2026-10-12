@@ -64,6 +64,8 @@ examples:
     assemble: {axes: ZYX, channels: [Bright, Cy3], spacing_zyx_um: [0.24, 0.0720635, 0.0720635]}
     pixels_sha256: "f1150374eabf333641b3e4e2b53f9edce7e0702048f0ce4832aa642c0334641e"
     licence: CC0
+    licence_spdx: CC0-1.0
+    licence_url: "https://creativecommons.org/publicdomain/zero/1.0/"
     attribution: "Padovani et al. 2026, Science Advances (SpotMAX); BioImage Archive S-BIAD3750, doi 10.6019/S-BIAD3750 (CC0)"
     expect: {n_objects: [8, 15], spots_per_object: [0.3, 1.5]}
     checked:

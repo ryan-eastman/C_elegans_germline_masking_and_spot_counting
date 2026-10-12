@@ -27,12 +27,15 @@ COPY packs ./packs
 # workflow extras.
 RUN pip install --index-url https://download.pytorch.org/whl/cu128 "torch==2.11.0+cu128" "torchvision==0.26.0" \
     && pip install -c constraints/desktop-2026-09.txt ".[gpu,sc,workflow]" spotmax cellacdc cupy-cuda12x
-# The readers for TIFF and OME-TIFF input (the outside packs' examples are OME-TIFFs), pinned to the engine .venv's
-# versions in constraints/readers-2026-10.txt; the CZI, LIF and OME-Zarr readers are not in the validated .venv,
-# so the image leaves them out (docs/DESIGN_system_packs.md, package P3).
+# The readers for TIFF and OME-TIFF input (the outside packs' examples are OME-TIFFs), pinned with their own
+# dependencies to the engine .venv's versions in constraints/readers-2026-10.txt; the CZI, LIF and OME-Zarr readers
+# are not in the validated .venv, so the image leaves them out (docs/DESIGN_system_packs.md, package P3). The last
+# line prints the reader stack's versions into the build log: zarr and numcodecs (pulled in by tifffile[zarr], and
+# absent from the .venv) are not pinned yet, and the first container check pins them from this output.
 RUN pip install -c constraints/desktop-2026-09.txt -c constraints/readers-2026-10.txt \
         bioio bioio-base bioio-tifffile bioio-ome-tiff \
-    && python -c "import bioio, bioio_ome_tiff, bioio_tifffile; print('readers ok')"
+    && python -c "import bioio, bioio_ome_tiff, bioio_tifffile; print('readers ok')" \
+    && (pip freeze | grep -i -E "^(bioio|tifffile|imagecodecs|ome-types|xarray|zarr|numcodecs|pydantic|lxml)" || true)
 
 # profiles are found from this checkout when the working directory is elsewhere (`--profile NAME`)
 ENV GERMQUANT_CONFIG_ROOT=/opt/germquant

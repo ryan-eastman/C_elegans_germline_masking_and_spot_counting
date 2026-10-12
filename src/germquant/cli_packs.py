@@ -9,7 +9,8 @@
   germquant pack verify ID|DIR
   germquant pack build-sums DIR
   germquant pack lint DIR [--previous ZIP]
-  germquant pack golden ID[@VER] [--recipe R] [--tier recipe|model] [--update]   (germquant only)
+  germquant pack golden ID[@VER] [--recipe R] [--tier recipe|model] [--update]   (germquant only; exit 1 when a
+                                                                                  golden fails or none ran)
 
 This module imports nothing heavy at module level, so the same parsers serve cli.main (one line there) and
 germquant.packs.__main__, whose commands never load torch (gate G6). `golden` runs the pipeline and is offered
@@ -82,7 +83,8 @@ def add_pack_commands(psub, *, light: bool = False) -> None:
         pg = psub.add_parser("golden", help="run a recipe golden: the recipe tier on the pack's synthetic example "
                                             "with the classical segmenter and an empty model store")
         pg.add_argument("pack", metavar="ID[@VER]")
-        pg.add_argument("--recipe", default=None, help="one recipe (default: every recipe with an expected folder)")
+        pg.add_argument("--recipe", default=None, help="one recipe (default: every recipe; an outside recipe without "
+                                                       "an expected folder fails)")
         pg.add_argument("--tier", choices=["recipe", "model"], default="recipe")
         pg.add_argument("--update", action="store_true",
                         help="write the expected tables instead of comparing (a pack maintainer's step)")
@@ -209,8 +211,12 @@ def _parse_from_files(items: list[str]) -> dict[str, str]:
 def _fetch_models(args) -> int:
     from . import packs as P
 
-    res = P.fetch_pack_models(args.pack, args.recipe, _parse_from_files(args.from_file),
-                              download=not args.no_download, say=_print)
+    try:
+        res = P.fetch_pack_models(args.pack, args.recipe, _parse_from_files(args.from_file),
+                                  download=not args.no_download, say=_print)
+    except P.PackFormatError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
     missing = [r for r in res if r["status"] == "missing"]
     for r in res:
         _print(f"  {r['name']}: {r['status']} -> {r['path']}")
@@ -238,7 +244,8 @@ def _fetch_example(args) -> int:
         return 0
     _print(f"{pack.ref} example {rec['id']} ({rec['status']}): {rec['image']}")
     if rec.get("licence"):
-        _print(f"  licence {rec['licence']}; {rec.get('attribution')}")
+        _print(f"  licence {rec['licence']}" + (f" ({rec['licence_url']})" if rec.get("licence_url") else "")
+               + f"; {rec.get('attribution')}")
     recipe = f" --recipe {rec['recipe']}" if rec["recipe"] != pack.default_recipe().id else ""
     _print(f"  run it: germquant run \"{rec['image']}\" --pack {pack.ref}{recipe} --out RESULTS_FOLDER")
     if rec.get("expect"):
@@ -307,8 +314,12 @@ def _golden(args) -> int:
     for r in results:
         _print(f"  {pack.ref} {r['recipe']}: {'updated' if args.update else ('PASS' if r['ok'] else 'FAIL')}"
                + ("" if r["ok"] else f": {'; '.join(r['problems'][:5])}"))
-    if not results:
-        _print(f"  {pack.ref}: no recipe golden (example/expected/recipe/<recipe>/) to run")
+    if not results:                  # nothing was checked: never a pass
+        where = (" (its recipes are the engine's frozen config files; their goldens are tests/golden, run by "
+                 "`pytest tests/test_golden.py`)" if pack.root == "checkout" else "")
+        print(f"FAILED: {pack.ref} has no recipe golden (example/expected/recipe/<recipe>/) to run{where}",
+              file=sys.stderr)
+        return 1
     return 1 if bad else 0
 
 

@@ -188,8 +188,11 @@ def run_recipe_golden(pack, recipe: str | None = None, *, update: bool = False, 
 
 
 def run_pack_goldens(pack, recipe: str | None = None, *, update: bool = False) -> list[dict]:
-    """Every recipe golden of a pack (the recipes with an expected folder; with ``update``, every recipe with
-    an example), or the one ``recipe`` names."""
+    """Every recipe golden of a pack, or the one ``recipe`` names. With ``update``, every recipe with an example
+    is written. Without it, every recipe of an outside pack (root: pack) is compared, and one without an
+    expected folder is a failed result (rule R7: every outside recipe ships a recipe golden), never skipped; a
+    root: checkout pack (the C. elegans pack, whose recipes are the frozen engine files and whose goldens are
+    tests/golden) runs the recipes that have an expected folder."""
     if recipe is not None:
         return [run_recipe_golden(pack, recipe, update=update)]
     out = []
@@ -200,6 +203,12 @@ def run_pack_goldens(pack, recipe: str | None = None, *, update: bool = False) -
             except FileNotFoundError:
                 continue
         elif not expected_dir(pack, r.id).is_dir():
+            if pack.root == "pack":
+                gold = expected_dir(pack, r.id)
+                out.append({"recipe": r.id, "ok": False, "config_hash": None, "out": None,
+                            "problems": [f"no recipe golden: {gold} is missing (every recipe of an outside pack "
+                                         f"ships one, rule R7; write it with `germquant pack golden {pack.id} "
+                                         f"--recipe {r.id} --update`)"]})
             continue
         out.append(run_recipe_golden(pack, r.id, update=update))
     return out

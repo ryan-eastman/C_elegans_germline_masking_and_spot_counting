@@ -86,7 +86,8 @@ segmentation scores of this model are not independent of YeaZ data.
     germquant pack fetch-models budding_yeast
 
 adopts Cellpose's own copy (~/.cellpose/models/cpsam_v2) after a size and sha256 check, or downloads the pinned
-Hugging Face commit. The bare name `cpsam` gives the same masks (docs/PACKS.md records the check).
+Hugging Face commit. On the CPU, the bare name `cpsam` gave masks identical to `cpsam_v2@0f1cc3f7` on the plane
+this recipe segments in the real example (docs/PACKS.md records the check); the same check on CUDA is pending.
 
 ## How the starting values were chosen
 
@@ -98,9 +99,12 @@ plane; it takes the plane in best focus and drops objects under 3 um2.
 
 ## Examples
 
-- `synthetic`: example/yeast_synthetic.ome.tif, six cells with 19 spots and two small bright specks, 13 x 160 x
-  224 voxels at 0.24 x 0.072 x 0.072 um. The recipe golden runs it with the classical segmenter (no model
-  needed) and compares every table cell with example/expected/recipe/cells_spots/.
+- `synthetic`: example/yeast_synthetic.ome.tif, 13 x 160 x 288 voxels at 0.24 x 0.072 x 0.072 um: six cells
+  with 20 spots, one of them weak (its effect size on the sharpened scale, about 3.2, lies just above the
+  threshold of 2.5), two small bright specks between the cells that the segmenter does not find, and a small
+  object of about 1.9 um2 that it finds and the 3 um2 area gate drops. The recipe golden runs it with the
+  classical segmenter (no model needed) and compares every table cell with example/expected/recipe/cells_spots/,
+  so a change of the spot threshold or of the smallest cell shows in the tables.
 - `sbiad3750_sut509_p1`: SUT509 smFISH, Position_1 of the BioImage Archive deposit S-BIAD3750 (CC0; Padovani et
   al. 2026, Science Advances). It is never redistributed:
 

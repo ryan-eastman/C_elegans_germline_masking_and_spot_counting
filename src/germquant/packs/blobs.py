@@ -206,7 +206,13 @@ def needed_specs(pack: Pack, recipe: str | None = None) -> list[ModelSpec]:
 def fetch_models(pack: Pack, recipe: str | None = None, from_files: dict[str, str | Path] | None = None, *,
                  download: bool = True, say=None) -> list[dict]:
     """Put every model the recipe (or, without one, the pack) needs into the store. Returns one record per
-    model: ``{"name", "status": present|adopted|from_file|downloaded|missing, "path", "detail", "tried"}``."""
+    model: ``{"name", "status": present|adopted|from_file|downloaded|missing, "path", "detail", "tried"}``.
+    PackFormatError for an unusable pack (its manifest has problems): store paths are built from its model
+    names, digests and file names, which only a valid manifest vouches for."""
+    from .format import PackFormatError
+
+    if pack.problems:
+        raise PackFormatError(f"pack {pack.ref} is unusable, so no model is fetched: " + "; ".join(pack.problems))
     say = say or (lambda *a: None)
     out = []
     files = {str(k): Path(v) for k, v in (from_files or {}).items()}

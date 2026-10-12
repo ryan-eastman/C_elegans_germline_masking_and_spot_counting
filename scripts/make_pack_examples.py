@@ -2,20 +2,28 @@
 """Write the generated files of the outside packs (packs/cultured_cells, packs/budding_yeast), print their recipe
 hashes, and fetch, pin and run their real examples (docs/PACKS.md; docs/DESIGN_system_packs.md, section 12, P3).
 
-    python scripts/make_pack_examples.py [--pack cultured_cells|budding_yeast|all] [--base] [--example]
+    python scripts/make_pack_examples.py [--pack cultured_cells|budding_yeast|all] [--base [--rebase]] [--example]
     python scripts/make_pack_examples.py --pack budding_yeast --draft-real [--examples DIR]
     python scripts/make_pack_examples.py --pack budding_yeast --run-real [--examples DIR] [--results DIR]
 
 --base        config/profiles/pack_base.yaml: the frozen base every recipe of the pack extends, written from
               config/profiles/generic.yaml as resolved (germquant.packs.authoring), with the pack's own channel
               map, every worm switch off, the neutral file-name regex and the QC settings of a field that is not
-              a gonad (qc.germline_outlier_factor 1e9; qc.min_nuclei 1 for cultured cells, 10 for yeast). Frozen
-              once written: an edit changes every recipe hash of the pack, and the recipe goldens catch it.
+              a gonad (qc.germline_outlier_factor 1e9; qc.min_nuclei 1 for cultured cells, 10 for yeast). Written
+              once: a base that exists is left alone when the regenerated text is the same ("unchanged
+              (frozen)"), and refused with the diff when it differs (after a change to generic.yaml or
+              config.yaml, say), because a new base moves every recipe hash of the pack.
+--rebase      with --base: replace a frozen base whose regenerated text differs. Only together with a minor
+              version bump of the pack and a CHANGELOG entry (design 3.7); then copy the printed hashes into
+              pack.yaml and regenerate the recipe goldens.
 --example     example/<name>.ome.tif: the small deterministic synthetic example (under 2 MB) the recipe goldens
               run on. cultured_cells: three channels (DAPI, gH2AX, 53BP1), four nuclei with foci, 16 x 144 x 176
               voxels at 0.3 x 0.2 x 0.2 um. budding_yeast: two channels (Bright, Cy3), six cells in focus on
-              plane 4 of 13 (the middle plane would be 6) with 19 smFISH-like spots and two small bright specks
-              between the cells that segmentation must not count, 13 x 160 x 224 voxels at 0.24 x 0.072 x 0.072
+              plane 4 of 13 (the middle plane would be 6) with 19 bright smFISH-like spots and one weak spot whose
+              sharpened effect size lies between 2.5 and 4 (so spots.effect_size_min shows in the golden), two
+              small bright specks between the cells that the segmenter does not find, and one small object of
+              about 2 um2 in an empty strip that it finds and the 3 um2 area gate drops (so
+              segmentation.nuclei.min_area_um2 shows in the golden); 13 x 160 x 288 voxels at 0.24 x 0.072 x 0.072
               um (the S-BIAD3750 SUT509 voxel size).
 --draft-real  a maintainer's step: fetch the pack's real example as pack.yaml describes it, accepting sources
               and pixels whose digests are not pinned yet, and print the size, sha256 and pixels_sha256 to pin.
@@ -23,8 +31,8 @@ hashes, and fetch, pin and run their real examples (docs/PACKS.md; docs/DESIGN_s
               pack (api.run, after the pack check) and compare the counts with the example's expect ranges.
               Runs on the device germquant selects (CUDA_VISIBLE_DEVICES=-1 forces the CPU).
 
-After --base or --example: copy the printed hashes into pack.yaml, run `germquant pack golden ID --update`, then
-`germquant pack build-sums packs/ID` and `germquant pack lint packs/ID`.
+After --example (or a --base --rebase): copy the printed hashes into pack.yaml if they moved, run `germquant
+pack golden ID --update`, then `germquant pack build-sums packs/ID` and `germquant pack lint packs/ID`.
 """
 from __future__ import annotations
 
@@ -40,7 +48,12 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from germquant.config import load_config  # noqa: E402
-from germquant.packs.authoring import frozen_base_data, write_frozen_base  # noqa: E402
+from germquant.packs.authoring import (  # noqa: E402
+    FrozenBaseError,
+    base_unchanged,
+    frozen_base_data,
+    write_frozen_base,
+)
 
 PACKS = REPO / "packs"
 MICRON = chr(0xB5) + "m"          # the OME unit name; the schema refuses "um"
@@ -98,15 +111,23 @@ def cultured_pixels() -> np.ndarray:
     return np.clip(np.stack([dna, g, b]), 0, 65535).astype(np.uint16)
 
 
-# ---- budding yeast: six cells in focus on one plane, smFISH-like spots, two specks of debris -----------------
+# ---- budding yeast: six cells in focus on one plane, smFISH-like spots, specks of debris -----------------------
 YEAST_SPACING = (0.24, 0.072, 0.072)
-YEAST_SHAPE = (13, 160, 224)
+YEAST_SHAPE = (13, 160, 288)      # the cells fill x 0 to 224; x 224 to 288 is an empty strip for the small object
 YEAST_CHANNELS = ["Bright", "Cy3"]
 YEAST_FOCUS_Z = 4                 # the planted sharpest plane (mid would be 6)
 YEAST_CELL_R_UM = 1.9
 YEAST_CELLS = [(40, 40), (38, 112), (42, 184), (120, 44), (122, 114), (118, 182)]    # (y, x) voxels
 YEAST_DEBRIS = [(80, 76), (80, 148)]
-YEAST_DEBRIS_R_UM = 0.5           # small bright specks: the classical segmenter on the sharpest plane finds none
+YEAST_DEBRIS_R_UM = 0.5           # small bright specks between the cells: the classical segmenter finds neither
+# a small bright object alone in the empty strip: the classical segmenter on the sharpest plane finds it at about
+# 1.9 um2, and the recipe's 3 um2 area gate drops it, so the golden sees segmentation.nuclei.min_area_um2 (the
+# specks above sit too close to the cells to get a seed of their own)
+YEAST_SMALL = (80, 256)
+YEAST_SMALL_R_UM = 0.4
+# a weak spot at the centre of cell 0 on plane 6: its effect size on the sharpened scale is about 3.2, between the
+# recipe's effect_size_min of 2.5 and 4, so the golden sees spots.effect_size_min
+YEAST_WEAK_SPOT = {"cell": 0, "z": 6, "amplitude": 400.0}
 
 
 def yeast_pixels() -> np.ndarray:
@@ -123,6 +144,8 @@ def yeast_pixels() -> np.ndarray:
         focus[inside] = 1600.0 + 120.0 * np.sin(xx[inside] * 0.9) * np.cos(yy[inside] * 0.8)
     for cy, cx in YEAST_DEBRIS:
         focus[(yy - cy) ** 2 + (xx - cx) ** 2 <= (YEAST_DEBRIS_R_UM / YEAST_SPACING[1]) ** 2] = 2600.0
+    sy, sx = YEAST_SMALL
+    focus[(yy - sy) ** 2 + (xx - sx) ** 2 <= (YEAST_SMALL_R_UM / YEAST_SPACING[1]) ** 2] = 2600.0
     bright = np.zeros(YEAST_SHAPE, np.float32)
     for z in range(nz):
         s = 1.5 * abs(z - YEAST_FOCUS_Z)
@@ -141,6 +164,10 @@ def yeast_pixels() -> np.ndarray:
             d2 = (((zz - pz) * YEAST_SPACING[0]) / 0.3) ** 2 + (((yy3 - py) * YEAST_SPACING[1]) / 0.1) ** 2 \
                 + (((xx3 - px) * YEAST_SPACING[2]) / 0.1) ** 2
             cy3 += (1800.0 + 150.0 * j) * np.exp(-d2 / 2)
+    wy, wx = YEAST_CELLS[YEAST_WEAK_SPOT["cell"]]
+    d2 = (((zz - YEAST_WEAK_SPOT["z"]) * YEAST_SPACING[0]) / 0.3) ** 2 + (((yy3 - wy) * YEAST_SPACING[1]) / 0.1) ** 2 \
+        + (((xx3 - wx) * YEAST_SPACING[2]) / 0.1) ** 2
+    cy3 += YEAST_WEAK_SPOT["amplitude"] * np.exp(-d2 / 2)
     cy3 += rng.normal(0.0, 10.0, cy3.shape).astype(np.float32)
     return np.clip(np.stack([bright, cy3]), 0, 65535).astype(np.uint16)
 
@@ -246,7 +273,10 @@ def run_real(pack_id: str, example: str | None, out: Path, results: Path | None)
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pack", choices=["cultured_cells", "budding_yeast", "all"], default="all")
-    ap.add_argument("--base", action="store_true", help="(re)write config/profiles/pack_base.yaml")
+    ap.add_argument("--base", action="store_true", help="write config/profiles/pack_base.yaml once (refused when "
+                                                        "a frozen base exists with other text)")
+    ap.add_argument("--rebase", action="store_true", help="with --base: replace a frozen base whose regenerated "
+                                                          "text differs (with a minor version bump only)")
     ap.add_argument("--example", action="store_true", help="(re)write the synthetic example")
     ap.add_argument("--draft-real", action="store_true", help="fetch the real example and print the digests to pin")
     ap.add_argument("--run-real", action="store_true", help="fetch the real example, run it and check expect")
@@ -255,6 +285,8 @@ def main(argv=None) -> int:
                                                      "per-user folder)")
     ap.add_argument("--results", default=None, help="--run-real: the results folder")
     a = ap.parse_args(argv)
+    if a.rebase and not a.base:
+        ap.error("--rebase goes with --base")
     ids = list(SETTINGS) if a.pack == "all" else [a.pack]
     if a.draft_real or a.run_real:
         from germquant.packs.examples import examples_dir
@@ -272,7 +304,17 @@ def main(argv=None) -> int:
         if a.base:
             data = frozen_base_data(REPO / "config" / "profiles" / "generic.yaml", channel_map=s["map"],
                                     min_nuclei=s["min_nuclei"])
-            print("wrote", write_frozen_base(folder / "config" / "profiles" / "pack_base.yaml", data))
+            base = folder / "config" / "profiles" / "pack_base.yaml"
+            if base_unchanged(base, data):
+                print("unchanged (frozen):", base)
+            else:
+                existed = base.is_file()
+                try:
+                    write_frozen_base(base, data, rebase=a.rebase)
+                except FrozenBaseError as e:
+                    print(f"REFUSED: {e}", file=sys.stderr)
+                    return 1
+                print("rebased (bump the minor version and add a CHANGELOG entry):" if existed else "wrote", base)
         if a.example:
             out = folder / s["example"]
             pixels, names, spacing = example_data(pid)

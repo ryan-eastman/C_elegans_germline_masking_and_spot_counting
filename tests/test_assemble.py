@@ -1,7 +1,8 @@
 """germquant.assemble and `germquant assemble` (design 3.13 and 6.9; package P3, acceptance 4): per-channel TIFFs and
 multi-channel TIFFs with a declared page order are stacked into one OME-TIFF; the round trip gives the declared
 axes, the channel names, the voxel size, the crop and a pixels_sha256 that pins the pixels, not the file (tifffile
-writes a fresh UUID into every OME-XML header)."""
+writes a fresh UUID into every OME-XML header). A declaration that contradicts a file's own ImageJ or OME record of
+its channels and planes is refused unless forced, and the output never replaces an input."""
 from __future__ import annotations
 
 import hashlib
@@ -120,6 +121,43 @@ def test_inputs_that_do_not_match_are_refused(tmp_path):
         A.assemble([tmp_path / "a.tif", tmp_path / "c.tif"], ["a", "c"], SP, tmp_path / "o.ome.tif")
     with pytest.raises(FileNotFoundError):
         A.assemble([tmp_path / "missing.tif"], ["a"], SP, tmp_path / "o.ome.tif")
+
+
+def test_a_declaration_that_contradicts_the_files_own_axes_is_refused(tmp_path):
+    """An ImageJ hyperstack records its axes (ZCYX: the channels of a plane are neighbouring pages). Declaring CZYX,
+    or ZYX (no channels), would mix the channels into the planes without a sign: refused, naming the file's axes;
+    force reads the pages as declared. A file without such a record is read as declared, as always."""
+    zcyx = np.stack([np.stack([_stack(30 + z, (24, 28)), _stack(40 + z, (24, 28))]) for z in range(4)])
+    tifffile.imwrite(tmp_path / "hyper.tif", zcyx, imagej=True, metadata={"axes": "ZCYX"})
+    with tifffile.TiffFile(tmp_path / "hyper.tif") as tf:
+        assert tf.is_imagej and tf.series[0].axes == "ZCYX"
+    with pytest.raises(A.AssembleError, match="ImageJ metadata gives the axes ZCYX .*run them the other way"):
+        A.assemble([tmp_path / "hyper.tif"], ["DAPI", "foci"], SP, tmp_path / "a.ome.tif", axes="CZYX")
+    with pytest.raises(A.AssembleError, match="do not split the pages by both"):
+        A.assemble([tmp_path / "hyper.tif"], ["DAPI"], SP, tmp_path / "a.ome.tif", axes="ZYX")
+    assert not (tmp_path / "a.ome.tif").exists()
+    A.assemble([tmp_path / "hyper.tif"], ["DAPI", "foci"], SP, tmp_path / "ok.ome.tif", axes="ZCYX")
+    assert np.array_equal(A.read_ome_tiff(tmp_path / "ok.ome.tif")["data"], np.transpose(zcyx, (1, 0, 2, 3)))
+    forced = A.assemble([tmp_path / "hyper.tif"], ["DAPI", "foci"], SP, tmp_path / "f.ome.tif", axes="CZYX", force=True)
+    assert forced["shape"] == [2, 4, 24, 28]                                 # read as declared, as asked
+    assert cli.main(["assemble", "--channels", str(tmp_path / "hyper.tif"), "--names", "DAPI", "foci", "--spacing",
+                     "1", "1", "1", "--axes", "CZYX", "--out", str(tmp_path / "c.ome.tif")]) == 1
+    assert cli.main(["assemble", "--channels", str(tmp_path / "hyper.tif"), "--names", "DAPI", "foci", "--spacing",
+                     "1", "1", "1", "--axes", "CZYX", "--force", "--out", str(tmp_path / "c.ome.tif")]) == 0
+    plain = zcyx.reshape(8, 24, 28)                                          # the same pages, no metadata
+    tifffile.imwrite(tmp_path / "plain.tif", plain)
+    A.assemble([tmp_path / "plain.tif"], ["DAPI", "foci"], SP, tmp_path / "p.ome.tif", axes="CZYX")
+
+
+def test_the_output_never_replaces_an_input(tmp_path):
+    a = _stack(1)
+    tifffile.imwrite(tmp_path / "S.tif", a)
+    before = (tmp_path / "S.tif").read_bytes()
+    with pytest.raises(A.AssembleError, match="is one of the inputs"):
+        A.assemble([tmp_path / "S.tif"], ["DAPI"], SP, tmp_path / "S.tif")
+    with pytest.raises(A.AssembleError, match="is one of the inputs"):
+        A.assemble([tmp_path / "S.tif"], ["DAPI"], SP, tmp_path / "sub" / ".." / "S.tif")
+    assert (tmp_path / "S.tif").read_bytes() == before
 
 
 def test_germquant_assemble_command(tmp_path, capsys):

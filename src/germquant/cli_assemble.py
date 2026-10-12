@@ -1,7 +1,7 @@
 """`germquant assemble`: stack one TIFF per channel into one OME-TIFF (germquant.assemble; docs/PACKS.md).
 
   germquant assemble --channels A.tif B.tif --names Bright Cy3 --spacing DZ DY DX --out X.ome.tif
-                     [--axes ZYX] [--crop-z Z0 Z1] [--crop-y Y0 Y1] [--crop-x X0 X1] [--json]
+                     [--axes ZYX] [--crop-z Z0 Z1] [--crop-y Y0 Y1] [--crop-x X0 X1] [--force] [--json]
 
 For labs (and tools such as Cell-ACDC) that keep each channel in its own file: germquant reads one image per
 run and binds channels to roles by name, so the assembled file carries the channel names and the voxel size.
@@ -31,6 +31,9 @@ def add_parsers(sub) -> None:
     for ax in ("z", "y", "x"):
         pa.add_argument(f"--crop-{ax}", nargs=2, type=int, default=None, metavar=("START", "STOP"),
                         help=f"keep {ax} pixels START to STOP-1 of the input (default: all)")
+    pa.add_argument("--force", action="store_true",
+                    help="read the pages as --axes declares even where the file's own ImageJ or OME metadata records "
+                         "its channels and planes in another order")
     pa.add_argument("--json", action="store_true", help="print the result record as JSON")
 
 
@@ -39,7 +42,8 @@ def dispatch(args) -> int:
 
     crop = {ax: list(getattr(args, f"crop_{ax}")) for ax in ("z", "y", "x") if getattr(args, f"crop_{ax}")}
     try:
-        rec = assemble(args.channels, args.names, args.spacing, args.out, axes=args.axes, crop=crop or None)
+        rec = assemble(args.channels, args.names, args.spacing, args.out, axes=args.axes, crop=crop or None,
+                       force=args.force)
     except (AssembleError, FileNotFoundError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1

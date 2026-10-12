@@ -107,7 +107,11 @@ on a CPU, and a size gate of 20 um2 (a disk about 5 um across), or 60 um3 in 3D 
   requests, checks its size, CRC-32 and sha256, crops it to the two nuclei of the field and writes one OME-TIFF
   (3 channels 53BP1, gH2AX and DAPI, 48 planes of 480 x 896 pixels, 0.3 x 0.0647 x 0.0647 um), then checks its
   pixels_sha256. pack.yaml records how the member, the page order (ZYXC), the channel order and the voxel size
-  were checked on the first download. On the lab workstation's CPU (2026-10-11) the run took 43 seconds and
+  were checked on the first download. No fallback example is declared: every member of the DeepFoci zip is
+  stored without compression, so the member is always readable by range requests, and the design's fallback for
+  a member that cannot be fetched (one S-BIAD1494 stack, open question O9) was not needed. If the deposit ever
+  changes so that the member cannot be read, the fetch stops with a message naming why; download the whole
+  archive from Zenodo and assemble the member with `germquant assemble` (docs/PACKS.md). On the lab workstation's CPU (2026-10-11) the run took 43 seconds and
   found 2 nuclei with 110 gamma-H2AX and 67 53BP1 foci; one of the two nuclei was only partly segmented (about
   97 of 157 um2), see "Limitations". The expect ranges are 1 to 3 nuclei and 35 to 80 foci per nucleus.
 
@@ -125,6 +129,13 @@ before any score and 95 percent cluster-bootstrap intervals.
   that example (and ran five times faster); it changes the config hash and is the setting to tune for 1.0.0.
 - In nuclei_foci a nucleus mask is a column through the stack: a focus above or below the nucleus in its column
   counts for it. Use nuclei_foci_3d for thick or overlapping nuclei.
+- Anisotropy: typical 100x stacks are far coarser in z than in xy. nuclei_foci_3d runs Cellpose-SAM in 3D with
+  the anisotropy dz / dy, which is about 4.6 on the DeepFoci voxel (0.3 / 0.0647 um); nothing has been checked
+  at that ratio yet, so treat nuclei_foci_3d masks as provisional, and prefer nuclei_foci for flat cultured
+  nuclei.
+- Training-data overlap: the Cellpose-SAM training collection may include images from DeepFoci or BBBC039, the
+  public sets these recipes are to be scored on. That overlap is checked (Cellpose-SAM's training lists against
+  both sets) before any score is reported, and a score on overlapping images will say so.
 - The DeepFoci test labels were clicked on 2D projections and matched with a lenient radius; DeepFoci scores
   will say so next to the numbers.
 - QC for fields that are not gonads: with `qc.min_nuclei` 1 the advisory flag `qc:few_nuclei_<n>` never fires for

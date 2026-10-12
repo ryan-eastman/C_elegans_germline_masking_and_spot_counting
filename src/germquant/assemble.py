@@ -22,6 +22,12 @@ What it is told, never guessed:
 * ``spacing``: the voxel size dz, dy, dx in micrometres (a z-stack's file often records no z step).
 * ``crop``: optional half-open ranges of the input's pixels, ``{"z": [z0, z1], "y": [y0, y1], "x": [x0, x1]}``.
 
+The declared axes are what is read, and nothing is guessed for a file without metadata. A file whose own ImageJ
+or OME metadata records both channels and planes is the exception: a declaration that runs its pages the other
+way (CZYX for a ZCYX hyperstack), or that leaves out its channels or its planes, would scramble the channels
+without a sign, so it is refused unless ``force`` (``--force``) says to read the pages as declared anyway. The
+output never replaces one of the inputs.
+
 The output is CZYX in the inputs' data type, written with tifffile (zlib, OME-XML with the channel names and
 PhysicalSizeZ, Y and X in micrometres). ``pixels_sha256`` pins the pixels independent of the file around them:
 tifffile writes a fresh UUID into every OME-XML header, so two assemblies of the same pixels differ as files
@@ -71,9 +77,10 @@ def _parse_axes(axes: str) -> str:
     return ax
 
 
-def _read_pages(path: Path) -> tuple[np.ndarray, str]:
-    """(pages, page axes) of a TIFF's first series: every page in file order, shape (P, *page shape), with page
-    axes YX, YXC or CYX (a samples axis read as channels)."""
+def _read_pages(path: Path) -> tuple[np.ndarray, str, tuple[str, str, dict] | None]:
+    """(pages, page axes, metadata axes) of a TIFF's first series: every page in file order, shape (P, *page
+    shape), with page axes YX, YXC or CYX (a samples axis read as channels); the metadata axes are (kind,
+    series axes, sizes) when the file is an ImageJ or OME TIFF, else None."""
     import tifffile
 
     if not path.is_file():
@@ -84,12 +91,36 @@ def _read_pages(path: Path) -> tuple[np.ndarray, str]:
         page = series.pages[0]
         page_shape = tuple(int(n) for n in page.shape)
         page_axes = str(page.axes).upper().replace("S", "C")
+        meta = None
+        if tf.is_imagej or tf.is_ome:
+            ax = str(series.axes).upper()
+            meta = ("ImageJ" if tf.is_imagej else "OME", ax, dict(zip(ax, (int(n) for n in series.shape))))
     if not set(page_axes) <= set("CYX") or "Y" not in page_axes or "X" not in page_axes:
         raise AssembleError(f"{path.name}: pages with axes {page.axes!r} are not supported (grey pages, or pages "
                             f"with samples, are)")
     if data.size % int(np.prod(page_shape)):
         raise AssembleError(f"{path.name}: {data.shape} does not divide into pages of {page_shape}")
-    return data.reshape((-1,) + page_shape), page_axes
+    return data.reshape((-1,) + page_shape), page_axes, meta
+
+
+def _axes_conflict(declared: str, page_axes: str, meta: tuple[str, str, dict] | None) -> str | None:
+    """Why the declared axes contradict a file's own ImageJ or OME metadata, or None. Checked only for grey
+    pages and a file that records both channels and planes (more than one of each): the declaration must then
+    split the pages by both, in the file's order."""
+    if meta is None or "C" in page_axes:
+        return None
+    kind, file_axes, sizes = meta
+    n_c, n_z = sizes.get("C", 1), sizes.get("Z", 1)
+    if n_c < 2 or n_z < 2:
+        return None
+    lead = declared[:len(declared) - len(page_axes)]
+    where = (f"its {kind} metadata gives the axes {file_axes} ({n_c} channels, {n_z} planes, pages "
+             f"{'channel within plane' if file_axes.index('Z') < file_axes.index('C') else 'plane within channel'})")
+    if "C" not in lead or "Z" not in lead:
+        return f"{where}, but the declared axes {declared} do not split the pages by both"
+    if (lead.index("C") < lead.index("Z")) != (file_axes.index("C") < file_axes.index("Z")):
+        return f"{where}, but the declared axes {declared} run them the other way"
+    return None
 
 
 def _to_czyx(pages: np.ndarray, page_axes: str, axes: str, n_channels: int | None, name: str) -> np.ndarray:
@@ -155,9 +186,10 @@ def _spacing(spacing_zyx_um) -> tuple[float, float, float]:
     return vals
 
 
-def build(channels: Sequence[str | Path], names: Sequence[str], *, axes: str = "ZYX", crop=None
-          ) -> tuple[np.ndarray, dict | None]:
-    """(CZYX array, the crop applied) from the input files, without writing anything (module docstring)."""
+def build(channels: Sequence[str | Path], names: Sequence[str], *, axes: str = "ZYX", crop=None,
+          force: bool = False) -> tuple[np.ndarray, dict | None]:
+    """(CZYX array, the crop applied) from the input files, without writing anything (module docstring).
+    ``force`` reads the pages as declared even where a file's own metadata says otherwise."""
     files = [Path(p) for p in channels]
     names = [str(n) for n in names]
     if not files:
@@ -170,7 +202,11 @@ def build(channels: Sequence[str | Path], names: Sequence[str], *, axes: str = "
     per_file = len(names) // len(files) if len(names) % len(files) == 0 else None
     blocks = []
     for f in files:
-        pages, page_axes = _read_pages(f)
+        pages, page_axes, meta = _read_pages(f)
+        conflict = None if force else _axes_conflict(ax, page_axes, meta)
+        if conflict:
+            raise AssembleError(f"{f.name}: {conflict}. Declare axes that match the file, or pass force (--force) to "
+                                f"read the pages as declared")
         blocks.append(_to_czyx(pages, page_axes, ax, per_file, f.name))
     first = blocks[0]
     for f, b in zip(files[1:], blocks[1:]):
@@ -210,11 +246,17 @@ def write_ome_tiff(path: str | Path, data_czyx: np.ndarray, names: Sequence[str]
 
 
 def assemble(channels: Sequence[str | Path], names: Sequence[str], spacing_zyx_um: Sequence[float],
-             out: str | Path, *, axes: str = "ZYX", crop=None) -> dict:
+             out: str | Path, *, axes: str = "ZYX", crop=None, force: bool = False) -> dict:
     """Stack ``channels`` (input files) into the OME-TIFF ``out`` (module docstring). Returns ``{"path",
-    "axes", "shape", "dtype", "channel_names", "spacing_zyx_um", "crop", "pixels_sha256", "inputs"}``."""
+    "axes", "shape", "dtype", "channel_names", "spacing_zyx_um", "crop", "pixels_sha256", "inputs"}``.
+    AssembleError when ``out`` is one of the inputs (the original would be replaced)."""
+    out_r = Path(out).resolve()                      # a symlink to an input resolves to the input
+    for p in channels:
+        if Path(p).resolve() == out_r:
+            raise AssembleError(f"--out {out} is one of the inputs ({p}); write the OME-TIFF to a new file, so the "
+                                f"original stays as it is")
     spacing = _spacing(spacing_zyx_um)
-    data, crop_used = build(channels, names, axes=axes, crop=crop)
+    data, crop_used = build(channels, names, axes=axes, crop=crop, force=force)
     path = write_ome_tiff(out, data, names, spacing)
     return {"path": str(path), "axes": OUT_AXES, "shape": [int(n) for n in data.shape], "dtype": str(data.dtype),
             "channel_names": [str(n) for n in names], "spacing_zyx_um": list(spacing), "crop": crop_used,

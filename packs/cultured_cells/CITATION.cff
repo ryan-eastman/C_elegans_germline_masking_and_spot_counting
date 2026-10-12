@@ -29,6 +29,17 @@ references:
     journal: "Science Advances"
     notes: "the focus detection of the recipes"
   - type: article
+    title: "SpotMAX: a generalist framework for multi-dimensional automatic spot detection and quantification"
+    authors:
+      - family-names: "Padovani"
+        given-names: "Francesco"
+      - family-names: "Schmoller"
+        given-names: "Kurt M."
+    year: 2024
+    journal: "bioRxiv"
+    doi: "10.1101/2024.10.22.619610"
+    notes: "the preprint that SpotMAX's documentation asks users to cite (13 authors; the first and the last are shown)"
+  - type: article
     title: "DeepFoci: Deep learning-based algorithm for fast automatic analysis of DNA double-strand break ionizing radiation-induced foci"
     authors:
       - family-names: "Vicar"

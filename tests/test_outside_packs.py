@@ -10,10 +10,17 @@ and 9).
 * A stack with no transmitted channel fails the yeast recipe with the require_channel message instead of
   segmenting channel 0.
 * The cards say what is provisional and which scale effect_size is on; the real examples record what was checked
-  on the first download.
+  on the first download; every CITATION.cff has the fields the CFF 1.2.0 schema requires.
+* The yeast recipe golden sees the recipe's own spot threshold and smallest-cell gate (a weak spot and a small
+  object in the synthetic example).
+* Lint asks every outside recipe for require_channel and a current recipe golden, every real example for a
+  permissive data licence, and keeps large files and stray TIFFs out of a pack; `pack golden` fails a recipe
+  without its golden and exits 1 when no golden ran; a frozen base is never rewritten silently; the cpsam
+  comparison script refuses to run on another device than the one asked for.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 from pathlib import Path
@@ -22,7 +29,7 @@ import pytest
 import yaml
 from packs_helpers import ROOT, copy_pack, pack_env  # noqa: F401  (pack_env is a fixture)
 
-from germquant import packs, packs_golden
+from germquant import cli, packs, packs_golden
 from germquant.config import load_config
 from germquant.io.channel_map import ChannelMap
 from germquant.models_registry import validate_card
@@ -279,6 +286,129 @@ def test_a_stack_without_a_transmitted_channel_fails_the_yeast_recipe(tmp_path, 
     with pytest.raises(ValueError, match=r"require_channel is true .*segmentation role 'transmitted'"):
         process_image(example, cfg, out, prov=None, read_fn=renamed)
     assert not list(out.glob("*__done.json")) and not list(out.glob("*__nuclei.csv"))
+
+
+def _edited_yeast(where: Path, old: bytes, new: bytes, *, rel: str = "config/profiles/cells_spots.yaml") -> Path:
+    """A copy of the yeast pack with one edit, its hash, sentinel and sums brought up to date (so only the golden's
+    tables, or lint, can catch the edit)."""
+    pack = copy_pack(YEAST, where / "budding_yeast", rebuild=False)
+    f = pack / rel
+    text = f.read_bytes()
+    assert old in text
+    f.write_bytes(text.replace(old, new))
+    data = yaml.safe_load((pack / "pack.yaml").read_text(encoding="ascii"))
+    new_hash = load_config(pack / "config" / "profiles" / "cells_spots.yaml").hash
+    data["recipes"][0]["expected_config_hash"] = new_hash
+    (pack / "pack.yaml").write_bytes(yaml.safe_dump(data, sort_keys=False).encode("ascii"))
+    sentinel = pack / "example" / "expected" / "recipe" / "cells_spots" / "config_hash.txt"
+    if sentinel.parent.is_dir():
+        sentinel.write_bytes((new_hash + "\n").encode("ascii"))
+    packs.write_sums(pack)
+    return pack
+
+
+@pytest.mark.parametrize("old, new, needle", [
+    (b"effect_size_min: 2.5", b"effect_size_min: 4.0", "spots: 19 rows, expected 20"),
+    (b"min_area_um2: 3.0", b"min_area_um2: 1.0", "nuclei: 7 rows, expected 6"),
+])
+def test_the_yeast_golden_sees_its_spot_threshold_and_smallest_cell(tmp_path, pack_env, old, new, needle):  # noqa: F811
+    """The synthetic example holds a weak spot (sharpened effect size about 3.2) and a small object (about 1.9 um2),
+    so raising effect_size_min to 4 or lowering min_area_um2 to 1 moves the tables, not only the sentinel."""
+    res = packs_golden.run_recipe_golden(packs.load_pack(_edited_yeast(tmp_path, old, new)), "cells_spots")
+    assert not res["ok"] and needle in res["problems"], res["problems"]
+    assert not any("config_hash" in p for p in res["problems"])          # the hash was brought up to date
+
+
+def test_lint_asks_for_require_channel_and_a_current_recipe_golden(tmp_path, pack_env):  # noqa: F811
+    no_req = _edited_yeast(tmp_path / "a", b"    require_channel: true\n", b"")
+    assert load_config(no_req / "config" / "profiles" / "cells_spots.yaml").get(
+        "segmentation.nuclei.require_channel") is None
+    assert any("segmentation.nuclei.require_channel must be true" in p
+               for p in packs.lint_pack(no_req)["problems"])
+    stale = copy_pack(YEAST, tmp_path / "b" / "budding_yeast", rebuild=False)
+    (stale / "example" / "expected" / "recipe" / "cells_spots" / "config_hash.txt").write_bytes(b"0123456789ab\n")
+    packs.write_sums(stale)
+    assert any("the recipe golden is stale" in p for p in packs.lint_pack(stale)["problems"])
+    gone = copy_pack(YEAST, tmp_path / "c" / "budding_yeast", rebuild=False)
+    shutil.rmtree(gone / "example" / "expected" / "recipe" / "cells_spots")
+    packs.write_sums(gone)
+    assert any("no recipe golden: example/expected/recipe/cells_spots/ lacks" in p
+               for p in packs.lint_pack(gone)["problems"])
+    (res,) = packs_golden.run_pack_goldens(packs.load_pack(gone))            # a failure, never a silent skip
+    assert res["recipe"] == "cells_spots" and not res["ok"] and "no recipe golden" in res["problems"][0]
+
+
+def test_pack_golden_exits_1_when_no_golden_ran(pack_env, capsys):  # noqa: F811
+    assert cli.main(["pack", "golden", "celegans_germline"]) == 1
+    assert "has no recipe golden" in capsys.readouterr().err
+
+
+def test_lint_keeps_examples_permissive_and_large_files_and_stray_tiffs_out(tmp_path):
+    pack = copy_pack(CULTURED, tmp_path / "cultured_cells", rebuild=False)
+    text = (pack / "pack.yaml").read_bytes()
+    (pack / "pack.yaml").write_bytes(text.replace(b"licence_spdx: CC-BY-4.0", b"licence_spdx: CC-BY-NC-4.0"))
+    shutil.copyfile(pack / "example" / "cultured_synthetic.ome.tif", pack / "example" / "fetched.tif")
+    (pack / "notes").mkdir()
+    (pack / "notes" / "big.bin").write_bytes(bytes(L.EXAMPLE_MAX_BYTES))
+    packs.write_sums(pack)
+    probs = packs.lint_pack(pack)["problems"]
+    assert any("licence_spdx 'CC-BY-NC-4.0' is not one of" in p for p in probs), probs
+    assert any("example/fetched.tif: a TIFF that is not a declared local example" in p for p in probs), probs
+    assert any("notes/big.bin is 2,000,000 bytes" in p for p in probs), probs
+
+
+def test_every_citation_file_has_the_fields_cff_requires():
+    """CFF 1.2.0: authors, cff-version, message and title at the root; authors, title and type on every reference."""
+    files = sorted((ROOT / "packs").glob("*/CITATION.cff")) + [ROOT / "tests" / "fixtures" / "packs" / "test_pack"
+                                                               / "CITATION.cff"]
+    assert len(files) >= 4
+    for f in files:
+        cff = yaml.safe_load(f.read_text(encoding="ascii"))
+        for key in ("authors", "cff-version", "message", "title"):
+            assert cff.get(key), (f, key)
+        for i, ref in enumerate(cff.get("references") or []):
+            assert ref.get("authors") and ref.get("title") and ref.get("type"), (f, i, ref)
+            assert all(isinstance(a, dict) and (a.get("family-names") or a.get("name")) for a in ref["authors"])
+    yeast = yaml.safe_load((YEAST / "CITATION.cff").read_text(encoding="ascii"))
+    dois = {r.get("doi") for r in yeast["references"]}
+    assert {"10.6019/S-BIAD3750", "10.1101/2024.10.22.619610"} <= dois
+
+
+def test_a_frozen_base_is_never_rewritten_silently(tmp_path):
+    from germquant.packs import authoring as AU
+
+    generic = ROOT / "config" / "profiles" / "generic.yaml"
+    data = AU.frozen_base_data(generic, channel_map="config/channel_maps/x.yaml", min_nuclei=10)
+    base = tmp_path / "pack_base.yaml"
+    AU.write_frozen_base(base, data)
+    assert AU.base_unchanged(base, data)
+    AU.write_frozen_base(base, data)                                      # the same text: left as it is
+    other = AU.frozen_base_data(generic, channel_map="config/channel_maps/x.yaml", min_nuclei=4)
+    with pytest.raises(AU.FrozenBaseError, match=r"(?s)is frozen.*-  min_nuclei: 10.*\+  min_nuclei: 4"):
+        AU.write_frozen_base(base, other)
+    assert "min_nuclei: 10" in base.read_text(encoding="ascii")
+    AU.write_frozen_base(base, other, rebase=True)
+    assert "min_nuclei: 4" in base.read_text(encoding="ascii")
+
+
+def test_the_cpsam_comparison_refuses_another_device_than_the_one_asked_for(monkeypatch):
+    """A CUDA check must never pass on the CPU: with no accelerator (or $GERMQUANT_DEVICE pointing elsewhere), the
+    script stops with exit code 2 before anything is loaded or run."""
+    from germquant import device
+
+    spec = importlib.util.spec_from_file_location("compare_cpsam_names", ROOT / "scripts" / "compare_cpsam_names.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(device, "available", lambda: {"cuda": False, "mps": False, "cpu": True})
+    monkeypatch.delenv("GERMQUANT_DEVICE", raising=False)
+    assert mod.resolve_device("cpu") == ("cpu", "") and mod.resolve_device("auto") == ("cpu", "")
+    dev, why = mod.resolve_device("cuda")
+    assert dev == "cpu" and "cuda is not available here" in why
+    assert mod.main(["--device", "cuda"]) == 2
+    monkeypatch.setattr(device, "available", lambda: {"cuda": True, "mps": False, "cpu": True})
+    monkeypatch.setenv("GERMQUANT_DEVICE", "cpu")
+    dev, why = mod.resolve_device("cuda")
+    assert dev == "cpu" and "$GERMQUANT_DEVICE=cpu overrides it" in why
 
 
 def test_real_examples_record_what_was_checked():

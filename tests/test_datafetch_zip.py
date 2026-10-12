@@ -1,21 +1,27 @@
 """germquant.datafetch, one member of a remote zip (design 6.1 and 6.9; package P3, acceptance 4): the end records
 (classic and ZIP64), the central directory and one member are read with HTTP Range requests from a local server;
 stored, deflated and bzip2 members come out whole with their CRC-32 checked; size, sha256 and CRC mismatches are
-refused; a broken transfer resumes; a member compressed with a method the reader cannot decode (deflate64, LZMA)
-or encrypted is refused with the method named; a server that ignores Range is refused rather than streamed.
-Nothing leaves the machine."""
+refused; a broken transfer resumes, stored or compressed; a member compressed with a method the reader cannot
+decode (deflate64, LZMA) or encrypted is refused with the method named; a server that ignores Range is refused
+rather than streamed. The archive is not trusted to describe itself: a pinned zip_size the server contradicts is
+named, sizes that cannot be right are refused before any member data is requested, a member that inflates past its
+recorded size stops one byte past it, and an oversized central directory is refused; bytes after the end record
+are accepted, as Python's zipfile accepts them. Nothing leaves the machine."""
 from __future__ import annotations
 
+import ast
 import bz2
 import hashlib
 import http.server
 import io
+import random
 import re
 import struct
 import threading
 import zipfile
 import zlib
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 
@@ -24,6 +30,7 @@ from germquant import datafetch as D
 BIG = bytes((i * 7 + i // 251) % 256 for i in range(200_000))          # a member larger than the archive tail
 TEXT = b"germquant zip member test\n" * 400
 SMALL = b"a small member"
+NOISE = random.Random(7).randbytes(150_000)                            # incompressible: deflate keeps its size
 
 
 def build_zip(members, *, zip64: bool, encrypt: str | None = None) -> bytes:
@@ -93,6 +100,12 @@ class _RangeHandler(http.server.BaseHTTPRequestHandler):
             start, end = len(data) - int(b), len(data) - 1
         else:
             start, end = int(a), (int(b) if b else len(data) - 1)
+        if start >= len(data):                              # a range past the end: 416 with the file's size
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{len(data)}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         end = min(end, len(data) - 1)
         body = data[start:end + 1]
         self.send_response(206)
@@ -185,22 +198,122 @@ def test_size_sha256_and_crc_mismatches_are_refused(tmp_path):
             D.fetch_zip_member(url, "nope.tif", tmp_path / "d.tif")
 
 
-def test_a_broken_transfer_resumes_with_a_range_request(tmp_path):
-    blob = build_zip(MEMBERS, zip64=True)
+@pytest.mark.parametrize("name, payload, method", [("folder/big.tif", BIG, 0), ("folder/noise.bin", NOISE, 8)],
+                         ids=["stored", "deflated"])
+def test_a_broken_transfer_resumes_with_a_range_request(tmp_path, name, payload, method):
+    """Cut after 50,000 bytes of the member's data: the partial file (<dest>.part for a stored member, <dest>.zpart
+    for the compressed bytes of a deflated one) stays, and the next call asks only for the rest."""
+    blob = build_zip(MEMBERS + [("folder/noise.bin", NOISE, 8)], zip64=True)
     with serve(blob) as (url, h):
         idx = D.zip_index(url)
-        big = idx["folder/big.tif"]
-        name_len = len(b"folder/big.tif")
-        data_start = big.header_offset + 30 + name_len + 20          # 20: the local ZIP64 extra field
+        m = idx[name]
+        assert m.method == method and m.compressed_size > 50_000
+        data_start = m.header_offset + 30 + len(name.encode()) + 20          # 20: the local ZIP64 extra field
         h.cut_at_start, h.cut_after = data_start, 50_000
-        dest = tmp_path / "big.tif"
+        dest = tmp_path / name.split("/")[-1]
         with pytest.raises(D.DownloadError, match="run again to resume"):
-            D.fetch_zip_member(url, "folder/big.tif", dest, index=idx)
-        part = D.part_path(dest)
-        assert part.stat().st_size == 50_000 and not dest.exists()
-        out = D.fetch_zip_member(url, "folder/big.tif", dest, index=idx, sha256=hashlib.sha256(BIG).hexdigest())
-        assert h.log[-1] == f"bytes={data_start + 50_000}-{data_start + len(BIG) - 1}"   # only the rest
-    assert out.read_bytes() == BIG and not part.exists()
+            D.fetch_zip_member(url, name, dest, index=idx)
+        part, zpart = D.part_path(dest), dest.with_name(dest.name + ".zpart")
+        kept = part if method == 0 else zpart
+        assert kept.stat().st_size == 50_000 and not dest.exists()
+        assert not (zpart if method == 0 else part).exists()
+        out = D.fetch_zip_member(url, name, dest, index=idx, sha256=hashlib.sha256(payload).hexdigest())
+        assert h.log[-1] == f"bytes={data_start + 50_000}-{data_start + m.compressed_size - 1}"   # only the rest
+    assert out.read_bytes() == payload and not part.exists() and not zpart.exists()
+
+
+def patch_central(blob: bytes, name: str, *, csize: int | None = None, usize: int | None = None) -> bytes:
+    """``blob`` (a classic archive from build_zip) with the central directory entry of ``name`` claiming other
+    compressed and uncompressed sizes: an archive that lies about a member."""
+    out = bytearray(blob)
+    pos = out.find(b"PK\x01\x02")
+    while pos >= 0:
+        nlen = struct.unpack_from("<H", out, pos + 28)[0]
+        if out[pos + 46:pos + 46 + nlen].decode() == name:
+            if csize is not None:
+                struct.pack_into("<I", out, pos + 20, csize)
+            if usize is not None:
+                struct.pack_into("<I", out, pos + 24, usize)
+            return bytes(out)
+        pos = out.find(b"PK\x01\x02", pos + 4)
+    raise KeyError(name)
+
+
+def test_member_sizes_that_cannot_be_right_are_refused_before_any_data(tmp_path):
+    """A stored member whose two sizes differ, a deflated member far larger than its output and a member whose data
+    would run past the end of the archive are refused from the central directory alone: no local header and no data
+    is requested."""
+    blob = build_zip([("a/stored.bin", SMALL, 0), ("a/text.txt", TEXT, 8)], zip64=False)
+    cases = [
+        (patch_central(blob, "a/stored.bin", csize=8 << 20), "a/stored.bin", "stored without compression"),
+        (patch_central(blob, "a/text.txt", csize=5_000_000), "a/text.txt", "more than deflate ever produces"),
+        (patch_central(blob, "a/stored.bin", csize=10_000_000, usize=10_000_000), "a/stored.bin",
+         "would run past the end"),
+    ]
+    for lying, member, needle in cases:
+        with serve(lying) as (url, h):
+            idx = D.zip_index(url, zip_size=len(lying))
+            n = len(h.log)
+            with pytest.raises(D.ZipMemberError, match=needle):
+                D.fetch_zip_member(url, member, tmp_path / "x.bin", index=idx, zip_size=len(lying))
+            assert len(h.log) == n                                              # nothing more was requested
+        assert not (tmp_path / "x.bin").exists() and not D.part_path(tmp_path / "x.bin").exists()
+
+
+def test_a_member_that_inflates_past_its_recorded_size_stops_one_byte_past_it(tmp_path):
+    """A deflate bomb: 8 MB of zeros (about 8 kB compressed) recorded as a 1,000-byte file. Inflating stops after
+    1,001 bytes, and nothing is kept."""
+    zeros = bytes(8 << 20)
+    blob = patch_central(build_zip([("bomb.bin", zeros, 8)], zip64=False), "bomb.bin", usize=1000)
+    with serve(blob) as (url, h):
+        with pytest.raises(D.ZipMemberError, match=r"inflates past the 1000 bytes .*stopped after 1001 bytes"):
+            D.fetch_zip_member(url, "bomb.bin", tmp_path / "bomb.bin")
+    dest = tmp_path / "bomb.bin"
+    assert not dest.exists() and not D.part_path(dest).exists() and not dest.with_name("bomb.bin.zpart").exists()
+    src = tmp_path / "bomb.z"                                       # the inflater itself, on a file
+    c = zlib.compressobj(6, zlib.DEFLATED, -15)
+    src.write_bytes(c.compress(zeros) + c.flush())
+    with pytest.raises(D.ZipMemberError, match="stopped after 1001 bytes"):
+        D._decompress(src, tmp_path / "out.bin", 8, 1 << 16, 1000)
+    src.write_bytes(bz2.compress(zeros))
+    with pytest.raises(D.ZipMemberError, match="stopped after 1001 bytes"):
+        D._decompress(src, tmp_path / "out.bin", 12, 1 << 16, 1000)
+    assert not (tmp_path / "out.bin").exists()
+
+
+@pytest.mark.parametrize("delta", [-1000, 1000, 10_000_000])
+def test_a_pinned_zip_size_the_server_contradicts_is_named(delta):
+    """A pinned zip_size that no longer matches the archive (a re-uploaded deposit) names both sizes, whether the pin
+    is smaller, a little larger or far past the end (the server then answers 416)."""
+    blob = build_zip(MEMBERS, zip64=True)
+    with serve(blob) as (url, h):
+        with pytest.raises(D.ZipMemberError, match=rf"reports {len(blob)} bytes, not the {len(blob) + delta} bytes"):
+            D.zip_index(url, zip_size=len(blob) + delta)
+
+
+@pytest.mark.parametrize("zip64", [True, False])
+def test_bytes_after_the_end_record_are_accepted(tmp_path, zip64):
+    blob = build_zip(MEMBERS, zip64=zip64) + b"\x00" * 16
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:                       # Python's zipfile reads it too
+        assert zf.read("folder/text.txt") == TEXT
+    with serve(blob) as (url, h):
+        assert D.fetch_zip_member(url, "folder/text.txt", tmp_path / "t.txt").read_bytes() == TEXT
+
+
+def test_an_oversized_central_directory_is_refused(monkeypatch):
+    blob = build_zip(MEMBERS, zip64=True)
+    monkeypatch.setattr(D, "MAX_CENTRAL_DIRECTORY", 100)
+    with serve(blob) as (url, h):
+        with pytest.raises(D.ZipMemberError, match="more than the 100 this reader holds in memory"):
+            D.zip_index(url)
+
+
+def test_bz2_is_imported_only_to_inflate_a_bzip2_member():
+    """A Python built without _bz2 still imports datafetch, which the pack model path and pack status use."""
+    tree = ast.parse(Path(D.__file__).read_text(encoding="utf-8"))
+    top = {a.name for node in tree.body if isinstance(node, ast.Import) for a in node.names}
+    top |= {node.module for node in tree.body if isinstance(node, ast.ImportFrom) and node.module}
+    assert "bz2" not in top
 
 
 @pytest.mark.parametrize("method, name", [(9, "deflate64"), (14, "LZMA"), (93, "zstd")])

@@ -1,10 +1,12 @@
 """`germquant pack fetch-example`, germquant.packs.fetch_example and api.fetch_example (design 3.3, 3.9, 3.13 and 6.9;
 package P3): a pack's real example is fetched from a local stand-in server (plain files, and one member of a zip
 read with HTTP Range requests), checked by size and sha256, assembled into one OME-TIFF and checked by
-pixels_sha256; a second call downloads nothing; a wrong digest is refused and nothing wrong is kept; the
-torch-free entry `python -m germquant.packs fetch-example` loads no torch, CuPy, SpotMAX or Cellpose; malformed
-example specs make a pack unusable. Nothing leaves the machine: the specs name an https address that the tests
-map to the local server."""
+pixels_sha256; a second call downloads nothing; a pack fix of the channel names or voxel size for the same pixels
+reaches an image fetched before, and a record that no longer matches the pack is rewritten; a wrong digest is
+refused and nothing wrong is kept; an unusable pack fetches nothing (no path built from its fields escapes the
+examples folder), and an examples folder inside a pack root is refused; the torch-free entry `python -m
+germquant.packs fetch-example` loads no torch, CuPy, SpotMAX or Cellpose; malformed example specs make a pack
+unusable. Nothing leaves the machine: the specs name an https address that the tests map to the local server."""
 from __future__ import annotations
 
 import hashlib
@@ -115,7 +117,9 @@ def remote(tmp_path, monkeypatch, pack_env):  # noqa: F811
                 "sources": [{"path": rel, "size": len(files[rel]), "sha256": _sha(files[rel])}
                             for rel in ("set/x_dna.tif", "set/x_foci.tif")],
                 "assemble": {"axes": "ZYX", "channels": ["DAPI", "foci"], "spacing_zyx_um": SP, "crop": {"y": [2, 30]}},
-                "pixels_sha256": pixels_sha256(data), "licence": "CC0", "attribution": "stand-in data, test only",
+                "pixels_sha256": pixels_sha256(data), "licence": "CC0", "licence_spdx": "CC0-1.0",
+                "licence_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+                "attribution": "stand-in data, test only",
                 "expect": {"n_objects": [1, 9], "spots_per_object": [0.5, 3.0]}}
         spec.update(over)
         return spec
@@ -165,6 +169,10 @@ def test_fetch_assemble_record_and_a_second_call_downloads_nothing(remote):
     assert img["pixels_sha256"] == rec["pixels_sha256"]
     record = json.loads((remote.out / "fetch_pack" / "planes" / "planes.json").read_text(encoding="ascii"))
     assert record["licence"] == "CC0" and record["attribution"] == "stand-in data, test only"
+    assert record["licence_spdx"] == "CC0-1.0" and record["licence_url"].startswith("https://creativecommons.org/")
+    assert record["changes"] == ("files x_dna.tif, x_foci.tif stacked as channels; pages read with the declared axes "
+                                 "ZYX; cropped to y [2, 30); channels named DAPI, foci; voxel size 0.5 x 0.2 x 0.2 um "
+                                 "recorded; written as a zlib-compressed OME-TIFF by germquant assemble")
     assert [s["status"] for s in record["sources"]] == ["downloaded", "downloaded"]
     assert record["shape_czyx"] == [2, 6, 28, 40] and record["crop"] == {"y": [2, 30]}
     n_requests = len(remote.log)
@@ -186,7 +194,71 @@ def test_fetch_assemble_record_and_a_second_call_downloads_nothing(remote):
     img2 = read_ome_tiff(rec2["image"])
     assert img2["channel_names"] == ["53BP1", "foci", "DAPI"]
     assert np.array_equal(img2["data"], np.moveaxis(remote.rgb, -1, 0))
+    rec2_json = json.loads((remote.out / "fetch_pack" / "member" / "member.json").read_text(encoding="ascii"))
+    assert rec2_json["changes"].startswith("member valid/data_001.tif read out of the archive archive.zip; pages read "
+                                           "with the declared axes ZYXC; channels named 53BP1, foci, DAPI")
     assert api.fetch_example is packs.fetch_example and "fetch_example" in api.__all__
+
+
+def test_a_pack_fix_of_names_or_voxel_size_reaches_an_image_fetched_before(remote):
+    """Same pixels, other channel names and voxel size in a later pack version: the image fetched before is written
+    again from its pixels (nothing downloaded, the sources may be gone) and its record is rewritten; a record of an
+    older pack version is rewritten even when the image needs nothing."""
+    pack = remote.make(remote.planes())
+    assert packs.fetch_example(pack, "planes", remote.out)["status"] == "fetched"
+    folder = remote.out / "fetch_pack" / "planes"
+    for f in (folder / "source").iterdir():
+        f.unlink()
+    n_requests = len(remote.log)
+    fixed = remote.planes()
+    fixed["assemble"] = {**fixed["assemble"], "channels": ["Hoechst", "puncta"], "spacing_zyx_um": [0.4, 0.2, 0.2]}
+    pack2 = remote.make(fixed)
+    rec = packs.fetch_example(pack2, "planes", remote.out)
+    assert rec["status"] == "fetched" and len(remote.log) == n_requests                   # nothing downloaded
+    img = read_ome_tiff(folder / "planes.ome.tif")
+    assert img["channel_names"] == ["Hoechst", "puncta"] and img["spacing_zyx_um"] == pytest.approx([0.4, 0.2, 0.2])
+    assert img["pixels_sha256"] == fixed["pixels_sha256"]
+    record = json.loads((folder / "planes.json").read_text(encoding="ascii"))
+    assert record["channel_names"] == ["Hoechst", "puncta"] and record["spacing_zyx_um"] == pytest.approx([0.4, 0.2, 0.2])
+    assert [s["status"] for s in record["sources"]] == ["downloaded", "downloaded"]      # the sources' history kept
+    assert packs.fetch_example(pack2, "planes", remote.out)["status"] == "present"       # now current
+    written = record["written_at"]
+    bumped = remote.make(fixed)                                                          # a new pack version
+    data = yaml.safe_load((bumped.folder / "pack.yaml").read_text(encoding="ascii"))
+    data["version"] = "0.1.1"
+    (bumped.folder / "pack.yaml").write_bytes(yaml.safe_dump(data, sort_keys=False).encode("ascii"))
+    packs.write_sums(bumped.folder)
+    packs.refresh()
+    rec3 = packs.fetch_example(packs.load_pack(bumped.folder), "planes", remote.out)
+    assert rec3["status"] == "present" and len(remote.log) == n_requests
+    record3 = json.loads((folder / "planes.json").read_text(encoding="ascii"))
+    assert record3["version"] == "0.1.1" and (record3["written_at"] >= written)
+
+
+def test_an_unusable_pack_fetches_nothing_and_no_path_escapes(remote, tmp_path):
+    """An example id that breaks its pattern ('../../escaped') makes the pack unusable; fetch_example on its folder
+    raises before any path is built from it, so nothing is written outside the examples folder."""
+    bad = remote.planes(id="../../escaped")
+    pack_dir = tmp_path / "loose" / "fetch_pack"
+    copy_pack(TEST_PACK, pack_dir, edit=lambda d: d.update(id="fetch_pack", examples=[*d["examples"], bad]))
+    p = packs.load_pack(pack_dir)
+    assert any("id does not match" in x for x in p.problems)
+    out = tmp_path / "work" / "out"
+    with pytest.raises(packs.ExampleError, match="unusable"):
+        packs.fetch_example(pack_dir, "../../escaped", out)
+    assert not (tmp_path / "work" / "escaped.ome.tif").exists() and not (tmp_path / "work").exists()
+    with pytest.raises(packs.PackFormatError, match="unusable"):                    # the model fetcher as well
+        packs.fetch_pack_models(pack_dir)
+
+
+def test_an_examples_folder_inside_a_pack_root_is_refused(remote):
+    pack = remote.make(remote.planes())
+    for inside in (pack.folder / "fetched", pack.folder.parent, ROOT / "packs" / "fetched_here",
+                   ROOT / "tests" / "fixtures" / "packs" / "x"):
+        with pytest.raises(packs.ExampleError, match="never go into a pack folder"):
+            packs.fetch_example(pack, "planes", inside)
+    assert not (pack.folder / "fetched").exists() and not (ROOT / "packs" / "fetched_here").exists()
+    assert cli_packs.main(["fetch-example", "fetch_pack", "--example", "planes", "--out", str(pack.folder)]) == 1
 
 
 def test_the_default_example_is_the_first_real_one_and_a_local_one_is_in_the_pack(remote):
@@ -239,10 +311,18 @@ def test_fetch_example_command_and_its_torch_free_entry(remote, capsys):
     assert (remote.out / "fresh" / "fetch_pack" / "planes" / "planes.ome.tif").is_file()
 
 
-def test_a_loopback_address_serves_tests_and_lint_refuses_it(remote, monkeypatch):
-    """Plain http to this machine is accepted, so a stand-in server works across processes (the plugin's runner
-    tests); `pack lint` refuses it in a pack meant for others, and any other http address is refused outright."""
+def test_a_loopback_address_serves_tests_only_when_allowed_and_lint_refuses_it(remote, monkeypatch):
+    """Plain http to this machine is accepted only while $GERMQUANT_ALLOW_LOOPBACK_EXAMPLES is 1, so a stand-in server
+    works across processes (the plugin's runner tests) while an installed pack cannot point fetch-example at services
+    on the user's machine; `pack lint` refuses it in any case, and any other http address is refused outright."""
     monkeypatch.setattr(E, "source_url", REAL_SOURCE_URL)
+    monkeypatch.delenv(E.ALLOW_LOOPBACK_ENV, raising=False)
+    refused = packs.validate_manifest({**yaml.safe_load((TEST_PACK / "pack.yaml").read_text(encoding="ascii")),
+                                       "examples": [remote.planes(base_url=remote.base)]})
+    assert any("must be an https:// address" in p and E.ALLOW_LOOPBACK_ENV in p for p in refused), refused
+    with pytest.raises(FileNotFoundError):                    # unusable, so discovery does not offer it
+        remote.make(remote.planes(base_url=remote.base))
+    monkeypatch.setenv(E.ALLOW_LOOPBACK_ENV, "1")
     pack = remote.make(remote.planes(base_url=remote.base))
     assert pack.problems == [] and E.is_loopback_url(remote.base)
     assert packs.fetch_example(pack, "planes", remote.out)["status"] == "fetched"
@@ -279,6 +359,19 @@ def test_check_expect(tmp_path):
     (lambda s: s.update(recipe="nope"), "recipe 'nope' is not a recipe of the pack"),
     (lambda s: s.update(image="example/x.ome.tif"), "either image"),
     (lambda s: s.update(id="Bad-Id"), "id does not match"),
+    # YAML reads an unquoted value of digits only as a number: refused, with the fix
+    (lambda s: s["sources"][0].update(member="valid/data.tif", crc32=78066861), "crc32 must be 8 lowercase hex digits "
+                                                                                 "in quotes"),
+    (lambda s: s["sources"][0].update(sha256=int("1" * 64)), "quote it"),
+    (lambda s: s.update(pixels_sha256=int("2" * 64)), "pixels_sha256 must be 64 lowercase hex digits in quotes"),
+    # saved file names: plain, unique (ignoring case), never a device name or a partial file's name
+    (lambda s: s["sources"][1].update(path="other/X_DNA.TIF"), "save under the same file name"),
+    (lambda s: s["sources"][0].update(path="."), "not a plain file name"),
+    (lambda s: s["sources"][0].update(path="archive.zip", member="dir/file.tif:stream"), "not a plain file name"),
+    (lambda s: s["sources"][0].update(path="set/CON"), "a Windows device name"),
+    (lambda s: s["sources"][0].update(path="set/x.tif.part"), "partial files"),
+    (lambda s: s.update(licence_url="http://creativecommons.org/publicdomain/zero/1.0/"), "licence_url"),
+    (lambda s: s.update(licence_spdx="CC BY 4.0"), "licence_spdx 'CC BY 4.0' must be an SPDX licence id"),
 ])
 def test_malformed_example_specs_make_the_pack_unusable(remote, change, needle):
     spec = remote.planes()

@@ -175,16 +175,29 @@ gonads are built inside the fixtures.
     goldens pass with an empty model store, an edit of a `pack_base.yaml` fails them, edits of a scratch
     copy of generic.yaml and config.yaml move no outside pack hash, a misspelt key in a `pack_base.yaml` fails
     lint, and a stack without a transmitted channel fails the yeast recipe with the require_channel message;
-    the cards say what is provisional and which scale effect_size is on;
+    the cards say what is provisional and which scale effect_size is on; the yeast golden sees its own spot
+    threshold and smallest-cell gate (scratch copies with effect_size_min 4 or min_area_um2 1 fail on the
+    tables); lint asks for require_channel and a current recipe golden, a permissive data licence on every
+    real example, and keeps large files and stray TIFFs out of a pack; `pack golden` fails a recipe without
+    its golden and exits 1 when none ran; every CITATION.cff has the fields CFF 1.2.0 requires; a frozen base is
+    never rewritten silently; the cpsam comparison script refuses a device other than the one asked for;
   - `test_datafetch_zip.py`: one member of a remote zip by HTTP Range requests (classic and ZIP64 archives
     written by hand and by Python's zipfile; stored, deflated and bzip2 members), size, sha256 and CRC-32
-    refusals, resume after a broken transfer, deflate64, LZMA, zstd and encrypted members refused with the
-    method named, and a server that ignores Range refused;
+    refusals, resume after a broken transfer (stored and deflated members), deflate64, LZMA, zstd and
+    encrypted members refused with the method named, a server that ignores Range refused, sizes that cannot be
+    right refused before any member data is requested, a deflate or bzip2 bomb stopped one byte past the
+    recorded size, a pinned zip_size the server contradicts named, an oversized central directory refused, and
+    bytes after the end record accepted;
   - `test_assemble.py`: `germquant assemble` and germquant.assemble (per-channel files, a single plane,
     channels as samples like DeepFoci, channels alternating page by page, crops, refusals) and pixels_sha256;
+    a declaration that contradicts a file's own ImageJ axes is refused unless forced, and the output never
+    replaces an input;
   - `test_pack_examples.py`: `pack fetch-example` against a local stand-in server (plain files and a zip
-    member), the record beside the image, nothing downloaded twice, wrong pins refused with nothing wrong
-    kept, the torch-free entry in a fresh interpreter, `check_expect`, and the example-spec rules.
+    member), the record beside the image (licence address and what was changed), nothing downloaded twice, a
+    pack fix of channel names or voxel size reaching an image fetched before, wrong pins refused with nothing
+    wrong kept, an unusable pack fetching nothing, an examples folder inside a pack root refused, loopback
+    addresses only with `$GERMQUANT_ALLOW_LOOPBACK_EXAMPLES`, the torch-free entry in a fresh interpreter,
+    `check_expect`, and the example-spec rules (quoted digests, plain and unique source names).
 
 ## Markers
 
