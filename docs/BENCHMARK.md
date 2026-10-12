@@ -2077,7 +2077,11 @@ statistics export, 20251105_n2_hs_MALE_3.xlsx (15,512,227 bytes, sha256 0fbc41b7
 spots (Class A 6,497, B 1,131) at constant diameter, each within 0.0013 um of one of the saved candidates, and the
 same 64 surfaces. It is an earlier curated export of the same project, not a re-export, so it is recorded beside the
 split (`tests/golden/rad51_spot_sources.json`, pinned in code by name, size and sha256) and the split, the roles and
-the registered nucleus truth stay as they are.
+the registered nucleus truth stay as they are. Entry 12 (e) qualifies this: "curated" is inferred from the
+thresholded, classified subset; the Quality threshold of the 7,628 and the settings the export was made with are
+recorded nowhere (constant diameter means no region-grown sizes, not how the export was made); and the .ims was
+saved again on 2026-01-21, after the export. Entry 12 (a) adds that under the criteria entry 9 (e) declared for this
+file the export would have failed V3 on volume, so the criteria of entry 11 decide its spot truth post hoc.
 
 **The rebuilt truth** (`germquant imaris-truth --spot-source`; docs/IMARIS_TRUTH.md, "The recorded earlier export";
 files in `germquant_golden/imaris_truth_spot_sources/n2rad51_HS_male_000/`, logs in `$B/entry11/logs`):
@@ -2086,15 +2090,15 @@ files in `germquant_golden/imaris_truth_spot_sources/n2rad51_HS_male_000/`, logs
 |---|---|
 | frame (entry 9 (d)(3)) on the .ims's 772,485 spots | stored frame; spot channel 1.0 (strict 0.99957), mask channel 1.0 |
 | E1 sha256 / E2 Overall totals and classes | pinned digest; 7,628 spots, 64 surfaces, A 6,497, B 1,131 |
-| E3 surfaces against the .ims | 64 of 64 by ID; position within 0.0011 um; volume within 0.00050 um^3; mask Intensity Max equal |
+| E3 surfaces against the .ims (position within 0.005 um; volume within 0.0005 um^3 plus two float32 steps) | 64 of 64 by ID; position at most 0.00104 um; volume at most 0.000492 um^3 (1.86e-5 relative); mask Intensity Max equal |
 | E4 inside the image / E5 Intensity Center on the export's values | all inside / the stored frame, as for the .ims spots |
-| E6 spot diameter | 0.4 x 0.4 x 0.9 um for every spot (region growing off) |
-| E7 position match to the .ims spots | one to one, at most 0.0013 um, next nearest at least 0.30 um; no ID in common |
-| E8 classes (4.11504 um on the 3-neighbour distance) | 6,497 and 1,131 from the unrounded distances; the export's 3-decimal values give 6,498 and 1,130 |
-| E9 mask label | export and .ims equal for 7,628 of 7,628 |
+| E6 spot diameter (within 1e-6 um) | 0.4 x 0.4 x 0.9 um for every spot (at most 2.4e-8 um off): no region-grown sizes; the export's settings are not recorded (entry 12 (e)) |
+| E7 position match to the .ims spots (within 0.005 um, one to one) | one to one, at most 0.0013 um, next nearest at least 0.30 um; no ID in common |
+| E8 classes (4.11504 um on the 3-neighbour distance) | 6,497 and 1,131 from the distances recomputed from the matched .ims positions (not the export's values unrounded: they differ from the written values by -0.00097 to +0.00059 um); the export's 3-decimal values give 6,498 and 1,130. Spot by spot (entry 12 (g)): one written value within half a digit of the threshold, which the Overall counts make Class B; the forced classes equal the truth's for 7,628 of 7,628 |
+| E9 mask label | export and .ims equal for 7,628 of 7,628 (the independent check of the coloc value) |
 | E10 and section 4.4 (`check_truth_assignment.py --spot-sources`) | 0.9967 (7,603 of 7,628): coloc only 5, two nuclei 0, on an unclaimed value 20; like for like 0.9993 |
 | nucleus truth against the registered export | nuclei table byte-identical; label image equal voxel for voxel |
-| export's coloc join against the truth spots | equal on 64 of 64 surfaces (against the geometric count on 58; mean absolute difference 0.56) |
+| export's coloc join against the truth spots | equal on 64 of 64 surfaces, a self-comparison: the truth's mask label is the export's Intensity Max (entry 12 (h)); E9 is the independent check. Against the geometric count: equal on 58, mean absolute difference 0.56 |
 
 Section 4.4 is above the 99.35 percent minimum as declared, so no decision was needed for n2rad51_HS_male_000; the
 like-for-like number is reported only.
@@ -2107,9 +2111,38 @@ it, n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002; n2rad51_HS_male
 passes its checks); the substitutes and the val gonads do not change. net3d trains on the recipe's gonads, then
 n2rad51_HS_male_000, then the additions in record order (`bench_logo.py` `fold_training_order`).
 
+### Entry 12: corrections to entry 11, the gate, and a tighter spot source (2026-10-12)
+
+Post hoc under rule 3 (protocol changelog entry 12 gives the details). What changes for the revision:
+
+* **n2rad51_HS_male_000's criteria are post hoc.** Under the criteria entry 9 (e) declared for this export it would
+  have failed V3 on volume (1.86e-5 relative against 1e-5) and been nucleus truth only, with no classes. Entry 11's
+  E1 to E10 were chosen after the file was examined. This goes to the project lead in one line; the revision does
+  not wait for his answer, and if he does not confirm, a later entry removes this spot truth and the steps that used
+  it run again before any test scoring.
+* **The gate.** What was put to him: "If you can do it today, the retraining runs once with all the heat-shocked
+  males. If not, I go ahead without it." Step 4 waits for the re-export of n2rad51_HS_male_002 only if it arrives on
+  2026-10-12; otherwise it runs with nine folds, and the re-export comes in later as a further declared revision.
+* **Seal deviations.** Entry 11 counted one. There were three: the decision-1 content check (11:15 to 11:31 MDT)
+  parsed the MALE_2 and MALE_3 exports and opened two train .ims without the guards; the entry-11 probes (14:11 to
+  14:16 MDT) opened MALE_3 before the guard admitted it; and the printed manifest records. No test-gonad, MALE_1 or
+  aggregate file was read.
+* **Code** (commit 2bd58f8): the pinned export must also have its pinned sha256 before anything parses it; the .ims
+  must have the size and sha256 the source records (E1); `--spot-source` checks the record against the split; E8
+  checks the classes spot by spot against the export's written distances and Overall counts; the two records' tests
+  pin the split digests they were made against, so the re-export no longer breaks them.
+* **The rerun check** (2bd58f8, 15:39 to 15:40 MDT, `$B/entry12/rerun_check`, logs in `$B/entry12/logs`): all ten
+  criteria pass; spots, nuclei and ID map byte-identical to entry 11's, the label image equal voxel for voxel; the
+  params differ only by the new fields (E1's .ims digest 1f8df1b3..., equal to the recorded one; E8 per spot, one
+  ambiguous written value resolved to Class B, 7,628 of 7,628 equal) and reworded text. No number changes, and the
+  truth folder of entry 11 stays the one the manifest names.
+
 ### The revision plan (commands, order, compute)
 
-Run from a checkout of the entry-9 commit, PowerShell, the repository's environment active. `$G` is
+Steps 1 and 1b were run at the commits they name. Run the rest from a clean checkout of a commit that holds
+protocol changelog entry 12 (the commit of this text or later; steps 1b to 4 need the code of entries 11 and 12), so
+that every trial record carries the sha of a commit that holds the entry, in PowerShell with the repository's
+environment active. `$G` is
 `C:/Users/ryane/germquant_golden`, `$B` is `$G/benchmarks/n2rad51_8666f07`, `$E` is `$B/entry9`, `$D` is
 `C:/Users/ryane/n2_rad51_hs_2026`, `$A` is `tests/golden/rad51_additions.json`.
 
@@ -2172,12 +2205,23 @@ python scripts/bench_cache.py --manifest $B/manifest_entry9.json --additions $A 
 python scripts/bench_reproduce_golden.py --manifest $B/manifest_entry9.json --tags $ADD --out $E/reproduce_golden.json
 ```
 
-4. The revision (entry 9 (g) and (h)), after entries 10 and 11 and after the re-export of n2rad51_HS_male_002
-   (the project lead's "okay i will re export"; entry 11 (g)), so that it runs once on the final folds: the
-   re-export enters by the path of protocol section 4.1 and entry 10 (g)(8) (a new size and sha256 in the split
-   record, its pinned digests and a changelog entry, then its truth export with `--frame-check`, section 4.4 and the
-   checks of entry 9 (d)(5), and the manifest of step 3 again), and step 4 runs after it. If the project lead says
-   to go on without it, step 4 runs as written, with n2rad51_HS_male_002 excluded. Every run appends to
+4. The revision (entry 9 (g) and (h)), after entries 10 to 12. It waits for the re-export of n2rad51_HS_male_002
+   only if the re-export arrives on 2026-10-12, which is what was put to the project lead ("If you can do it today,
+   the retraining runs once with all the heat-shocked males. If not, I go ahead without it."; his reply "okay i
+   will re export" names no day; entry 12 (c), which replaces the gate of entry 11 (g)). Otherwise step 4 runs as
+   written with nine folds, n2rad51_HS_male_002 excluded, and the re-export enters afterwards as a further declared
+   development revision before test scoring (entry 10 (g)(8)). The re-export enters by the path of protocol section
+   4.1 and entries 10 (g)(8) and 12 (d), in one commit with its changelog entry: `tests/golden/rad51_split.json`
+   (the new size and sha256, `region_growing` from its creation parameters) and the pinned digests
+   `REGISTERED_SPLIT_SHA256` and `REGISTERED_SPLIT_SHA256_LF` (`benchmark_split.py`). The additions record and the
+   spot-sources record (`tests/golden/rad51_additions.json`, `tests/golden/rad51_spot_sources.json`) stay as
+   committed: they record the split they were made against, and `tests/test_rad51_additions.py` and
+   `tests/test_rad51_spot_sources.py` pin those historical digests and check the roles live. Then its truth export
+   with `--frame-check`, section 4.4 and the checks of entry 9 (d)(5), and the manifest of step 3 again, whose
+   equality check against `manifest.json` must then also leave out n2rad51_HS_male_002's `ims_record` and the keys
+   its new truth sets. Step 4 then runs on ten folds. n2rad51_HS_male_000's spot truth is in step 4 while the
+   project lead's answer to entry 12 (a) is pending; if he does not confirm it, a later entry removes it and the
+   steps that used it run again before any test scoring. Every run appends to
    `$B/trials.jsonl` (next to both manifests). `$USE` lists the additions whose `spot_truth_usable` is true in the
    manifest rebuilt in step 3 (with the decisions of entries 10 and 11, n2rad51_20260105a_HS_male_001 and _002;
    step 3 caches all four, since caches and nucleus truth do not depend on it); `$NEW` lists every train gonad with
@@ -2217,9 +2261,10 @@ python $G/gpu_lock.py run --name "entry 9: net3d train plus val" -- germquant tr
 python scripts/bench_logo.py --manifest $M report --heldout net3d=$E/logo/heldout/net3d log_tuned=$E/logo/heldout/log_tuned log_defaults=$E/logo/heldout/log_defaults spotmax_deployed=$E/logo/heldout/spotmax_deployed spotmax_grid=$E/logo/heldout/spotmax_grid --out $E/logo/report
 ```
 
-Then the results entry of the revision (entry 12 or later, after the entry that brings in the re-export of
-n2rad51_HS_male_002): the new folds, the new net3d sha256 and, if written, `log_tuned_entry9.json`; and decision 1
-goes back to the project lead with the questions of entry 10 that are still open.
+Then the results entry of the revision (entry 13 or later; after the entry that brings in the re-export of
+n2rad51_HS_male_002 when it arrived on 2026-10-12, before it otherwise): the new folds, the new net3d sha256 and, if
+written, `log_tuned_entry9.json`; and decision 1 goes back to the project lead with the questions of entries 10 and
+12 that are still open.
 
 Compute, RTX 5090 plus the CPU: about one working day, 3.5 h of it GPU-bound (the pipeline 2.2 to 2.7 h, net3d 50 to
 60 min) and 3 to 7 h of CPU (truth exports under 1 h, caches 5 min, the log sets 1 to 4 h, SpotMAX held-out runs 40

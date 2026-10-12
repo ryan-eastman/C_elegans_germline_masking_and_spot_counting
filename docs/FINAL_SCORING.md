@@ -82,6 +82,21 @@ without it if he says so. In the template of section 4.2 the net3d brackets then
 gonads, seven or eight of them registered and two additions. Still open: the option of this decision (no test gonad
 is scored until he confirms one), and questions (b) and (c) above.
 
+Status (2026-10-12, protocol changelog entry 12, which corrects entry 11 and the status line above):
+n2rad51_HS_male_000's spot truth is post hoc under rule 3 (entry 11), like n2rad51_20260105a_HS_male_001's. The
+export's 7,628 spots are at a constant estimated diameter, that is, without region-grown sizes; "region growing off"
+and "curated" above are inferences (the settings the export was made with and its Quality threshold are recorded
+nowhere, and the .ims was saved again on 2026-01-21, after the export). Under the criteria entry 9 (e) declared for
+this file, the export fails V3 on volume and n2rad51_HS_male_000 would be nucleus truth only, with no per-spot
+classes; entry 11 replaced those criteria after the file had been examined. That is put to the project lead with
+this decision; until he answers, n2rad51_HS_male_000 keeps its spot truth, and if he does not confirm it, a later
+entry makes it nucleus truth only and the steps of the revision that used it run again before any test scoring. The
+gate of the revision replaces "or run without it if he says so" above with what was put to him ("If you can do it
+today, the retraining runs once with all the heat-shocked males. If not, I go ahead without it."): the steps that
+use spot truth wait for the re-export of n2rad51_HS_male_002 only if it arrives on 2026-10-12; otherwise they run
+with nine folds without it, and the re-export enters afterwards as a further declared development revision before
+test scoring (entry 10 (g)(8)).
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not
@@ -271,6 +286,9 @@ python -c "import json; m = json.load(open(r'C:/Users/ryane/germquant_golden/866
 python -c "from germquant.provenance import file_sha256; print(file_sha256(r'C:/Users/ryane/germquant_golden/models/net3d_trainval_20261010/model.pt'))"
 # the additions of protocol changelog entry 9 are the recorded files (must print [])
 python -c "from germquant.validate import benchmark_split as bs; print(bs.check_addition_files(bs.load_additions('tests/golden/rad51_additions.json'), hashes=True))"
+# the recorded spot source of protocol changelog entry 11 (n2rad51_HS_male_000's 2025-12-31 export, on which the
+# train-plus-val net3d depends) is the pinned file, checked against the split (must print [])
+python -c "from germquant.validate import benchmark_split as bs; print(bs.check_spot_source_files(bs.load_spot_sources('tests/golden/rad51_spot_sources.json', bs.load_split('tests/golden/rad51_split.json')), hashes=True))"
 # the parameter files are the frozen ones (sha256 as in section 2; Get-FileHash prints them in upper case):
 # spotmax_retuned_grid.json, the grid selection of decision 2, is 919C4AB5... (protocol changelog entry 8)
 Get-FileHash -Algorithm SHA256 C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/*.json
@@ -307,9 +325,12 @@ Append to section 11 of docs/BENCHMARK_PROTOCOL.md (fill the brackets), then com
 > (section 10); tuned log (backend log,
 > params file sha256 [3a65e844..., or that of log_tuned_entry9.json; post hoc, protocol changelog entry 9, when
 > log_tuned_entry9.json replaces log_tuned.json]); net3d (backend net3d, model.pt sha256
-> [sha256], the frozen recipe of net3d_20261010 retrained on the [seven to nine] train and val gonads with usable
-> spot truth ([six] registered, [one to three] additions of entry 9, as the decisions file of entry 10 and any later
-> entry keeps them); post hoc, protocol changelog entry 9). Decisions 1 to 5 of docs/FINAL_SCORING.md: [one line
+> [sha256], the frozen recipe of net3d_20261010 retrained on the [nine or ten] train and val gonads with usable
+> spot truth ([seven or eight] registered: the six with spot truth from their .ims, n2rad51_HS_male_000 by the
+> recorded export of entry 11 (`tests/golden/rad51_spot_sources.json`, sha256 [8e145fb1...]; its criteria post hoc,
+> entry 12 (a))[, n2rad51_HS_male_002 by its re-export of entry N]; [two] additions of entry 9, as the decisions
+> file of entries 10 and 11 and any later entry keeps them); post hoc, protocol changelog entries 9, 11 and 12).
+> Decisions 1 to 5 of docs/FINAL_SCORING.md: [one line
 > each]. No test result has been computed at this point.
 
 ### 4.3 SpotMAX deployed

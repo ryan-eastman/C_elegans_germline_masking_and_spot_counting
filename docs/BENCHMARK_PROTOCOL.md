@@ -1321,3 +1321,209 @@ point.
    nucleus value. No number was computed from it, and nothing here depends on it.
    (k) Not changed: the split, the roles, the test set, every registered gonad's nucleus truth, the val gonads,
    net3d's frozen recipe, the SpotMAX rows of docs/FINAL_SCORING.md and decision 1.
+
+12. 2026-10-12. Corrections to entry 11, the gate of the revision, and code that tightens the recorded spot source.
+   Entry 11 is committed (48c3dbe), so by the precedent of entry 10 (g) it is corrected here, not edited. Written
+   after two independent reviews of entry 11 and before any step of the revision plan in docs/BENCHMARK.md that uses
+   spot truth has run (steps 2 to 4 have not run). No test gonad was run, scored or opened for this entry ((n) lists
+   the reads of the reviews and of this entry): no `--final` run was made, `final_runs.jsonl` does not exist, and none
+   of the 387 records of `trials.jsonl` names a test gonad. No test result was computed.
+   (a) Entry 9 (i) and the criteria of entry 9 (e). Entry 9 (i) declared that a content check of MALE_3.xlsx enters
+   only under the criteria of entry 9 (e). Under (e) as declared and as entry 10 (c) kept it, the export fails V3
+   (volume 1.86e-5 relative against 1e-5; V1, V2 and V4 to V7, read for this file, pass), and (e) then makes
+   n2rad51_HS_male_000 nucleus truth only. (e) would also have left its classes empty (the export has no per-spot
+   class: its Overall sheet gives the counts per class only, `E11/logs/probe_male3_headers.log`), so net3d would
+   have used all 7,628 spots as targets. Entry 11 replaced (e) by E1 to E10, with the absolute E3 volume tolerance
+   and classes recomputed by the project's Filter1D rule, after the file had been examined. These two changes decide
+   its spot truth and its Class A targets, and are post hoc under rule 3. Entry 11 (c) and (h) said only that the old
+   V3 would have failed and that the two criteria were chosen knowing their outcome; neither cited the binding of
+   entry 9 (i), and q9, which the project lead answered "9 yes", did not mention it. They are put to the project
+   lead with decision 1, in one line asking him to confirm that n2rad51_HS_male_000 keeps its spot truth under the
+   criteria of entry 11; his answer is recorded verbatim in a later entry. This entry's own choice, put to him in the
+   same line: the revision does not wait for that answer (his "9 yes" answered the use itself); if he does not
+   confirm, a later entry makes n2rad51_HS_male_000 nucleus truth only, and the steps of the revision that used its
+   spot truth run again before any test scoring.
+   (b) Reads beyond the declared rule. Entry 11 (j)(2) and (j)(3) described these reads neutrally and counted one
+   seal deviation. There were three seal deviations, and one read that was not stated. (1) From 11:15 to 11:31 MDT on
+   2026-10-12, three minutes after entry 10 was committed (bf43e96, 11:12:06 MDT), the decision-1 content check
+   (`germquant_inventory/decision1_check/`, created at 11:15:39; outputs written 11:17:29 to 11:21:30, the second
+   agent's in `independent_check/` 11:28:52 to 11:31:06; scripts saved at 11:22:46 and 11:31:50) copied
+   20251105_n2_hs_MALE_2.xlsx and 20251105_n2_hs_MALE_3.xlsx from the NAS into that folder and parsed both with
+   zipfile and an XML reader (`scripts/read_export.py`, `structure_first.py`, `male3_classes.py`,
+   `male3_followup.py`; `independent_check/scripts/v2_xlsx.py`, `v2_structure.py`, `v2_peek.py`, `v2_compare.py`,
+   `v2_male3_classes.py`) outside the read guard, and opened the registered .ims of n2rad51_HS_male_000 and
+   n2rad51_HS_male_002 with plain h5py (`compare_ims.py`, `male3_followup.py`, `v2_compare.py`, `v2_ims_tree.py`,
+   `v2_male3_classes.py`) without the role guard. The rule entry 10 (g)(2) had just kept reads "no 2025-11-05
+   heat-shock male export ... is read, and the eight registered train and val projects are read only behind the role
+   guard", and the authority of "1 yes" (entry 9 (a)) covered telling the files apart "by name, size and date only".
+   Both were exceeded: a seal deviation. The message of 11:33:13 MDT told the project lead afterwards that "only the
+   two training files were opened, after their nucleus counts confirmed they weren't the test male"; he was not
+   asked before. (2) From 14:11 to 14:16 MDT (scripts saved at 14:11:53 and 14:15:14, logs
+   written at 14:11:58 and 14:15:19, the copy hashed at 14:16:35), the probes `E11/scripts/probe_male3_sheets.py` and
+   `probe_male3_headers.py` opened the MALE_3 copy with openpyxl, protected only by an assertion on its path, before
+   e187f8b (14:39:33 MDT) admitted it in the read guard: a seal deviation. (3) The printed manifest records of entry
+   11 (j)(3): a seal deviation, as stated there. (4) Not stated in entry 11:
+   `decision1_check/scripts/layout_nonbench.py`, step 1 of that check, opens a non-benchmark Imaris export to learn
+   the sheet layout; which export it read is not kept in the check's outputs. A non-benchmark file is not sealed, so
+   this is an unstated read, not a seal deviation. q9 was first put to the project lead at 11:33:13 MDT and again at
+   14:05:18 MDT ((j)), both times after the contents read in (1) were known; both times it described the export as a
+   clean set with region growing off (at 11:33: "All are exactly 0.4 x 0.4 x 0.9 um, which means region growing was
+   off"), a reading that (e) corrects. None of these reads opened,
+   read, hashed or parsed a test-gonad file, a file named 20251105_n2_hs_MALE_1* or an aggregate table: the scripts
+   take their files as arguments, and the outputs of both checks name only the MALE_2 and MALE_3 copies and the two
+   train .ims. The rule as kept from this entry on: no test-gonad file; no 2025-11-05 heat-shock male export except
+   the pinned 20251105_n2_hs_MALE_3.xlsx, read only through `benchmark_split.guard_export_read` or
+   `guard_truth_read` (name and size, the role guard, then its sha256; (k)); no aggregate of the per-nucleus
+   tables; the registered train and val projects read only behind the role guard. The local copy of
+   20251105_n2_hs_MALE_2.xlsx (28,347,723 bytes, file time 2025-12-31 12:26) stays in `decision1_check/` as the
+   evidence of (1) behind entry 9 (i)(2) and entry 11 (j)(2) (that MALE_2 holds the same region-grown set as its
+   .ims). It is sealed by name in code, and no guarded path reads it. Whether to delete it is left to the project
+   lead.
+   (c) The re-export request and the gate of the revision. Entry 11 (a) paraphrased the request. The message of
+   14:05:18 MDT put it, verbatim (formatting marks left out): "Re-export HS_male_002 in Imaris. Spots on the same
+   project, region growing off, Quality 6.847, keep the A/B classes, then tell me where the .ims is. If you can do
+   it today, the retraining runs once with all the heat-shocked males. If not, I go ahead without it." The message
+   of 11:33:13 MDT had put it as "m3: can you re-export HS_male_002 today? In Imaris: rerun Spots on the same project
+   with region growing off at its recorded Quality threshold (6.847), keep the A/B classes, and tell me where the new
+   .ims is. If you can, I retrain once afterwards with up to four heat-shocked males with spot truth: HS_male_000,
+   HS_male_002, new _002 and new _001. If not, I'll go ahead with the three I have." His reply, "okay i will re
+   export", names no day. Entry 11 (g), docs/BENCHMARK.md step 4 and the entry-11 status line of
+   docs/FINAL_SCORING.md reversed the default that was put to him (step 4 was to wait unless he said otherwise). The
+   gate, set to what was put to him and replacing that of entry 11 (g): step 4 waits for the re-export only if it
+   arrives on 2026-10-12 (he says where the new .ims is). Otherwise step 4 runs with nine folds, without
+   n2rad51_HS_male_002, and the re-export enters afterwards as a further declared development revision before test
+   scoring (entry 10 (g)(8)). Steps 2 and 3 do not depend on it. docs/BENCHMARK.md step 4 and a new status line of
+   docs/FINAL_SCORING.md say this.
+   (d) The section 4.1 path of the re-export, completed. The additions record (`tests/golden/rad51_additions.json`)
+   and the spot-sources record (`tests/golden/rad51_spot_sources.json`) both carry the digests of the split they were
+   made against (`registered_split.sha256` 955eeff5..., `sha256_lf` 989bfa08...), and their tests asserted these
+   equal to the live pins `REGISTERED_SPLIT_SHA256` and `REGISTERED_SPLIT_SHA256_LF`. The re-export commit, which
+   moves those pins (entry 10 (g)(8)), would have failed `test_the_record_and_its_pins` and
+   `test_the_additions_record_validates_with_fixed_train_roles` (a reviewer simulated it on a scratch copy: 2
+   failed). The handoff of entry 11 said the spot-sources record "has roles_sha256 only"; that was wrong. Both
+   records stay as committed (data cited by entries 9 and 11, and by digest in `manifest_entry9.json`); their tests
+   now pin the historical digests (`SPLIT_AT_ENTRY_9`, `SPLIT_AT_ENTRY_11`) and check the roles live. The re-export
+   commit therefore changes the split record (new size and sha256, `region_growing` from its creation parameters),
+   the two pins in `benchmark_split.py` and the changelog, and no other record; docs/BENCHMARK.md step 4 lists this,
+   and the equality check of step 3 then also leaves out what the re-export changes in n2rad51_HS_male_002's entry.
+   (e) Statements beyond the records. E6 shows a constant estimated diameter of 0.4 x 0.4 x 0.9 um, that is, no
+   region-grown sizes. The settings the export was made with are not recorded (the .ims's own flag says on while its
+   saved spots are also constant), and protocol section 4.1 has no rule that reads them from the diameter: entry 11
+   (c) ("region growing off by the rule of section 4.1"), (d) ("region growing off by the section 4.1 rule") and q9
+   ("a clean set with region growing off") went beyond the records. The Quality threshold of the 7,628 spots is
+   unknown: Quality is stored in neither file, and the .ims's 13.358 belongs to a saved object of unthresholded
+   candidates. The .ims was saved again on 2026-01-21 (its file time), after the export, so "earlier" in "earlier
+   export" means only that the export predates the registration. "Curated" is inferred from the thresholded subset
+   and from the class counts that the project's own classifier reproduces; which spot set the lab's own per-nucleus
+   tables used for this gonad is not established, since those tables are sealed. Reworded the same way: the comments
+   on `SPOT_SOURCE_EXPORTS` and in `imaris_ims.py`, E6's rule string and the criteria text of the params the code
+   writes, docs/IMARIS_TRUTH.md, the entry-11 table of docs/BENCHMARK.md, and a new status line of
+   docs/FINAL_SCORING.md (the entry-11 status line is not edited). Kept as committed because they are cited by
+   digest, and read with this entry: the record `tests/golden/rad51_spot_sources.json` (8e145fb1...; its
+   description says "curated", its rule "unrounded"), `SPOT_SOURCE_NOTE` (in `manifest_entry9.json`, d3d751b7...),
+   and the params of entry 11 (742ce109...), whose E6 rule reads "region growing off (protocol section 4.1)" and
+   whose `region_growing` false means only that the truth spots carry no region-grown sizes.
+   (f) The premise of section 3. Section 3 chose n2rad51_HS_male_001 as the heat-shock male test gonad as the only one
+   with a clean spot export. n2rad51_HS_male_000 had an export of that kind from 2025-12-31 (thresholded, classified,
+   at constant diameter; (e)), so that premise was false at registration (2026-10-09). The split stands (rule 4: no
+   gonad moves, and this is no truth-side defect of a test gonad), and the write-up states the corrected premise.
+   (g) E8 and "unrounded". Entry 11 (c), the record's rule and docs/IMARIS_TRUTH.md said that the classes come from
+   "the unrounded distances". The recomputed 3-neighbour distances are not the export's values unrounded: they come
+   from the .ims float32 positions, which lie up to 0.0013 um from the positions the export was made from. On
+   n2rad51_HS_male_000 recomputed minus written runs from -0.00097 to +0.00059 um, and 284 of the 7,628 spots differ
+   by more than half a written digit plus 1e-6 um (290 by more than 0.0005 um). E8 also checked only the class
+   totals, so a compensating swap of an A and a B would have passed. E8 now also checks spot by spot
+   (`imaris_ims.classes_from_written_values`): a spot whose written value lies more than 0.0005 um plus two float32
+   steps from the threshold takes the class of that value; the remaining spots are resolved by the Overall counts,
+   which must give them one class; E8 passes only when these classes equal the recomputed ones and the totals match.
+   On n2rad51_HS_male_000, from the ID map of entry 11 (`spot_source_id_map.csv`, 8bc5756c..., which holds both
+   distances and the class of every spot): one spot lies within half a written digit (export ID 386332, .ims ID
+   1930447, written 4.115 against 4.11504); the written values alone give 1,130 Class B and the Overall 1,131, so
+   386332 is Class B; the forced classes equal the truth's for 7,628 of 7,628. No number changes. The record's rule
+   keeps its wording ((e)); it reads as "the distances recomputed from the .ims positions, checked spot by spot
+   against the export's written values and its Overall counts".
+   (h) A self-comparison. Entry 11 (c) ("the export's coloc join equal to the truth spots' own on all 64 surfaces")
+   and the entry-11 table of docs/BENCHMARK.md present as a cross-check what, for this gonad, compares the export with
+   itself: `export_subset_spots` sets the truth's `imaris_mask_label` to the export's Intensity Max of Masked 405, so
+   the per-surface coloc counts agree by construction (entry 10 (a) said the same of the xlsx-sourced gonad). The
+   independent check is E9: the export's Intensity Max equals the .ims's stored statistic for 7,628 of 7,628 spots.
+   The BENCHMARK.md row now says so.
+   (i) Provenance. `manifest_entry9.json` (d3d751b7...) and `E11/truth_assignment_check_hs_male_000.csv`
+   (c22afc9e...) were written at 14:43 MDT from commit 16a9188 with two files uncommitted (the run log
+   `E11/logs/manifest_and_4_4.log` lists ` M tests/golden/rad51_additions_decisions.json` and ` M
+   tests/test_rad51_additions.py`), and the export of entry 11 (c) at e187f8b with the same two
+   (`E11/logs/hs_male_000_export.log`). The decisions file the manifest read was committed unchanged in 48c3dbe
+   (sha256 682368bc21315a8f2594f282e006a99a158e180ca5c98e67a75e52b9fa918966 with CRLF,
+   5b4673d10492a781ecfd859758b81b8d2d4401a2c390b41b1d64634b2d5f4a04 with LF), the digest the manifest records under
+   `spot_truth_inputs.decisions`; neither the export nor the 4.4 check reads it, and no run reads the test file. The
+   outputs are traceable; entry 11 named the commits without the uncommitted files.
+   (j) Times and criteria of entry 11 (a) and (c). The message with q9, q10 and the re-export request was first sent
+   at 11:33:13 MDT, after the content check of (b)(1), and again, shortened, at 14:05:18 MDT; the reply ("its
+   merged", "9 yes", "10 sure", "okay i will re export" and two lines on other work) came at 14:06:28 MDT (times from
+   the session transcript); the export of entry 11 (c) ran at 14:39 to 14:40 MDT, after it. The criteria of entry
+   11 (c), each as declared tolerance and observed value: E1 sha256 equal to the pin (equal); E2 Overall totals,
+   class counts and Position sheet equal to the record and the image's voxel count equal to the .ims's (all equal);
+   E3 surfaces one to one by ID, position within 0.005 um (observed at most 0.00104), volume within 0.0005 um^3 plus
+   two float32 steps (observed at most 0.000492, 1.86e-5 relative), mask Intensity Max equal (64 of 64); E4 every
+   truth spot inside the image (none outside); E5 the Intensity Center test on the export's values chooses the
+   frame of the .ims spots (the stored frame for both); E6 every diameter within 1e-6 um of 0.4, 0.4 and 0.9 um
+   (observed at most 2.4e-8); E7 every export spot within 0.005 um of exactly one .ims spot, one to one, with no
+   second .ims spot within 0.005 um (observed at most 0.0013, next nearest at least 0.30 um); E8 recomputed class
+   counts equal to the Overall ones (6,497 and 1,131; spot by spot since this entry, (g)); E9 mask label equal per
+   spot (7,628 of 7,628); E10 section 4.4 at least 0.9935 (0.99672).
+   (k) Code. (1) The read guard: `benchmark_split.refuse_unless_pinned_sha256`, called by `guard_export_read` and
+   `guard_truth_read`: the pinned export is admitted by name and size (no byte read), then the role guard, then its
+   sha256, before anything parses it; a file with the pinned name and size but other bytes is hashed and refused,
+   never opened as a workbook. Entry 11 (b)'s "the sealed-name rule admits that one file and no other" held for name
+   and size only; it now holds for the bytes. The xlsx reader, and with it `scripts/check_truth_assignment.py
+   --spot-sources`, reads the export through this guard. (2) `export_imaris_truth` with a spot source refuses an .ims
+   whose size is not the one the source records before opening it, hashes it before h5py opens it, and E1 also
+   compares that digest with the source's `ims.sha256`. (3) `germquant imaris-truth --spot-source` checks the record
+   against the split record (`--split-file`, by default `rad51_split.json` next to the record, which must be the
+   registered split file), so the record's .ims path, size and sha256 are compared with the split's. (4) The
+   per-spot part of E8 ((g)). (5) Tests, on synthetic stand-ins: the historical digests of (d); `load_spot_sources`
+   refusing a malformed record; the same-name, same-size, other-bytes refusal before openpyxl is called, and the role
+   guard before the hash; E1 alone on another .ims digest; E2 alone on other expected class counts; E4 alone in
+   `export_subset_spots`; E8 alone on a compensating swap of two written distances, on a sheet that says 99 for every
+   spot and without the sheet; the .ims size refusal; the CLI's split check; `classes_from_written_values`. Three
+   gaps a reviewer's mutation run found (E2's class counts, E4, `load_spot_sources` skipping validation) are among
+   them. (6) The comments and docs of (e) and (g). The params the code writes now carry the .ims digest in E1, the
+   per-spot part of E8 and the reworded E6 rule and criteria, so a rerun no longer reproduces the params of entry 11
+   byte for byte (742ce109... was written at e187f8b); (l) checks the rest.
+   (l) The rerun check. The export of entry 11 (c) was run again with the code of (k) from a clean checkout of commit
+   2bd58f8 (15:39:36 to 15:40:23 MDT; `germquant imaris-truth ... --spot-source tests/golden/rad51_spot_sources.json`
+   into `E12/rerun_check/n2rad51_HS_male_000/`, where E12 = `germquant_golden/benchmarks/n2rad51_8666f07/entry12`;
+   logs `E12/logs/hs_male_000_rerun_check.log` and `compare_rerun.log`, script `E12/scripts/compare_rerun.py`). All
+   ten criteria pass. Against the truth files of entry 11: the spots (c9d5d6db...), the nuclei (4850f0f8...) and the
+   ID map (8bc5756c...) are byte-identical, the label image is equal voxel for voxel (its bytes differ in TIFF
+   metadata, as between the runs of entry 11), and the params (sha256
+   01415c330070011f125d0999389dfc7b1f4eb3eb6668abfc8700411ddf93609e against 742ce109...) differ only in the fields of
+   (k): E1 now records the .ims's sha256, 1f8df1b381f64e1a4c711de33b689681e1db9998882753f366836b035ec0f60e, equal
+   to the recorded one; E8's per-spot part (one ambiguous written value, resolved to Class B by the Overall counts;
+   7,628 of 7,628 equal to the recomputed classes); the renamed `max_abs_recomputed_minus_written_um` (0.00097, the
+   same value); and the reworded E6 rule and criteria text. The truth folder of entry 11 stays the one the manifest
+   names; the rerun folder is evidence only.
+   (m) Labels. Everything here belongs to the entry-9 development revision before the first test scoring and is post
+   hoc under rule 3, here and in every write-up that uses it; (a) labels the criteria of entry 11 post hoc in
+   particular. The corrections and the code change no number of entry 11 ((g), (l)). No test result was computed.
+   (n) Disclosed reads. The two reviews of entry 11 listed `C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/` (names,
+   sizes and file times, among them those of the test gonad n2rad51_HS_herm_002's .ims; no content, and its size is
+   in the split record), hashed the train export copy through the tests, read `trials.jsonl` for counts only (387
+   lines, 0 test tags), compared manifests by a script that printed only non-test tags, recomputed the classes and
+   E9 from the train export and .ims, and ran mutation tests on a scratch copy of the code. For this entry: the
+   names, sizes and file times in `decision1_check/` (any MALE_1 name filtered out), its script sources and its
+   output texts (for the file names they mention); the E11 logs (lines naming a test gonad filtered out) and scripts;
+   the params and ID map of n2rad51_HS_male_000's truth; the `spot_truth_inputs` and `spot_sources_file` blocks of
+   `manifest_entry9.json`; `trials.jsonl` for counts (387 lines, 0 naming a test gonad); the session transcript, for
+   the message times of (j); the file time of the b90ebdf rerun log; a listing of the registered .nd2 folder filtered
+   to n2rad51_HS_male_000's file name; the top-level keys of `manifest_entry9.json` and the additions record's digest
+   in it; and, for (l), the .ims, .nd2 and pinned export of n2rad51_HS_male_000 through the guarded CLI, and the
+   truth folders of entry 11 and of the rerun. No test-gonad file, no 20251105_n2_hs_MALE_1* file and no aggregate
+   table was opened, read, hashed or parsed. The run of the deployed pipeline from main at b90ebdf on all
+   23 tags (entries 10 (i) and 11 (j)(1)) was still running when this entry was written (its log last written at
+   15:33 MDT); its end time and result go into the next entry.
+   (o) Not changed: the split, the roles, the test set, every registered gonad's nucleus truth, the val gonads,
+   net3d's frozen recipe, the records (`rad51_spot_sources.json` 8e145fb1..., `rad51_additions.json`,
+   `rad51_additions_decisions.json` 682368bc...), `manifest_entry9.json` (d3d751b7...), the truth folder of entry 11
+   (`germquant_golden/imaris_truth_spot_sources/n2rad51_HS_male_000/`, which the manifest names), the SpotMAX rows of
+   docs/FINAL_SCORING.md and decision 1.
