@@ -9,4 +9,4 @@ The cardinal rule: voxel spacing (dz, dy, dx) in microns is read once from each 
 passed to EVERY 3D operation. Never hardcode it.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0.dev0"

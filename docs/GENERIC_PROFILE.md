@@ -168,3 +168,6 @@ spot detector receives a z radius. A 2D path needs, in order:
 
 A thin stack (a few planes) is a 3D stack as far as the pipeline is concerned and runs today,
 with the caveat that Cellpose's 3D flows and the z-column merge are meant for a well-sampled z.
+Such a stack can instead be segmented on one 2D image (a projection, or the sharpest plane) with the
+objects copied through z and the spots still counted in 3D: `segmentation.nuclei.project` in a study
+profile, described in `docs/PLANAR.md`.

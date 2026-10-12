@@ -1,0 +1,13 @@
+# Test pack recipe "basic": the classical watershed and the classical LoG spot detector, so it runs anywhere
+# with the core dependencies (no model, no GPU, no Cellpose, no SpotMAX). Extends the pack's frozen base.
+extends: pack_base.yaml
+segmentation:
+  nuclei:
+    method: classical
+    diameter_um: 3.0
+    min_volume_um3: 2.0
+    require_channel: true
+spots:
+  backend: log
+  log:
+    min_snr: 2.0

@@ -1,0 +1,60 @@
+# The test pack: a tiny outside pack for the engine and plugin tests (docs/PACKS.md). Not for real images.
+format: 1
+id: test_pack
+version: 0.1.0
+title: "Test pack: synthetic nuclei and puncta"
+summary: "A classical recipe that runs anywhere, and a Cellpose recipe with a pinned stand-in model, on a tiny synthetic field."
+system: {organism: "none (synthetic)", sample: "synthetic nuclei with puncta", imaging: "simulated z-stack"}
+object_kind: nucleus
+maintainer: "germquant developers"
+licence: MIT
+citation: {text: "germquant test pack (synthetic data, not citable)", doi: null, cff: CITATION.cff}
+requires: {germquant: ">=0.2.0.dev0,<0.3", extras: []}
+root: pack
+expects: {pixel_um: [0.1, 0.4], z_step_um: [0.2, 1.0]}
+recipes:
+  - id: basic
+    title: "Classical nuclei and LoG puncta (no model)"
+    profile: config/profiles/basic.yaml
+    dims: 3d
+    default: true
+    status: provisional
+    expected_config_hash: "02bb83cf74f9"
+    needs:
+      segment_backends: [classical]
+      spot_backends: [log]
+      models: []
+      modules: []
+      accelerator: optional
+    tunables:
+      - {key: segmentation.nuclei.min_volume_um3, label: "Smallest nucleus", type: float, unit: um3, min: 0.0, max: 50.0}
+      - {key: spots.log.min_snr, label: "Spot signal-to-noise threshold", type: float, min: 1.0, max: 10.0}
+    validation: null
+  - id: with_model
+    title: "Cellpose nuclei with a pinned stand-in model"
+    profile: config/profiles/with_model.yaml
+    dims: 3d
+    default: false
+    status: provisional
+    expected_config_hash: "81e38c5cf371"
+    needs:
+      segment_backends: [cellpose]
+      spot_backends: [log]
+      models: ["tinynet@f5055f8a"]
+      modules: [cellpose, torch]
+      accelerator: optional
+    tunables:
+      - {key: spots.log.min_snr, label: "Spot signal-to-noise threshold", type: float, min: 1.0, max: 10.0}
+    validation: null
+models:
+  - name: "tinynet@f5055f8a"
+    kind: cellpose
+    file_name: tinynet
+    sha256: f5055f8a6946f334fd56be6114357cd425374bed9f367e4b90f8553538b195c8
+    size: 64
+    sources:
+      - {type: cellpose_cache, name: tinynet}
+    card: models/tinynet.card.json
+    licence: "MIT (a 64-byte text stand-in, not weights)"
+examples:
+  - {id: synthetic, image: example/test_pack_synthetic.ome.tif}

@@ -45,6 +45,43 @@ gonads are built inside the fixtures.
   real-data comparison (see the environment variables below). The goldens were produced on the
   workstation (Windows, the pinned `constraints/desktop-2026-09.txt` environment) and are checked
   with `check_exact=True`.
+- `test_default_invariants.py`: the tranche 5 fence (`docs/DESIGN_system_packs.md`, section 11.2).
+  It pins today's default behaviour, read from `golden/default_invariants.json`, which was made once
+  at the T5 base commit (bc62476) on the workstation: the config hash of every shipped config and
+  profile, the LF-normalised sha256 of every channel map and Snakemake profile, the literal default
+  stage hashes with every tool version fixed, and three default runs with every tool version fixed
+  (the two synthetic gonads of `test_golden.py`, whose recipe is copied into the fence, and a
+  single-plane image through the bioio branch): the stage hashes each run writes, the provenance key
+  sets, the stage statuses, the qc flags, the output file names, the column list of all twelve tables,
+  the TIF arrays and the montage pixels. It also checks that `batch --resume` accepts the marker each
+  run wrote (segment hash computed as `cli._batch` computes it) and a marker as the base writes it,
+  and the legacy single-plane behaviour. A failing pin means today's behaviour moved: fix the code, not
+  the JSON. A new recipe file arrives with its own pin; existing pins never change, and
+  `scripts/t5_scope_check.py` fails a diff that changes or removes one.
+- `test_t5_scripts.py`: `scripts/t5_scope_check.py` on throwaway git repositories (a frozen file
+  edited, deleted or renamed fails; a new file in a frozen folder passes; the sealed benchmark folder
+  takes no new file; a recorded base that has diverged from main charges only the branch's own
+  changes; the fence files may not be deleted; the pins file is append-only, where a scope may switch
+  between "all" and "workstation") and `scripts/t5_gate.py` (its verdicts with stub steps, the ruff
+  version it picks and the file-list check).
+- `test_planar.py`, `test_pack_knobs.py` and `test_projected_run.py`: the projected 2D path and the pack
+  knobs of tranche 5 package P2a (`docs/PLANAR.md`). `test_planar.py` checks `germquant.planar` on its
+  own: the plane selectors (a planted sharpest plane, mid, an index, max and mean, an index out of
+  range), the area gate, `segment_planar`'s control flow against `segment_nuclei`'s, the 2D measurements
+  and `check_planar`'s refusals. `test_pack_knobs.py` pins every knob's default to today's call: Cellpose
+  mocked (the 3D call, the object diameter, the 2D call and its CPU retry), SpotMAX spied through fake
+  `spotmax.pipe` and `spotmax.filters` modules (and, where SpotMAX is installed, the effect size on the
+  sharpened image), `require_channel` and `qc.min_nuclei`. `test_projected_run.py` runs a synthetic
+  yeast-like stack through the test recipe `fixtures/planar/projected_yeast_like.yaml` and compares the
+  tables with the golden in `golden/synthetic_projected/`, whose `config_hash.txt` sentinel is pinned
+  in `golden/default_invariants.json`; it also checks the run's contract and its refusals before any
+  pixel is processed. Regenerate that golden with `GERMQUANT_UPDATE_GOLDEN=1`, as for `test_golden.py`.
+- `test_recipe_keys.py`: `germquant.recipe_keys`, the strict checks of the same package's opt-in recipe
+  keys (`require_channel`, `qc.min_nuclei`, `cellpose.object_diameter_um` and the optional SpotMAX
+  keys): no shipped config or profile sets one; every malformed value, a quoted "false" included, is
+  refused with its key named; and `process_image` refuses it before any stage runs or any file is
+  written, also under `method: auto`, where the watershed fallback would otherwise hide a bad Cellpose
+  setting.
 - `test_peak_filter.py`: the exact replica of SpotMAX's minimum-distance peak filter
   (`germquant.spots.peak_filter`, `docs/PERFORMANCE.md`) against the installed SpotMAX function on
   random inputs with tied intensities, duplicate points and boundary distances, its fallback domain,
@@ -87,6 +124,81 @@ gonads are built inside the fixtures.
   guard. `config/profiles/bench_log_tuned.yaml` and `bench_spotmax_tuned.yaml` load, extend
   `config/config.yaml` and change only `spots:` keys.
 
+- The system packs (`docs/PACKS.md`, tranche 5 package P1), on the test pack in
+  `fixtures/packs/test_pack` (a classical recipe that runs anywhere, and a Cellpose recipe with a 64-byte
+  stand-in model) and the built-in `packs/celegans_germline`; `packs_helpers.py` holds the shared
+  `pack_env` fixture, which isolates every pack root, the model store and the Cellpose cache:
+  - `test_packs_format.py`: the pack.yaml rules (recipes at `config/profiles/<recipe>.yaml`),
+    `validate_pack` (tunables the recipe does not set, or that are not scalars), LF-normalised SHA256SUMS
+    (CRLF and LF copies agree, junk never hashed), the search order, built-in roots (the checkout and
+    `$GERMQUANT_CONFIG_ROOT` only), shadowing, a broken pack listed as unusable, recipe resolution and the
+    pack record;
+  - `test_packs_extends.py`: the two extends fallbacks, every shipped config resolving to the same file
+    as before, and the portable stage hashes of edited pack recipes when the engine root or the pack
+    moves, also through a two-level chain (an absolute-path overlay keeps today's hashes);
+  - `test_packs_models.py`: the blob store and fetch-models (Cellpose-cache adoption, `--from-file`, a
+    local HTTP server with Range requests for download and resume, mismatches discarded, a wrong blob in
+    the store removed, the size checked before any hash, nothing done twice), the verification record
+    across processes and a store that cannot keep one, the pin check before segmentation (a pinned name no
+    pack declares is refused), reserved names, classical runs that never resolve a model,
+    `train-nuclei --base <pack model>` with the same pin check, and Cellpose's first call kept as the old
+    line (rule R3);
+  - `test_packs_status.py`: `pack check` blockers and fixes (modules, undeclared backends, the readers
+    extra, models, the engine range, the recipe hash, faulty tunables, engine-file digests), image headers
+    read without bioio (.nd2 and TIFF, the TIFF reader checked against bioio; other formats left to the
+    deep check), the deep check's device report and accelerator warning, exit code 2 (an unknown pack
+    included), and `run --pack` refusing an unusable pack unless `--no-pack-check`;
+  - `test_packs_install.py`: install refusals (zip-slip, drive letters, symlinks and Windows junctions,
+    bad sums, non-ASCII hashed text anywhere in the pack, recipes outside `config/profiles/`, faulty
+    tunables, built-in collisions), a zip's junk left behind, immutability (a damaged installed copy
+    included), vendor, every path of every committed SHA256SUMS tracked by git, and the .gitattributes and
+    .gitignore rules in a scratch repository;
+  - `test_packs_isolation.py`: in a fresh interpreter, `germquant.packs` and `python -m germquant.packs`
+    load no torch, CuPy, SpotMAX or Cellpose, with `--image` too (no bioio, no dask); a deep check imports
+    the pipeline (torch) before it loads any backend; `python -m germquant --help` imports torch first; the
+    version entries; a simulated non-editable install inside another project;
+  - `test_packs_run.py`: `--pack celegans_germline` against `--config config/config.yaml` (same hash,
+    files, tables and done markers; the manifests differ only by the pack and runtime records), `batch
+    --pack` records, the test pack's recipe goldens with an empty model store, and the tifffile example
+    reader against the bioio reader;
+  - `test_packs_lint.py`: model cards (`validate_card` on a real `train-nuclei` card), every lint rule,
+    the `--previous` version rules, the base-weight comparison on small fake state dicts, and the result
+    the C. elegans card records (cpsam_v2, from the run on the workstation CPU);
+  - `test_packs_cli.py` and `test_datafetch.py`: the command surface and the resumable downloader (a
+    server that answers a Range request from another byte is read again from the start).
+
+- The outside packs and example fetching (tranche 5 package P3):
+  - `test_outside_packs.py`: `packs/cultured_cells` and `packs/budding_yeast` load, verify and lint clean,
+    are provisional with `validated: false`, carry the design's starting values and the QC settings of a field
+    that is not a gonad (no deny-listed key, `expected_from_germ_cell: false` on every spots instance), and
+    their channel maps bind as specified (no index fallback for the yeast transmitted role); the recipe
+    goldens pass with an empty model store, an edit of a `pack_base.yaml` fails them, edits of a scratch
+    copy of generic.yaml and config.yaml move no outside pack hash, a misspelt key in a `pack_base.yaml` fails
+    lint, and a stack without a transmitted channel fails the yeast recipe with the require_channel message;
+    the cards say what is provisional and which scale effect_size is on; the yeast golden sees its own spot
+    threshold and smallest-cell gate (scratch copies with effect_size_min 4 or min_area_um2 1 fail on the
+    tables); lint asks for require_channel and a current recipe golden, a permissive data licence on every
+    real example, and keeps large files and stray TIFFs out of a pack; `pack golden` fails a recipe without
+    its golden and exits 1 when none ran; every CITATION.cff has the fields CFF 1.2.0 requires; a frozen base is
+    never rewritten silently; the cpsam comparison script refuses a device other than the one asked for;
+  - `test_datafetch_zip.py`: one member of a remote zip by HTTP Range requests (classic and ZIP64 archives
+    written by hand and by Python's zipfile; stored, deflated and bzip2 members), size, sha256 and CRC-32
+    refusals, resume after a broken transfer (stored and deflated members), deflate64, LZMA, zstd and
+    encrypted members refused with the method named, a server that ignores Range refused, sizes that cannot be
+    right refused before any member data is requested, a deflate or bzip2 bomb stopped one byte past the
+    recorded size, a pinned zip_size the server contradicts named, an oversized central directory refused, and
+    bytes after the end record accepted;
+  - `test_assemble.py`: `germquant assemble` and germquant.assemble (per-channel files, a single plane,
+    channels as samples like DeepFoci, channels alternating page by page, crops, refusals) and pixels_sha256;
+    a declaration that contradicts a file's own ImageJ axes is refused unless forced, and the output never
+    replaces an input;
+  - `test_pack_examples.py`: `pack fetch-example` against a local stand-in server (plain files and a zip
+    member), the record beside the image (licence address and what was changed), nothing downloaded twice, a
+    pack fix of channel names or voxel size reaching an image fetched before, wrong pins refused with nothing
+    wrong kept, an unusable pack fetching nothing, an examples folder inside a pack root refused, loopback
+    addresses only with `$GERMQUANT_ALLOW_LOOPBACK_EXAMPLES`, the torch-free entry in a fresh interpreter,
+    `check_expect`, and the example-spec rules (quoted digests, plain and unique source names).
+
 ## Markers
 
 Registered in `pyproject.toml` (`[tool.pytest.ini_options] markers`); CI passes `--strict-markers`,
@@ -110,6 +222,18 @@ Opt-ins driven by environment variables rather than markers:
 - `GERMQUANT_UPDATE_GOLDEN=1`: `test_synthetic_golden` rewrites the synthetic references instead of
   checking them. Only for a deliberately number-changing step, run from the code that is being
   certified; see the docstring of `test_golden.py` and `scripts/make_goldens.py`.
+- `GERMQUANT_WORKSTATION_PINS=1`: `test_default_invariants.py` enforces the pins marked
+  `"scope": "workstation"` in `golden/default_invariants.json` (today the montage pixels, whose
+  rendering may differ by platform). Without it those tests skip, and the skip reason says whether
+  this machine agrees with the workstation pin. `scripts/t5_gate.py` sets it on the workstation; that
+  script runs ruff (the version CI pins), `pytest -m "not model"`, the scope check and these pins
+  (`--no-workstation` skips them on another machine) and, with `GERMQUANT_GOLDEN` and
+  `GERMQUANT_CANDIDATE` set, the strict real-golden comparison and the file-list check, plus the
+  comparison with an older golden tree when `GERMQUANT_GOLDEN_LEGACY` is set too. It prints one
+  PASS/FAIL table for the PR description; a run that skipped ruff, pytest or the scope check ends
+  INCOMPLETE, and setting only one of the two golden variables is an error. The scope check runs in CI
+  on tranche 5 branches only, so every T5 package and integration branch name must contain `tranche5`
+  or a path segment that starts with `t5` (for example `feat/t5-p1`).
 - `GERMQUANT_TRAIN_SMOKE=1`: `test_training_loop.py::test_real_random_init_training_on_the_cpu` trains a
   randomly initialised Cellpose-SAM network (no weights downloaded) for two epochs on the CPU through
   `train_nuclei` and checks the model file, log and card. It takes about 90 seconds and writes a 1.2 GB
@@ -154,13 +278,15 @@ works without installing ruff). The rule set is written out in `pyproject.toml` 
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push to `main` and to `feat/**` branches, on pull requests
-and on demand (the "Run workflow" button). One job per OS, `ubuntu-latest` and `windows-latest`,
-with Python 3.11:
+and on demand (the "Run workflow" button). One job per OS, `ubuntu-latest`, `windows-latest` and
+`macos-14` (Apple Silicon, from tranche 5 package P1), with Python 3.11:
 
-1. `uv` installs torch and torchvision as CPU wheels from the PyTorch CPU index, then germquant with
-   the `gpu`, `spots`, `sc` and `dev` extras (Cellpose, SpotMAX and Cell-ACDC, skan, pytest and
-   ruff) against `constraints/ci-cpu-2026-10.txt`: the validated workstation versions minus the
-   CUDA-only packages. The uv cache directory is saved between runs.
+1. `uv` installs torch and torchvision as CPU wheels from the PyTorch CPU index (on macOS, the arm64
+   wheels from PyPI, the CPU and Metal build), then germquant with the `gpu`, `spots`, `sc`, `dev` and
+   `timelapse` extras (Cellpose, SpotMAX and Cell-ACDC, skan, pytest, ruff and laptrack) against
+   `constraints/ci-cpu-2026-10.txt` (macOS: `constraints/ci-mac-arm64-2026-10.txt`, the same pins): the
+   validated workstation versions minus the CUDA-only packages. The uv cache directory is saved between
+   runs. A test that cannot pass on macOS for an environment reason is marked with the reason.
 2. `ruff check src tests scripts`.
 3. `pytest -q -rs -m "not model" --strict-markers`: the full suite including the synthetic golden
    tests; `test_gpu.py` reports itself as skipped.

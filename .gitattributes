@@ -3,3 +3,20 @@
 *.sh text eol=lf
 scripts/germquant-apptainer text eol=lf
 apptainer.def text eol=lf
+# System packs (docs/DESIGN_system_packs.md 3.7): text files are LF in every checkout, so a pack folder is
+# byte-identical on Windows and Linux. text=auto keeps git's binary detection (a plain `text` rule turned a
+# PNG holding CRLF pairs into a shorter blob), and the binary rules below come last so they win.
+packs/** text=auto eol=lf
+tests/fixtures/packs/** text=auto eol=lf
+packs/**/*.tif binary
+packs/**/*.tiff binary
+packs/**/*.png binary
+packs/**/*.npz binary
+packs/**/*.zip binary
+packs/**/*.h5 binary
+tests/fixtures/packs/**/*.tif binary
+tests/fixtures/packs/**/*.tiff binary
+tests/fixtures/packs/**/*.png binary
+tests/fixtures/packs/**/*.npz binary
+tests/fixtures/packs/**/*.zip binary
+tests/fixtures/packs/**/*.h5 binary
