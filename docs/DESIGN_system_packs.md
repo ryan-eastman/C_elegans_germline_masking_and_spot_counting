@@ -1,6 +1,7 @@
 # Tranche 5 design: system packs, a 2D path, projects and training on outside systems
 
-Status: design only; nothing is built. Written 2026-10-11 and revised the same day after a completeness critic
+Status: P0, P1, P2a and P3 are built (feat/tranche5 at 0521abf, gate G4 passed on 2026-10-12); the rest is
+design. Written 2026-10-11 and revised the same day after a completeness critic
 and a verifier.
 "T5" below means this tranche.
 

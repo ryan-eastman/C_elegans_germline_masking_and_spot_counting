@@ -162,8 +162,9 @@ hard-linked the blob to ~/.cellpose/models/cpsam_v2, so both names load one file
 (the default load and `pretrained_model=`); the check is about those paths, not about two copies of the weights.
 On 2026-10-11, on the CPU, the two gave identical masks: 0 of 490,000 pixels differ, 11 cells each (record
 cpsam_names_cpu.json, written by the committed script). The same check on CUDA (`--device cuda`, run through the
-GPU lock; its record must say "device": "cuda" and "cuda_available": true) is the acceptance check for the RTX 5090
-and had not run when this was written.
+GPU lock; its record must say "device": "cuda" and "cuda_available": true) is the acceptance check for the RTX 5090.
+It ran on 2026-10-12 at 0521abf: identical masks again, 0 of 490,000 pixels differ, 11 cells each, "device": "cuda",
+"cuda_available": true, on the NVIDIA GeForce RTX 5090 (record cpsam_names_cuda.json).
 
 ## Rows of the nuclei table
 

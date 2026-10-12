@@ -87,7 +87,8 @@ segmentation scores of this model are not independent of YeaZ data.
 
 adopts Cellpose's own copy (~/.cellpose/models/cpsam_v2) after a size and sha256 check, or downloads the pinned
 Hugging Face commit. On the CPU, the bare name `cpsam` gave masks identical to `cpsam_v2@0f1cc3f7` on the plane
-this recipe segments in the real example (docs/PACKS.md records the check); the same check on CUDA is pending.
+this recipe segments in the real example (docs/PACKS.md records the check), and so did the same check on CUDA
+(RTX 5090, 2026-10-12).
 
 ## How the starting values were chosen
 
