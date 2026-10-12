@@ -1944,13 +1944,90 @@ position cannot tell the two voxels apart. A shift of ExtMin by 0.005 um (0.046 
 agreement on n2rad51_noHS_herm_000, so the test sees an offset far smaller than the 0.05 um rounding of an extent
 above 10000 um.
 
+### Results of the CPU truth steps (2026-10-12, at commit 026ea03)
+
+Step 1 of the plan below ran after the entry-9 commit, on the CPU only, from 09:59 to 10:04 MDT on 2026-10-12
+(log `$E/cpu_truth.log`, with `$E` = `germquant_golden/benchmarks/n2rad51_8666f07/entry9`). No test gonad and no
+2025-11-05 file was read.
+
+**(d)(1) and (d)(2).** For all four the default channel map resolves dna to 405, central_element to 477 and foci to
+545 from the .nd2 channel names. By eye (`$E/image_checks/*__mips.png`) 477 shows synaptonemal-complex tracks and 545
+discrete nuclear foci, the benchmark's layout. Planes 0, 53 and 105 of channels 0 to 2 of every .ims equal the .nd2
+pixel for pixel (9 of 9 per gonad; `$E/image_checks/image_checks.json`).
+
+**(d)(3) The frame.** The stored frame fails on every gonad and the rounded voxel passes; no search was needed.
+
+| gonad | stored frame: 545 agreement | its thirds on the drifting axis | rounded voxel (0.108, ExtMin as stored): 545 | strict | Masked 405 |
+|---|---|---|---|---|---|
+| n2rad51_20260105a_HS_male_001 | 0.898 | x 0.930, 0.899, 0.764 | 1.0 | 0.99807 | 1.0 |
+| n2rad51_20260105a_HS_male_002 | 0.883 | x 0.947, 0.883, 0.770 | 1.0 | 0.99792 | 1.0 |
+| n2rad51_20260105a_HS_male_003 | 0.888 | x 0.962, 0.881, 0.692 | 1.0 | 0.99752 | 1.0 |
+| n2rad51_20260105b_HS_male_001 (its .ims spots) | 0.896 | y 0.979, 0.904, 0.791 | 1.0 | 0.99869 | 1.0 |
+
+So Imaris places these spots with ExtMin as stored and 0.108 um on both xy axes, as on the registered gonads; the
+stored-extent ratio, the reader's rule until entry 9, would have put 10 to 13 percent of the spots one voxel off.
+Each truth params JSON records the test (`frame_check`), and the tables use the rounded frame.
+
+**(d)(5) The export.** Every surface has a mask (98 of 98, 88 of 88, 127 of 127, 112 of 112; match distance median
+0.015 to 0.022 um, at most 0.039 um; no shared value); the centroid lies in its own label for 92, 83, 123 and 112
+surfaces and in a cavity of the fill for the rest; 8, 12, 18 and 4 mask values no surface claims were dropped
+(85,414, 28,014, 58,302 and 41,766 voxels).
+
+**Section 4.4** (`$E/truth_assignment_check_additions.csv`):
+
+| gonad | spots | agreement | geometric only | coloc only | two nuclei | coloc on an unclaimed value | agreement without that category |
+|---|---|---|---|---|---|---|---|
+| n2rad51_20260105a_HS_male_001 | 5187 | 0.9807 | 0 | 5 | 0 | 95 | 0.9990 |
+| n2rad51_20260105a_HS_male_002 | 12028 | 0.9960 | 2 | 16 | 0 | 30 | 0.9985 |
+| n2rad51_20260105a_HS_male_003 | 6462 | 0.9847 | 1 | 18 | 2 | 79 | 0.9969 |
+| n2rad51_20260105b_HS_male_001 (xlsx spots) | 6512 | 0.9899 | 1 | 10 | 0 | 55 | 0.9983 |
+
+Entry 9 (d)(5) asks for the train and val range of entry 4 (a), 99.35 to 99.99 percent: n2rad51_20260105a_HS_male_002
+is inside it, n2rad51_20260105a_HS_male_001 and _003 (and the fourth gonad) are not. The cause, found by sizing the
+unclaimed mask values and counting the spots in them (`$E/orphan_mask_values.json`): 256 of the 259 spots of that
+category sit in whole nuclei that are present in Masked 405 but were deleted from the Surfaces afterwards (5, 2, 4
+and 3 blobs of 6,325 to 31,155 voxels per gonad), and 3 in small fragments. No truth nucleus counts those spots,
+and the lab's coloc join does not either (no surface carries their value). The registered train and val gonads had
+0 to 58 spots in this category. No truth-export bug was found.
+
+**The xlsx cross-checks.** The 2026-01-13 exports hold exactly the spots of the .ims files saved again on
+2026-01-21: the same spot IDs, positions within 0.0012 um, one to one; the export's coloc count equals the truth
+spots' own coloc count on every surface (98, 88, 127 and 112 of as many). Against the geometric assignment the
+per-surface counts agree on 88, 71, 102 and 100 surfaces (mean absolute difference 0.78, 0.74, 0.90 and 0.15
+foci): the Intensity Max of the mask channel of 5, 4, 8 and 1 surfaces is a neighbour's value (the coloc-max
+collision of docs/IMARIS_TRUTH.md), so the lab's join gives those surfaces the neighbour's spots, and the rest are
+boundary spots.
+
+**(e) 20260105_n2_hs_1_MALE_1.** Not verified, so it stays nucleus truth only (the manifest marks its spot truth
+excluded). V1 pass. V2 pass (6,512 spots and 112 surfaces in the Overall sheet and the Position sheet; the image's
+voxel count equals the .ims). V3 FAIL on the volume alone: the 112 surfaces match the .ims by ID, positions within
+0.0007 um, every mask-channel Intensity Max equal, but volumes differ by up to 3.1e-5 relative (53 of 112 above the
+1e-5 of the criterion) because the export writes volumes rounded to 0.001 um^3 (every .ims volume rounded to three
+decimals equals the export's to float32 precision). V4 pass (no spot outside the extent). V5 pass (the rounded frame,
+the same as the .ims spots'). V6 pass (every radius 0.2 um, Diameter Z 0.9 um). V7 FAIL, 0.9899 (55 spots in three
+deleted nuclei, as above). Reported, not a criterion: every one of the 6,512 spots lies within 0.005 um of a spot of
+the saved 1,226,263-spot object.
+
+**Open before the revision runs** (for the entry that records these results; both are choices after a result, so
+post hoc under rule 3):
+
+1. The 4.4 criterion as entry 9 declared it fails for n2rad51_20260105a_HS_male_001 and _003. Read literally, their
+   spot truth leaves and train keeps one heat-shocked male with spot truth (_002). The other reading: the category
+   that fails (spots in nuclei deleted after masking) is no disagreement about any truth nucleus, entry 4 (a) already
+   reported it apart, and without it all four gonads lie in the range; the three males then stay. The second reading
+   is the recommendation here, labelled post hoc. `manifest_entry9.json` as written today marks the three males
+   usable by the record's rule only; it is written again in step 3, after that decision.
+2. V3's volume tolerance (1e-5 relative) is finer than the export's precision (0.001 um^3), an error in the
+   criterion, not a difference in the data. 20260105_n2_hs_1_MALE_1 would enter only if a later entry accepted the
+   volume at the export's precision and the reading of item 1 for V7; until then it is left out.
+
 ### The revision plan (commands, order, compute)
 
 Run from a checkout of the entry-9 commit, PowerShell, the repository's environment active. `$G` is
 `C:/Users/ryane/germquant_golden`, `$B` is `$G/benchmarks/n2rad51_8666f07`, `$E` is `$B/entry9`, `$D` is
 `C:/Users/ryane/n2_rad51_hs_2026`, `$A` is `tests/golden/rad51_additions.json`.
 
-1. CPU, after the commit (entry 9 (d) and (e)); this was run on 2026-10-12, see the results below.
+1. CPU, after the commit (entry 9 (d) and (e)); this was run on 2026-10-12 (results above).
 
 ```powershell
 $env:CUDA_VISIBLE_DEVICES = "-1"
@@ -1981,13 +2058,18 @@ Get-ChildItem $G/additions/8666f07/*/run_manifest.json | ForEach-Object { python
 ```powershell
 $env:CUDA_VISIBLE_DEVICES = "-1"
 python scripts/benchmark_manifest.py --name n2rad51_8666f07 --out $G/benchmarks --manifest-file manifest_entry9.json --truth-root $G/imaris_truth --additions $A --additions-results-root $G/additions/8666f07
-python -c "import json; a=json.load(open('$B/manifest.json'))['gonads']; b=json.load(open('$B/manifest_entry9.json'))['gonads'][:12]; print(a == b)"   # must print True
+# the twelve registered entries equal those of manifest.json apart from the output flags of n2rad51_noHS_male_002
+# and n2rad51_HS_male_002, whose golden runs finished after manifest.json was written (must print True)
+python -c "import json; f=lambda e: {k: v for k, v in e.items() if k not in ('outputs', 'outputs_complete')}; a=json.load(open('$B/manifest.json'))['gonads']; b=json.load(open('$B/manifest_entry9.json'))['gonads'][:12]; print([f(e) for e in a] == [f(e) for e in b])"
 $ADD = "n2rad51_20260105a_HS_male_001","n2rad51_20260105a_HS_male_002","n2rad51_20260105a_HS_male_003","n2rad51_20260105b_HS_male_001"
 python scripts/bench_cache.py --manifest $B/manifest_entry9.json --additions $A --tags $ADD --verify-sha256
 python scripts/bench_reproduce_golden.py --manifest $B/manifest_entry9.json --tags $ADD --out $E/reproduce_golden.json
 ```
 
-4. The revision (entry 9 (g) and (h)). Every run appends to `$B/trials.jsonl` (next to both manifests).
+4. The revision (entry 9 (g) and (h)), only after an entry records the results above and settles the two open
+   items (which males keep their spot truth). Every run appends to `$B/trials.jsonl` (next to both manifests).
+   In 4b to 4d, `$ADD` lists only the additions whose spot truth that entry keeps (step 3 caches all four:
+   caches and nucleus truth do not depend on it), and the folds follow `spot_truth_usable` of the rebuilt manifest.
 
 ```powershell
 $M = "$B/manifest_entry9.json"
