@@ -67,6 +67,21 @@ keep its spot truth under the post hoc reading of entry 10 (c), or not; (b) whet
 enter if a later check verifies it; (c) that 2026-01-05 then cannot serve as the session of a future test set
 (protocol section 10). The steps of the entry-9 revision that use spot truth wait for (a).
 
+Status (2026-10-12, protocol changelog entry 11): the project lead answered "9 yes" to using n2rad51_HS_male_000's
+recovered spots in training, "10 sure" to keeping n2rad51_20260105a_HS_male_001's spot truth under the post hoc
+like-for-like reading (_003 stays out), and "okay i will re export" to re-exporting n2rad51_HS_male_002 from Imaris
+(region growing off, Quality 6.847, the A and B classes kept). n2rad51_HS_male_000's spot truth now comes from its
+2025-12-31 export: 7,628 curated spots at constant diameter (region growing off), a position-exact subset of the
+772,485 unthresholded candidates saved in its .ims, recorded beside the split in
+`tests/golden/rad51_spot_sources.json` (an earlier curated export, not the re-export of protocol section 4.1; the
+split and its roles do not change), every check of entry 11 (c) passed, section 4.4 at 0.9967. The heat-shocked
+male training signal is therefore three males (n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002), and
+leave-one-gonad-out has nine folds, ten if the re-export passes its checks. The steps of the entry-9 revision that
+use spot truth wait for that re-export, which enters by the path of protocol section 4.1 and entry 10 (g)(8), or run
+without it if he says so. In the template of section 4.2 the net3d brackets then read nine or ten train and val
+gonads, seven or eight of them registered and two additions. Still open: the option of this decision (no test gonad
+is scored until he confirms one), and questions (b) and (c) above.
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not

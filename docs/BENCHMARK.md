@@ -1872,10 +1872,14 @@ python scripts/bench_logo.py report --heldout net3d=$R/net3d log_tuned=$R/log_tu
 
 Everything in this section is post hoc under rule 3 (protocol changelog entry 9 (j)). Protocol changelog entry 10
 records the results of the CPU truth steps below, the spot-truth decisions they call for and corrections to entry 9.
+Protocol changelog entry 11 gives n2rad51_HS_male_000 spot truth from its 2025-12-31 export and keeps
+n2rad51_20260105a_HS_male_001 ("Entry 11" below).
 
 Protocol changelog entry 9 adds four heat-shocked N2 males imaged on 2026-01-05 to TRAIN, in a record of their own,
 and declares the revision of the methods that depend on train before any test scoring. Nothing in this section
-touches a test gonad, a 2025-11-05 heat-shock male export or the lab's aggregate tables (entry 9 (i)).
+touches a test gonad, a 2025-11-05 heat-shock male export or the lab's aggregate tables (entry 9 (i)), apart from
+the 2025-12-31 export of the train gonad n2rad51_HS_male_000 that entry 11 admits by its pinned name, size and
+sha256.
 
 ### The record
 
@@ -1931,6 +1935,14 @@ axis gives 0.108, and ExtMin there is known only to +-0.05 um.
 * `scripts/check_truth_assignment.py --additions`: the section 4.4 check plus the xlsx cross-checks of entry 9 (d)(5);
   with `--additions` a test gonad is refused (entry 10 (e)). Its `--out` table is the input of `--truth-check`.
 * `scripts/check_addition_images.py`: entry 9 (d)(1) and (d)(2).
+* Entry 11: `tests/golden/rad51_spot_sources.json` and `germquant imaris-truth --spot-source` give a registered train
+  gonad (n2rad51_HS_male_000) spot truth from a recorded earlier export of its own project, pinned in code
+  (`benchmark_split.SPOT_SOURCE_EXPORTS`); `scripts/benchmark_manifest.py --spot-sources --spot-sources-truth-root`
+  points that gonad's truth at the export and decides it by `benchmark_split.spot_source_truth_usable` (the export's
+  checks E1 to E9 and the frame check, then a decision, else section 4.4 of the `--truth-check` tables, of which
+  there may be several); `scripts/check_truth_assignment.py --spot-sources` adds the cross-checks and the comparison
+  of the nucleus truth with the registered export; net3d's `resolve_gonads` and `bench_logo.py net3d-fold` take the
+  gonad when the manifest does.
 
 ### The frame baseline (registered train and val gonads)
 
@@ -2051,6 +2063,50 @@ The decisions are in `tests/golden/rad51_additions_decisions.json`. `manifest_en
 them and with the 4.4 table at 10:53 MDT (step 1 below): n2rad51_20260105a_HS_male_002 usable, the other three
 excluded, each with its reason. It is written again in step 3 with the pipeline outputs.
 
+### Entry 11: n2rad51_HS_male_000's spot truth from its 2025-12-31 export, and _001 kept (2026-10-12)
+
+Post hoc under rule 3 (protocol changelog entry 11, which gives every number and file digest). The project lead
+answered "9 yes" (use n2rad51_HS_male_000's recovered spots in training) and "10 sure" (keep
+n2rad51_20260105a_HS_male_001's spot truth under the like-for-like reading), and will re-export n2rad51_HS_male_002
+from Imaris ("okay i will re export").
+
+**Where the curated spots of n2rad51_HS_male_000 are.** Its registered .ims saves 772,485 unthresholded, unclassified
+candidates, every one at radius 0.2 um (its creation parameters say region growing on and Quality 13.358; the
+protocol's table and sections 3 and 4.1 call them region-grown, which entry 11 (d) corrects). Its 2025-12-31
+statistics export, 20251105_n2_hs_MALE_3.xlsx (15,512,227 bytes, sha256 0fbc41b7...), holds the curated 7,628
+spots (Class A 6,497, B 1,131) at constant diameter, each within 0.0013 um of one of the saved candidates, and the
+same 64 surfaces. It is an earlier curated export of the same project, not a re-export, so it is recorded beside the
+split (`tests/golden/rad51_spot_sources.json`, pinned in code by name, size and sha256) and the split, the roles and
+the registered nucleus truth stay as they are.
+
+**The rebuilt truth** (`germquant imaris-truth --spot-source`; docs/IMARIS_TRUTH.md, "The recorded earlier export";
+files in `germquant_golden/imaris_truth_spot_sources/n2rad51_HS_male_000/`, logs in `$B/entry11/logs`):
+
+| check | result |
+|---|---|
+| frame (entry 9 (d)(3)) on the .ims's 772,485 spots | stored frame; spot channel 1.0 (strict 0.99957), mask channel 1.0 |
+| E1 sha256 / E2 Overall totals and classes | pinned digest; 7,628 spots, 64 surfaces, A 6,497, B 1,131 |
+| E3 surfaces against the .ims | 64 of 64 by ID; position within 0.0011 um; volume within 0.00050 um^3; mask Intensity Max equal |
+| E4 inside the image / E5 Intensity Center on the export's values | all inside / the stored frame, as for the .ims spots |
+| E6 spot diameter | 0.4 x 0.4 x 0.9 um for every spot (region growing off) |
+| E7 position match to the .ims spots | one to one, at most 0.0013 um, next nearest at least 0.30 um; no ID in common |
+| E8 classes (4.11504 um on the 3-neighbour distance) | 6,497 and 1,131 from the unrounded distances; the export's 3-decimal values give 6,498 and 1,130 |
+| E9 mask label | export and .ims equal for 7,628 of 7,628 |
+| E10 and section 4.4 (`check_truth_assignment.py --spot-sources`) | 0.9967 (7,603 of 7,628): coloc only 5, two nuclei 0, on an unclaimed value 20; like for like 0.9993 |
+| nucleus truth against the registered export | nuclei table byte-identical; label image equal voxel for voxel |
+| export's coloc join against the truth spots | equal on 64 of 64 surfaces (against the geometric count on 58; mean absolute difference 0.56) |
+
+Section 4.4 is above the 99.35 percent minimum as declared, so no decision was needed for n2rad51_HS_male_000; the
+like-for-like number is reported only.
+
+**The decisions and the folds.** The decisions file now keeps n2rad51_20260105a_HS_male_001 (entry 11, post hoc;
+like for like 0.9990); _003 and 20260105_n2_hs_1_MALE_1 are unchanged. `manifest_entry9.json`, written again at 14:43
+MDT with `--spot-sources` and both 4.4 tables, has spot truth for the six registered train and val gonads that had
+it, n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002; n2rad51_HS_male_002, _003 and
+20260105_n2_hs_1_MALE_1 are excluded. Leave-one-gonad-out has nine folds (ten if n2rad51_HS_male_002's re-export
+passes its checks); the substitutes and the val gonads do not change. net3d trains on the recipe's gonads, then
+n2rad51_HS_male_000, then the additions in record order (`bench_logo.py` `fold_training_order`).
+
 ### The revision plan (commands, order, compute)
 
 Run from a checkout of the entry-9 commit, PowerShell, the repository's environment active. `$G` is
@@ -2074,6 +2130,19 @@ python scripts/check_truth_assignment.py --manifest $B/manifest_entry9.json --ad
 python scripts/benchmark_manifest.py --name n2rad51_8666f07 --out $G/benchmarks --manifest-file manifest_entry9.json --truth-root $G/imaris_truth --additions $A --additions-results-root $G/additions/8666f07 --truth-check $E/truth_assignment_check_additions.csv --spot-truth-decisions tests/golden/rad51_additions_decisions.json
 ```
 
+1b. CPU, entry 11 (run on 2026-10-12, 14:39 to 14:43 MDT, at e187f8b and 16a9188; results above): n2rad51_HS_male_000's
+   truth from its recorded export, the manifest with the spot source, its section 4.4 check, the manifest again.
+   `$S` is `tests/golden/rad51_spot_sources.json`, `$E11` is `$B/entry11`, `$R` is `C:/Users/ryane/n2_rad51_local`.
+
+```powershell
+$env:CUDA_VISIBLE_DEVICES = "-1"
+germquant imaris-truth "$R/imaris/HS_ims2/20251105_n2_hs_MALE _.ims" --out $G/imaris_truth_spot_sources/n2rad51_HS_male_000 --nd2 "$R/20251105_N2_HS/20251105_n2_hs_MALE _.nd2" --spot-source $S
+$MAN = "--name","n2rad51_8666f07","--out","$G/benchmarks","--manifest-file","manifest_entry9.json","--truth-root","$G/imaris_truth","--additions",$A,"--additions-results-root","$G/additions/8666f07","--spot-truth-decisions","tests/golden/rad51_additions_decisions.json","--spot-sources",$S,"--spot-sources-truth-root","$G/imaris_truth_spot_sources"
+python scripts/benchmark_manifest.py @MAN --truth-check $E/truth_assignment_check_additions.csv
+python scripts/check_truth_assignment.py --manifest $B/manifest_entry9.json --spot-sources $S --out $E11/truth_assignment_check_hs_male_000.csv --tags n2rad51_HS_male_000
+python scripts/benchmark_manifest.py @MAN --truth-check $E/truth_assignment_check_additions.csv $E11/truth_assignment_check_hs_male_000.csv
+```
+
 2. GPU (Cellpose), after the gate that holds it tonight, under the lock: the deployed pipeline on the four additions,
    from the existing 8666f07 worktree (never germquant_wt_t5). About 2.2 to 2.7 h (1.63 times the 1220 to 1460 s of
    a registered gonad, for 1.63 times the voxels). If a run floods past 6 h, rerun it at the newest commit whose
@@ -2090,32 +2159,41 @@ Get-ChildItem $G/additions/8666f07/*/run_manifest.json | ForEach-Object { python
 
 ```powershell
 $env:CUDA_VISIBLE_DEVICES = "-1"
-# with the 4.4 table and the decisions file of entry 10 (and of any later entry that changes it); the printed table
-# must show each addition's spot truth as the decisions file has it
-python scripts/benchmark_manifest.py --name n2rad51_8666f07 --out $G/benchmarks --manifest-file manifest_entry9.json --truth-root $G/imaris_truth --additions $A --additions-results-root $G/additions/8666f07 --truth-check $E/truth_assignment_check_additions.csv --spot-truth-decisions tests/golden/rad51_additions_decisions.json
+# with the 4.4 tables, the decisions file and the spot source of entries 10 and 11 (and of any later entry that
+# changes them; $MAN and $E11 as in step 1b); the printed table must show each addition's spot truth as the
+# decisions file has it, and n2rad51_HS_male_000's as entry 11 does
+python scripts/benchmark_manifest.py @MAN --truth-check $E/truth_assignment_check_additions.csv $E11/truth_assignment_check_hs_male_000.csv
 # the twelve registered entries equal those of manifest.json apart from the output flags of n2rad51_noHS_male_002
-# and n2rad51_HS_male_002, whose golden runs finished after manifest.json was written (must print True)
-python -c "import json; f=lambda e: {k: v for k, v in e.items() if k not in ('outputs', 'outputs_complete')}; a=json.load(open('$B/manifest.json'))['gonads']; b=json.load(open('$B/manifest_entry9.json'))['gonads'][:12]; print([f(e) for e in a] == [f(e) for e in b])"
+# and n2rad51_HS_male_002, whose golden runs finished after manifest.json was written, and the keys the spot source
+# of entry 11 sets on n2rad51_HS_male_000 (must print True)
+python -c "import json; S={'registered_truth_dir','truth_dir','truth','truth_complete','recorded_spot_source','spot_truth_usable','spot_truth_reason','section_4_4','notes'}; f=lambda e: {k: v for k, v in e.items() if k not in {'outputs', 'outputs_complete'} | (S if e['tag'] == 'n2rad51_HS_male_000' else set())}; a=json.load(open('$B/manifest.json'))['gonads']; b=json.load(open('$B/manifest_entry9.json'))['gonads'][:12]; print([f(e) for e in a] == [f(e) for e in b])"
 $ADD = "n2rad51_20260105a_HS_male_001","n2rad51_20260105a_HS_male_002","n2rad51_20260105a_HS_male_003","n2rad51_20260105b_HS_male_001"
 python scripts/bench_cache.py --manifest $B/manifest_entry9.json --additions $A --tags $ADD --verify-sha256
 python scripts/bench_reproduce_golden.py --manifest $B/manifest_entry9.json --tags $ADD --out $E/reproduce_golden.json
 ```
 
-4. The revision (entry 9 (g) and (h)), after entry 10 and after the project lead has answered on
-   n2rad51_20260105a_HS_male_001 and _003 (entry 10 (c); a later entry changes the decisions file if he keeps
-   either), so that it runs once on the final folds. Every run appends to `$B/trials.jsonl` (next to both
-   manifests). `$USE` lists the additions whose `spot_truth_usable` is true in the manifest rebuilt in step 3 (with
-   entry 10's decisions, n2rad51_20260105a_HS_male_002 only; step 3 caches all four, since caches and nucleus truth
-   do not depend on it); the folds, the D3 replay and the net3d folds follow that manifest by themselves.
+4. The revision (entry 9 (g) and (h)), after entries 10 and 11 and after the re-export of n2rad51_HS_male_002
+   (the project lead's "okay i will re export"; entry 11 (g)), so that it runs once on the final folds: the
+   re-export enters by the path of protocol section 4.1 and entry 10 (g)(8) (a new size and sha256 in the split
+   record, its pinned digests and a changelog entry, then its truth export with `--frame-check`, section 4.4 and the
+   checks of entry 9 (d)(5), and the manifest of step 3 again), and step 4 runs after it. If the project lead says
+   to go on without it, step 4 runs as written, with n2rad51_HS_male_002 excluded. Every run appends to
+   `$B/trials.jsonl` (next to both manifests). `$USE` lists the additions whose `spot_truth_usable` is true in the
+   manifest rebuilt in step 3 (with the decisions of entries 10 and 11, n2rad51_20260105a_HS_male_001 and _002;
+   step 3 caches all four, since caches and nucleus truth do not depend on it); `$NEW` lists every train gonad with
+   usable spot truth outside the six registered folds of entries 4 and 7, registered first (n2rad51_HS_male_000 by
+   entry 11, and n2rad51_HS_male_002 once its re-export is usable), then `$USE`: nine folds now, ten with the
+   re-export. The folds, the D3 replay and the net3d folds follow the manifest by themselves.
 
 ```powershell
 $M = "$B/manifest_entry9.json"
 $USE = python -c "import json; [print(e['tag']) for e in json.load(open('$M'))['gonads'] if e.get('addition') and e['spot_truth_usable']]"
+$NEW = python -c "import json; six={'n2rad51_HS_herm_000','n2rad51_HS_herm_001','n2rad51_noHS_herm_000','n2rad51_noHS_herm_001','n2rad51_noHS_male_000','n2rad51_noHS_male_001'}; [print(e['tag']) for e in json.load(open('$M'))['gonads'] if e['role'] == 'train' and e['spot_truth_usable'] and e['tag'] not in six]"
 # 4a net3d: the recipe check at the new commit (GPU, about 5 min): epoch 4 on its own four gonads, bit for bit
 python $G/gpu_lock.py run --name "entry 9: net3d recipe check" -- germquant train-spots --cache $G/bench_cache --split-file tests/golden/rad51_split.json --manifest $M --out $G/models/net3d_recipe_check_entry9 --recipe-from $G/models/net3d_20261010 --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 --device cuda --prep-dir $G/models/net3d_prep --min-free-gb 8
 #    its model.pt must equal $G/models/net3d_20261010/checkpoints/epoch_004.pt in every weight (as in entry 4 (b))
-# 4b tuned log: all 55 D3 sets on the additions (CPU, 45 to 60 min with 4 workers), then the replay
-python scripts/bench_tune.py --backend log --configs $B/logo_e1/configs/log_all.json --split train --tags $USE --search entry9_log --jobs 4 --manifest $M --out-root $E/log_d3_on_additions
+# 4b tuned log: all 55 D3 sets on the new train gonads (CPU, 45 to 60 min with 4 workers), then the replay
+python scripts/bench_tune.py --backend log --configs $B/logo_e1/configs/log_all.json --split train --tags $NEW --search entry9_log --jobs 4 --manifest $M --out-root $E/log_d3_on_additions
 $T = "$B/tuning_d3"; $L = "$B/logo_e1"
 python scripts/bench_logo.py --manifest $M select --backend log --runs $T/log_A_train $T/log_B_train $T/log_C_train $T/log_val $L/val_scoring/log $L/fold_search/log_C_train3noHS $L/fold_search/log_val_train3noHS $L/fold_search/log_valsub_train3noHS $E/log_d3_on_additions --out $E/log_selection.json
 #    exit code 3: run the sets it lists (to_run) on the gonads it names, under --search entry9_log, and select again
@@ -2123,23 +2201,25 @@ python scripts/bench_logo.py --manifest $M select --backend log --runs $T/log_A_
 #    $B/final_params/log_tuned_entry9.json with its selected_params
 # 4c held-out scoring of the new folds (CPU; SpotMAX two workers at about 17 to 20 GB each, 40 to 60 min)
 python scripts/bench_logo.py --manifest $M heldout --detector log_tuned --backend log --selection $E/log_selection.json --out-root $E/logo/heldout/log_tuned
-python scripts/bench_logo.py --manifest $M heldout --detector log_defaults --backend log --params "{}" --tags $USE --out-root $E/logo/heldout/log_defaults
-python scripts/bench_logo.py --manifest $M heldout --detector spotmax_deployed --backend spotmax --params "{}" --tags $USE --out-root $E/logo/heldout/spotmax_deployed
-python scripts/bench_logo.py --manifest $M heldout --detector spotmax_grid --backend spotmax --params $B/final_params/spotmax_retuned_grid.json --tags $USE --out-root $E/logo/heldout/spotmax_grid
+python scripts/bench_logo.py --manifest $M heldout --detector log_defaults --backend log --params "{}" --tags $NEW --out-root $E/logo/heldout/log_defaults
+python scripts/bench_logo.py --manifest $M heldout --detector spotmax_deployed --backend spotmax --params "{}" --tags $NEW --out-root $E/logo/heldout/spotmax_deployed
+python scripts/bench_logo.py --manifest $M heldout --detector spotmax_grid --backend spotmax --params $B/final_params/spotmax_retuned_grid.json --tags $NEW --out-root $E/logo/heldout/spotmax_grid
 #    the six registered folds of log_defaults, spotmax_deployed and spotmax_grid are reused: copy their held-out
 #    folders (logo_e1/heldout/<detector>/<tag>, prereg_grid/logo/heldout/spotmax_grid/<tag>) next to the new ones
 #    after one reproduction check per detector (one registered fold rerun, every table equal but run times)
-# 4d net3d: one fold model per usable gonad (seven with entry 10's decisions) and the train-plus-val model (GPU,
-#    40 to 60 min in all)
+# 4d net3d: one fold model per usable gonad (nine with entries 10 and 11, ten with the re-export) and the
+#    train-plus-val model (GPU, 50 to 70 min in all); the order: the recipe's train and val gonads, then $NEW
+#    (registered first, then the additions in record order; bench_logo.py fold_training_order)
 python scripts/bench_logo.py --manifest $M net3d-folds --recipe-from $G/models/net3d_20261010 --models-root $G/models/net3d_logo_entry9 --out-root $E/logo/heldout/net3d --log-dir $E/logs --gpu-lock $G/gpu_lock.py --split-file tests/golden/rad51_split.json --additions $A --prep-dir $G/models/net3d_prep --min-free-gb 8
-python $G/gpu_lock.py run --name "entry 9: net3d train plus val" -- germquant train-spots --cache $G/bench_cache --split-file tests/golden/rad51_split.json --manifest $M --additions $A --out $G/models/net3d_trainval_entry9 --recipe-from $G/models/net3d_20261010 --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 n2rad51_HS_herm_001 n2rad51_noHS_herm_001 $USE --device cuda --prep-dir $G/models/net3d_prep --min-free-gb 8
+python $G/gpu_lock.py run --name "entry 9: net3d train plus val" -- germquant train-spots --cache $G/bench_cache --split-file tests/golden/rad51_split.json --manifest $M --additions $A --out $G/models/net3d_trainval_entry9 --recipe-from $G/models/net3d_20261010 --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 n2rad51_HS_herm_001 n2rad51_noHS_herm_001 $NEW --device cuda --prep-dir $G/models/net3d_prep --min-free-gb 8
 #    then write $B/final_params/net3d_trainval_entry9.json naming its model.pt
 # 4e the report: all folds, the six registered folds, the heat-shocked males
 python scripts/bench_logo.py --manifest $M report --heldout net3d=$E/logo/heldout/net3d log_tuned=$E/logo/heldout/log_tuned log_defaults=$E/logo/heldout/log_defaults spotmax_deployed=$E/logo/heldout/spotmax_deployed spotmax_grid=$E/logo/heldout/spotmax_grid --out $E/logo/report
 ```
 
-Then the results entry of the revision (entry 11 or later): the new folds, the new net3d sha256 and, if written,
-`log_tuned_entry9.json`; and decision 1 goes back to the project lead with the questions of entry 10.
+Then the results entry of the revision (entry 12 or later, after the entry that brings in the re-export of
+n2rad51_HS_male_002): the new folds, the new net3d sha256 and, if written, `log_tuned_entry9.json`; and decision 1
+goes back to the project lead with the questions of entry 10 that are still open.
 
 Compute, RTX 5090 plus the CPU: about one working day, 3.5 h of it GPU-bound (the pipeline 2.2 to 2.7 h, net3d 50 to
 60 min) and 3 to 7 h of CPU (truth exports under 1 h, caches 5 min, the log sets 1 to 4 h, SpotMAX held-out runs 40

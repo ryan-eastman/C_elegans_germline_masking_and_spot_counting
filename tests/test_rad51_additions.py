@@ -336,17 +336,24 @@ def test_a_decision_removes_the_fold_of_an_addition(tmp_path):
 DECISIONS = ROOT / "tests" / "golden" / "rad51_additions_decisions.json"
 
 
-def test_the_decisions_of_entry_10():
+def test_the_decisions_of_entries_10_and_11():
+    """Entry 10 decided the four additions; entry 11 replaced the decision on n2rad51_20260105a_HS_male_001 by the
+    project lead's answer ('10 sure', the post hoc like-for-like reading), keeping the entry-10 decision under
+    'replaces'; _003 and the fourth gonad are unchanged."""
     doc = bs.load_spot_truth_decisions(DECISIONS)
-    assert doc["changelog_entry"] == 10 and set(doc["decisions"]) == set(bs.ADDITION_ROLES)
+    assert doc["changelog_entry"] == 11 and set(doc["decisions"]) == set(bs.ADDITION_ROLES)
     assert {t: d["usable"] for t, d in doc["decisions"].items()} == {
-        MALES[0]: False, MALES[1]: True, MALES[2]: False, HS1: False}
-    assert all(d["entry"] == 10 for d in doc["decisions"].values())
+        MALES[0]: True, MALES[1]: True, MALES[2]: False, HS1: False}
+    assert {t: d["entry"] for t, d in doc["decisions"].items()} == {MALES[0]: 11, MALES[1]: 10, MALES[2]: 10, HS1: 10}
+    old = doc["decisions"][MALES[0]]["replaces"]
+    assert old["usable"] is False and old["entry"] == 10
+    assert "10 sure" in doc["decisions"][MALES[0]]["reason"] and "post hoc" in doc["decisions"][MALES[0]]["reason"]
 
 
 def test_the_decisions_on_the_real_truth_files():
-    """On the workstation: the rule with the real truth params, the 4.4 table and the decisions gives what entry 10
-    states; without the decisions only n2rad51_20260105a_HS_male_002 passes section 4.4."""
+    """On the workstation: the rule with the real truth params, the 4.4 table and the decisions gives what entries
+    10 and 11 state (n2rad51_20260105a_HS_male_001 kept by entry 11); without the decisions only
+    n2rad51_20260105a_HS_male_002 passes section 4.4."""
     truth_root = Path("C:/Users/ryane/germquant_golden/imaris_truth")
     table = Path("C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/entry9/truth_assignment_check_additions.csv")
     if not table.is_file() or not truth_root.is_dir():
@@ -359,7 +366,8 @@ def test_the_decisions_on_the_real_truth_files():
         params = json.loads((truth_root / g["tag"] / f"{g['stem']}__imaris_params.json").read_text(encoding="utf-8"))
         with_dec[g["tag"]] = bs.addition_spot_truth_usable(g, params, checks[g["tag"]], dec[g["tag"]])[0]
         without[g["tag"]] = bs.addition_spot_truth_usable(g, params, checks[g["tag"]])[0]
-    assert with_dec == without == {MALES[0]: False, MALES[1]: True, MALES[2]: False, HS1: False}
+    assert with_dec == {MALES[0]: True, MALES[1]: True, MALES[2]: False, HS1: False}
+    assert without == {MALES[0]: False, MALES[1]: True, MALES[2]: False, HS1: False}
 
 
 def test_registered_stems_are_the_split_files():
