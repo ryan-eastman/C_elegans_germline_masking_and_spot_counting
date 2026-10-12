@@ -97,6 +97,19 @@ use spot truth wait for the re-export of n2rad51_HS_male_002 only if it arrives 
 with nine folds without it, and the re-export enters afterwards as a further declared development revision before
 test scoring (entry 10 (g)(8)).
 
+Status (2026-10-12, protocol changelog entry 13): the project lead replied "Whatever you think I don't have time to
+export right now." (apostrophe in ASCII) to q11 (keep n2rad51_HS_male_000 in training on the adapted checks; the
+recommendation was yes) and to the timing of the re-export. Read as accepting q11, so n2rad51_HS_male_000 keeps its
+spot truth under the criteria of entry 11 (post hoc, entry 12 (a)), and as saying that the re-export of
+n2rad51_HS_male_002 does not arrive on 2026-10-12. The steps of the entry-9 revision that use spot truth therefore run
+with nine folds (the six registered, n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002); the re-export,
+when it comes, enters by the path of protocol section 4.1 (entries 10 (g)(8) and 12 (d)) as a further declared
+development revision before test scoring, with ten folds. In the template of section 4.2 the net3d brackets read
+nine train and val gonads, seven of them registered, and two additions, until that revision. The message stated,
+without asking, that 2026-01-05 cannot be the session of a future test set and that 20260105_n2_hs_1_MALE_1 could join
+if its Spots are saved again in Imaris; questions (b) and (c) above stay open. The option of this decision is still
+his: no test gonad is scored until he confirms one.
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not

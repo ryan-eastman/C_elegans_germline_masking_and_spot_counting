@@ -1873,7 +1873,8 @@ python scripts/bench_logo.py report --heldout net3d=$R/net3d log_tuned=$R/log_tu
 Everything in this section is post hoc under rule 3 (protocol changelog entry 9 (j)). Protocol changelog entry 10
 records the results of the CPU truth steps below, the spot-truth decisions they call for and corrections to entry 9.
 Protocol changelog entry 11 gives n2rad51_HS_male_000 spot truth from its 2025-12-31 export and keeps
-n2rad51_20260105a_HS_male_001 ("Entry 11" below).
+n2rad51_20260105a_HS_male_001 ("Entry 11" below). Entry 12 corrects entry 11 and sets the gate of the revision;
+entry 13 records the project lead's answer and runs the revision on nine folds ("Entry 13" below).
 
 Protocol changelog entry 9 adds four heat-shocked N2 males imaged on 2026-01-05 to TRAIN, in a record of their own,
 and declares the revision of the methods that depend on train before any test scoring. Nothing in this section
@@ -2137,12 +2138,41 @@ Post hoc under rule 3 (protocol changelog entry 12 gives the details). What chan
   ambiguous written value resolved to Class B, 7,628 of 7,628 equal) and reworded text. No number changes, and the
   truth folder of entry 11 stays the one the manifest names.
 
+### Entry 13: nine folds, and the launcher (2026-10-12)
+
+Post hoc under rule 3 (protocol changelog entry 13 gives the details). The project lead replied "Whatever you think I
+don't have time to export right now." to q11 and to the timing of the re-export: n2rad51_HS_male_000 keeps its spot
+truth under the criteria of entry 11, and the re-export of n2rad51_HS_male_002 did not arrive on 2026-10-12. So step 4
+runs with nine folds (the six registered, n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002); the re-export
+enters later as a further declared development revision, with ten folds, into folders of its own.
+
+`C:/Users/ryane/germquant_golden/run_revision_9folds.ps1` (helpers in `revision_9folds_helpers.py` next to it) runs
+steps 2 to 4 below from a detached worktree of the entry-13 commit, with every GPU step under the lock, a log line per
+step in `germquant_golden/revision_9folds.log` (command, start, end, exit code) and a stop at the first failure; its
+own files go to `$E/revision_9folds/`. `-DryRun` checks every command without running it. Where it departs from the
+text below, as entry 13 (c) declares:
+
+* `python -m germquant train-spots` with PYTHONPATH set to the worktree's src, not the `germquant` executable, which
+  imports the main checkout's package.
+* `heldout --params` takes JSON text: the spotmax_grid run gets the JSON of `spotmax_retuned_grid.json`, not its path.
+* The six registered folds of log_defaults and spotmax_deployed are reused from `prereg_grid/logo/heldout_rescored/`
+  (with the section 5.2 columns), not from `logo_e1/heldout/` (without them); the reproduction check reruns the fold
+  of n2rad51_noHS_male_000 for each detector and requires every table equal but the run times.
+* The select loop of 4b runs the missing sets and selects again by itself (at most eight rounds).
+* 4e adds the reports of the six registered folds and of the three heat-shocked males.
+* Step 2 runs one gonad per `make_goldens.py --only` call and stops a run 6 h after it acquired the lock.
+* Checks after the steps whose tools exit 0 on a failure (golden runs, caches), on the manifest of step 3, on the
+  recipe and the train-plus-val model, and, after every step, on the frozen artefacts, `trials.jsonl` (append only) and
+  the test seal.
+
 ### The revision plan (commands, order, compute)
 
 Steps 1 and 1b were run at the commits they name. Run the rest from a clean checkout of a commit that holds
-protocol changelog entry 12 (the commit of this text or later; steps 1b to 4 need the code of entries 11 and 12), so
-that every trial record carries the sha of a commit that holds the entry, in PowerShell with the repository's
-environment active. `$G` is
+protocol changelog entry 13 (the commit of that entry or later; steps 1b to 4 need the code of entries 11 and 12, and
+entry 13 changes documents only), so that every trial record carries the sha of a commit that holds the entry, in
+PowerShell with the repository's interpreter and PYTHONPATH set to that checkout's src (the `germquant` executable
+imports the main checkout's package, so `germquant ...` below runs as `python -m germquant ...`; entry 13 (c)(1)); the
+launcher of "Entry 13" does this. `$G` is
 `C:/Users/ryane/germquant_golden`, `$B` is `$G/benchmarks/n2rad51_8666f07`, `$E` is `$B/entry9`, `$D` is
 `C:/Users/ryane/n2_rad51_hs_2026`, `$A` is `tests/golden/rad51_additions.json`.
 
@@ -2205,13 +2235,12 @@ python scripts/bench_cache.py --manifest $B/manifest_entry9.json --additions $A 
 python scripts/bench_reproduce_golden.py --manifest $B/manifest_entry9.json --tags $ADD --out $E/reproduce_golden.json
 ```
 
-4. The revision (entry 9 (g) and (h)), after entries 10 to 12. It waits for the re-export of n2rad51_HS_male_002
-   only if the re-export arrives on 2026-10-12, which is what was put to the project lead ("If you can do it today,
-   the retraining runs once with all the heat-shocked males. If not, I go ahead without it."; his reply "okay i
-   will re export" names no day; entry 12 (c), which replaces the gate of entry 11 (g)). Otherwise step 4 runs as
-   written with nine folds, n2rad51_HS_male_002 excluded, and the re-export enters afterwards as a further declared
-   development revision before test scoring (entry 10 (g)(8)). The re-export enters by the path of protocol section
-   4.1 and entries 10 (g)(8) and 12 (d), in one commit with its changelog entry: `tests/golden/rad51_split.json`
+4. The revision (entry 9 (g) and (h)), after entries 10 to 13. Entry 12 (c) set the gate: wait for the re-export of
+   n2rad51_HS_male_002 only if it arrived on 2026-10-12. It did not ("Whatever you think I don't have time to export
+   right now."; entry 13), so step 4 runs now with nine folds, n2rad51_HS_male_002 excluded, and the re-export enters
+   afterwards as a further declared development revision before test scoring (entry 10 (g)(8)), in which the steps
+   below that use spot truth run again with ten folds into folders of their own. The re-export enters by the path of
+   protocol section 4.1 and entries 10 (g)(8) and 12 (d), in one commit with its changelog entry: `tests/golden/rad51_split.json`
    (the new size and sha256, `region_growing` from its creation parameters) and the pinned digests
    `REGISTERED_SPLIT_SHA256` and `REGISTERED_SPLIT_SHA256_LF` (`benchmark_split.py`). The additions record and the
    spot-sources record (`tests/golden/rad51_additions.json`, `tests/golden/rad51_spot_sources.json`) stay as
@@ -2219,9 +2248,8 @@ python scripts/bench_reproduce_golden.py --manifest $B/manifest_entry9.json --ta
    `tests/test_rad51_spot_sources.py` pin those historical digests and check the roles live. Then its truth export
    with `--frame-check`, section 4.4 and the checks of entry 9 (d)(5), and the manifest of step 3 again, whose
    equality check against `manifest.json` must then also leave out n2rad51_HS_male_002's `ims_record` and the keys
-   its new truth sets. Step 4 then runs on ten folds. n2rad51_HS_male_000's spot truth is in step 4 while the
-   project lead's answer to entry 12 (a) is pending; if he does not confirm it, a later entry removes it and the
-   steps that used it run again before any test scoring. Every run appends to
+   its new truth sets. In that revision step 4 runs on ten folds. n2rad51_HS_male_000's spot truth is in step 4: the
+   project lead accepted q11, the question entry 12 (a) put to him (entry 13 (a)). Every run appends to
    `$B/trials.jsonl` (next to both manifests). `$USE` lists the additions whose `spot_truth_usable` is true in the
    manifest rebuilt in step 3 (with the decisions of entries 10 and 11, n2rad51_20260105a_HS_male_001 and _002;
    step 3 caches all four, since caches and nucleus truth do not depend on it); `$NEW` lists every train gonad with
@@ -2234,41 +2262,49 @@ $M = "$B/manifest_entry9.json"
 $USE = python -c "import json; [print(e['tag']) for e in json.load(open('$M'))['gonads'] if e.get('addition') and e['spot_truth_usable']]"
 $NEW = python -c "import json; six={'n2rad51_HS_herm_000','n2rad51_HS_herm_001','n2rad51_noHS_herm_000','n2rad51_noHS_herm_001','n2rad51_noHS_male_000','n2rad51_noHS_male_001'}; [print(e['tag']) for e in json.load(open('$M'))['gonads'] if e['role'] == 'train' and e['spot_truth_usable'] and e['tag'] not in six]"
 # 4a net3d: the recipe check at the new commit (GPU, about 5 min): epoch 4 on its own four gonads, bit for bit
-python $G/gpu_lock.py run --name "entry 9: net3d recipe check" -- germquant train-spots --cache $G/bench_cache --split-file tests/golden/rad51_split.json --manifest $M --out $G/models/net3d_recipe_check_entry9 --recipe-from $G/models/net3d_20261010 --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 --device cuda --prep-dir $G/models/net3d_prep --min-free-gb 8
+python $G/gpu_lock.py run --name "entry 9: net3d recipe check" -- python -m germquant train-spots --cache $G/bench_cache --split-file tests/golden/rad51_split.json --manifest $M --out $G/models/net3d_recipe_check_entry9 --recipe-from $G/models/net3d_20261010 --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 --device cuda --prep-dir $G/models/net3d_prep --min-free-gb 8
 #    its model.pt must equal $G/models/net3d_20261010/checkpoints/epoch_004.pt in every weight (as in entry 4 (b))
 # 4b tuned log: all 55 D3 sets on the new train gonads (CPU, 45 to 60 min with 4 workers), then the replay
 python scripts/bench_tune.py --backend log --configs $B/logo_e1/configs/log_all.json --split train --tags $NEW --search entry9_log --jobs 4 --manifest $M --out-root $E/log_d3_on_additions
 $T = "$B/tuning_d3"; $L = "$B/logo_e1"
 python scripts/bench_logo.py --manifest $M select --backend log --runs $T/log_A_train $T/log_B_train $T/log_C_train $T/log_val $L/val_scoring/log $L/fold_search/log_C_train3noHS $L/fold_search/log_val_train3noHS $L/fold_search/log_valsub_train3noHS $E/log_d3_on_additions --out $E/log_selection.json
-#    exit code 3: run the sets it lists (to_run) on the gonads it names, under --search entry9_log, and select again
-#    (0.5 to 3 h, data dependent); when "designated" selects another set than log_tuned.json, write
-#    $B/final_params/log_tuned_entry9.json with its selected_params
+#    exit code 3: run the sets it lists (missing) on the gonads it names, under --search entry9_log, and select again
+#    (0.5 to 3 h, data dependent; the launcher does this round by round, entry 13 (c)(4)); when "designated" selects
+#    another set than log_tuned.json, write $B/final_params/log_tuned_entry9.json with its selected_params
 # 4c held-out scoring of the new folds (CPU; SpotMAX two workers at about 17 to 20 GB each, 40 to 60 min)
 python scripts/bench_logo.py --manifest $M heldout --detector log_tuned --backend log --selection $E/log_selection.json --out-root $E/logo/heldout/log_tuned
 python scripts/bench_logo.py --manifest $M heldout --detector log_defaults --backend log --params "{}" --tags $NEW --out-root $E/logo/heldout/log_defaults
 python scripts/bench_logo.py --manifest $M heldout --detector spotmax_deployed --backend spotmax --params "{}" --tags $NEW --out-root $E/logo/heldout/spotmax_deployed
-python scripts/bench_logo.py --manifest $M heldout --detector spotmax_grid --backend spotmax --params $B/final_params/spotmax_retuned_grid.json --tags $NEW --out-root $E/logo/heldout/spotmax_grid
+#    --params takes JSON text, not a file (entry 13 (c)(2)): pass the JSON of $B/final_params/spotmax_retuned_grid.json
+#    (in Windows PowerShell 5.1 with its double quotes escaped as \"; the launcher expands @jsonfile=PATH itself)
+python scripts/bench_logo.py --manifest $M heldout --detector spotmax_grid --backend spotmax --params <the JSON of $B/final_params/spotmax_retuned_grid.json> --tags $NEW --out-root $E/logo/heldout/spotmax_grid
 #    the six registered folds of log_defaults, spotmax_deployed and spotmax_grid are reused: copy their held-out
-#    folders (logo_e1/heldout/<detector>/<tag>, prereg_grid/logo/heldout/spotmax_grid/<tag>) next to the new ones
-#    after one reproduction check per detector (one registered fold rerun, every table equal but run times)
+#    folders (prereg_grid/logo/heldout_rescored/<detector>/<tag> for log_defaults and spotmax_deployed, which carry
+#    the section 5.2 columns, not logo_e1/heldout/<detector>/<tag>, which do not; entry 13 (c)(3);
+#    prereg_grid/logo/heldout/spotmax_grid/<tag>) next to the new ones after one reproduction check per detector
+#    (the fold of n2rad51_noHS_male_000 rerun, every table equal but the run times)
 # 4d net3d: one fold model per usable gonad (nine with entries 10 and 11, ten with the re-export) and the
 #    train-plus-val model (GPU, 50 to 70 min in all); the order: the recipe's train and val gonads, then $NEW
 #    (registered first, then the additions in record order; bench_logo.py fold_training_order)
 python scripts/bench_logo.py --manifest $M net3d-folds --recipe-from $G/models/net3d_20261010 --models-root $G/models/net3d_logo_entry9 --out-root $E/logo/heldout/net3d --log-dir $E/logs --gpu-lock $G/gpu_lock.py --split-file tests/golden/rad51_split.json --additions $A --prep-dir $G/models/net3d_prep --min-free-gb 8
-python $G/gpu_lock.py run --name "entry 9: net3d train plus val" -- germquant train-spots --cache $G/bench_cache --split-file tests/golden/rad51_split.json --manifest $M --additions $A --out $G/models/net3d_trainval_entry9 --recipe-from $G/models/net3d_20261010 --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 n2rad51_HS_herm_001 n2rad51_noHS_herm_001 $NEW --device cuda --prep-dir $G/models/net3d_prep --min-free-gb 8
+python $G/gpu_lock.py run --name "entry 9: net3d train plus val" -- python -m germquant train-spots --cache $G/bench_cache --split-file tests/golden/rad51_split.json --manifest $M --additions $A --out $G/models/net3d_trainval_entry9 --recipe-from $G/models/net3d_20261010 --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 n2rad51_HS_herm_001 n2rad51_noHS_herm_001 $NEW --device cuda --prep-dir $G/models/net3d_prep --min-free-gb 8
 #    then write $B/final_params/net3d_trainval_entry9.json naming its model.pt
 # 4e the report: all folds, the six registered folds, the heat-shocked males
 python scripts/bench_logo.py --manifest $M report --heldout net3d=$E/logo/heldout/net3d log_tuned=$E/logo/heldout/log_tuned log_defaults=$E/logo/heldout/log_defaults spotmax_deployed=$E/logo/heldout/spotmax_deployed spotmax_grid=$E/logo/heldout/spotmax_grid --out $E/logo/report
+#    the six registered folds and the heat-shocked males (entry 13 (c)(5)): the same command with
+#    --tags <the six registered tags> --out $E/logo/report_registered6 and --tags $NEW --out $E/logo/report_hs_males
 ```
 
-Then the results entry of the revision (entry 13 or later; after the entry that brings in the re-export of
-n2rad51_HS_male_002 when it arrived on 2026-10-12, before it otherwise): the new folds, the new net3d sha256 and, if
+Then the results entry of the revision (entry 14 or later; the re-export of n2rad51_HS_male_002 did not arrive on
+2026-10-12, so it comes before the entry that brings the re-export in): the nine folds, the new net3d sha256 and, if
 written, `log_tuned_entry9.json`; and decision 1 goes back to the project lead with the questions of entries 10 and
-12 that are still open.
+13 that are still open.
 
 Compute, RTX 5090 plus the CPU: about one working day, 3.5 h of it GPU-bound (the pipeline 2.2 to 2.7 h, net3d 50 to
 60 min) and 3 to 7 h of CPU (truth exports under 1 h, caches 5 min, the log sets 1 to 4 h, SpotMAX held-out runs 40
-to 60 min, reports minutes). The GPU steps wait for the gate that holds the card tonight.
+to 60 min, reports minutes). The GPU steps wait for the gate that holds the card tonight. With nine folds (entry 13) the
+launcher logs an estimate per step; the GPU-bound part is about 3 to 4 h (the pipeline 2.2 to 2.7 h, the recipe check
+about 5 min, the nine fold models and the train-plus-val model 45 to 75 min).
 
 ## nuclei3d
 
