@@ -1661,3 +1661,137 @@ point.
    net3d's frozen recipe, the records (`rad51_spot_sources.json` 8e145fb1..., `rad51_additions.json`,
    `rad51_additions_decisions.json` 682368bc...), `manifest_entry9.json` (d3d751b7..., until step 3 writes it again),
    the truth folders, the code, the SpotMAX rows of docs/FINAL_SCORING.md and decision 1.
+14. 2026-10-12. Corrections to entry 13, and what its launcher does beyond entry 13 (c), each decided before any step
+   of the revision has run. Entry 13 is committed (642eb26), so by the precedent of entries 10 (g) and 12 it is
+   corrected here, not edited. Written after two independent reviews of entry 13 and of its launcher, and before any
+   step of the plan in docs/BENCHMARK.md has run: no pipeline output, bench cache, tuning run, fold model or held-out
+   score exists for the revision, and `germquant_golden/revision_9folds.log` does not exist. No test gonad was run,
+   scored or opened for this entry ((i) lists the reads): no `--final` run was made, `final_runs.jsonl` does not exist,
+   and none of the 387 records of `trials.jsonl` names a test gonad. No test result was computed.
+   (a) Where the launcher runs. From a detached worktree of this entry's commit (`C:/Users/ryane/germquant_wt_<sha7>`,
+   made as before, with the models junction), not of 642eb26: this commit holds the latest entry, as the plan asks,
+   and every trial record carries its sha. This entry changes documents only, so the code is that of 3f8d97a and
+   642eb26. The launcher names this commit, so this entry cannot give the launcher's own sha256; it logs the sha256 of
+   itself and of its helper at start ("launcher file ... sha256 ..." in `revision_9folds.log`) and keeps copies of both
+   in `entry9/revision_9folds/launcher_<run id>/`, and the results entry gives them (they differ from the 0f43743b...
+   and 6b7440c5... of the files the reviews read). germquant_wt_642eb26 is not used for the run.
+   (b) Corrections to entry 13 (a). (1) "questions (b) and (c) of entry 10 (c)": entry 10 (c) has no lettered
+   questions. They are questions (b) and (c) of decision 1 (docs/FINAL_SCORING.md, the entry-10 status line), stated in
+   entry 10 (g)(7); entry 11's "The two other questions of entry 10 (c)" is corrected the same way. (2) "I don't have
+   time to export right now" was read as saying that the re-export "does not arrive on 2026-10-12". "Right now" is
+   narrower than "today", and the gate of entry 12 (c) is literally "arrives on 2026-10-12". The reading taken, with
+   "Whatever you think": he accepted the course the message named without the re-export ("Otherwise it runs tonight on
+   the 9 I have"), so the revision runs tonight on nine folds, and a re-export that arrives later on 2026-10-12 enters
+   as the further declared revision of entry 13 (b), not by holding the run. That departs from the letter of entry 12
+   (c).
+   (3) The reply's apostrophe is U+2019 in the session transcript; docs/BENCHMARK.md now adds "(apostrophe in ASCII;
+   entry 13 (a))" where it quotes the reply, as entry 13 (a) and docs/FINAL_SCORING.md did. (4) Entry 13 (c)(1) says
+   that the `germquant` executable imports the main checkout's package. That holds without PYTHONPATH (the
+   environment's editable install points at the main checkout's src); with PYTHONPATH set to a checkout's src, the
+   executable, `python -m germquant` and `python -c` all import that checkout (checked). The launcher sets it and calls
+   `python -m germquant`, as declared.
+   (c) Correction to entry 13 (c)(7). The step-3 manifest cannot differ from entry 11's "only in the additions' output
+   flags": `benchmark_manifest.py` records the split file's absolute path, which lies in the checkout it runs from
+   (entry 11's file names germquant_wt_hsmales), the time it was built (created_utc) and the summary's list of gonads
+   with complete outputs. As written, the check compared the whole split_file record and would have stopped the launcher
+   after the hours of step 2. Against the entry-11 file it now requires: every gonad entry equal but the additions'
+   output flags; split_file equal but its path (sha256 955eeff5..., registered_on 2026-10-09), both paths printed; the
+   summary equal but its outputs_complete, which may gain only the additions; every other top-level record equal (the
+   additions, spot-sources and spot-truth-input records hold no checkout path); created_utc printed. No --split from
+   another checkout is passed.
+   (d) What the launcher does beyond entry 13 (c), each decided now. None changes a command, parameter, gonad or order
+   of the plan: (1) and (2) add scores that the selection rule does not read, (3) to (9) are checks, stops and logging.
+   (1) The D3 replay runs new sets on both val gonads, as entry 9 (g) declares ("new sets are run on every gonad they
+   need and on both val gonads"). The select loop of entry 13 (c)(4) ran only the (set, gonad) pairs the selection
+   lists: a new stage-B or stage-C set that is not a finalist would have had no val score, and a fold that holds out a
+   val gonad would have scored its finalists on its substitute and the other val gonad only, short of the record of
+   section 6.4. Each round now also runs every set the selection still lists on n2rad51_HS_herm_001 and
+   n2rad51_noHS_herm_001 where the run folders hold no score for it (stage label suffix `val2`). The replay ranks val
+   only on each fold's own val gonads, so the selection is the same with or without these scores.
+   (2) A log reproduction check before 4b. The replay mixes scores from 1a95863 (tuning_d3), eca6f12 (logo_e1
+   val_scoring) and 240cc72 (logo_e1 fold_search) with new ones at this commit, and no (set, gonad) pair is scored at
+   both, so the equality rule of `logo.index_runs` cannot fire, and the reproduction check of 4c (log_defaults) compares
+   with the ca8537d re-scoring only after 4b has selected. The set of `log_tuned.json` (logB_d0.5_s2.5_k0.5_g2_m0) is
+   therefore run at this commit on n2rad51_noHS_male_000 (`bench_tune.py --search entry9_log --stage reprocheck`, into
+   `revision_9folds/repro_check/log_d3`, one trial record), and every nucleus's expert and detected counts and the
+   matching counts must equal those in `tuning_d3/log_B_train`; the folder also goes into every select round, where
+   `index_runs` refuses a pair scored twice with other counts.
+   (3) Step 2. Before it, the 8666f07 worktree must be at 8666f079..., with nothing changed or untracked under src and
+   config, and with the models junction and the Cellpose model of its config (`models/models/germline_nuclei_combined`)
+   present. After each gonad's run, before the next one starts, its golden must have exit code 0, git_sha 8666f07,
+   config hash 84bdda5a5230 and segmentation_method "cellpose" in its image summary: the deployed config's method "auto"
+   falls back to the classical watershed on any Cellpose error and the run still exits 0, which would change the
+   numbers and pass every later check (the golden reproduction reproduces the golden's own labels); the registered
+   goldens say "cellpose". A run stopped by the 6 h limit has its GPU lock file removed when the lock names that step
+   and its process is gone (killing the process tree skips the lock's release); `gpu_lock.py` is not changed.
+   (4) The b90ebdf gate ("STEP t5_gate --require-golden exit=0" in g4_main_b90ebdf.log) is required before the first
+   GPU step whatever the switches (-SkipQueueWait skips only the wait), a stop condition entry 13 did not list. The
+   launcher reads that log, and the live-training log, by exact case-sensitive patterns that match only the two
+   launchers' own STEP and END lines.
+   (5) Step 4 starts only on what step 3 made: nine folds with bench caches (the six registered and $NEW, by
+   `logo.logo_folds`), caches of the four additions, `reproduce_golden.json` identical for all four, the additions'
+   outputs complete in the manifest, and `manifest_entry9.json` rewritten (not d3d751b7...). `logo_folds` drops a gonad
+   without a cache and `bench_tune.py` skips one with exit 0, so a resume after a partial step 3 would otherwise run on
+   fewer folds without an error. This is checked at the start of step 4 whatever -StartAt, and again before 4e.
+   net3d-folds runs one fold per call (`--tags`), each its own step under the lock, so a failed fold stops the run.
+   (6) Before every step the worktree must still be the clean detached checkout of this commit. After every step,
+   besides the checks of entry 13 (c)(7): every new trial record must carry this commit's full sha (not "-dirty") and
+   must not name a test gonad by tag, by stem or as 20251105_n2_hs_MALE_1; under the frozen and growing folders,
+   `additions` and `models`, every path that names a test gonad is tracked by a hash of the path only (a file by its
+   name, a folder also by its own modification time; never entered or opened, its name written nowhere), and a new,
+   gone or changed one stops the run (the snapshot of entry 13 skipped such paths, so a new output named for a test
+   gonad would have passed); the frozen set adds `models/cellpose_ft_imaris_20261010` (with its log and pairs),
+   `nuclei3d_20261010` and `nuclei3d_prep`. The test-name rule fails closed: nothing runs if the registered test stems
+   cannot be loaded.
+   (7) A resume (-StartAt) first checks the frozen artefacts against the first attempt's snapshot, not only a new one.
+   The six `final_params` files and `net3d_trainval_20261010/model.pt` are copied to `revision_9folds/backup/pinned/`
+   before the first step.
+   (8) Environment and labels: every GERMQUANT_* variable and CELLPOSE_LOCAL_MODELS_PATH are removed before the first
+   step (none is set today); the CPU steps run with CUDA_VISIBLE_DEVICES=-1, which the plan's step-4 block does not set
+   and which changes no number (`spots/detect.py` and `spots/spotmax_options.py` pass use_gpu=False, and the log backend
+   runs on the CPU); the fill tasks of the select loop use `--chunks 4` (a gonad's sets split over four tasks, each log
+   set scored on its own, as in E1); the reproduction reruns of 4c carry the detector labels log_defaults_reprocheck,
+   spotmax_deployed_reprocheck and spotmax_grid_reprocheck in their trial records.
+   (9) Step logs. `benchmark_manifest.py` prints a status row per gonad, the four test gonads included, and
+   `bench_cache.py` the size of every cached gonad, three test gonads included. Every line of a step's output that names
+   a test gonad or a test stem is withheld from the step logs (a marker takes its place, and a count above zero is
+   noted in `revision_9folds.log`).
+   (e) The plan's step-3 heading named "the section 4.4 check", which no command of step 3 runs. The 4.4 tables are
+   those of steps 1 and 1b (`entry9/truth_assignment_check_additions.csv`, c9ba2408..., and
+   `entry11/truth_assignment_check_hs_male_000.csv`, c22afc9e...), passed to the manifest with --truth-check; 4.4 reads
+   only truth files, so they are not rerun. The heading now says so.
+   (f) Disclosed (the manifests of entries 10 and 11 did the same): step 3 touches test gonads by stat only.
+   `benchmark_manifest.py` checks whether the four test gonads' .nd2, .ims, truth and output files exist, and their
+   sizes (stat and folder listings, no file opened); `bench_cache.py` reads the sizes of the files in the three existing
+   test-gonad caches and writes them into `cache_index.json`; the snapshot of (d)(6) stats the folder entries of test
+   gonads without entering them (11 such paths today). None of this opens, reads, hashes or parses a test-gonad file.
+   (g) docs/FINAL_SCORING.md section 4 now says that its commands import the checkout they run from only in the main
+   checkout or with PYTHONPATH set to that checkout's src, and its pre-flight prints `germquant.__file__`: test scoring
+   from a worktree would otherwise run the main checkout's code ((b)(4)). A status line of decision 1 gives (b)(2).
+   (h) Labels. Post hoc under rule 3, like entry 13; the departures and checks above were decided before the run. The
+   launcher's dry run and its scratch tests at this commit are reported with the results of the revision, in the results
+   entry (entry 15 or later). The b90ebdf rerun of entry 13 (f) was still running when this entry was written (the GPU
+   lock held for it since 10:17:58 MDT, its gate line not yet written); its end and result go into the results entry.
+   (i) Reads for this entry: the three documents, the launcher and its helper, the code they call, `gpu_lock.py`, the
+   scripts (not the logs) of the two queue launchers, the GPU lock file and the last three lines of the live-training
+   log (lock-wait lines); `manifest_entry9.json` (its top-level records and the checkout paths it names; no gonad entry
+   printed); `trials.jsonl` (the keys and the git sha counts of the 387 records, nothing else printed); the D3 run
+   folder of logB_d0.5_s2.5_k0.5_g2_m0 (params and gonad list) and `final_params/log_tuned.json`; the image summary, run
+   manifest and golden-manifest record of n2rad51_noHS_herm_000's 8666f07 golden; the 8666f07 worktree's config and git
+   state; file counts under `models`, `bench_cache`, `8666f07` and `imaris_truth` (folder walks that list the folders of
+   test gonads too, totals only printed) and the file times of six `models` folders. Before this commit the changed
+   launcher was exercised on the CPU with the worktree of 642eb26: its dry run (reads as in entry 13 (g), plus the
+   8666f07 worktree check and the step-4 precondition check on `manifest_entry9.json`, which printed train, val and
+   addition tags only); scratch copies of it whose pre-runs snapshot the frozen artefacts (stat only, with the folder
+   entries of the 11 test-named paths) and copy the pinned artefacts, `manifest_entry9.json` and
+   `bench_cache/cache_index.json` (which lists every cached gonad's size, test gonads included; copied unread) into the
+   session scratch folder, two of whose cases write dummy files and records named with a test tag or stem built in code
+   (no test data); and unit checks of the new subcommands on scratch copies of train-gonad files. The two reviews read
+   the same documents and code, ran the dry run and scratch copies of the launcher, counted the lines of
+   g4_main_b90ebdf.log that match the queue patterns (counts only) and counted test-gonad folders in `bench_cache` with
+   their names masked. None of these reads opened, read, hashed or parsed a test-gonad file, a 20251105_n2_hs_MALE_1*
+   file or an aggregate table.
+   (j) Not changed: the split, the roles, the test set, every gonad's truth, the val gonads, net3d's frozen recipe, the
+   records, `manifest_entry9.json` (d3d751b7..., until step 3 writes it again), the code under src, scripts and tests,
+   the SpotMAX rows of docs/FINAL_SCORING.md, the gate of entry 13 (b) (nine folds), decision 1 (still open: nothing is
+   scored on test until the project lead confirms one of its options) and its questions (b) and (c) (still open).

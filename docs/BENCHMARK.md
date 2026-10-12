@@ -2141,16 +2141,17 @@ Post hoc under rule 3 (protocol changelog entry 12 gives the details). What chan
 ### Entry 13: nine folds, and the launcher (2026-10-12)
 
 Post hoc under rule 3 (protocol changelog entry 13 gives the details). The project lead replied "Whatever you think I
-don't have time to export right now." to q11 and to the timing of the re-export: n2rad51_HS_male_000 keeps its spot
-truth under the criteria of entry 11, and the re-export of n2rad51_HS_male_002 did not arrive on 2026-10-12. So step 4
-runs with nine folds (the six registered, n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002); the re-export
-enters later as a further declared development revision, with ten folds, into folders of its own.
+don't have time to export right now." (apostrophe in ASCII; entry 13 (a)) to q11 and to the timing of the re-export:
+n2rad51_HS_male_000 keeps its spot truth under the criteria of entry 11, and the re-export of n2rad51_HS_male_002 did
+not arrive on 2026-10-12. So step 4 runs with nine folds (the six registered, n2rad51_HS_male_000,
+n2rad51_20260105a_HS_male_001 and _002); the re-export enters later as a further declared development revision, with
+ten folds, into folders of its own.
 
 `C:/Users/ryane/germquant_golden/run_revision_9folds.ps1` (helpers in `revision_9folds_helpers.py` next to it) runs
-steps 2 to 4 below from a detached worktree of the entry-13 commit, with every GPU step under the lock, a log line per
-step in `germquant_golden/revision_9folds.log` (command, start, end, exit code) and a stop at the first failure; its
-own files go to `$E/revision_9folds/`. `-DryRun` checks every command without running it. Where it departs from the
-text below, as entry 13 (c) declares:
+steps 2 to 4 below from a detached worktree of the entry-14 commit (entry 14 (a); entry 13 named its own), with every
+GPU step under the lock, a log line per step in `germquant_golden/revision_9folds.log` (command, start, end, exit
+code) and a stop at the first failure; its own files go to `$E/revision_9folds/`. `-DryRun` checks every command
+without running it. Where it departs from the text below, as entry 13 (c) declares:
 
 * `python -m germquant train-spots` with PYTHONPATH set to the worktree's src, not the `germquant` executable, which
   imports the main checkout's package.
@@ -2165,16 +2166,48 @@ text below, as entry 13 (c) declares:
   recipe and the train-plus-val model, and, after every step, on the frozen artefacts, `trials.jsonl` (append only) and
   the test seal.
 
+### Entry 14: corrections to entry 13, and what the launcher adds (2026-10-12)
+
+Post hoc under rule 3 (protocol changelog entry 14 gives the details). Written after two reviews of entry 13 and its
+launcher, before any step of the revision ran. No method, parameter, gonad or order of the plan changes.
+
+* **Where it runs.** From a detached worktree of the entry-14 commit, which holds the latest entry; the launcher logs
+  its own sha256 and its helper's at start, and the results entry gives them.
+* **Corrections to entry 13.** Questions (b) and (c) are those of decision 1 in docs/FINAL_SCORING.md (stated in
+  entry 10 (g)(7)), not of entry 10 (c). "I don't have time to export right now" (apostrophe in ASCII) is read, with
+  "Whatever you think", as accepting the course the message named ("Otherwise it runs tonight on the 9 I have"): a
+  re-export that arrives later on 2026-10-12 enters as the further declared revision, which departs from the letter of
+  entry 12 (c). The step-3 manifest differs from entry 11's in more than the additions' output flags: also in
+  created_utc, the summary's outputs_complete and the split file's path (the checkout it was built from; its sha256
+  955eeff5... does not change). The check allows exactly these.
+* **The D3 replay runs new sets on both val gonads** (entry 9 (g)): each round of the select loop also runs every set
+  the selection still lists on n2rad51_HS_herm_001 and n2rad51_noHS_herm_001 where it has no score there (stage label
+  `val2`). The selection does not change; protocol section 6.4's record gets every set's val score.
+* **A log reproduction check before 4b:** the set of `log_tuned.json` at the run's commit on n2rad51_noHS_male_000,
+  equal to its D3 run in `tuning_d3/log_B_train` nucleus by nucleus, since the replay mixes scores of three older
+  commits with new ones and no pair is scored at both.
+* **Step 2:** the 8666f07 worktree checked first; each gonad's golden checked before the next one runs, including
+  segmentation_method "cellpose" (the deployed config falls back to the watershed on a Cellpose error and still exits
+  0); a stale GPU lock removed after a run stopped by the 6 h limit.
+* **Stops and checks:** the b90ebdf gate whatever the switches; step 4 only on a complete step 3 (nine folds with
+  caches, the golden reproduction identical, the manifest rewritten), checked again before 4e; net3d one fold per
+  call; the worktree checked before every step; every new trial record must carry the run's commit, clean; paths that
+  name a test gonad tracked by a hash of the path (never opened) and stopped on if one appears, goes or changes; a
+  resume checked against the first attempt's snapshot; the pinned artefacts backed up; the test-name rule fails
+  closed; every GERMQUANT_* variable and CELLPOSE_LOCAL_MODELS_PATH cleared; lines naming a test gonad withheld from
+  the step logs.
+
 ### The revision plan (commands, order, compute)
 
 Steps 1 and 1b were run at the commits they name. Run the rest from a clean checkout of a commit that holds
 protocol changelog entry 13 (the commit of that entry or later; steps 1b to 4 need the code of entries 11 and 12, and
-entry 13 changes documents only), so that every trial record carries the sha of a commit that holds the entry, in
-PowerShell with the repository's interpreter and PYTHONPATH set to that checkout's src (the `germquant` executable
-imports the main checkout's package, so `germquant ...` below runs as `python -m germquant ...`; entry 13 (c)(1)); the
-launcher of "Entry 13" does this. `$G` is
-`C:/Users/ryane/germquant_golden`, `$B` is `$G/benchmarks/n2rad51_8666f07`, `$E` is `$B/entry9`, `$D` is
-`C:/Users/ryane/n2_rad51_hs_2026`, `$A` is `tests/golden/rad51_additions.json`.
+entries 13 and 14 change documents only; the launcher runs from the commit of entry 14, the latest entry, entry 14
+(a)), so that every trial record carries the sha of a commit that holds the entry, in PowerShell with the
+repository's interpreter and PYTHONPATH set to that checkout's src (without it the `germquant` executable imports the
+main checkout's package, so `germquant ...` below runs as `python -m germquant ...`; entries 13 (c)(1) and 14
+(b)(4)); the launcher of "Entry 13" does this. `$G` is `C:/Users/ryane/germquant_golden`, `$B` is
+`$G/benchmarks/n2rad51_8666f07`, `$E` is `$B/entry9`, `$D` is `C:/Users/ryane/n2_rad51_hs_2026`, `$A` is
+`tests/golden/rad51_additions.json`.
 
 1. CPU, after the commit (entry 9 (d) and (e)); this was run on 2026-10-12 (results above).
 
@@ -2217,8 +2250,9 @@ python $G/gpu_lock.py run --name "entry 9: deployed pipeline on the additions" -
 Get-ChildItem $G/additions/8666f07/*/run_manifest.json | ForEach-Object { python -c "import json,sys; m=json.load(open(sys.argv[1])); print(sys.argv[1], m['git_sha'], m['config_hash'])" $_ }
 ```
 
-3. CPU: the manifest again (now with outputs), the caches (about 6.3 GB per gonad, about 5 min), the golden
-   reproduction, the section 4.4 check.
+3. CPU: the manifest again (now with outputs, and with the section 4.4 tables of steps 1 and 1b, which read only
+   truth files and are not rerun; entry 14 (e)), the caches (about 6.3 GB per gonad, about 5 min), the golden
+   reproduction.
 
 ```powershell
 $env:CUDA_VISIBLE_DEVICES = "-1"
@@ -2237,8 +2271,9 @@ python scripts/bench_reproduce_golden.py --manifest $B/manifest_entry9.json --ta
 
 4. The revision (entry 9 (g) and (h)), after entries 10 to 13. Entry 12 (c) set the gate: wait for the re-export of
    n2rad51_HS_male_002 only if it arrived on 2026-10-12. It did not ("Whatever you think I don't have time to export
-   right now."; entry 13), so step 4 runs now with nine folds, n2rad51_HS_male_002 excluded, and the re-export enters
-   afterwards as a further declared development revision before test scoring (entry 10 (g)(8)), in which the steps
+   right now.", apostrophe in ASCII; entry 13 (a), with the reading of entry 14 (b)(2)), so step 4 runs now with nine
+   folds, n2rad51_HS_male_002 excluded, and the re-export enters afterwards as a further declared development
+   revision before test scoring (entry 10 (g)(8)), in which the steps
    below that use spot truth run again with ten folds into folders of their own. The re-export enters by the path of
    protocol section 4.1 and entries 10 (g)(8) and 12 (d), in one commit with its changelog entry: `tests/golden/rad51_split.json`
    (the new size and sha256, `region_growing` from its creation parameters) and the pinned digests
@@ -2264,12 +2299,16 @@ $NEW = python -c "import json; six={'n2rad51_HS_herm_000','n2rad51_HS_herm_001',
 # 4a net3d: the recipe check at the new commit (GPU, about 5 min): epoch 4 on its own four gonads, bit for bit
 python $G/gpu_lock.py run --name "entry 9: net3d recipe check" -- python -m germquant train-spots --cache $G/bench_cache --split-file tests/golden/rad51_split.json --manifest $M --out $G/models/net3d_recipe_check_entry9 --recipe-from $G/models/net3d_20261010 --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 --device cuda --prep-dir $G/models/net3d_prep --min-free-gb 8
 #    its model.pt must equal $G/models/net3d_20261010/checkpoints/epoch_004.pt in every weight (as in entry 4 (b))
-# 4b tuned log: all 55 D3 sets on the new train gonads (CPU, 45 to 60 min with 4 workers), then the replay
+# 4b tuned log: first the log reproduction check (entry 14 (d)(2)): the set of log_tuned.json
+#    (logB_d0.5_s2.5_k0.5_g2_m0) on n2rad51_noHS_male_000 with --search entry9_log --stage reprocheck into
+#    $E/revision_9folds/repro_check/log_d3, equal nucleus by nucleus to $B/tuning_d3/log_B_train, and that folder in
+#    every --runs below; then all 55 D3 sets on the new train gonads (CPU, 45 to 60 min with 4 workers), then the replay
 python scripts/bench_tune.py --backend log --configs $B/logo_e1/configs/log_all.json --split train --tags $NEW --search entry9_log --jobs 4 --manifest $M --out-root $E/log_d3_on_additions
 $T = "$B/tuning_d3"; $L = "$B/logo_e1"
 python scripts/bench_logo.py --manifest $M select --backend log --runs $T/log_A_train $T/log_B_train $T/log_C_train $T/log_val $L/val_scoring/log $L/fold_search/log_C_train3noHS $L/fold_search/log_val_train3noHS $L/fold_search/log_valsub_train3noHS $E/log_d3_on_additions --out $E/log_selection.json
-#    exit code 3: run the sets it lists (missing) on the gonads it names, under --search entry9_log, and select again
-#    (0.5 to 3 h, data dependent; the launcher does this round by round, entry 13 (c)(4)); when "designated" selects
+#    exit code 3: run the sets it lists (missing) on the gonads it names, and on both val gonads where a set has no
+#    score there (entry 9 (g); entry 14 (d)(1)), under --search entry9_log, and select again (0.5 to 3 h, data
+#    dependent; the launcher does this round by round, entry 13 (c)(4)); when "designated" selects
 #    another set than log_tuned.json, write $B/final_params/log_tuned_entry9.json with its selected_params
 # 4c held-out scoring of the new folds (CPU; SpotMAX two workers at about 17 to 20 GB each, 40 to 60 min)
 python scripts/bench_logo.py --manifest $M heldout --detector log_tuned --backend log --selection $E/log_selection.json --out-root $E/logo/heldout/log_tuned
@@ -2285,7 +2324,8 @@ python scripts/bench_logo.py --manifest $M heldout --detector spotmax_grid --bac
 #    (the fold of n2rad51_noHS_male_000 rerun, every table equal but the run times)
 # 4d net3d: one fold model per usable gonad (nine with entries 10 and 11, ten with the re-export) and the
 #    train-plus-val model (GPU, 50 to 70 min in all); the order: the recipe's train and val gonads, then $NEW
-#    (registered first, then the additions in record order; bench_logo.py fold_training_order)
+#    (registered first, then the additions in record order; bench_logo.py fold_training_order); the launcher calls
+#    net3d-folds once per fold with --tags <that fold's held-out gonad> (entry 14 (d)(5))
 python scripts/bench_logo.py --manifest $M net3d-folds --recipe-from $G/models/net3d_20261010 --models-root $G/models/net3d_logo_entry9 --out-root $E/logo/heldout/net3d --log-dir $E/logs --gpu-lock $G/gpu_lock.py --split-file tests/golden/rad51_split.json --additions $A --prep-dir $G/models/net3d_prep --min-free-gb 8
 python $G/gpu_lock.py run --name "entry 9: net3d train plus val" -- python -m germquant train-spots --cache $G/bench_cache --split-file tests/golden/rad51_split.json --manifest $M --additions $A --out $G/models/net3d_trainval_entry9 --recipe-from $G/models/net3d_20261010 --train-tags n2rad51_HS_herm_000 n2rad51_noHS_herm_000 n2rad51_noHS_male_000 n2rad51_noHS_male_001 n2rad51_HS_herm_001 n2rad51_noHS_herm_001 $NEW --device cuda --prep-dir $G/models/net3d_prep --min-free-gb 8
 #    then write $B/final_params/net3d_trainval_entry9.json naming its model.pt
@@ -2295,10 +2335,10 @@ python scripts/bench_logo.py --manifest $M report --heldout net3d=$E/logo/heldou
 #    --tags <the six registered tags> --out $E/logo/report_registered6 and --tags $NEW --out $E/logo/report_hs_males
 ```
 
-Then the results entry of the revision (entry 14 or later; the re-export of n2rad51_HS_male_002 did not arrive on
-2026-10-12, so it comes before the entry that brings the re-export in): the nine folds, the new net3d sha256 and, if
-written, `log_tuned_entry9.json`; and decision 1 goes back to the project lead with the questions of entries 10 and
-13 that are still open.
+Then the results entry of the revision (entry 15 or later, entry 14 being the corrections made before the run; the
+re-export of n2rad51_HS_male_002 did not arrive on 2026-10-12, so it comes before the entry that brings the re-export
+in): the nine folds, the new net3d sha256 and, if written, `log_tuned_entry9.json`, the launcher's sha256 and its dry
+run; and decision 1 goes back to the project lead with the questions of decision 1 (b) and (c) that are still open.
 
 Compute, RTX 5090 plus the CPU: about one working day, 3.5 h of it GPU-bound (the pipeline 2.2 to 2.7 h, net3d 50 to
 60 min) and 3 to 7 h of CPU (truth exports under 1 h, caches 5 min, the log sets 1 to 4 h, SpotMAX held-out runs 40

@@ -110,6 +110,13 @@ without asking, that 2026-01-05 cannot be the session of a future test set and t
 if its Spots are saved again in Imaris; questions (b) and (c) above stay open. The option of this decision is still
 his: no test gonad is scored until he confirms one.
 
+Status (2026-10-12, protocol changelog entry 14, which corrects entry 13 before the revision runs): "right now" is
+narrower than "on 2026-10-12". The reply is read, with "Whatever you think", as accepting the course the message named
+without the re-export ("Otherwise it runs tonight on the 9 I have"): the revision runs tonight on nine folds, and a
+re-export that arrives later on 2026-10-12 enters as the further declared revision above, not by holding the run,
+which departs from the letter of entry 12 (c). Nothing else above changes: the option of this decision and questions
+(b) and (c) stay open.
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not
@@ -283,12 +290,18 @@ everything else is compared with it.
 
 Run from the repository root of the commit named in the pre-scoring entry, in PowerShell with the
 repository's environment active (`python` is its interpreter and imports this checkout's `germquant`).
+That holds as written only in the main checkout: the environment's editable install points at the main checkout's
+src, so from any other checkout (a worktree) set `$env:PYTHONPATH = "<that checkout>/src"` first; then the
+`germquant` executable, `python -m germquant` and `python -c "import germquant ..."` all import that checkout
+(protocol changelog entries 13 (c)(1) and 14 (g)). The pre-flight prints where the package comes from.
 
 ### 4.1 Pre-flight
 
 ```powershell
 git status --porcelain                 # must print nothing (--final refuses uncommitted code)
 git rev-parse HEAD                     # goes into the pre-scoring entry
+# germquant must come from this checkout's src (not the main checkout's, unless this is the main checkout)
+python -c "import germquant; print(germquant.__file__)"
 $env:CUDA_VISIBLE_DEVICES = "-1"
 # the one test gonad without a bench cache: images and labels only, no metric
 python scripts/bench_cache.py --tags n2rad51_noHS_male_002 --verify-sha256
