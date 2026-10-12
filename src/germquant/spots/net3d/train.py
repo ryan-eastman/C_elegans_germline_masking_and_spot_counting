@@ -306,7 +306,7 @@ def resolve_gonads(split_file, manifest, additions_file=None) -> dict:
     from germquant.validate.benchmark_split import SPOT_SOURCE_EXPORTS, SPOT_SOURCE_KIND
 
     for t, e in entries.items():
-        src = e.extra.get("spot_truth_source") or {}
+        src = e.extra.get("recorded_spot_source") or {}
         if (src.get("kind") == SPOT_SOURCE_KIND and t in SPOT_SOURCE_EXPORTS
                 and (src.get("export") or {}).get("sha256") == SPOT_SOURCE_EXPORTS[t]["sha256"]):
             rg[t] = False

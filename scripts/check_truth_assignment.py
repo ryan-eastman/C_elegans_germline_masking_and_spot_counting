@@ -22,7 +22,7 @@ to one by position within 0.005 um). Only the additions' own exports are read (n
 
 --spot-sources (the record of protocol changelog entry 11, tests/golden/rad51_spot_sources.json) does the same for
 every checked registered train gonad whose spot truth comes from a recorded earlier export (the manifest's
-``spot_truth_source``): the cross-checks against that export (read through the guard, which admits only the pinned
+``recorded_spot_source``): the cross-checks against that export (read through the guard, which admits only the pinned
 file), and the nucleus truth of the new export against the registered one (``registered_truth_dir`` of the
 manifest): the nuclei table equal in every contract column and the label image equal voxel for voxel. With
 --spot-sources a test gonad is refused before anything is read.
@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         export, use = None, None
         if g is not None and g.get("xlsx"):
             export, use = g["xlsx"]["path"], g["xlsx"].get("use")
-        elif s is not None and e.extra.get("spot_truth_source"):
+        elif s is not None and e.extra.get("recorded_spot_source"):
             export, use = s["export"]["path"], "recorded earlier export (entry 11)"
             reg = e.extra.get("registered_truth_dir")
             if reg:

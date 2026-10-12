@@ -227,7 +227,7 @@ def test_the_manifest_with_the_spot_source(tmp_path):
     assert e["spot_truth_usable"] is True and by_plain[TAG]["spot_truth_usable"] is False
     assert e["truth_dir"] == (src_root / TAG).as_posix() and e["registered_truth_dir"] == by_plain[TAG]["truth_dir"]
     assert e["spot_truth_reason"] == "section 4.4 agreement 0.9967, at least 0.9935 (entry 11)"
-    assert e["section_4_4"]["n_agree"] == 7603 and e["spot_truth_source"]["export"]["sha256"] == PIN_SHA
+    assert e["section_4_4"]["n_agree"] == 7603 and e["recorded_spot_source"]["export"]["sha256"] == PIN_SHA
     assert e["notes"][-1] == bs.SPOT_SOURCE_NOTE and e["ims_record"]["region_growing"] is True
     assert by[RG2]["spot_truth_usable"] is False
     assert m["spot_sources_file"]["sha256"] == bs.file_sha256(recf) and m["spot_sources_file"]["tags"] == [TAG]
@@ -286,6 +286,9 @@ def test_net3d_takes_the_spot_source_gonad(tmp_path):
     _write_source_export(src_root, _params())
     m = bs.build_manifest(split, tmp_path / "results", tmp_path / "truth", spot_sources=rec,
                           spot_sources_truth_root=src_root)
+    # an addition's entry names its source as a string ("ims" or "xlsx"), which the rule must pass over
+    m["gonads"].append({"tag": "n2rad51_20260105a_HS_male_002", "role": "train", "split": "train", "addition": True,
+                        "results_dir": str(tmp_path / "r"), "spot_truth_source": "ims", "spot_truth_usable": True})
     out = bs.write_manifest(m, tmp_path / "benchmarks", "manifest_entry9.json")
     gon = resolve_gonads(split_file, out)
     assert TAG in gon["train"] and RG2 not in gon["train"]
@@ -295,7 +298,7 @@ def test_net3d_takes_the_spot_source_gonad(tmp_path):
     doc = json.loads(out.read_text(encoding="utf-8"))
     for e in doc["gonads"]:
         if e["tag"] == TAG:
-            e["spot_truth_source"]["export"]["sha256"] = "0" * 64
+            e["recorded_spot_source"]["export"]["sha256"] = "0" * 64
     out.write_text(json.dumps(doc), encoding="utf-8")
     assert TAG not in resolve_gonads(split_file, out)["train"]
 

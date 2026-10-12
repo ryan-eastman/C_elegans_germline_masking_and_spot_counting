@@ -1294,7 +1294,8 @@ def _apply_spot_source(entry: dict, source: dict, src_root: Path, patterns: dict
                        truth_check: dict | None) -> None:
     """Point a registered entry's truth at the export of its recorded spot source (protocol changelog entry 11):
     the truth files under <src_root>/<tag>/ (the same .ims exported again, with the spots of the recorded export),
-    ``spot_truth_usable`` from ``spot_source_truth_usable``, its reason, the section 4.4 row, and the source; the
+    ``spot_truth_usable`` from ``spot_source_truth_usable``, its reason, the section 4.4 row, and the source
+    (``recorded_spot_source``; an addition's ``spot_truth_source`` is the name of its source, "ims" or "xlsx"); the
     registered truth folder is kept as ``registered_truth_dir`` (its nucleus truth is what the new export must
     reproduce, checked by scripts/check_truth_assignment.py --spot-sources)."""
     stem, tag = entry["stem"], entry["tag"]
@@ -1313,7 +1314,7 @@ def _apply_spot_source(entry: dict, source: dict, src_root: Path, patterns: dict
         "truth_dir": posix(tdir),
         "truth": {**truth, "found": found},
         "truth_complete": all(truth[k]["exists"] for k in REQUIRED_TRUTH if k in truth),
-        "spot_truth_source": {"kind": source["kind"], "changelog_entry": SPOT_SOURCES_CHANGELOG_ENTRY,
+        "recorded_spot_source": {"kind": source["kind"], "changelog_entry": SPOT_SOURCES_CHANGELOG_ENTRY,
                               "export": {k: source["export"].get(k) for k in ("name", "path", "size_bytes", "sha256")},
                               "export_record": _exists_record(source["export"]["path"], source["export"]["size_bytes"]),
                               "expect": source.get("expect")},
@@ -1350,7 +1351,7 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
     ``spot_sources`` (the record of ``load_spot_sources``, protocol changelog entry 11) changes only the entries of
     the registered train gonads it names: their truth files are read from <spot_sources_truth_root>/<tag>/ (the
     export from the recorded source), ``spot_truth_usable`` follows ``spot_source_truth_usable`` with this gonad's
-    row of ``truth_check``, and ``spot_truth_source`` records the source; every other registered entry stays exactly
+    row of ``truth_check``, and ``recorded_spot_source`` records the source; every other registered entry stays exactly
     as without it. The record is recorded with its sha256 under ``spot_sources_file``."""
     if spot_truth_decisions is not None and additions is None:
         raise ValueError("truth_check and spot_truth_decisions apply to the additions only")
