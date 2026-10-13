@@ -2198,6 +2198,40 @@ launcher, before any step of the revision ran. No method, parameter, gonad or or
   closed; every GERMQUANT_* variable and CELLPOSE_LOCAL_MODELS_PATH cleared; lines naming a test gonad withheld from
   the step logs.
 
+### Entry 17: the re-export of n2rad51_HS_male_002 (2026-10-13)
+
+Post hoc under rule 3 (protocol changelog entry 17 gives the details). Written before any result on the re-export. The
+project lead rebuilt the Spots of n2rad51_HS_male_002 in Imaris with region growing off and saved the project as a new
+.ims ("Should be saved"); this is the data-change commit of the section 4.1 path, the start of the further declared
+development revision of entry 13 (b).
+
+* **The file.** Saved on the lab NAS next to the original (1,501,317,079 bytes, 11:52:56 MDT), copied to
+  `C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/` (sha256 7b06a0fb...). It now sits at the registered path
+  (`HS_ims2/20251105_n2_hs_MALE _002.ims`); the registered file (dc53183c...) moved to `HS_ims2_superseded/` with a
+  README. 13,972 spots, all at radius 0.2 um, region growing off; Quality 6.847 (the registered filter said 6.84666;
+  the instructions gave the rounded value); every other Spots and Surfaces creation parameter as registered; 82
+  surfaces.
+* **The split record and its pins.** Only n2rad51_HS_male_002's `ims` block and note change (size, sha256, spots,
+  region growing, Quality); the roles (32e2ee0b...) and every other entry stay byte for byte. Rebuilt with
+  `scripts/make_rad51_split.py --only n2rad51_HS_male_002 --base tests/golden/rad51_split.json --hash-cache
+  tests/golden/rad51_split.json`, which never opens another gonad's files (a full rebuild would open the test gonads').
+  The file is now 01b95dd2... with CRLF and edb02239... with LF (was 955eeff5... and 989bfa08...), and
+  `REGISTERED_SPLIT_SHA256` and `REGISTERED_SPLIT_SHA256_LF` moved with it; the additions and spot-sources records keep
+  their historical digests.
+* **Its spot truth stays out until it passes its checks.** The exclusion of a region-growing gonad followed the split
+  record's flag, so it would have lifted by itself, onto the registered truth folder, which holds the export of the
+  superseded project. A re-exported gonad (`benchmark_split.REEXPORTS`) is now excluded from every manifest unless
+  `scripts/benchmark_manifest.py --reexports-truth-root DIR` names the export of the re-exported project, and then
+  admitted only by `benchmark_split.reexport_spot_truth_usable`: an export of that project (region growing off, its
+  13,972 spots and 82 surfaces), the frame check, and section 4.4 at least 0.9935 by `--truth-check`.
+* **Next.** Its truth export with `--frame-check` into a folder of its own, section 4.4 and the other checks of entry
+  9 (d)(5), reported in a later entry; then, only if they pass, its bench cache and step 4 below with ten folds, into
+  folders of their own.
+* **Consequences of the new file at the registered path.** Every checkout that still holds the registered split record
+  (main at b90ebdf among them) now fails `test_split_paths_exist_with_the_registered_sizes` on the workstation, and so
+  does the tranche-5 gate from main, until main holds this record (PR #13). `germquant_golden/copy_imaris_n2_v2.ps1`
+  and `run_truth_benchmark.ps1` must not be rerun as they stand (entry 17 (i) lists every script that reads the path).
+
 ### The revision plan (commands, order, compute)
 
 Steps 1 and 1b were run at the commits they name. Run the rest from a clean checkout of a commit that holds
@@ -2292,6 +2326,18 @@ python scripts/bench_reproduce_golden.py --manifest $B/manifest_entry9.json --ta
    usable spot truth outside the six registered folds of entries 4 and 7, registered first (n2rad51_HS_male_000 by
    entry 11, and n2rad51_HS_male_002 once its re-export is usable), then `$USE`: nine folds now, ten with the
    re-export. The folds, the D3 replay and the net3d folds follow the manifest by themselves.
+
+   Entry 17 (2026-10-13): the re-export arrived and entered by that path (the split record, its two pins and the
+   changelog in one commit). Its spot truth no longer follows the split's region-growing flag alone: every manifest
+   excludes it unless `--reexports-truth-root` names the folder of its own truth export (never
+   `$G/imaris_truth/n2rad51_HS_male_002`, the export of the superseded project), and then
+   `benchmark_split.reexport_spot_truth_usable` decides (region growing off and its 13,972 spots and 82 surfaces in the
+   truth params, the frame check, section 4.4 at least 0.9935 by `--truth-check`). The ten-fold manifest goes next to
+   `manifest_entry9.json` under a file name of its own (`manifest_entry9.json` keeps its bytes), and its equality
+   check against `manifest.json` leaves out, for n2rad51_HS_male_002, `ims_record`, `notes`, `reexport`,
+   `registered_truth_dir`, `truth_dir`, `truth`, `truth_complete`, `spot_truth_usable`, `spot_truth_reason` and
+   `section_4_4`, and the top-level `reexports`. The ten-fold rerun waits for the checks of entry 17 (j) and runs only
+   if they pass.
 
 ```powershell
 $M = "$B/manifest_entry9.json"

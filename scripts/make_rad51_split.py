@@ -2,7 +2,7 @@
 
     python scripts/make_rad51_split.py [--ims-root C:/Users/ryane/n2_rad51_local/imaris]
         [--hash-cache tests/golden/rad51_split.json] [--out tests/golden/rad51_split.json]
-        [--no-metadata]
+        [--no-metadata] [--only TAG [TAG ...] --base tests/golden/rad51_split.json]
 
 Reads the n2rad51 entries of tests/golden/real_manifest.json for the .nd2 paths, pairs each with its
 Imaris project (<ims-root>/<noHS_ims2|HS_ims2>/<stem>.ims), hashes both files (sha256; about a minute
@@ -18,6 +18,15 @@ the changed file.
 {path: {"size_bytes": n, "sha256": hex}}) for files whose size has not changed, so a re-run after a
 note or metadata change does not re-read 50 GB. --no-metadata skips the .nd2 and .ims reads (hashes
 only; region_growing is then null).
+
+--only rebuilds the entries of the named gonads and copies every other entry from --base (an earlier split record)
+as it is, without looking at its files; the table printed lists the rebuilt gonads only. A full rebuild opens every
+gonad's .nd2 and .ims, the test gonads' among them, which the test seal forbids once the protocol is registered; the
+re-export of protocol section 4.1 (changelog entry 17: n2rad51_HS_male_002) is rebuilt this way. A test gonad is
+refused before anything is read, and the files of a rebuilt gonad pass the role guard first:
+
+    python scripts/make_rad51_split.py --only n2rad51_HS_male_002 --base tests/golden/rad51_split.json
+        --hash-cache tests/golden/rad51_split.json
 """
 from __future__ import annotations
 
@@ -42,17 +51,26 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=str(REPO / "tests" / "golden" / "rad51_split.json"))
     ap.add_argument("--registered-on", default=bs.REGISTERED_ON, help="registration date written into the file")
     ap.add_argument("--no-metadata", action="store_true", help="hashes only; skip the .nd2 and .ims reads")
+    ap.add_argument("--only", nargs="+", metavar="TAG",
+                    help="rebuild these gonads' entries only (never a test gonad); the others come from --base")
+    ap.add_argument("--base", help="with --only: the split record whose other entries are kept as they are")
     args = ap.parse_args(argv)
+    if bool(args.only) != bool(args.base):
+        ap.error("--only and --base go together")
 
     cache = bs.load_hash_cache(args.hash_cache) if args.hash_cache else None
+    base = bs.load_split(args.base) if args.base else None
     split = bs.build_split(args.real_manifest, args.ims_root, hash_cache=cache,
-                           registered_on=args.registered_on, read_metadata=not args.no_metadata)
+                           registered_on=args.registered_on, read_metadata=not args.no_metadata,
+                           only=args.only, base=base)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(split, indent=1) + "\n", encoding="utf-8")
 
     print(f"{'tag':28s} {'role':5s} {'nd2 GB':>7s} {'ims GB':>7s} {'spots':>7s} {'surf':>5s} {'RG':>5s}")
     for g in split["gonads"]:
+        if args.only and g["tag"] not in args.only:
+            continue                                   # kept from --base; not printed
         ims = g["ims"]
         rg = ims.get("region_growing")
         print(f"{g['tag']:28s} {g['role']:5s} {g['nd2']['size_bytes'] / 1e9:7.3f} {ims['size_bytes'] / 1e9:7.3f} "

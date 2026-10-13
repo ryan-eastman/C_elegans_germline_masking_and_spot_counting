@@ -145,6 +145,16 @@ test scoring: after the first scoring it could only be the revision of protocol 
 last test scoring of each method family and is post hoc. The option is still his, with questions (b) and (c) above:
 no test gonad is scored until he confirms one.
 
+Status (2026-10-13, protocol changelog entry 17): the project lead re-exported n2rad51_HS_male_002 from Imaris with
+region growing off ("Should be saved"), as he said he would ("okay i will re export", entry 11). The split record and
+its pinned digests now name the re-export (13,972 spots, Quality 6.847, the registered classification); its spot truth
+stays out of every spot metric until a truth export of it passes the frame check, section 4.4 and the other checks of
+entry 9 (d)(5), reported in a later entry, and only then do the steps that use spot truth run again with ten folds, into
+folders of their own, as the further declared development revision before test scoring of entry 13 (b), post hoc under
+rule 3. No test scoring has happened, so the re-export can still enter that way (entry 16 (e)). It is not an answer to
+this decision: the option is still his, with questions (b) and (c) above, and no test gonad is scored until he confirms
+one.
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not

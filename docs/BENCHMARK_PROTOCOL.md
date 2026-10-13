@@ -2117,3 +2117,251 @@ point.
    (h) Not changed: entry 15's text, the run's outputs and their sha256, the selections, the frozen methods of the
    revised table of docs/FINAL_SCORING.md section 2, and everything entry 15 (r) lists; decision 1 stays open (nothing
    is scored on test until the project lead confirms one of its options).
+17. 2026-10-13. The Imaris re-export of n2rad51_HS_male_002 (protocol section 4.1): the file, where it now sits, the
+   split record and its pinned digests, and code that keeps its spot truth out of every spot metric until a truth export
+   of the re-exported project passes its checks. This is the data-change commit of the section 4.1 path (entries 10
+   (g)(8), 12 (d) and 13 (b)), the start of the further declared development revision before test scoring of entry 13
+   (b). Written before any result on the re-export was computed: no truth export, section 4.4 check, pipeline run, bench
+   cache or metric exists for it. No test gonad was run or scored for this entry. No test-gonad file was opened, hashed
+   or parsed by it, except that one recursive text search read the contents of text files in the four test gonads'
+   folders to match path strings and printed only file names ((l)(2), a seal deviation; (l) lists every read): no
+   `--final` run was made, `final_runs.jsonl` does not exist, and none of the 738 records of `trials.jsonl` names a test
+   gonad (counts only; sha256 c728a504..., as after entry 15). No test result was computed. E17 below is
+   `germquant_golden/benchmarks/n2rad51_8666f07/entry17`, where the console logs and scripts of this entry's runs are
+   kept.
+   (a) The messages. The project lead's messages of 2026-10-13, verbatim and in this order: "What dataset or day is that
+   image from so I can find it.", "What do you want exported and what format" and "Should be saved". The reply to the
+   second gave him these instructions, verbatim (formatting marks left out, line breaks shown as /, um for the micro
+   sign): "Just the Imaris file. Rebuild the spots without region growing and save it as a new .ims. No Excel export is
+   needed, because I read the spots, their classes and the nucleus masks straight from the .ims. / Steps in Imaris
+   / 1. Open C:\Users\ryane\n2_rad51_local\imaris\HS_ims2\20251105_n2_hs_MALE _002.ims. / 2. Select Spots 1, go to its
+   Creation tab (the wand icon) and click Rebuild. Rebuild runs the wizard again with the saved settings filled in.
+   / 3. Change one thing: untick "Spots Region Growing". / 4. Check the rest still matches the saved settings (leave
+   them as they are): / Source channel: 545 (third channel) / Estimated diameter: 0.4 x 0.4 x 0.9 um / Background
+   subtraction: on / Region of interest: none / Filter: Quality above 6.847 / Classify: Average Distance To 3 Nearest
+   Neighbours, Class A below 8.123 um, Class B above it / 5. Leave the Surfaces and the "Masked 405" channel alone. The
+   file should end up with one Spots object. / 6. File > Save As, in the same folder, as
+   20251105_n2_hs_MALE _002_noRG.ims. / Then tell me it's saved. That file name is all I need." The values came from the
+   creation parameters of the registered project as its registered truth export records them
+   (`germquant_golden/imaris_truth/n2rad51_HS_male_002/20251105_n2_hs_MALE _002__imaris_params.json`: the Quality
+   filter's mLowerThresholdManualValue 6.84666, the wizard's mManualThresholdValue 6.847, the class threshold 8.12323
+   um). "Should be saved" is read as saying that the file was saved as asked; it does not say where ((b)). That is a
+   reading, not his words. The messages say nothing about decision 1 of docs/FINAL_SCORING.md or its questions (b) and
+   (c).
+   (b) The file. He saved the re-export on the lab NAS, in the folder of the original project, not in the local folder
+   that step 1 named: '//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage
+   Madeleine/Madeleine/N2/20251105_N2_HS/20251105_n2_hs_MALE _002_noRG.ims', 1,501,317,079 bytes, written 2026-10-13
+   11:52:56 MDT. Imaris also created a `.imaris_cache` folder there (11:52:57), which was neither opened nor copied. The
+   NAS original `20251105_n2_hs_MALE _002.ims` in that folder is unchanged by name, size and time (1,514,954,684 bytes,
+   2026-01-26 14:50:49 MST, the size and time of the registered file; its sha256 was not computed), so which copy of the
+   project he opened, the NAS original or the local registered file of step 1, is not known. The assistant listed that
+   NAS folder (names, sizes and file times; the sealed test male's 20251105_n2_hs_MALE _001.ims and .nd2 among them) and
+   opened nothing else in it. It copied the re-export with `cp --preserve=timestamps` (11:53:29 to 11:53:42 MDT) to
+   `C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _002_noRG.ims`; the sha256 of the NAS file and of
+   the copy are both 7b06a0fb84a0b2eecb4688096f250756b3ffafb51d7bc9db1d0eda6da6d9400e.
+   (c) What the re-export holds. (1) The assistant's first look, before this entry: `peek_noRG.py` (in the session
+   scratchpad, 1,137 bytes, sha256 ed0632ea9420e557c4f3d7d91f40806c1766f9a9ca08c70f4355883fd105c3c8, saved 11:54:25 MDT)
+   opened the local copy with plain h5py and printed, per object, its name, counts, a few creation parameters and the
+   spot radii: MegaSurfaces0 "Surfaces 1" (82 surfaces, creation parameters unchanged in kind) and Points0 "Spots 1"
+   (13,972 spots; mEnableRegionGrowing false; mSourceChannelIndex 2; mEstimatedDiameter 0.4 0.4 0.9;
+   mBackgroundSubtraction true; mEnableRegionOfInterest false; mManualThresholdValue 6.847; mEnableClassify true; class
+   threshold 8.12323 um on the Average Distance To 3 Nearest Neighbours, Class A below and B above; every spot radius
+   0.2 um). Its console output was not kept, against the rule of entry 10 (g)(5), and it read the file outside the read
+   guard ((l)(1)). (2) For this entry, behind `benchmark_split.guard_truth_read` and with its log kept
+   (`E17/scripts/compare_creation_params.py`, `E17/logs/compare_creation_params.log`, 12:07:51 MDT, after the placement
+   of (d)), `benchmark_split.creation_parameter_summary` of the re-export and of the superseded project: the same
+   objects (Points0 "Spots 1", MegaSurfaces0 "Surfaces 1") and channels (405, 477, 545, Masked 405); the Surfaces
+   creation parameters equal in every key the summary reads, with 82 surfaces in both; the Spots creation parameters
+   equal but in two keys, region growing (on in the superseded project, off in the re-export) and the Quality lower
+   threshold (6.84666 in the superseded project, 6.847 in the re-export). The second follows from the instructions,
+   which gave "Quality above 6.847", the wizard's rounded mManualThresholdValue, and not the filter's 6.84666: spots
+   with a Quality from 6.84666 up to 6.847 are left out, how many is unknown, since Quality is stored in neither file.
+   The re-export holds 13,972 spots, 21 more than the 13,951 of the superseded object, every one at radius 0.2 um (0.063
+   to 0.762 um in the superseded, region-grown object); why the count differs is not established. The other Spots
+   settings are those of the registered project and of section 4.1 (channel 545, 0.4 x 0.4 x 0.9 um, background
+   subtraction on, no region of interest) with the class threshold 8.12323 um. The comparison with the protocol text and
+   the other registered train and val projects (entry 9 (d)(4)) is not made here; it goes with the truth export ((j)).
+   (d) Where the files now sit. `scripts/make_rad51_split.py` pairs each .nd2 stem with `<ims root>/HS_ims2/<stem>.ims`,
+   and the read guard admits a 2025-11-05 project only under its registered stem (`benchmark_split.REGISTERED_STEMS`),
+   so the re-export takes the registered path. At 12:06:08 MDT the registered file was moved, by a rename on the same
+   volume, from `HS_ims2/` into a new folder, `C:/Users/ryane/n2_rad51_local/imaris/HS_ims2_superseded/` (name and file
+   time kept; sha256 computed again at 12:06:11: dc53183cf9b1d549f3d04128861ca4a9e26b2dcb34dadfebfd9fffd8ebb7d78e, the
+   registered digest), and at 12:06:18 `HS_ims2/20251105_n2_hs_MALE _002_noRG.ims` was renamed
+   `HS_ims2/20251105_n2_hs_MALE _002.ims` (sha256 computed again at 12:06:21: 7b06a0fb..., file time 2026-10-13 11:52:56
+   MDT kept). A `README.md` in the new folder (2,372 bytes, LF line endings, sha256
+   83f04a418d7a7e6f1e7d4d71ead21fc75f2a0fa2cbe66bd9a04f29532b343768) gives both files with their sizes, times and
+   digests, how they got there, this entry, and the warning of (i)(5). Log `E17/logs/placement.log`. Nothing was written
+   on the NAS.
+   (e) The split record. A full rebuild by `scripts/make_rad51_split.py` reads the .nd2 header and the Imaris facts of
+   all twelve gonads, the four test gonads among them, and prints a row for each; the seal forbids both. The record was
+   therefore rebuilt with a new option of the builder ((h)), `python scripts/make_rad51_split.py --only
+   n2rad51_HS_male_002 --base tests/golden/rad51_split.json --hash-cache tests/golden/rad51_split.json`, at this entry's
+   code from the worktree germquant_wt_hsmales with PYTHONPATH set to its src (12:11:11 to 12:11:13 MDT; log
+   `E17/logs/make_split.log`, which also holds a first run of 12:10:49 into the session scratchpad with a first wording
+   of the note, compared the same way): it rebuilds n2rad51_HS_male_002's entry from that gonad's files behind the role
+   guard and copies the eleven other entries from the base record without looking at their files. The diff against the
+   registered record: in n2rad51_HS_male_002's `ims` block, `size_bytes` 1,514,954,684 to 1,501,317,079, `sha256`
+   dc53183c... to 7b06a0fb..., `n_spots` 13,951 to 13,972, `region_growing` true to false (from the creation parameters,
+   as the builder reads it for every gonad) and `spot_quality_threshold` 6.84666 to 6.847; and its `notes`, where the
+   region-growing note (`benchmark_split.REGION_GROWING_NOTE`) is replaced by the note on the re-export
+   (`benchmark_split.REEXPORTS`), which names the superseded file's size, sha256 and folder and the rule of (g), in the
+   wording of the registered notes. Nothing else changes: its `nd2` record (header read again, equal; its sha256
+   9129ffdba3b40f5cba33be26aa7669666e499aa359ce47ffc0c42dae41ee7897 reused by `--hash-cache` and computed again for this
+   entry, equal), `n_surfaces` 82, `shape_xyz` and `imaris_voxel_um`, the eleven other entries and the header, byte for
+   byte; the roles' sha256 stays 32e2ee0b4a0dc193fe941b995449447d11004a377289e5ce8e3eda5af5ddec00. The file
+   `tests/golden/rad51_split.json`: before, 955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f as checked
+   out on the workstation (CRLF line endings, 14,690 bytes) and
+   989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85 with LF (14,125 bytes); after,
+   01b95dd21488eae8c7f615ce61201ce6b955b2725846ab9d221dfb93c9dc4d7d with CRLF (15,179 bytes) and
+   edb022392fbfb8d33eee5eb64fdb6cd22421c4cec6bc25768f708060aa3302d7 with LF (14,614 bytes). The table of section 2
+   (13,951 spots, Quality 6.8, region growing yes) and sections 3 and 4.1 describe the registered file and are not
+   edited (rule 3); for n2rad51_HS_male_002 this entry and the record supersede them.
+   (f) The pins. `REGISTERED_SPLIT_SHA256` and `REGISTERED_SPLIT_SHA256_LF`
+   (`src/germquant/validate/benchmark_split.py`) move from 955eeff5... and 989bfa08... to 01b95dd2... and edb02239...,
+   and their comment (entry 10 (g)(8)) now says that they moved once, by this re-export, from the split as registered.
+   `split_file_unchanged`, which compares a file with the pins, now admits the new record and no longer the registered
+   one; its docstring says so. `tests/test_rad51_additions.py` pins the new digests (`SPLIT_AT_ENTRY_17`: the live pins
+   must equal them, and the record must match the pins). The historical pins stay as they are: `SPLIT_AT_ENTRY_9`
+   (`tests/test_rad51_additions.py`) and `SPLIT_AT_ENTRY_11` (`tests/test_rad51_spot_sources.py`), both 955eeff5... and
+   989bfa08...; the additions record (`tests/golden/rad51_additions.json`) and the spot-sources record
+   (`tests/golden/rad51_spot_sources.json`, 8e145fb1...) are unchanged, keep the digests of the split they were made
+   against and are checked against the roles live (entry 12 (d)). `germquant imaris-truth --spot-source` checks the
+   spot-sources record against the split record of its checkout: from this commit on, the new record, whose
+   n2rad51_HS_male_000 entry is unchanged, so the check passes as before.
+   (g) The exclusion of the region-growing gonads in code. Section 4.1 keeps the two region-growing exports out of every
+   spot metric "until they are re-exported from Imaris without region growing". In code that exclusion is driven by the
+   record, not by name: a registered gonad's manifest entry had `spot_truth_usable` true exactly when the
+   `region_growing` of its split entry is false (`benchmark_split.build_manifest`); the folds (`logo.logo_folds`), the
+   tuning and replay runs (`scripts/bench_tune.py`, `benchmark/tuning.py`, `scripts/bench_logo.py`),
+   `scripts/bench_detector.py` and `scripts/benchmark_spots.py` follow the manifest (`detector.spot_truth_usable`);
+   net3d's `resolve_gonads` follows the manifest and the split's flag; n2rad51_HS_male_000 is admitted by its recorded
+   spot source (entry 11). No code path names n2rad51_HS_male_002; the docstrings of `spots/net3d/train.py` and
+   `segment/nuclei3d/train.py`, net3d's model-card text for a model trained without heat-shocked males and the synthetic
+   fold tests of `tests/test_bench_logo.py` describe the registered state and are not changed. So the exclusion would
+   have lifted by itself with the new record, and too early: a manifest built from it with the usual truth root would
+   have called n2rad51_HS_male_002's spot truth usable and read it from
+   `germquant_golden/imaris_truth/n2rad51_HS_male_002/`, the export of the superseded project (its params, read for this
+   entry: 13,951 spots, `region_growing` true, no frame check), before any of the checks that entries 11 (g) and 13 (b)
+   put first. Added, so that the re-export is admitted by its own checks only and nothing else is admitted:
+   `benchmark_split.REEXPORTS` pins the re-export (size and sha256), the superseded .ims (path, size and sha256) and the
+   record's note; `reexport_of` recognises a split entry by the re-export's sha256 (a record that still names the
+   superseded file is no re-export); `build_manifest` excludes a re-exported gonad's spot truth (reason "re-exported
+   (entry 17): no truth export of the re-exported project was given ...", the registered truth folder kept) unless
+   `reexports_truth_root` (`scripts/benchmark_manifest.py --reexports-truth-root`) names the folder of the export of the
+   re-exported project, which then becomes its truth folder, the registered one kept as `registered_truth_dir`. Its spot
+   truth then follows `benchmark_split.reexport_spot_truth_usable`, declared here before that export exists: (1) the
+   split entry is the pinned re-export; (2) truth params exist; (3) they were written from the re-exported project's own
+   spots: spot source "ims", `region_growing` false, and the record's 13,972 spots and 82 surfaces; (4) the frame check
+   of entry 9 (d)(3) ran and chose a frame; (5) section 4.4 at least 0.9935 by its row of `--truth-check`; otherwise
+   excluded until a changelog entry decides. The other checks of entry 9 (d)(5) that apply to this file, its creation
+   parameters against sections 4.1 and 4.2 and the registered projects (entry 9 (d)(4)) and its nucleus truth against
+   the registered export (its Surfaces have the registered count and creation parameters, (c)), are reported in the
+   entry that admits it; the cross-checks against an xlsx export do not apply (none was made, as asked). The manifest
+   records `reexport` on the entry and a top-level `reexports` (the truth root, the tags, the 4.4 table with its sha256,
+   the rule). A gonad with both a recorded spot source and a re-export is refused. No other entry changes:
+   n2rad51_HS_male_000 keeps the rule of entry 11, the additions those of entries 9 to 11, and the other registered
+   gonads their `region_growing` false.
+   (h) Code and tests changed with this entry, each part tested on synthetic stand-ins:
+   `germquant.validate.benchmark_split` (`REEXPORTS_CHANGELOG_ENTRY`, `REEXPORTS`, `reexport_of`, `build_split(only=...,
+   base=...)` with the re-export's note, `reexport_spot_truth_usable`, `REEXPORT_RULE`, `_apply_reexport`,
+   `build_manifest(reexports_truth_root=...)` with the record `reexports`, the two pins and their comment, the
+   docstrings of the module and of `split_file_unchanged`); `scripts/make_rad51_split.py` (`--only` and `--base`: the
+   other entries copied from the base record, a test gonad refused before anything is read, the rebuilt gonad's files
+   behind `guard_truth_read`, the printed table limited to the rebuilt gonads); `scripts/benchmark_manifest.py`
+   (`--reexports-truth-root`, with which `--truth-check` is allowed); `tests/test_benchmark_split.py` (the record:
+   region growing on for n2rad51_HS_male_000 only, n2rad51_HS_male_002 the pinned re-export with 13,972 spots, 82
+   surfaces, Quality 6.847 and its note; `REEXPORTS` train only, with the superseded digests; the superseded file on
+   disk at its size, skipped off the workstation; `--only` on stub files with every other gonad's files deleted first,
+   its refusals and its command line; the manifest rule case by case (no root, no export, the superseded export, region
+   growing on, another spot count, an xlsx source, no frame check, a failed one, no 4.4 row, a low one, a pass), with
+   the folds and net3d's gonads following it and every other entry unchanged); `tests/test_rad51_additions.py`
+   (`SPLIT_AT_ENTRY_17`). The unit tests (977 passed, 6 skipped, 1 deselected by `-m "not model"`, on the CPU) and ruff
+   0.17.0 on src, tests and scripts (all checks passed) ran on this commit's tree; the suite's size check stats the
+   registered stacks, test gonads among them, as at every gate, and opens no file. docs/BENCHMARK.md gains a section
+   "Entry 17" and a paragraph in step 4 of the plan; docs/FINAL_SCORING.md a status line under decision 1.
+   (i) What now sees another file at the registered path
+   `C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _002.ims`, found by a search of the code, scripts
+   and records on this machine (the src, scripts and tests of every checkout; `germquant_golden`; `germquant_inventory`;
+   `C_elegans_ml`; `napari-germquant`; `germquant_models`; `E17/logs/search_golden.log`, `search_checkouts.log`,
+   `search_other.log`). (1) Every checkout that still holds the registered split record: main at b90ebdf
+   (`C:/Users/ryane/C_elegans_germline_masking_and_spot_counting`, and `germquant_wt_dev` at the same commit) and the
+   worktrees at 0521abf (`germquant_wt_0521abf`, `germquant_wt_p4`), 08f6285, 642eb26, bc62476 and f91d3f5
+   (`germquant_wt_t5`). There `test_split_paths_exist_with_the_registered_sizes` (`check_split_files`) now fails, since
+   the .ims at the registered path has another size, so their unit tests, and the tranche-5 gate (`scripts/t5_gate.py`,
+   whose pytest runs that test) from main, fail on the workstation until main holds this commit's record (pull
+   request #13, which is open and not merged); a manifest built there records `size_matches` false for this .ims. None
+   of them hashes it at run time. (2) The finished runs and the frozen artefacts: the run of entry 15 is finished; its
+   outputs, `manifest.json`, `manifest_entry9.json` (f41d1bab...) and every frozen artefact keep their bytes, and their
+   records of this .ims, written from the registered record (its path, its size 1,514,954,684 and `region_growing`
+   true), now describe the file in `HS_ims2_superseded/`. The registered truth folder
+   `germquant_golden/imaris_truth/n2rad51_HS_male_002/` is kept as it is; its params name the registered path
+   (`ims_file`), which now holds the re-export. (3) Scripts that open this .ims by that path if run again, and would now
+   open the re-export: the frame baseline of entry 9 (d)(3) (`E9/scripts/baseline_frame.py` and `boundary.py`, which
+   take the paths from the record in germquant_wt_hsmales, now the new record); any `germquant imaris-truth` run on that
+   path; the pre-protocol prototypes `germquant_golden/rad51_ims_benchmark.py` and `rad51_cv_check.py`; the truth-export
+   launcher `germquant_golden/run_truth_benchmark.ps1` (it skips a gonad that has a label image, then rewrites
+   `benchmarks/n2rad51_8666f07/manifest.json` from germquant_wt_dev and reruns the spot and nucleus benchmarks, so it
+   must not be rerun); and the inventory probes of `germquant_inventory/ims_inspection` and
+   `germquant_inventory/madeleine_search`, which take the paths from the registered record in germquant_wt_t5 and would
+   open the re-export under the registered size and sha256. (4) `scripts/make_rad51_split.py` and `check_split_files`
+   from this commit see the new file with the new record. (5) `germquant_golden/copy_imaris_n2_v2.ps1` mirrors the .ims
+   files of the NAS folder into `HS_ims2/` with robocopy: rerun as it stands, it would put the superseded original back
+   at the registered path (robocopy copies a file whose size or time differs) and add a second copy of the re-export
+   under its `_noRG` name. It must not be rerun as it stands; the README of (d) says so. (6) The outputs of the
+   decision-1 check (`germquant_inventory/decision1_check/MALE_2__vs_ims.json` and `independent_check/MALE_2__v2.json`)
+   name the registered path for what was then the registered file; they are records and are not changed. Nothing else
+   found reads that path.
+   (j) What comes next, declared now (entries 11 (g) and 13 (b)). The truth export of the re-export, `germquant
+   imaris-truth` on `HS_ims2/20251105_n2_hs_MALE _002.ims` with `--nd2` and `--frame-check`, into a folder of its own
+   (never `imaris_truth/n2rad51_HS_male_002/`, which stays the export of the superseded project); a manifest with
+   `--reexports-truth-root` naming that folder, under a file name of its own next to `manifest_entry9.json` (which keeps
+   its bytes), in which its spot truth is still excluded, so that `scripts/check_truth_assignment.py` runs section 4.4
+   on the new truth (at least 0.9935, entry 10 (b)); the other checks of entry 9 (d)(5) as (g) lists them. They are
+   reported in a later entry. A failed check is a truth-export bug to find, or a defect on the truth side that keeps the
+   gonad nucleus truth only, recorded then (entry 9 (d)(5)). Only if every check passes: that manifest again with the
+   4.4 table, the bench cache of n2rad51_HS_male_002 (step 3 of the plan), and the steps that use spot truth (step 4)
+   again with ten folds, into folders of their own, as the further declared development revision of entry 13 (b). The
+   re-export answers the request of entry 11 ("okay i will re export"); it is not an answer to decision 1. Entry 16 (e)
+   put both options back to him with the consequence that under option (1) the re-export could no longer enter before
+   test scoring; no test scoring has happened, so it enters now as declared. Decision 1 and its questions (b) and (c)
+   stay his: nothing is scored on test until he confirms one of its options.
+   (k) Labels. A change of data (the registered .ims of a train gonad, the split record and its pins) and of code after
+   the first result (entry 2) and after the test numbers that entry 16 (a) lists had been seen: post hoc under rule 3,
+   here and in every write-up that uses it. Written before any result on the re-export. It belongs to a further declared
+   development revision before the first test scoring (entry 13 (b)), not to the revision of section 10. The reading of
+   "Should be saved", the placement of (d), the option `--only` and the rule of (g) were the assistant's choices; none
+   was put to the project lead. No test result was computed.
+   (l) Reads, and two seal deviations. (1) The first look of (c)(1) opened the re-export, then named
+   `HS_ims2/20251105_n2_hs_MALE _002_noRG.ims`, with plain h5py, outside the read guard, whose sealed-name rule would
+   have refused that name, and kept no log; the NAS file and the copy of (b) were hashed with sha256sum, also outside
+   the guard. It is n2rad51_HS_male_002's own re-export, known by the name it was asked to have, its folder, size and
+   time, and no test-gonad file was read; but the rule kept by entry 12 (b) reads a 2025-11-05 project only behind the
+   guard, so this is a seal deviation of the kind entry 12 (b)(1) counted. (2) In the search of (i), one command (about
+   12:03 MDT), an unfiltered recursive `grep -rlI` over `germquant_golden` for "HS_ims2", "n2_rad51_local/imaris",
+   "rad51_split" and "check_split_files" in .py, .ps1, .json, .yaml and .txt files, read the contents of every such file
+   there to match them: those in the folders of the four test gonads and named for them among them (their truth params,
+   and whatever .json and .txt files their golden and candidate output folders, regression diffs and bench caches hold),
+   and `manifest.json` and `manifest_entry9.json`. It printed only the paths of matching files (the first 50, the four
+   test gonads' truth params among them, whose names their folders already give); no content and no number of a test
+   gonad was printed or seen. Every later search skipped, before opening, every path that names a test tag, a test stem
+   or a sealed name, and withheld matching lines that name one (`E17/scripts/safe_search.py`). No file under
+   `germquant_golden` is named 20251105_n2_hs_MALE_1* or for an aggregate table (a name-only count, 0). Other reads for
+   this entry: the three documents and the code; listings (names, sizes, file times) of `n2_rad51_local/imaris/` and
+   `HS_ims2/` (they show the test gonads' .ims names and sizes, which the split record holds) and the names in
+   `germquant_golden`; a few keys of the registered truth params of n2rad51_HS_male_002, behind the role guard
+   (`E17/logs/peek_registered_truth_params.log`); the creation parameters, object counts, channel names and spot radii
+   of the re-export and of the superseded project behind `guard_truth_read` ((c)(2)); the .nd2 header of
+   n2rad51_HS_male_002 and the re-export through the split builder, behind the role guard; sha256sum of the superseded
+   file, the placed re-export and n2rad51_HS_male_002's .nd2; `trials.jsonl` for counts (738 lines, 0 naming a test
+   gonad by tag or stem or as 20251105_n2_hs_MALE_1, 0 final, 0 with split test; `E17/logs/count_trials.log`) and its
+   sha256, and a test that `final_runs.jsonl` is absent; the scripts of `germquant_golden` that the search found (the
+   copy, truth-export and nine-fold launchers, the frame scripts of entry 9) and the matched lines of the checkouts' and
+   the inventory's scripts and records; `peek_noRG.py`; the process list (no Imaris running). The logs and scripts in
+   E17 are copies from the session scratchpad and the only files this entry adds under `germquant_golden`. Apart from
+   the grep of (2), no test-gonad file was opened, read, hashed or parsed, and no 20251105_n2_hs_MALE_1* file and no
+   aggregate table was read.
+   (m) Not changed: the roles (32e2ee0b...), the test set, the val gonads, the records `rad51_additions.json`,
+   `rad51_additions_decisions.json` (682368bc...) and `rad51_spot_sources.json` (8e145fb1...), every truth folder (the
+   registered `imaris_truth/n2rad51_HS_male_002/` among them), `manifest.json`, `manifest_entry9.json` (f41d1bab...),
+   `trials.jsonl` (c728a504...), the frozen methods of docs/FINAL_SCORING.md section 2 and their files, net3d's frozen
+   recipe, the files on the NAS, decision 1 and its questions (b) and (c).

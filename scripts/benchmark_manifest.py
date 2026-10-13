@@ -6,13 +6,14 @@
         [--additions tests/golden/rad51_additions.json --additions-results-root DIR
          --truth-check CSV [CSV ...] --spot-truth-decisions tests/golden/rad51_additions_decisions.json]
         [--spot-sources tests/golden/rad51_spot_sources.json --spot-sources-truth-root DIR]
-        [--manifest-file NAME.json]
+        [--reexports-truth-root DIR] [--manifest-file NAME.json]
 
 One entry per gonad: the split role, condition and sex, the .nd2 and .ims (exists, size matches the
 registered size), the pipeline output files under <results-root>/<tag>/ (nuclei table, nuclei_labels.tif,
 spots table, image summary, run manifest) and the Imaris truth files under <truth-root>
 (<stem>__imaris_<kind>), each with its path and an exists flag, plus outputs_complete, truth_complete and
-spot_truth_usable (false for the gonads whose spots were exported with Imaris region growing). Nothing is
+spot_truth_usable (false for the gonads whose spots were exported with Imaris region growing, and for a
+re-exported gonad without the export of its re-exported project; see below). Nothing is
 computed from the data: the manifest is the input list for the scoring step and a record of what was
 available when it was built (created_utc, and the sha256 of the split file it was built from).
 
@@ -36,6 +37,13 @@ germquant imaris-truth --spot-source), and their spot_truth_usable follows
 benchmark_split.spot_source_truth_usable: the export's own checks (E1 to E9 and the frame check), then a changelog
 decision, else the section 4.4 agreement of --truth-check of at least 99.35 percent. Every other registered entry
 stays as without it. The record is recorded with its sha256 (spot_sources_file).
+
+A registered gonad whose .ims in the split record is a re-export of protocol section 4.1 (benchmark_split.REEXPORTS,
+changelog entry 17: n2rad51_HS_male_002) is never usable on its region-growing flag alone: without
+--reexports-truth-root its spot truth is excluded (the registered truth folder holds the export of the superseded
+.ims); with it, its truth files are read from --reexports-truth-root/<tag>/ and its spot_truth_usable follows
+benchmark_split.reexport_spot_truth_usable: a truth export of the re-exported project with the frame check, then the
+section 4.4 agreement of --truth-check of at least 99.35 percent (top-level record: reexports).
 --manifest-file names the file written in <out>/<name>/ (default manifest.json): a revised
 manifest goes next to the registered one under another name, so trials.jsonl and final_runs.jsonl, which the
 scoring scripts find next to the manifest, stay the same files.
@@ -76,6 +84,9 @@ def main(argv=None) -> int:
     ap.add_argument("--spot-truth-decisions", default=None, metavar="JSON",
                     help="with --additions: the decisions file of a changelog entry on the additions' spot "
                          "truth (tests/golden/rad51_additions_decisions.json, entry 10)")
+    ap.add_argument("--reexports-truth-root", default=None, metavar="DIR",
+                    help="the truth exports of the re-exported projects of protocol changelog entry 17, one folder "
+                         "per tag (without it a re-exported gonad's spot truth is excluded)")
     ap.add_argument("--manifest-file", default="manifest.json",
                     help="file name of the manifest in <out>/<name>/ (default manifest.json)")
     args = ap.parse_args(argv)
@@ -89,8 +100,8 @@ def main(argv=None) -> int:
 
     if args.spot_truth_decisions and not args.additions:
         ap.error("--truth-check and --spot-truth-decisions need --additions")
-    if args.truth_check and not (args.additions or args.spot_sources):
-        ap.error("--truth-check needs --additions or --spot-sources")
+    if args.truth_check and not (args.additions or args.spot_sources or args.reexports_truth_root):
+        ap.error("--truth-check needs --additions, --spot-sources or --reexports-truth-root")
     if bool(args.spot_sources) != bool(args.spot_sources_truth_root):
         ap.error("--spot-sources and --spot-sources-truth-root go together")
     split = bs.load_split(args.split)
@@ -104,7 +115,8 @@ def main(argv=None) -> int:
                                  additions_results_root=args.additions_results_root, additions_path=args.additions,
                                  truth_check=truth_check, spot_truth_decisions=args.spot_truth_decisions,
                                  spot_sources=sources, spot_sources_path=args.spot_sources,
-                                 spot_sources_truth_root=args.spot_sources_truth_root)
+                                 spot_sources_truth_root=args.spot_sources_truth_root,
+                                 reexports_truth_root=args.reexports_truth_root)
     out = bs.write_manifest(manifest, args.out, args.manifest_file)
 
     print(f"{'tag':28s} {'role':5s} {'outputs':8s} {'truth':8s} {'spot truth':10s}")
