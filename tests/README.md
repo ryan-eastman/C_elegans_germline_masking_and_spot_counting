@@ -91,6 +91,25 @@ gonads are built inside the fixtures.
   `docs/BENCHMARK_PROTOCOL.md`): the 12 tags and their train/val/test roles, the sha256 helper, the
   Imaris creation-parameter reader on a synthetic HDF5 project, and the manifest builder
   (`scripts/benchmark_manifest.py`) on a temporary tree.
+- `test_rad51_additions.py`: the additions of protocol changelog entry 9 (`golden/rad51_additions.json`):
+  the registered split file byte-identical and its roles pinned, the record validated with roles fixed in
+  code (train only), its refusals, the role guard, the sealed names, the builder on stub files and the
+  manifest with additions keeping the registered entries identical; since protocol changelog entry 10 the
+  spot-truth rule (the export's own checks, the decisions file `golden/rad51_additions_decisions.json`, the
+  section 4.4 minimum), a decision removing an addition's fold, and the truth read guard. The check that the 12
+  recorded files exist with their sizes, and the decisions on the real truth files, skip when the 2026-01-05
+  copies and truth exports are not on the machine. Since protocol changelog entry 11 the decisions file holds
+  the decision that keeps n2rad51_20260105a_HS_male_001.
+- `test_rad51_spot_sources.py`: the recorded spot sources of protocol changelog entry 11
+  (`golden/rad51_spot_sources.json`, n2rad51_HS_male_000's 2025-12-31 export): the record against the split and
+  the pins in code, its refusals (a test or val gonad, an unpinned gonad, another export name, size or sha256),
+  the read guard that admits exactly the pinned export and keeps the other 2025-11-05 exports sealed, the
+  usability rule, the manifest that changes only that gonad's entry (and the folds that then hold it and not
+  n2rad51_HS_male_002), net3d's training gonads and the net3d fold order. The check of the pinned file skips when
+  the copy is not on the machine. Since protocol changelog entry 12: the record's split digests are pinned as the
+  historical ones it was made against (so the re-export of n2rad51_HS_male_002 does not break it; the additions
+  record's test does the same), `load_spot_sources` refuses a malformed record, and a file with the pinned name and
+  size but other bytes is hashed and refused by both guards before anything parses it.
 - `test_gpu.py`: the real Cellpose-SAM 3D path. See the markers.
 - `test_benchmark.py`: the benchmark harness (`germquant.benchmark`, see `docs/BENCHMARK.md`) on
   synthetic label volumes and spot sets with known answers for every metric (a split, a merge, an
@@ -244,7 +263,7 @@ Other automatic skips: the extended-path check in `test_fsutil.py` runs only on 
 POSIX twin only elsewhere, `test_staging.py` skips its comparison with the August staging tables
 when they are not on the machine, and `test_benchmark_split.py` skips the check that the 24
 registered `.nd2` and `.ims` files exist with their registered sizes when the N2 RAD-51 data is not
-on the machine.
+on the machine, as `test_rad51_additions.py` does for the 12 files of the additions.
 
 ## Running the suite locally
 

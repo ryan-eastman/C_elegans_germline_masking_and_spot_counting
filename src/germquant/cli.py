@@ -234,6 +234,32 @@ def main(argv: list[str] | None = None) -> int:
                                    "(default: a sibling <stem>.nd2, else Imaris's own voxel size)")
     pit.add_argument("--no-masks", action="store_true",
                      help="skip the mask channel (no label image; much faster, tables only)")
+    pit.add_argument("--frame-check", action="store_true",
+                     help="test the frame (protocol changelog entry 9 (d)(3)): Imaris's per-spot Intensity Center of "
+                          "the spot channel against the --nd2 pixel and of the mask channel against the mask, at "
+                          "floor((p - ExtMin) / v); the stored frame, then the rounded voxel, then an ExtMin search "
+                          "inside the extent text's rounding; the first that passes converts every position")
+    pit.add_argument("--spots-xlsx", default=None, metavar="XLSX",
+                     help="take the spots from this Imaris statistics export instead of the saved Spots object and "
+                          "verify them (entry 9 (e), criteria V1 to V7 in the params JSON); implies --frame-check")
+    pit.add_argument("--xlsx-expect-sha256", default=None, help="with --spots-xlsx: the recorded sha256 (V1)")
+    pit.add_argument("--xlsx-expect-spots", type=int, default=None,
+                     help="with --spots-xlsx: the recorded Overall total of spots (V2)")
+    pit.add_argument("--xlsx-expect-surfaces", type=int, default=None,
+                     help="with --spots-xlsx: the recorded Overall total of surfaces (V2)")
+    pit.add_argument("--pre-flight", action="store_true",
+                     help="with --frame-check: allow a test gonad of the registered split (only in the pre-flight of "
+                          "docs/FINAL_SCORING.md, the Intensity Center test of each test gonad, no metric); without "
+                          "it a test gonad and any sealed file are refused before anything is opened")
+    pit.add_argument("--spot-source", default=None, metavar="RECORD",
+                     help="the spot-sources record of protocol changelog entry 11 (tests/golden/rad51_spot_sources.json): "
+                          "take the spots of this registered train gonad from its recorded earlier export (the .ims "
+                          "spots it names, matched by position, classes by the project's own rule) and verify them "
+                          "(criteria E1 to E10 in the params JSON); implies --frame-check; never a test gonad")
+    pit.add_argument("--split-file", default=None, metavar="SPLIT",
+                     help="with --spot-source: the registered split record the spot source is checked against (its "
+                          ".ims path, size and sha256; protocol changelog entry 12). Default: rad51_split.json next to "
+                          "the spot-sources record. It must be the registered split file (its pinned digests)")
 
     pe = sub.add_parser("export-training",
                         help="write paired 2D training slices (image/ and labels/ TIFs plus manifest.csv) from the "
@@ -336,6 +362,9 @@ def main(argv: list[str] | None = None) -> int:
                      help="stop after this many epochs; the learning-rate schedule still spans --epochs")
     pts.add_argument("--threshold", type=float, default=None,
                      help="the peak threshold stored in model.pt for a run without val gonads")
+    pts.add_argument("--additions", default=None, metavar="FILE",
+                     help="the additions record of protocol changelog entry 9 (tests/golden/rad51_additions.json): "
+                          "its gonads are train gonads too (name them with --train-tags)")
 
     ptn3 = sub.add_parser("train-nuclei3d",
                           help="train the EXPERIMENTAL nuclei3d 3D nucleus model (a residual 3D U-Net with foreground, "
@@ -1133,7 +1162,8 @@ def _train_spots(args) -> int:
     res = train_spots(args.cache, args.split_file, args.out, manifest=args.manifest, patience=args.patience,
                       val_every=args.val_every, device=args.device, thresholds=thresholds, prep_dir=args.prep_dir,
                       min_free_gb=args.min_free_gb, wait_minutes=args.wait_minutes,
-                      select_tolerance=args.select_tolerance, train_tags=args.train_tags, val_tags=val_tags, **kw)
+                      select_tolerance=args.select_tolerance, train_tags=args.train_tags, val_tags=val_tags,
+                      additions_file=args.additions, **kw)
     g = res["gonads"]
     print(f"\nnet3d: trained on {[r['tag'] for r in g['train']]} ({res['device']}), validated on "
           f"{[r['tag'] for r in g['val']]}; left out {[r['tag'] for r in g['excluded']]}; test gonads never opened")
@@ -1192,7 +1222,32 @@ def _register_model(args) -> int:
 def _imaris_truth(args) -> int:
     from .validate.imaris_ims import export_imaris_truth
 
-    p = export_imaris_truth(args.ims, args.out, nd2=args.nd2, masks=not args.no_masks)
+    expect = None
+    if args.spots_xlsx:
+        expect = {"sha256": args.xlsx_expect_sha256, "n_spots": args.xlsx_expect_spots,
+                  "n_surfaces": args.xlsx_expect_surfaces}
+    source = None
+    if getattr(args, "spot_source", None):
+        from .validate.benchmark_split import (load_split, load_spot_sources, registered_tag_of,
+                                               split_file_unchanged, spot_source_of)
+
+        if args.pre_flight:
+            print("--spot-source is for a registered train gonad; it does not go with --pre-flight")
+            return 2
+        split_path = Path(args.split_file) if getattr(args, "split_file", None) else \
+            Path(args.spot_source).with_name("rad51_split.json")
+        if not split_path.is_file() or not split_file_unchanged(split_path):
+            print(f"{split_path}: not the registered split record (protocol changelog entry 12: --spot-source is "
+                  "checked against it); give it with --split-file")
+            return 2
+        tag = registered_tag_of(args.ims)
+        source = spot_source_of(load_spot_sources(args.spot_source, load_split(split_path)), tag) if tag else None
+        if source is None:
+            print(f"{args.ims}: the record {args.spot_source} holds no spot source for this project")
+            return 2
+    p = export_imaris_truth(args.ims, args.out, nd2=args.nd2, masks=not args.no_masks,
+                            frame_check_on=args.frame_check, spots_xlsx=args.spots_xlsx, xlsx_expect=expect,
+                            allow_test=args.pre_flight, spot_source=source)
     m = p["mask"]
     line = f"{p['stem']}: {p['n_spots']} spots, {p['n_surfaces']} surfaces"
     if m.get("labels_file"):
@@ -1205,6 +1260,23 @@ def _imaris_truth(args) -> int:
         print(f"  centroid check: {m['n_centroid_inside_own_label']} inside own label, {m['n_centroid_in_cavity']} on a "
               f"cavity (0), {m['n_centroid_in_other_label']} inside another label; "
               f"{m['n_orphan_values']} unclaimed mask value(s) dropped")
+    fc = p.get("frame_check")
+    if fc is not None:
+        chosen = fc.get("chosen")
+        first = (fc.get("candidates") or [{}])[0].get("channels", {}).get("spot_channel", {})
+        print(f"  frame check (entry 9 (d)(3)): {'frame ' + chosen['name'] if chosen else 'NO FRAME PASSES'}; stored "
+              f"frame spot-channel agreement {first.get('agreement')}")
+    src = p.get("spots_source") or {}
+    if src.get("source") == "xlsx":
+        ver = src["verification"]
+        print(f"  xlsx spots (entry 9 (e)): {'VERIFIED' if ver.get('passed') else 'NOT VERIFIED'}: "
+              + ", ".join(f"{k.split('_')[0]} {'pass' if v.get('passes') else 'FAIL'}" for k, v in ver.items()
+                          if k.startswith("V")))
+    elif src.get("source") == "earlier_export_subset":
+        ver = src["verification"]
+        print(f"  recorded spot source (entry 11): {'VERIFIED' if ver.get('passed') else 'NOT VERIFIED'}: "
+              + ", ".join(f"{k.split('_')[0]} {'pass' if v.get('passes') else 'FAIL'}" for k, v in ver.items()
+                          if k.startswith("E")))
     for w in p["warnings"]:
         print(f"  warning: {w}")
     print(f"  -> {args.out}")

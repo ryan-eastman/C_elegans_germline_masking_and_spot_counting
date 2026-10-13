@@ -84,10 +84,11 @@ def _label_tables(g, sets, label_ids, object_ids):
     g.create_dataset("LabelSetObjectIDs", data=_rec([(i,) for i in object_ids], [("IDObject", "<i8")]))
 
 
-def build_ims(path, *, mask_mode="unique", surface_stats=True, surfaces=True):
+def build_ims(path, *, mask_mode="unique", surface_stats=True, surfaces=True, ic_stats=False):
     """Write a synthetic .ims. ``mask_mode`` 'unique' gives every nucleus its own value (8 and 9 collide),
     'binary' fills every nucleus with 1; ``surface_stats=False`` leaves out the per-surface intensity
-    statistics so the pixel probe has to find the mask channel."""
+    statistics so the pixel probe has to find the mask channel; ``ic_stats`` stores Imaris's per-spot
+    Intensity Center of the spot channel (0) and of the mask channel (1), the frame check's input."""
     rng = np.random.default_rng(0)
     raw = np.zeros(PAD, np.uint16)
     raw[:Z, :Y, :X] = rng.integers(60, 400, size=(Z, Y, X))
@@ -129,13 +130,19 @@ def build_ims(path, *, mask_mode="unique", surface_stats=True, surfaces=True):
         spot_dtype = [("ID", "<i8"), ("PositionX", "<f4"), ("PositionY", "<f4"), ("PositionZ", "<f4"), ("Radius", "<f4")]
         rows = [(sid, *_spot_position_um(v, fr), rad) for sid, (v, fr, _c, _q, _m, rad) in SPOTS.items()]
         pts.create_dataset("Spot", data=_rec(rows, spot_dtype))
+        ic_types = [(4, 0, 2, "Intensity Center", ""), (5, 0, 1, "Intensity Center", "")] if ic_stats else []
         pts.create_dataset("StatisticsType", data=_rec([(1, 0, 0, "Quality", ""), (2, 0, 1, "Intensity Max", ""),
-                                                        (3, 1, 0, "Total Number of Spots", "")], stype))
+                                                        (3, 1, 0, "Total Number of Spots", "")] + ic_types, stype))
         pts.create_dataset("Category", data=_rec([(0, "Spot", "Spot"), (1, "Overall", "Overall")], category))
-        pts.create_dataset("Factor", data=_rec([(1, "Channel", str(MASK_CH + 1)), (1, "Image", "Image 1")], factor))
+        ic_factors = [(2, "Channel", "1"), (2, "Image", "Image 1")] if ic_stats else []
+        pts.create_dataset("Factor", data=_rec([(1, "Channel", str(MASK_CH + 1)), (1, "Image", "Image 1")] + ic_factors,
+                                               factor))
         vals = [(0, -1, 3, float(len(SPOTS)))]
         for sid, (_v, _fr, _c, q, m, _r) in SPOTS.items():
             vals += [(0, sid, 1, q), (0, sid, 2, float(m if mask_mode == "unique" else min(m, 1)))]
+            if ic_stats:
+                xi, yi, zi = _v
+                vals += [(0, sid, 4, float(raw[zi, yi, xi])), (0, sid, 5, float(mask[zi, yi, xi]))]
         pts.create_dataset("StatisticsValue", data=_rec(vals, svalue))
         _label_tables(pts, sets=[(1, 3), (2, 5)], label_ids=[0, 1], object_ids=[11, 13, 12, 14, 15])
 
@@ -387,19 +394,734 @@ def test_read_imaris_ims_still_works_on_the_synthetic_file(tmp_path):
     assert spots["x_um"].iloc[0] == pytest.approx((8 + 0.3) * VOX[0], abs=1e-3)
 
 
-def test_cli_wiring(monkeypatch):
+def test_cli_wiring(monkeypatch, tmp_path):
     from germquant import cli
     from germquant.validate import imaris_ims
 
     called = {}
 
-    def fake_export(ims, out, *, nd2=None, masks=True):
+    def fake_export(ims, out, *, nd2=None, masks=True, frame_check_on=False, spots_xlsx=None, xlsx_expect=None,
+                    allow_test=False, spot_source=None):
         called.update(ims=ims, out=out, nd2=nd2, masks=masks)
+        called.update(frame=frame_check_on, xlsx=spots_xlsx, expect=xlsx_expect, allow_test=allow_test)
+        if spot_source is not None:
+            called["spot_source"] = spot_source["tag"]
         return {"stem": "x", "n_spots": 3, "n_surfaces": 2, "warnings": ["w1"],
                 "mask": {"labels_file": None, "reason_no_labels": "masks not requested (--no-masks)"}}
 
     monkeypatch.setattr(imaris_ims, "export_imaris_truth", fake_export)
     assert cli.main(["imaris-truth", "a.ims", "--out", "o", "--nd2", "a.nd2", "--no-masks"]) == 0
-    assert called == {"ims": "a.ims", "out": "o", "nd2": "a.nd2", "masks": False}
+    assert called == {"ims": "a.ims", "out": "o", "nd2": "a.nd2", "masks": False, "frame": False, "xlsx": None,
+                      "expect": None, "allow_test": False}
+    assert cli.main(["imaris-truth", "c.ims", "--out", "o3", "--frame-check", "--spots-xlsx", "c.xlsx",
+                     "--xlsx-expect-sha256", "ab", "--xlsx-expect-spots", "5", "--xlsx-expect-surfaces", "4"]) == 0
+    assert called["frame"] is True and called["xlsx"] == "c.xlsx" and called["allow_test"] is False
+    assert called["expect"] == {"sha256": "ab", "n_spots": 5, "n_surfaces": 4}
     assert cli.main(["imaris-truth", "b.ims", "--out", "o2"]) == 0
     assert called["nd2"] is None and called["masks"] is True
+    assert cli.main(["imaris-truth", "d.ims", "--out", "o4", "--frame-check", "--pre-flight"]) == 0
+    assert called["frame"] is True and called["allow_test"] is True
+    # --spot-source (entry 11): the record's source of the project's registered gonad, never with --pre-flight
+    from pathlib import Path
+
+    rec = str(Path(__file__).resolve().parents[1] / "tests" / "golden" / "rad51_spot_sources.json")
+    assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o5", "--spot-source", rec]) == 0
+    assert called["spot_source"] == "n2rad51_HS_male_000" and called["allow_test"] is False
+    called.clear()
+    assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _002.ims", "--out", "o6", "--spot-source", rec]) == 2
+    assert cli.main(["imaris-truth", "e.ims", "--out", "o7", "--spot-source", rec]) == 2
+    assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o8", "--spot-source", rec,
+                     "--pre-flight"]) == 2
+    assert called == {}                                     # nothing was exported for the three refusals
+    # entry 12: the record is checked against the registered split (its .ims path, size and sha256); the split is
+    # the record's sibling unless --split-file names it, and it must be the registered split file
+    split = str(Path(rec).with_name("rad51_split.json"))
+    other = tmp_path / "rad51_split.json"
+    other.write_text("{}", encoding="utf-8")
+    assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o9", "--spot-source", rec,
+                     "--split-file", str(other)]) == 2
+    moved = tmp_path / "elsewhere" / "rad51_spot_sources.json"
+    moved.parent.mkdir()
+    moved.write_bytes(Path(rec).read_bytes())
+    assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o10", "--spot-source", str(moved)]) == 2
+    assert called == {}
+    assert cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o11", "--spot-source", str(moved),
+                     "--split-file", split]) == 0
+    assert called["spot_source"] == "n2rad51_HS_male_000"
+    doc = json.loads(moved.read_text(encoding="utf-8"))
+    doc["sources"][0]["ims"]["sha256"] = "1" * 64                          # not the split's .ims
+    moved.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(ValueError, match="not the registered one"):
+        cli.main(["imaris-truth", "C:/x/20251105_n2_hs_MALE _.ims", "--out", "o12", "--spot-source", str(moved),
+                  "--split-file", split])
+
+
+# ---------------------------------------------------------------- the frame check (entry 9 (d)(3))
+def _frame_case(seed=5, n=3000, shape_xyz=(200, 150, 10)):
+    rng = np.random.default_rng(seed)
+    v = np.array([0.1, 0.1, 0.2])
+    ext = np.array([16249.93, 4614.7, 2742.24])
+    img = rng.integers(0, 4000, size=shape_xyz[::-1]).astype(np.uint16)
+    msk = rng.integers(0, 50, size=shape_xyz[::-1]).astype(np.uint16)
+    idx = np.stack([rng.integers(0, s, n) for s in shape_xyz], axis=1)
+    frac = rng.uniform(0.02, 0.98, size=(n, 3))
+    pos = (ext + (idx + frac) * v).astype(np.float32).astype(float)       # Imaris stores float32
+    exp = {"spot_channel": img[idx[:, 2], idx[:, 1], idx[:, 0]].astype(float),
+           "mask_channel": msk[idx[:, 2], idx[:, 1], idx[:, 0]].astype(float)}
+    geom = {"ext_min_xyz": ext, "voxel_xyz_um": v, "shape_xyz": np.array(shape_xyz)}
+    return pos, exp, {"spot_channel": img, "mask_channel": msk}, geom
+
+
+def test_frame_check_rule():
+    assert I.text_rounding_halfwidth(16249.9) == pytest.approx(0.05)
+    assert I.text_rounding_halfwidth(8150.1) == pytest.approx(0.005)
+    assert I.text_rounding_halfwidth(-10921.1) == pytest.approx(0.05)
+    assert I.text_rounding_halfwidth(2742.24) == pytest.approx(0.005)
+    pos, exp, img, geom = _frame_case()
+    r = I.frame_check(pos, geom, exp, img)
+    assert r["chosen"]["name"] == "stored" and r["search"] is None
+    assert r["candidates"][0]["channels"]["spot_channel"]["agreement"] == 1.0
+    # a voxel read from six-significant-digit extents (0.10004 where the grid is 0.1): the far third of x
+    # drifts, the stored frame fails there and the rounded voxel passes
+    drift = dict(geom, voxel_xyz_um=np.array([0.10004, 0.1, 0.2]))
+    r = I.frame_check(pos, drift, exp, img)
+    stored = r["candidates"][0]["channels"]["spot_channel"]
+    assert not r["candidates"][0]["passes"] and stored["thirds_x"][2] < 0.995 and stored["thirds_x"][0] > 0.995
+    assert r["chosen"]["name"] == "rounded" and r["chosen"]["voxel_xyz_um"] == pytest.approx([0.1, 0.1, 0.2])
+    # an ExtMin whose text lost 0.03 um: both fail, the search inside the +-0.05 um of the text finds it
+    lost = dict(geom, ext_min_xyz=np.array([16249.9, 4614.7, 2742.24]))
+    r = I.frame_check(pos, lost, exp, img)
+    assert [c["passes"] for c in r["candidates"][:2]] == [False, False]
+    assert r["chosen"]["name"].startswith("search") and r["chosen"]["ext_min_xyz"][0] == pytest.approx(16249.93, abs=0.004)
+    assert r["search"]["rounding_halfwidth_um"][0] == pytest.approx(0.05)
+    # values that belong to no frame: nothing passes, nothing is chosen
+    rng = np.random.default_rng(1)
+    junk = {k: rng.permutation(v) for k, v in exp.items()}
+    assert I.frame_check(pos, geom, junk, img)["chosen"] is None
+    # a spot within float32 precision of a voxel boundary may read the voxel across it
+    one = np.array([[geom["ext_min_xyz"][0] + 50 * 0.1 - 1e-7, 4614.7 + 0.05, 2742.24 + 0.1]])
+    vals = {"spot_channel": np.array([float(img["spot_channel"][0, 0, 50])])}
+    a = I.frame_agreement(one, geom["ext_min_xyz"], geom["voxel_xyz_um"], geom["shape_xyz"], vals,
+                          {"spot_channel": img["spot_channel"]})["channels"]["spot_channel"]
+    assert a["agreement"] == 1.0
+
+
+def test_frame_passes_needs_every_third_and_the_mask_channel():
+    """The pass rule of entry 9 (d)(3) on hand-built results: a third of x or of y below 99.5 percent fails even
+    when the overall agreement passes, and so does the mask channel below 99.5 percent."""
+    good = {"agreement": 0.999, "thirds_x": [1.0, 1.0, 1.0], "thirds_y": [1.0, 1.0, None]}
+    assert I.frame_passes({"channels": {"s": good}}, "s", None)
+    assert not I.frame_passes({"channels": {"s": {**good, "thirds_x": [1.0, 1.0, 0.9]}}}, "s", None)
+    assert not I.frame_passes({"channels": {"s": {**good, "thirds_y": [0.99, 1.0, 1.0]}}}, "s", None)
+    assert not I.frame_passes({"channels": {"s": {**good, "agreement": 0.99}}}, "s", None)
+    assert I.frame_passes({"channels": {"s": good, "m": {"agreement": 0.996}}}, "s", "m")
+    assert not I.frame_passes({"channels": {"s": good, "m": {"agreement": 0.99}}}, "s", "m")
+
+
+def test_the_rounded_voxel_is_rounded_to_four_decimals():
+    """The real case of the 2026-01-05 males: a 0.108 um grid of 2720 voxels whose stored extents give 0.10801 on
+    x. Rounded to 4 decimals the voxel is 0.108 and passes; rounded to 2 decimals (0.11) it would not."""
+    rng = np.random.default_rng(7)
+    shape_xyz = (2720, 20, 4)
+    v = np.array([0.108, 0.108, 0.2])
+    ext = np.array([2889.2, 4614.7, 2742.24])
+    img = rng.integers(0, 4000, size=shape_xyz[::-1]).astype(np.uint16)
+    n = 3000
+    idx = np.stack([rng.integers(0, s, n) for s in shape_xyz], axis=1)
+    pos = (ext + (idx + rng.uniform(0.02, 0.98, size=(n, 3))) * v).astype(np.float32).astype(float)
+    exp = {"spot_channel": img[idx[:, 2], idx[:, 1], idx[:, 0]].astype(float)}
+    geom = {"ext_min_xyz": ext, "voxel_xyz_um": np.array([0.10801, 0.108, 0.2]), "shape_xyz": np.array(shape_xyz)}
+    r = I.frame_check(pos, geom, exp, {"spot_channel": img}, mask_key=None)
+    assert not r["candidates"][0]["passes"]
+    assert r["chosen"]["name"] == "rounded" and r["chosen"]["voxel_xyz_um"] == pytest.approx([0.108, 0.108, 0.2])
+
+
+def test_export_with_the_frame_check(tmp_path):
+    ims = tmp_path / "f.ims"
+    build_ims(ims, ic_stats=True)
+    plain = I.export_imaris_truth(ims, tmp_path / "plain", nd2_voxel_xyz_um=OUR_VOX)
+    p = I.export_imaris_truth(ims, tmp_path / "fc", nd2_voxel_xyz_um=OUR_VOX, frame_check_on=True)
+    fc = p["frame_check"]
+    assert fc["chosen"]["name"] == "stored" and fc["image_source"] == "ims" and fc["spot_channel"] == 0
+    assert fc["mask_channel"] == MASK_CH and fc["n_spots"] == len(SPOTS)
+    assert fc["candidates"][0]["channels"]["spot_channel"]["agreement"] == 1.0
+    assert fc["candidates"][0]["channels"]["mask_channel"]["agreement"] == 1.0
+    a = pd.read_csv(I.truth_paths(tmp_path / "plain", "f")["spots"])
+    b = pd.read_csv(I.truth_paths(tmp_path / "fc", "f")["spots"])
+    pd.testing.assert_frame_equal(a, b)                    # the stored frame: the same truth
+    assert p["spots_source"] == {"source": "ims"} and "frame_check" not in plain
+    assert p["creation_parameter_summary"]["spots"]["source_channel_index"] == 0
+    assert p["voxel_imaris_xyz_um_stored"] == pytest.approx(VOX.tolist())
+    # an export without the statistic cannot be tested: no frame is chosen, the stored one is kept
+    build_ims(tmp_path / "n.ims")
+    q = I.export_imaris_truth(tmp_path / "n.ims", tmp_path / "n", nd2_voxel_xyz_um=OUR_VOX, frame_check_on=True)
+    assert q["frame_check"]["chosen"] is None and "untestable" in q["frame_check"]
+
+
+def _shifted_export(tmp_path, monkeypatch, ulps):
+    """The synthetic project with its stored x extent 0.03 um low (as a six-significant-digit text above 10000 um
+    can be); the positions and Intensity Center statistics stay those of the true frame."""
+    ims = tmp_path / "d.ims"
+    build_ims(ims, ic_stats=True)
+    with h5py.File(ims, "r+") as f:
+        img = f["DataSetInfo/Image"]
+        img.attrs["ExtMin0"] = _s(f"{EXT_MIN[0] - 0.03:g}")
+        img.attrs["ExtMax0"] = _s(f"{EXT_MAX[0] - 0.03:g}")
+    monkeypatch.setattr(I, "text_rounding_halfwidth", lambda v, significant=6: 0.05)
+    monkeypatch.setattr(I, "FLOAT32_ULPS", ulps)
+    return I.export_imaris_truth(ims, tmp_path / "o", nd2_voxel_xyz_um=OUR_VOX, frame_check_on=True)
+
+
+def _check_chosen_frame(tmp_path, p):
+    chosen = p["frame_check"]["chosen"]
+    assert chosen["name"] != "stored"
+    assert p["ext_min_xyz_um"] == pytest.approx(chosen["ext_min_xyz"])
+    assert p["ext_min_xyz_um_stored"][0] == pytest.approx(EXT_MIN[0] - 0.03)
+    sp = pd.read_csv(I.truth_paths(tmp_path / "o", "d")["spots"]).set_index("spot_id")
+    for sid, (v, *_rest) in SPOTS.items():
+        assert tuple(int(sp.loc[sid, c]) for c in ("xi", "yi", "zi")) == v, sid
+        assert sp.loc[sid, "x_um"] == pytest.approx(v[0] * OUR_VOX[0])
+    nuc = pd.read_csv(I.truth_paths(tmp_path / "o", "d")["nuclei"])
+    ext = np.asarray(chosen["ext_min_xyz"], float)
+    vox = np.asarray(chosen["voxel_xyz_um"], float)
+    idx = np.floor((nuc[["imaris_x_um", "imaris_y_um", "imaris_z_um"]].to_numpy(float) - ext) / vox).astype(int)
+    assert (nuc[["xi", "yi", "zi"]].to_numpy() == idx).all()
+
+
+def test_export_applies_a_non_stored_frame(tmp_path, monkeypatch):
+    """The path that produced the four real truth tables of entry 9: every spot and surface is converted with the
+    frame the check chose, not the stored one (no float32 allowance, so the search's choice is unambiguous)."""
+    _check_chosen_frame(tmp_path, _shifted_export(tmp_path, monkeypatch, 0))
+
+
+def test_search_does_not_stop_on_a_voxel_boundary(tmp_path, monkeypatch):
+    """With the float32 allowance, ties on the tolerant agreement go to the higher strict agreement: the edge of
+    the agreeing plateau would accept a spot on a voxel boundary and floor it into the wrong voxel."""
+    _check_chosen_frame(tmp_path, _shifted_export(tmp_path, monkeypatch, 2))
+
+
+def test_the_frame_check_and_xlsx_source_refuse_test_and_sealed_files(tmp_path):
+    """Protocol changelog entry 10: with the frame check or the xlsx source, a test gonad's project and any sealed
+    file are refused before anything is opened (the files need not exist, and no output folder is made); the
+    pre-flight may open a test gonad's project with allow_test."""
+    from germquant.benchmark.detector import TestSetGuardError
+
+    out = tmp_path / "never"
+    with pytest.raises(TestSetGuardError):
+        I.export_imaris_truth(tmp_path / "20251105_n2_hs_MALE _001.ims", out, frame_check_on=True)
+    with pytest.raises(TestSetGuardError):
+        I.export_imaris_truth(tmp_path / "x.ims", out, nd2=tmp_path / "20251105_N2_nohs_HERM _002.nd2",
+                              frame_check_on=True)
+    with pytest.raises(PermissionError, match="sealed"):
+        I.export_imaris_truth(tmp_path / "x.ims", out, spots_xlsx=tmp_path / "20251105_n2_hs_MALE_1.xlsx")
+    with pytest.raises(PermissionError, match="sealed"):
+        I.export_imaris_truth(tmp_path / "x.ims", out, nd2=tmp_path / "compiled_dataEP_flat.nd2", frame_check_on=True)
+    assert not out.exists()
+    test_like = tmp_path / "20251105_n2_hs_MALE _001.ims"
+    build_ims(test_like, ic_stats=True)
+    p = I.export_imaris_truth(test_like, tmp_path / "pre", nd2_voxel_xyz_um=OUR_VOX, frame_check_on=True,
+                              allow_test=True)
+    assert p["frame_check"]["chosen"]["name"] == "stored"
+
+
+# ------------------------------------------------------------- the xlsx spot source (entry 9 (e))
+def _write_export(path, ims_path, *, drop_spot=None, move_surface=0.0, radius=0.2, extra_spot=None,
+                  imax_override=None, id_offset=0, round_um=None, class_counts=None, nn3=None, move_spot=None,
+                  volume_add=0.0):
+    """A synthetic Imaris statistics export of the synthetic .ims: Overall, Position, Diameter, the Intensity
+    Center of channels 1 and 2, the Intensity Max of channel 2 and Volume, in the export's layout.
+    ``imax_override`` ({spot id: value}) gives a spot an Intensity Max of channel 2 other than its Intensity
+    Center (a neighbour's fill value reached by the spot's volume). For the recorded earlier export of entry 11:
+    ``id_offset`` renumbers the spot IDs, ``round_um`` rounds the positions as the export writes them,
+    ``class_counts`` adds the Overall "Number of labelled Spots per Class" rows, ``nn3`` ({spot id: value}) the
+    sheet of the 3-neighbour distance, ``move_spot`` ((spot id, dx um)) moves one spot, and ``volume_add`` is added
+    to every surface volume."""
+    imax_override = dict(imax_override or {})
+    import h5py
+    import openpyxl
+
+    with h5py.File(ims_path, "r") as f:
+        raw = f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data"][:Z, :Y, :X]
+        mask = f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 1/Data"][:Z, :Y, :X]
+        smi = f["Scene8/Content/MegaSurfaces0/SurfaceModelInfo"][:]
+        sp = f["Scene8/Content/Points0/Spot"][:]
+    stored = {int(r["ID"]): (float(r["PositionX"]), float(r["PositionY"]), float(r["PositionZ"])) for r in sp}
+    spots = [(sid, *(stored[sid] if id_offset or round_um else _spot_position_um(v, fr)), v)
+             for sid, (v, fr, *_rest) in SPOTS.items() if sid != drop_spot]
+    if round_um:
+        spots = [(sid, round(x, round_um), round(y, round_um), round(z, round_um), v) for sid, x, y, z, v in spots]
+    if move_spot is not None:
+        spots = [(sid, x + (move_spot[1] if sid == move_spot[0] else 0.0), y, z, v) for sid, x, y, z, v in spots]
+    nn3 = {sid + id_offset: val for sid, val in (nn3 or {}).items()}
+    imax_override = {sid + id_offset: val for sid, val in imax_override.items()}
+    spots = [(sid + id_offset, x, y, z, v) for sid, x, y, z, v in spots]
+    if extra_spot is not None:
+        spots.append(extra_spot)
+    surf = []
+    for k, sid in enumerate(SURFACE_IDS):
+        mval = BOXES[sid][1] if sid in BOXES else 0
+        surf.append((sid, smi["CenterOfMassX"][k] + (move_surface if k == 0 else 0.0), smi["CenterOfMassY"][k],
+                     smi["CenterOfMassZ"][k], float(smi["Volume"][k]) + volume_add, mval))
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    def sheet(name, header, rows):
+        ws = wb.create_sheet(name)
+        ws.append([name] + [""] * (len(header) - 1))
+        ws.append(header)
+        for r in rows:
+            ws.append(list(r))
+
+    sheet("Overall", ["Variable", "Value", "Unit", "Channel", "Class", "Image", "Name", "Surpass Object", "Time", "ID"],
+          [("Number of Voxels", X * Y * Z, "", "", "", "Image 1", "", "Volume", "", ""),
+           ("Total Number of Spots", len(spots), "", "", "", "", "", "Spots 1", "", ""),
+           ("Total Number of Surfaces", len(surf), "", "", "", "", "", "Surfaces 1", "", "")]
+          + [("Number of labelled Spots per Class", n, "", "", f"Set 1::{c}", "", "", "Spots 1", "", "")
+             for c, n in (class_counts or {}).items()])
+    if nn3:
+        sheet("Average Distance To 3 Neare-57", ["Average Distance To 3 Nearest Neighbours", "Unit", "Category",
+                                                 "Surpass Object", "Time", "ID"],
+              [(nn3[sid], "um", "Spot", "Spots 1", 1, sid) for sid, *_r in spots])
+    pos_h = ["Position X", "Position Y", "Position Z", "Unit", "Category", "Collection", "Name", "Surpass Object",
+             "Time", "ID"]
+    sheet("Position", pos_h, [(x, y, z, "um", "Spot", "Position", "", "Spots 1", 1, sid) for sid, x, y, z, _v in spots]
+          + [(x, y, z, "um", "Surface", "Position", "", "Surfaces 1", 1, sid) for sid, x, y, z, _vol, _m in surf])
+    sheet("Diameter", ["Diameter X", "Diameter Y", "Diameter Z", "Unit", "Category", "Collection", "Surpass Object",
+                       "Time", "ID"],
+          [(2 * radius, 2 * radius, 0.9, "um", "Spot", "Diameter", "Spots 1", 1, sid) for sid, *_r in spots])
+
+    def at(arr, v):
+        x, y, z = v
+        return int(arr[z, y, x]) if 0 <= x < X and 0 <= y < Y and 0 <= z < Z else 0
+
+    ic_h = ["Intensity Center", "Unit", "Category", "Channel", "Image", "Name", "Surpass Object", "Time", "ID"]
+    sheet("Intensity Center Ch=1 Img=1", ic_h, [(at(raw, v), "", "Spot", 1, "Image 1", "", "Spots 1", 1, sid)
+                                                for sid, _x, _y, _z, v in spots])
+    sheet("Intensity Center Ch=2 Img=1", ic_h, [(at(mask, v), "", "Spot", 2, "Image 1", "", "Spots 1", 1, sid)
+                                                for sid, _x, _y, _z, v in spots])
+    mx_h = ["Intensity Max", "Unit", "Category", "Channel", "Image", "Surpass Object", "Time", "ID"]
+    sheet("Intensity Max Ch=2 Img=1", mx_h, [(m, "", "Surface", 2, "Image 1", "Surfaces 1", 1, sid)
+                                             for sid, _x, _y, _z, _vol, m in surf]
+          + [(imax_override.get(sid, at(mask, v)), "", "Spot", 2, "Image 1", "Spots 1", 1, sid)
+             for sid, _x, _y, _z, v in spots])
+    sheet("Volume", ["Volume", "Unit", "Category", "Surpass Object", "Time", "ID"],
+          [(vol, "um^3", "Surface", "Surfaces 1", 1, sid) for sid, _x, _y, _z, vol, _m in surf])
+    wb.save(path)
+
+
+def test_xlsx_spot_source_and_its_verification(tmp_path, monkeypatch):
+    import hashlib
+
+    from germquant.benchmark import spots as bsp
+
+    pytest.importorskip("openpyxl")
+    ims = tmp_path / "h.ims"
+    build_ims(ims, ic_stats=True)
+    # the synthetic nuclei are far below the protocol's 1000-voxel fragment size and two share a coloc value
+    monkeypatch.setattr(bsp, "TRUTH_MASK_MIN_VOXELS", 1)
+    monkeypatch.setattr(I, "TRUTH_ASSIGNMENT_MIN", 0.75)
+
+    def run(name, **kw):
+        x = tmp_path / f"{name}.xlsx"
+        _write_export(x, ims, **kw)
+        sha = hashlib.sha256(x.read_bytes()).hexdigest()
+        n = len(SPOTS) - (1 if kw.get("drop_spot") else 0) + (1 if kw.get("extra_spot") else 0)
+        expect = {"sha256": "0" * 64 if name == "badsha" else sha, "n_spots": n, "n_surfaces": len(SURFACE_IDS)}
+        return I.export_imaris_truth(ims, tmp_path / name, nd2_voxel_xyz_um=OUR_VOX, spots_xlsx=x, xlsx_expect=expect)
+
+    p = run("good", radius=0.2)
+    ver = p["spots_source"]["verification"]
+    assert {k: v["passes"] for k, v in ver.items() if k.startswith("V")} == {
+        "V1_sha256": True, "V2_totals": True, "V3_surfaces": True, "V5_intensity_center": True, "V4_inside_extent": True,
+        "V6_radius": True, "V7_truth_assignment": True}
+    assert ver["passed"] is True and ver["V3_surfaces"]["matched_by"] == "ID"
+    assert ver["V7_truth_assignment"]["agreement"] == pytest.approx(0.8)   # spot 13: coloc 12, its split label 13
+    assert p["frame_check"]["chosen"]["name"] == "stored" and p["spots_source"]["frame_used"]["name"] == "stored"
+    rep = p["spots_source"]["reported_not_a_criterion"]
+    assert rep["n_ims_spots_saved"] == len(SPOTS) and rep["fraction_of_xlsx_spots_within_0.005_um_of_a_saved_ims_spot"] == 1.0
+    spots = pd.read_csv(I.truth_paths(tmp_path / "good", "h")["spots"])
+    assert list(spots.columns) == I.SPOT_COLUMNS + I.SPOT_EXTRA_COLUMNS and len(spots) == len(SPOTS)
+    assert spots["spot_class"].isna().all() and spots["quality"].isna().all() and (spots["radius_um"] == 0.2).all()
+    assert spots["spots_object"].eq("Spots 1 (xlsx)").all()
+    by = spots.set_index("spot_id")
+    for sid, (v, _fr, _c, _q, m, _r) in SPOTS.items():
+        assert (int(by.loc[sid, "xi"]), int(by.loc[sid, "yi"]), int(by.loc[sid, "zi"])) == v
+        assert int(by.loc[sid, "imaris_mask_label"]) == m and by.loc[sid, "x_um"] == pytest.approx(v[0] * OUR_VOX[0])
+    # each criterion fails on its own defect, and then the gonad is nucleus truth only
+    assert run("badsha")["spots_source"]["verification"]["V1_sha256"]["passes"] is False
+    moved = run("moved", move_surface=0.02)["spots_source"]["verification"]
+    assert moved["V3_surfaces"]["passes"] is False and moved["passed"] is False
+    assert run("radius", radius=0.35)["spots_source"]["verification"]["V6_radius"]["passes"] is False
+    out = run("outside", extra_spot=(99, EXT_MIN[0] - 0.5, EXT_MIN[1] + 0.05, EXT_MIN[2] + 0.1, (-5, 0, 0)))
+    ver = out["spots_source"]["verification"]
+    assert ver["V4_inside_extent"]["n_outside"] == 1 and ver["passed"] is False
+    assert any("nucleus truth only" in w for w in out["warnings"])
+    # the coloc value is the export's Intensity Max of the mask channel, not its Intensity Center: spot 14 (outside
+    # every nucleus, Intensity Center 0) reaches the fill value 7 of a neighbour
+    p = run("imax", imax_override={14: 7})
+    by = pd.read_csv(I.truth_paths(tmp_path / "imax", "h")["spots"]).set_index("spot_id")
+    assert int(by.loc[14, "imaris_mask_label"]) == 7 and int(by.loc[11, "imaris_mask_label"]) == 7
+    assert p["spots_source"]["verification"]["V5_intensity_center"]["passes"] is True
+
+
+def test_each_xlsx_criterion_fails_on_its_own(tmp_path, monkeypatch):
+    """V2, the volume part of V3, V5 and V7 (V3 volume and V7 decided 20260105_n2_hs_1_MALE_1) each fail alone on
+    a defect of their own."""
+    import hashlib
+
+    from germquant.benchmark import spots as bsp
+    from germquant.validate import imaris_xlsx as X
+
+    pytest.importorskip("openpyxl")
+    monkeypatch.setattr(bsp, "TRUTH_MASK_MIN_VOXELS", 1)
+    ims = tmp_path / "e.ims"
+    build_ims(ims, ic_stats=True)
+    x = tmp_path / "e.xlsx"
+    _write_export(x, ims)
+    sha = hashlib.sha256(x.read_bytes()).hexdigest()
+    real = X.read_export_objects
+
+    def run(name, mutate=None, expect=None, vmin=0.75):
+        monkeypatch.setattr(I, "TRUTH_ASSIGNMENT_MIN", vmin)
+
+        def fake(*a, **k):
+            xl = real(*a, **k)
+            if mutate:
+                mutate(xl)
+            return xl
+
+        monkeypatch.setattr(X, "read_export_objects", fake)
+        e = {"sha256": sha, "n_spots": len(SPOTS), "n_surfaces": len(SURFACE_IDS), **(expect or {})}
+        v = I.export_imaris_truth(ims, tmp_path / name, nd2_voxel_xyz_um=OUR_VOX, spots_xlsx=x,
+                                  xlsx_expect=e)["spots_source"]["verification"]
+        return {k for k, r in v.items() if k.startswith("V") and not r["passes"]}, v["passed"]
+
+    assert run("ok") == (set(), True)
+    assert run("v2", expect={"n_spots": len(SPOTS) + 1}) == ({"V2_totals"}, False)
+
+    def vol(xl):
+        xl["surfaces"]["volume"] = xl["surfaces"]["volume"] * (1 + 5e-5)
+
+    assert run("v3", mutate=vol) == ({"V3_surfaces"}, False)
+
+    def ic(xl):
+        xl["spots"]["ic_spot"] = xl["spots"]["ic_spot"] + 1
+
+    assert run("v5", mutate=ic) == ({"V5_intensity_center"}, False)
+    assert run("v7", vmin=0.9935) == ({"V7_truth_assignment"}, False)
+
+
+# ------------------------------------------------------------- the recorded earlier export (entry 11)
+REG_STEM = "20251105_n2_hs_MALE _"      # n2rad51_HS_male_000's registered stem: the role guard passes it (train)
+SUBSET = [11, 12, 13, 14]               # the export names four of the five saved spots (15 is a dropped candidate)
+CP_CLASS = ('<mPointsClassificationParameters mCategory="Spot">\n<bpCObjectGroupParameters mName="Set 1" '
+            'mCategory="Spot" mClassificationType="Filter1D" mDisplay="true">\n'
+            '<bpCObjectsClassParameters0 mName="Class A" mColor="0 0 1" mShow="true"/>\n'
+            '<bpCObjectsClassParameters1 mName="Class B" mColor="1 0 1" mShow="true"/>\n<bpCObjectsClassifyFilter1D>\n'
+            '<bpStatisticsValueType mName="Average Distance To 3 Nearest Neighbours" mUnit="um" mFactors="0"/>\n'
+            '<cThresholdValue mClassName="0" mThresholdLow="-3.40282e+38" mThresholdHigh="{t}"/>\n'
+            '<cThresholdValue mClassName="1" mThresholdLow="{t}" mThresholdHigh="3.40282e+38"/>\n'
+            '</bpCObjectsClassifyFilter1D>\n<bpCObjectsClassifyFilter2D>\n'
+            '<bpStatisticsValueType mName="Average Distance To 3 Nearest Neighbours" mUnit="um" mFactors="0"/>\n'
+            '</bpCObjectsClassifyFilter2D>\n</bpCObjectGroupParameters>\n</mPointsClassificationParameters>\n')
+
+
+def test_classification_rule_and_helpers():
+    rule = I.classification_rule(SPOTS_CP.replace("</bpPointsCreationParameters>",
+                                                  CP_CLASS.format(t="4.11504") + "</bpPointsCreationParameters>"))
+    assert rule["statistic"] == "Average Distance To 3 Nearest Neighbours" and rule["threshold"] == 4.11504
+    assert rule["class_names"] == ["Class A", "Class B"] and rule["thresholds"]["1"][0] == 4.11504
+    assert I.classification_rule(SPOTS_CP)["threshold"] is None
+    # below the threshold class A, at or above class B; the rounded 4.115 of the export falls on the other side
+    assert list(I.classify_1d([4.113150, 4.115243, 4.11504, 4.115], 4.11504)) == ["Class A", "Class B", "Class B",
+                                                                                  "Class A"]
+    pos = np.array([[0, 0, 0], [1, 0, 0], [0, 2, 0], [0, 0, 3], [10, 10, 10]], float)
+    nn = I.average_distance_to_neighbours(pos, 3)
+    assert nn[0] == pytest.approx(2.0) and np.isnan(I.average_distance_to_neighbours(pos[:3], 3)).all()
+    m = I.match_one_to_one(pos[:3] + 0.001, pos, 0.005)
+    assert m["one_to_one"] and list(m["index"]) == [0, 1, 2] and m["max_distance_um"] == pytest.approx(0.001 * 3 ** 0.5)
+    assert not I.match_one_to_one(pos[[0, 0]], pos, 0.005)["one_to_one"]                      # one .ims spot twice
+    assert I.match_one_to_one(pos[[0, 0]], pos, 0.005)["n_targets_taken_twice"] == 1
+    assert I.match_one_to_one(pos[:1], np.vstack([pos, pos[:1] + 0.002]), 0.005)["n_ambiguous"] == 1
+    assert not I.match_one_to_one(pos[:1] + 0.01, pos, 0.005)["one_to_one"]
+    # the volume rule of E3: within half the export's last digit, not 1e-5 relative
+    xl = pd.DataFrame({"ID": [1], "x": [0.0], "y": [0.0], "z": [0.0], "volume": [25.123], "imax_mask": [3.0]})
+    info = pd.DataFrame({"surface_id": [1], "px": [0.0], "py": [0.0], "pz": [0.0], "cx": [0.0], "cy": [0.0],
+                         "cz": [0.0], "volume": [25.12349]})
+    assert I.compare_xlsx_surfaces(xl, info, [3.0])["passes"] is False                     # 1.96e-5 relative
+    assert I.compare_xlsx_surfaces(xl, info, [3.0], volume_atol=0.0005)["passes"] is True
+    assert I.compare_xlsx_surfaces(xl.assign(volume=25.122), info, [3.0], volume_atol=0.0005)["passes"] is False
+
+
+def _subset_case(tmp_path, monkeypatch):
+    """The synthetic project under n2rad51_HS_male_000's registered stem, with a classification whose threshold
+    splits the four exported spots two and two by their 3-neighbour distance; returns (ims, threshold, classes)."""
+    from germquant.benchmark import spots as bsp
+
+    monkeypatch.setattr(bsp, "TRUTH_MASK_MIN_VOXELS", 1)
+    ims = tmp_path / f"{REG_STEM}.ims"
+    build_ims(ims, ic_stats=True)
+    with h5py.File(ims, "r") as f:
+        sp = f["Scene8/Content/Points0/Spot"][:]
+    pos = {int(r["ID"]): (float(r["PositionX"]), float(r["PositionY"]), float(r["PositionZ"])) for r in sp}
+    nn = I.average_distance_to_neighbours(np.array([pos[s] for s in SUBSET]), 3)
+    srt = np.sort(nn)
+    thr = float(f"{(srt[1] + srt[2]) / 2:.6g}")
+    classes = {s: ("Class A" if v < thr else "Class B") for s, v in zip(SUBSET, nn)}
+    cp = SPOTS_CP.replace("</bpPointsCreationParameters>", CP_CLASS.format(t=f"{thr:.6g}") +
+                          "</bpPointsCreationParameters>")
+    with h5py.File(ims, "r+") as f:
+        g = f["Scene8/Content/Points0"]
+        del g["CreationParameters"]
+        g.create_dataset("CreationParameters", data=np.array([cp.encode()], dtype=f"S{len(cp)}"))
+    return ims, thr, classes
+
+
+_REAL_READER: dict = {}
+
+
+def _written_nn3(ims, classes) -> dict:
+    """The 3-neighbour distances an export writes for the subset (rounded to 0.001 um), except that the Class B spot
+    nearest the threshold is written 0.0004 um below it: within half a written digit, so only the Overall counts
+    resolve it (entry 12), and its written value alone would class it A."""
+    with h5py.File(ims, "r") as f:
+        sp = f["Scene8/Content/Points0/Spot"][:]
+        thr = I.classification_rule(I.read_creation_parameters(f["Scene8/Content/Points0"]))["threshold"]
+    pos = {int(r["ID"]): (float(r["PositionX"]), float(r["PositionY"]), float(r["PositionZ"])) for r in sp}
+    nn = dict(zip(SUBSET, I.average_distance_to_neighbours(np.array([pos[s] for s in SUBSET]), 3)))
+    out = {s: round(float(v), 3) for s, v in nn.items()}
+    b = min((s for s in SUBSET if classes[s] == "Class B"), key=lambda s: nn[s])
+    out[b] = thr - 0.0004
+    return out
+
+
+def _run_subset(tmp_path, monkeypatch, ims, classes, name, *, expect=None, sha=None, vmin=0.5, mutate=None,
+                ims_sha=None, **kw):
+    """Write the export (renumbered IDs, positions rounded to 0.001 um, the 3-neighbour sheet of ``_written_nn3``
+    unless ``nn3`` is given), pin it under the real name and run the export from it with a source that records the
+    synthetic .ims (size and sha256, or ``ims_sha``)."""
+    import hashlib
+
+    from germquant.validate import benchmark_split as bs
+    from germquant.validate import imaris_xlsx as X
+
+    d = tmp_path / name
+    d.mkdir()
+    x = d / "20251105_n2_hs_MALE_3.xlsx"
+    counts = pd.Series(list(classes.values())).value_counts().to_dict()
+    kw.setdefault("class_counts", counts)
+    kw.setdefault("nn3", _written_nn3(ims, classes))
+    _write_export(x, ims, drop_spot=15, id_offset=1000, round_um=3, **kw)
+    data = x.read_bytes()
+    monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {"n2rad51_HS_male_000": {
+        "name": x.name, "size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}})
+    monkeypatch.setattr(I, "TRUTH_ASSIGNMENT_MIN", vmin)
+    real = _REAL_READER.setdefault("read_export_objects", X.read_export_objects)   # never an earlier run's fake
+
+    def fake(*a, **k):
+        xl = real(*a, **k)
+        if mutate:
+            mutate(xl)
+        return xl
+
+    monkeypatch.setattr(X, "read_export_objects", fake)
+    source = {"tag": "n2rad51_HS_male_000", "export": {"name": x.name, "path": str(x), "size_bytes": len(data),
+                                                       "sha256": sha or hashlib.sha256(data).hexdigest()},
+              "ims": {"path": str(ims), "size_bytes": ims.stat().st_size,
+                      "sha256": ims_sha or hashlib.sha256(ims.read_bytes()).hexdigest()},
+              "expect": {"n_spots": len(SUBSET), "n_surfaces": len(SURFACE_IDS), "class_counts": counts,
+                         "spot_diameter_um": [0.4, 0.4, 0.9], **(expect or {})}}
+    return I.export_imaris_truth(ims, d / "out", nd2_voxel_xyz_um=OUR_VOX, spot_source=source)
+
+
+def test_the_recorded_earlier_export_as_spot_truth(tmp_path, monkeypatch):
+    """Entry 11: the truth spots are the .ims spots the export names (their IDs and positions, matched by position
+    although the export renumbers the IDs and rounds the positions), the classes the project's rule gives on the
+    distances recomputed from the matched .ims positions (not the export's written values, one of which sits within
+    half a digit of the threshold on the other side, and not the .ims's own labels), checked spot by spot against
+    the written values and the Overall counts (entry 12); the mask label the export's; E1 (the export's and the
+    .ims's sha256) to E10 pass; the nucleus truth is that of the same project exported plainly."""
+    pytest.importorskip("openpyxl")
+    ims, thr, classes = _subset_case(tmp_path, monkeypatch)
+    p = _run_subset(tmp_path, monkeypatch, ims, classes, "good")
+    ver = p["spots_source"]["verification"]
+    assert [k.split("_")[0] for k in ver if k.startswith("E")] == [f"E{i}" for i in range(1, 11)]
+    assert {k: v["passes"] for k, v in ver.items() if k.startswith("E")} == {k: True for k in ver if k.startswith("E")}
+    assert ver["passed"] is True and p["spots_source"]["source"] == "earlier_export_subset"
+    assert ver["E1_sha256"]["ims_sha256"] == ver["E1_sha256"]["ims_expected"] is not None
+    assert ver["E7_position_match"]["n_common_ids"] == 0 and ver["E7_position_match"]["max_distance_um"] < 0.001
+    assert ver["E8_classes"]["threshold_um"] == thr and ver["E8_classes"]["n_spots_classed_differently_by_the_rounded_values"] == 1
+    per = ver["E8_classes"]["per_spot_from_written_values"]
+    assert per["n_ambiguous_written"] == 1 and per["unique"] is True and per["n_equal_to_recomputed"] == len(SUBSET)
+    assert p["spots_source"]["frame_used"]["name"] == "stored" and p["frame_check"]["chosen"]["name"] == "stored"
+    assert p["region_growing"] is False and p["region_growing_saved_spots_object"] is False
+    assert p["n_spots"] == len(SUBSET) and p["spots_source"]["reported_not_a_criterion"]["n_ims_spots_saved"] == len(SPOTS)
+    out = tmp_path / "good" / "out"
+    spots = pd.read_csv(I.truth_paths(out, REG_STEM)["spots"])
+    assert list(spots.columns) == I.SPOT_COLUMNS + I.SPOT_EXTRA_COLUMNS
+    assert spots["spot_id"].tolist() == SUBSET                                   # the registered .ims's IDs
+    by = spots.set_index("spot_id")
+    for sid in SUBSET:
+        v, _fr, _c, _q, mval, _r = SPOTS[sid]
+        assert tuple(int(by.loc[sid, c]) for c in ("xi", "yi", "zi")) == v and int(by.loc[sid, "imaris_mask_label"]) == mval
+        assert by.loc[sid, "spot_class"] == classes[sid] and by.loc[sid, "radius_um"] == pytest.approx(0.2)
+    assert spots["spots_object"].eq("Spots 1 (export subset)").all() and spots["quality"].notna().all()
+    idmap = pd.read_csv(out / I.SPOT_SOURCE_ID_MAP)
+    assert idmap["export_spot_id"].tolist() == [s + 1000 for s in SUBSET] and idmap["ims_spot_id"].tolist() == SUBSET
+    plain = I.export_imaris_truth(ims, tmp_path / "plain", nd2_voxel_xyz_um=OUR_VOX, frame_check_on=True)
+    assert plain["n_spots"] == len(SPOTS)
+    pd.testing.assert_frame_equal(pd.read_csv(I.truth_paths(out, REG_STEM)["nuclei"]),
+                                  pd.read_csv(I.truth_paths(tmp_path / "plain", REG_STEM)["nuclei"]))
+
+
+def test_each_export_subset_criterion_fails_on_its_own(tmp_path, monkeypatch):
+    pytest.importorskip("openpyxl")
+    ims, _thr, classes = _subset_case(tmp_path, monkeypatch)
+
+    def failed(name, **kw):
+        ver = _run_subset(tmp_path, monkeypatch, ims, classes, name, **kw)["spots_source"]["verification"]
+        return {k.split("_")[0] for k, v in ver.items() if k.startswith("E") and not v["passes"]}, ver["passed"]
+
+    assert failed("ok") == (set(), True)
+    assert failed("e1", sha="0" * 64) == ({"E1"}, False)
+    assert failed("e1i", ims_sha="1" * 64) == ({"E1"}, False)                 # the .ims is not the recorded one
+    assert failed("e2", expect={"n_surfaces": len(SURFACE_IDS) + 1}) == ({"E2"}, False)
+    assert failed("e3", volume_add=0.002) == ({"E3"}, False)
+
+    def ic(xl):
+        xl["spots"]["ic_spot"] = xl["spots"]["ic_spot"] + 1
+
+    assert failed("e5", mutate=ic) == ({"E5"}, False)
+    assert failed("e6", radius=0.35) == ({"E6"}, False)
+    assert failed("e7", move_spot=(12, 0.02)) == ({"E7"}, False)
+    swapped = {"Class A": 1, "Class B": 3} if sorted(classes.values()).count("Class A") == 2 else {"Class A": 2,
+                                                                                                    "Class B": 2}
+    assert failed("e8", class_counts=swapped, expect={"class_counts": swapped}) == ({"E8"}, False)
+    # the record expects other class counts than the export's Overall holds: E2 alone (E8 reads the Overall)
+    assert failed("e2c", expect={"class_counts": swapped}) == ({"E2"}, False)
+    # entry 12, E8 spot by spot: the totals agree, but the written values of an A spot and a B spot are swapped (a
+    # compensating swap), or the sheet says 99 for every spot: E8 alone
+    nn3 = _written_nn3(ims, classes)
+    a = next(s for s in SUBSET if classes[s] == "Class A")
+    b = max((s for s in SUBSET if classes[s] == "Class B"), key=lambda s: nn3[s])
+    assert failed("e8s", nn3={**nn3, a: nn3[b], b: nn3[a]}) == ({"E8"}, False)
+    assert failed("e8m", nn3={s: 99.0 for s in SUBSET}) == ({"E8"}, False)
+    assert failed("e9", imax_override={12: 7}, vmin=0.25) == ({"E9"}, False)
+    assert failed("e10", vmin=0.9935) == ({"E10"}, False)
+
+
+def test_classes_from_written_values():
+    """E8's per-spot part (entry 12): the class of each written value more than half a digit from the threshold; the
+    rest resolved by the Overall counts only when they give them one class and add up."""
+    thr = 4.11504
+    one = I.classes_from_written_values([4.0, 4.115, 4.2, 4.3], thr, {"Class A": 1, "Class B": 3})
+    assert one["unique"] is True and one["n_ambiguous_written"] == 1
+    assert list(one["classes"]) == ["Class A", "Class B", "Class B", "Class B"]
+    assert list(I.classes_from_written_values([4.0, 4.115, 4.2], thr, {"Class A": 2, "Class B": 1})["classes"]) == \
+        ["Class A", "Class A", "Class B"]
+    # two within half a digit, the counts give one to each: open, so no classes
+    two = I.classes_from_written_values([4.115, 4.1155, 4.3], thr, {"Class A": 1, "Class B": 2})
+    assert two["unique"] is False and two["classes"] is None and two["n_ambiguous_written"] == 2
+    # counts that do not fit the written values, a missing value, counts that do not add up
+    assert I.classes_from_written_values([4.0, 4.3], thr, {"Class A": 2, "Class B": 0})["classes"] is None
+    assert I.classes_from_written_values([4.0, np.nan], thr, {"Class A": 1, "Class B": 1})["classes"] is None
+    assert I.classes_from_written_values([4.0, 4.3], thr, {"Class A": 1, "Class B": 2})["classes"] is None
+    # just beyond half a digit plus two float32 steps the written value decides alone
+    far = I.classes_from_written_values([thr - 0.000502, thr + 0.000502], thr, {"Class A": 1, "Class B": 1})
+    assert far["n_ambiguous_written"] == 0 and list(far["classes"]) == ["Class A", "Class B"]
+
+
+def test_export_subset_spots_e4_and_e8_on_their_own():
+    """export_subset_spots without the .ims: E4 fails alone when the matched spots lie outside the image (here a 1 x 1
+    x 1 image); E8 checks the classes spot by spot against the written values (entry 12)."""
+    pos = np.array([[0.05, 0.05, 0.1], [1.05, 0.05, 0.1], [0.05, 2.05, 0.1], [0.05, 0.05, 3.1], [6.05, 6.05, 6.1]])
+    n = len(pos)
+    idx = np.floor(pos / np.array([0.1, 0.1, 0.2])).astype(int)
+    ims_spots = pd.DataFrame({"spot_id": np.arange(n) + 1, "x_um": pos[:, 0], "y_um": pos[:, 1], "z_um": pos[:, 2],
+                              "xi": idx[:, 0], "yi": idx[:, 1], "zi": idx[:, 2], "radius_um": 0.2, "quality": np.nan,
+                              "spot_class": "", "imaris_x_um": pos[:, 0], "imaris_y_um": pos[:, 1],
+                              "imaris_z_um": pos[:, 2], "imaris_mask_label": pd.array([3] * n, dtype="Int64"),
+                              "spots_object": "Spots 1"})
+    nn = I.average_distance_to_neighbours(pos, 3)
+    srt = np.sort(nn)
+    thr = float((srt[2] + srt[3]) / 2)
+    assert np.abs(nn - thr).min() > 0.01
+    cls = I.classify_1d(nn, thr)
+    counts = pd.Series(cls).value_counts().to_dict()
+    xs = pd.DataFrame({"ID": np.arange(n) + 500, "x": pos[:, 0] + 0.0004, "y": pos[:, 1], "z": pos[:, 2],
+                       "nn3": np.round(nn, 3), "imax_mask": 3.0})
+    rule = {"statistic": "Average Distance To 3 Nearest Neighbours", "threshold": thr, "class_names": ["Class A",
+                                                                                                      "Class B"]}
+    xl = {"spots": xs, "class_counts": counts}
+
+    def failing(shape, x):
+        _sub, ver, _m = I.export_subset_spots(x, ims_spots, None, rule, shape)
+        return {k.split("_")[0] for k, v in ver.items() if not v["passes"]}
+
+    assert failing((100, 100, 100), xl) == {"E10"}                   # no label image: E10 only
+    assert failing((1, 1, 1), xl) == {"E4", "E10"}
+    a, b = int(np.argmin(nn)), int(np.argmax(nn))                    # a compensating swap of two written values
+    w = xs["nn3"].to_numpy().copy()
+    w[[a, b]] = w[[b, a]]
+    assert failing((100, 100, 100), {**xl, "spots": xs.assign(nn3=w)}) == {"E8", "E10"}
+    assert failing((100, 100, 100), {**xl, "spots": xs.drop(columns="nn3")}) == {"E8", "E10"}
+
+
+def test_the_recorded_export_is_refused_before_anything_is_opened(tmp_path, monkeypatch):
+    """Another gonad's project, an export file of another size than the pin, an export with the pinned name and size
+    but other bytes, a project of another size than the source records (entry 12), and two spot sources at once
+    are refused before any file is opened or any output folder made."""
+    import hashlib
+
+    from germquant.validate import benchmark_split as bs
+
+    x = tmp_path / "20251105_n2_hs_MALE_3.xlsx"
+    x.write_bytes(b"12345")
+    good = hashlib.sha256(b"12345").hexdigest()
+    monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {"n2rad51_HS_male_000": {"name": x.name, "size_bytes": 5,
+                                                                            "sha256": good}})
+    ims = tmp_path / f"{REG_STEM}.ims"
+    ims.write_bytes(b"not an hdf5 file")                     # never opened: every case below is refused first
+    src = {"tag": "n2rad51_HS_male_000", "export": {"name": x.name, "path": str(x), "size_bytes": 5, "sha256": good},
+           "ims": {"path": str(ims), "size_bytes": ims.stat().st_size + 1, "sha256": "b" * 64}, "expect": {}}
+    out = tmp_path / "never"
+    for stem in ("20251105_n2_hs_MALE _002", "20251105_n2_hs_MALE _001", "synthetic"):
+        with pytest.raises(ValueError, match="registered project only"):
+            I.export_imaris_truth(tmp_path / f"{stem}.ims", out, spot_source=src)
+    with pytest.raises(ValueError, match="give one"):
+        I.export_imaris_truth(ims, out, spot_source=src, spots_xlsx=x)
+    with pytest.raises(ValueError, match="refused before it is opened"):          # the .ims is not the recorded size
+        I.export_imaris_truth(ims, out, spot_source=src)
+    with pytest.raises(ValueError, match="refused before it is opened"):          # no .ims recorded at all
+        I.export_imaris_truth(ims, out, spot_source={k: v for k, v in src.items() if k != "ims"})
+    monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {"n2rad51_HS_male_000": {"name": x.name, "size_bytes": 5,
+                                                                            "sha256": "a" * 64}})
+    with pytest.raises(PermissionError, match="not its sha256"):                  # pinned name and size, other bytes
+        I.export_imaris_truth(ims, out, spot_source=src)
+    monkeypatch.setattr(bs, "SPOT_SOURCE_EXPORTS", {"n2rad51_HS_male_000": {"name": x.name, "size_bytes": 6,
+                                                                            "sha256": "a" * 64}})
+    with pytest.raises(PermissionError, match="sealed"):
+        I.export_imaris_truth(ims, out, spot_source=src)
+    assert not out.exists()
+
+
+def test_addition_image_check_compares_planes(tmp_path):
+    """scripts/check_addition_images.py, entry 9 (d)(2): the .ims planes against the .nd2 planes."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "check_addition_images", Path(__file__).resolve().parents[1] / "scripts" / "check_addition_images.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ims = tmp_path / "p.ims"
+    build_ims(ims)
+    with h5py.File(ims, "r") as f:
+        raw = f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data"][:Z, :Y, :X]
+    r = mod.compare_planes(ims, {0: raw.copy()}, [0, 5, 99])
+    assert [(p["plane"], p["equal"]) for p in r] == [(0, True), (5, True)]          # plane 99 is outside
+    other = raw.copy()
+    other[5, 3, 4] += 1
+    r = mod.compare_planes(ims, {0: other}, [5])
+    assert r == [{"channel": 0, "plane": 5, "equal": False, "n_different": 1}]
+    assert mod.compare_planes(ims, {0: raw[:, :10]}, [0])[0]["equal"] is False

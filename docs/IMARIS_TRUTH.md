@@ -128,7 +128,11 @@ Checked with h5py on the files under `C:/Users/ryane/n2_rad51_local/imaris/`:
 * Region growing: two HS male exports have `mEnableRegionGrowing="true"` on the spots
   (`20251105_n2_hs_MALE _.ims` with 772,485 spots and only one class label, and
   `20251105_n2_hs_MALE _002.ims`, 13,951 spots, saved by Imaris 11.0). Their radii vary per spot.
-  The flag is `region_growing` in the params JSON.
+  The flag is `region_growing` in the params JSON. (Corrected 2026-10-12, protocol changelog entry 11: in
+  `20251105_n2_hs_MALE _.ims` the radii do not vary. Its 772,485 spots are unthresholded, unclassified
+  candidates, every one at radius 0.2 um, saved under creation parameters that say region growing on and
+  Quality 13.358; its curated 7,628 spots are in the project's 2025-12-31 statistics export, see "The
+  recorded earlier export" below.)
 * The mask channel: Imaris filled every surface with its own value in `Masked 405` (the lab's
   coloc-channel trick). The values run 1..N in roughly surface order but are neither the surface IDs
   nor the row indices, and the channel holds a few values no surface claims: nuclei deleted after
@@ -207,6 +211,133 @@ TIFF writer; the mask channel itself is never held as float.
 * The exports with region growing have per-spot radii and, for `20251105_n2_hs_MALE _.ims`, 772,485
   spots (the detector flooded); its spots table is large and its class labels are empty.
 
+## The frame check and the xlsx spot source (protocol changelog entry 9)
+
+    germquant imaris-truth "<project>.ims" --out <folder> --nd2 "<the same image>.nd2" --frame-check
+    germquant imaris-truth "<project>.ims" --out <folder> --nd2 "<image>.nd2" --spots-xlsx "<export>.xlsx" \
+        --xlsx-expect-sha256 <hex> --xlsx-expect-spots <n> --xlsx-expect-surfaces <n>
+
+**Why.** Imaris stores the extents as text with six significant digits. On the 12 registered projects that is
+exact (2600 x 0.108 = 280.8), but a field whose stage position exceeds 10000 um in magnitude loses the second
+decimal: the 2026-01-05 males read ExtMin 16249.9 and ExtMax 16543.7 on x, so the stored-extent voxel is 0.1080147
+um on that axis and 0.108 on the other, and ExtMin itself is known only to +-0.05 um, half a voxel. Spot positions
+are sub-voxel, so the frame decides which voxel a spot is in.
+
+**The test** (`frame_check`, `frame_agreement`). Imaris stores per spot the Intensity Center of every channel: the
+value of the voxel that holds the spot's centre, an integer. For a candidate frame (ExtMin, voxel), a spot agrees
+when the image of its source channel (from the .nd2 given with `--nd2`, else the .ims channel) at
+floor((p - ExtMin) / v) equals its Intensity Center, and when the mask channel there equals its Intensity Center of
+the mask channel. Positions are float32, so a spot within two float32 steps of a voxel boundary also agrees with
+the voxel across it (`agreement`; the plain comparison is `agreement_strict`). A frame passes with at least 99.5
+percent of the spots overall and, for the spot channel, in each third of the field in x and in y. The frames are
+tried in order: `stored` (the reader's rule), `rounded` (the voxel rounded to 4 decimals), then a search that moves
+ExtMin in 0.001 um steps inside the rounding interval of its text, for either voxel (per axis to the highest
+agreement; ties go to the higher strict agreement, then to the smaller shift, so the search does not stop at the
+edge of the agreeing range where a spot sits on a voxel boundary). The first that passes
+converts every Imaris position of the export (spots and surfaces): `ext_min_xyz_um` and `voxel_imaris_xyz_um` in
+the params are then that frame (the stored ones are kept under `*_stored`), and `frame_check` lists every
+candidate with its agreement overall and per third. When nothing passes, the stored frame is kept,
+`frame_check.chosen` is None, and the benchmark manifest marks the spot truth unusable. An export whose Spots do not
+store the Intensity Center cannot be tested (`frame_check.untestable`).
+
+On the eight registered train and val gonads the stored frame agrees for every spot on both channels; the strict
+comparison misses 0 to 330 spots per gonad (0 to 0.27 percent), every one within 0.003 voxel of a boundary
+(docs/BENCHMARK.md, "Entry 9").
+
+**The read guard** (protocol changelog entry 10). With `--frame-check` or `--spots-xlsx`, the .ims, the .nd2 and
+the xlsx are checked before anything is opened (`benchmark_split.guard_truth_read`): a file whose name is the stem
+of a registered gonad (`benchmark_split.REGISTERED_STEMS`) passes the role guard, so a train or val project is read
+and a test gonad's project is refused; any other file must not be sealed (`SEALED_NAME_MARKERS`: a 2025-11-05
+export, the lab's aggregate tables). `--pre-flight` allows a test gonad, for the frame check of each test gonad in
+the pre-flight of docs/FINAL_SCORING.md only (the Intensity Center test, no metric).
+
+**What the benchmark does with it.** The manifest marks an addition's spot truth usable only when the export ran
+the frame check and it chose a frame (an export without `--frame-check` is not usable), and then by the decision of
+a changelog entry or a section 4.4 agreement of at least 99.35 percent (`benchmark_split.addition_spot_truth_usable`;
+docs/BENCHMARK.md, "Entry 9").
+
+**The xlsx spot source** (`--spots-xlsx`; entry 9 (e)). For a project whose saved Spots object is not the curated
+set (20260105_n2_hs_1_MALE_1 holds 1,226,263 saved spots; its 2026-01-13 export the curated 6,512), the spots come
+from the Imaris statistics export (`imaris_xlsx.read_export_objects`: the Position, Diameter, Intensity Center,
+Intensity Max and Volume sheets and the Overall totals). The export is verified first, and every criterion is in
+`spots_source.verification` of the params: V1 the sha256 is the expected one; V2 the Overall totals and the
+Position sheet hold the expected numbers of spots and surfaces; V3 the export's surfaces equal the .ims Surfaces
+one to one (by ID, or by position when the ID sets differ): position within 0.005 um, volume within 1e-5 relative,
+the same Intensity Max of the mask channel; V4 every spot lies inside the .ims extent; V5 the frame test above
+passes on the export's own Intensity Center values; V6 every radius (Diameter X and Y over two) is 0.2 um; V7 the
+section 4.4 agreement (`truth_assignment_agreement`, the rule of `scripts/check_truth_assignment.py`) is at least
+99.35 percent. `passed` is true only when all seven pass. The spots table then holds the export's spots, placed
+with the frame V5 chose; `imaris_mask_label` is the export's Intensity Max of the mask channel (the lab's coloc
+value); Quality and the class are empty (the export holds no per-spot class); `spots_object` is "Spots 1 (xlsx)".
+Reported, not a criterion: the fraction of the export's spots within 0.005 um of a spot of the saved object. The
+nuclei and the label image come from the .ims as always. A failed verification still writes the files, with
+`passed` false and a warning; the manifest then marks the spot truth unusable and the gonad stays nucleus truth
+(a failure of V7 alone, the section 4.4 check, can be decided otherwise only by a changelog entry, as for a gonad
+whose spots come from the .ims; protocol changelog entry 10 (d)).
+
+The params also carry `creation_parameter_summary` (`benchmark_split.creation_parameter_summary`): the Spots and
+Surfaces settings entry 9 (d)(4) compares with sections 4.1 and 4.2 of the protocol.
+
+## The recorded earlier export (protocol changelog entry 11)
+
+    germquant imaris-truth "<project>.ims" --out <folder> --nd2 "<image>.nd2" --spot-source tests/golden/rad51_spot_sources.json
+
+For a registered TRAIN gonad whose saved Spots object is not the thresholded, classified set but whose thresholded,
+classified spots survive in an Imaris statistics export of the same project (n2rad51_HS_male_000: 772,485
+unthresholded candidates in the .ims, a subset of 7,628 with classes in its 2025-12-31 export
+`20251105_n2_hs_MALE_3.xlsx`; the .ims was saved again on 2026-01-21, after that export), `--spot-source` takes the
+gonad's entry from the record of entry 11 (`benchmark_split.load_spot_sources`, checked against the split record,
+`--split-file`, by default `rad51_split.json` next to the record) and builds the spot truth from the export without
+replacing the .ims as the file of record. "Curated" in the record and in entry 11 is an inference from the
+thresholded subset and from the class counts the project's own classifier reproduces; the Quality threshold of
+the 7,628 is stored in neither file, and the settings the export was made with are not recorded (protocol
+changelog entry 12):
+
+* the guard: the project must be the gonad's registered one (by its stem) and have the size the source records
+  (before it is opened); the export is admitted only as the file pinned in code
+  (`benchmark_split.SPOT_SOURCE_EXPORTS`: name and size without reading a byte, then the role guard, a train
+  gonad, then its sha256, all before anything parses it; entry 12); the 2025-12-31 exports of the other heat-shock
+  males stay sealed, and `--pre-flight` is refused;
+* the spots: the .ims spots the export names, matched one to one by position within 0.005 um (the export
+  renumbers the IDs and writes positions to 0.001 um), with their .ims IDs, positions and radius, in the .ims's
+  order, converted with the frame the check of entry 9 (d)(3) chooses on the .ims's own spots (the frame check is
+  implied); the class from the project's own one-dimensional classification (`classification_rule`: Class A below
+  the threshold stored in the Spots creation parameters, Class B at or above) applied to the Average Distance To
+  3 Nearest Neighbours recomputed among the matched .ims positions (`average_distance_to_neighbours`). Those
+  positions are float32 and lie within 0.0013 um of the positions the export was made from, so the recomputed
+  distances are not the export's own values unrounded; on n2rad51_HS_male_000 they differ from the written values by
+  -0.00097 to +0.00059 um. They are therefore checked spot by spot against the export (E8 below); `imaris_mask_label`
+  the export's per-spot Intensity Max of the mask channel; `spots_object` "Spots 1 (export subset)";
+* the checks, in `spots_source.verification`: E1 the export's sha256 is the pinned one and the .ims's the one the
+  source records (entry 12; hashed before the .ims is opened); E2 the Overall totals and class counts and the
+  Position sheet hold the recorded numbers, and the image's voxel count is the .ims's; E3 the export's surfaces
+  equal the .ims Surfaces one to one (position within 0.005 um, volume within 0.0005 um^3, half the export's last
+  digit, plus two float32 steps; the mask Intensity Max equal); E4 every truth spot inside the image; E5 the
+  Intensity Center test on the export's own values chooses the frame of the .ims spots; E6 every spot at the
+  recorded diameter within 1e-6 um (0.4 x 0.4 x 0.9 um: no region-grown sizes. Protocol section 4.1 has no rule
+  that reads the export settings from the diameter, and the settings are not recorded: the registered .ims's own
+  flag says region growing on while its saved spots are also constant); E7 the position match is one to one, every
+  export spot within 0.005 um of exactly one .ims spot; E8 the classification reproduces the export's Overall class
+  counts and, spot by spot, the classes the export alone forces (`classes_from_written_values`, entry 12: a spot
+  whose written distance lies more than 0.0005 um plus two float32 steps from the threshold takes the class of
+  that value, and the Overall counts must give the remaining spots one class; on n2rad51_HS_male_000 one spot is
+  left, export ID 386332, written 4.115 against 4.11504, and the counts make it Class B, which the recomputed
+  distance 4.115152 also gives); E9 the export's mask Intensity Max equals the .ims's for every matched spot (the
+  independent check of the mask label: the truth's `imaris_mask_label` is the export's, so the per-surface coloc
+  join of `scripts/check_truth_assignment.py --spot-sources` compares the export with itself); E10 the section 4.4
+  agreement at least 99.35 percent. `passed` is true only when all ten pass. The params of entry 11 (written at
+  e187f8b) carry the earlier E1 and E8 (no .ims digest, totals only) and the earlier wording of E6's rule;
+* the files: the four truth files as always (the nuclei and the label image from the .ims, which must equal the
+  registered export of the project: `scripts/check_truth_assignment.py --spot-sources` compares them) and
+  `spot_source_id_map.csv` (export ID, .ims ID, match distance, the recomputed and the exported 3-neighbour
+  distance, the class). `region_growing` in the params is that of the spots used (false when E6 passes); the flag
+  of the saved Spots object is kept as `region_growing_saved_spots_object`.
+
+The manifest (`scripts/benchmark_manifest.py --spot-sources --spot-sources-truth-root`) reads this export for the
+gonad and marks its spot truth usable by `benchmark_split.spot_source_truth_usable`: E1 to E9 and the frame check,
+which no decision overrides, then a changelog decision, else the section 4.4 agreement of the `--truth-check` table
+of at least 99.35 percent.
+
 ## Tests
 
 `tests/test_imaris_truth.py` writes a tiny synthetic HDF5 in the .ims layout (padded arrays, Spot
@@ -216,3 +347,33 @@ the mask recovery (a shared value on two nuclei split into two labels, an orphan
 surface without a mask), the four written files and the params JSON, the `--no-masks` path, the
 binary-mask fallback, an export without surface statistics, the Imaris-voxel fallback, the nd2
 header path, and the CLI wiring.
+
+The frame check and the xlsx spot source (entry 9): the frame rule on synthetic spots (the stored frame; a voxel
+that drifts over the field, caught in the far third and fixed by the rounded voxel; an ExtMin that lost 0.03 um,
+found by the search; values that belong to no frame; the float32 boundary allowance), the export with
+`frame_check_on` on a synthetic project that stores the Intensity Center (the same truth as without it), an
+export without the statistic (untestable), and the xlsx spot source on a synthetic export written with openpyxl:
+all seven criteria pass, and a wrong sha256, a moved surface, a wrong radius and a spot outside the extent each
+fail their criterion. Added with protocol changelog entry 10: V2 (one spot more expected), the volume part of V3
+(volumes 5e-5 off), V5 (Intensity Centers off by one) and V7 (the 99.35 percent minimum) each fail alone; the pass
+rule's thirds and mask channel; the voxel rounded to four decimals (0.10801 on a 0.108 um grid of 2720 voxels); an
+export whose stored x extent lost 0.03 um, converted with the frame the search chose (every spot in its true
+voxel, the nuclei in the chosen frame), with and without the float32 allowance (the search's tie-break); the coloc
+value taken from the export's Intensity Max of the mask channel, not its Intensity Center; and the refusals of the
+read guard (a test gonad's project or .nd2, a sealed xlsx or .nd2) before any file is opened, with `allow_test`
+letting a test-named project through.
+
+The recorded earlier export (entry 11): the classification parsed from a creation-parameter text and the class
+boundary (4.115 rounded falls below 4.11504, 4.115243 above), the 3-neighbour distance, the one-to-one position
+match (a spot taken twice, an ambiguous second neighbour, a spot beyond the tolerance), the volume rule of E3; on
+the synthetic project under n2rad51_HS_male_000's registered stem with an export that renumbers the IDs, rounds the
+positions and writes one distance within half a digit of the threshold on the wrong side: every criterion passes,
+the truth spots carry the .ims IDs and the recomputed classes, and the nuclei equal the plain export's; E1, E2, E3,
+E5, E6, E7, E8, E9 and E10 each fail alone on a defect of their own. Added with protocol changelog entry 12: E1 on
+an .ims digest that is not the recorded one; E2 alone when the record expects other class counts than the
+export's Overall; E8 alone on a compensating swap of two written distances and on a sheet that says 99 for every
+spot; E4 alone in `export_subset_spots` on a 1 x 1 x 1 image; `classes_from_written_values` (one spot within half
+a digit resolved by the counts, two left open, counts that do not fit, a missing value, values just beyond the
+tolerance). Refused before anything is opened: another gonad's project, an export of another size than the pin, an
+export with the pinned name and size but other bytes (hashed, never parsed), a project of another size than the
+source records, and two spot sources at once.

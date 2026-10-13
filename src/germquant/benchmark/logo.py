@@ -6,7 +6,10 @@ tunes or trains on the other five and scores the held-out gonad with the section
 inside a fold uses only its five gonads: the designated val gonads when they are among them, otherwise one
 gonad of the same condition chosen by tag order (the first in sorted tag order among the fold's train
 gonads of that condition) in place of the held-out val gonad; the remaining gonads are the fold's train
-gonads. ``logo_folds`` builds them.
+gonads. ``logo_folds`` builds them. The additions of protocol changelog entry 9 (train gonads of another
+session, ``benchmark_split.ADDITION_ROLES``) are held out and trained on like any train gonad, but never
+stand in for a held-out val gonad: the substitute is the first REGISTERED train gonad of the condition, so
+an addition, whatever its tag, cannot change a fold's selection gonads.
 
 The tuned classical detectors. The D3 searches (docs/BENCHMARK.md, "Tuning on train and val") were staged
 and data dependent: a fixed grid (stage A for ``log``, S1 for SpotMAX), a neighbourhood of the grid's best
@@ -92,12 +95,16 @@ SPOTMAX_ABBR = {"threshold_triangle": "tri", "threshold_otsu": "otsu", "threshol
 def logo_folds(entries, *, cache_root=None, require_cache: bool = True) -> list[dict]:
     """The leave-one-gonad-out folds of protocol section 6.2 for the spot detectors (module docstring).
     ``entries`` is the manifest (a list of ``Entry``); roles come from the pre-registration
-    (``detector.entry_role``). Only train and val gonads with usable spot truth (and, with
-    ``require_cache``, a bench cache) take part; a test gonad never does. Returns one fold per gonad in
+    (``detector.entry_role``). Only train and val gonads with usable spot truth (the manifest's
+    ``spot_truth_usable``: region growing off, the decisions of protocol changelog entries 10 and 11, and a
+    registered train gonad's recorded earlier export of entry 11, as for n2rad51_HS_male_000) and, with
+    ``require_cache``, a bench cache take part; a test gonad never does. Returns one fold per gonad in
     sorted tag order: ``held_out``, its ``role`` and ``condition``, the fold's ``train`` and ``val``
-    gonads, and ``substitute`` (the train gonad that stands in for a held-out val gonad, or None)."""
+    gonads, and ``substitute`` (the registered train gonad that stands in for a held-out val gonad, or None;
+    an addition of entry 9 never does)."""
     root = Path(cache_root or bd.DEFAULT_CACHE_ROOT)
     roles = {e.tag: bd.entry_role(e) for e in entries}
+    additions = {e.tag for e in entries if bd.is_addition(e.tag, e)}
     usable = []
     for e in entries:
         if roles[e.tag] not in ("train", "val") or not bd.spot_truth_usable(e):
@@ -115,7 +122,7 @@ def logo_folds(entries, *, cache_root=None, require_cache: bool = True) -> list[
         val = [t for t in designated if t != h]
         substitute = None
         if roles[h] == "val":
-            cands = sorted(t for t in rest if roles[t] == "train" and cond[t] == cond[h])
+            cands = sorted(t for t in rest if roles[t] == "train" and cond[t] == cond[h] and t not in additions)
             if cands:
                 substitute = cands[0]
                 val.append(substitute)

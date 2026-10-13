@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 log = logging.getLogger(__name__)
@@ -79,3 +80,126 @@ def summarize(path: str | Path) -> dict:
         "rad51_per_nucleus_max": int(r.max()) if len(r) else 0,
         "frac_nuclei_with_rad51": float((r > 0).mean()) if len(r) else float("nan"),
     }
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Per-object statistic sheets (protocol changelog entry 9). The full Imaris export has 66 sheets: a title row,
+# a header row, then one row per object (Category Spot, Surface or MeasurementPoint, 'Surpass Object' the
+# object name, ID the Imaris object ID). Read with openpyxl in read-only mode, one sheet at a time.
+# ---------------------------------------------------------------------------------------------------------
+
+_XYZ = {"Position X": "x", "Position Y": "y", "Position Z": "z"}
+
+
+def _workbook(path):
+    """Open an export read only, after the guard: a sealed file is refused unless it is the pinned earlier export
+    of a registered train gonad (protocol changelog entry 11; ``benchmark_split.guard_export_read``)."""
+    import openpyxl
+
+    from .benchmark_split import guard_export_read
+
+    guard_export_read(path)
+    return openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+
+
+def read_sheet(path_or_wb, name: str) -> pd.DataFrame:
+    """One sheet of an Imaris statistics export as a table (the second row is the header). KeyError when
+    the export has no such sheet."""
+    wb = path_or_wb if hasattr(path_or_wb, "sheetnames") else _workbook(path_or_wb)
+    if name not in wb.sheetnames:
+        raise KeyError(f"no sheet {name!r} (the export has {len(wb.sheetnames)} sheets)")
+    rows = wb[name].iter_rows(values_only=True)
+    next(rows, None)                                   # the title row
+    header = [str(h) if h is not None else "" for h in (next(rows, None) or [])]
+    data = [r for r in rows if r is not None and any(v not in (None, "") for v in r)]
+    return pd.DataFrame(data, columns=header) if data else pd.DataFrame(columns=header)
+
+
+def overall_totals(path_or_wb, spots_object: str = "Spots 1", surfaces_object: str = "Surfaces 1") -> dict:
+    """The totals of the Overall sheet: ``n_spots`` (Total Number of Spots of ``spots_object``), ``n_surfaces``
+    (Total Number of Surfaces of ``surfaces_object``) and ``n_voxels_image`` (Number of Voxels of the image);
+    None where the sheet has no such row."""
+    ov = read_sheet(path_or_wb, "Overall")
+
+    def one(variable, obj=None):
+        m = ov["Variable"] == variable
+        if obj is not None and "Surpass Object" in ov.columns:
+            m &= ov["Surpass Object"] == obj
+        v = ov.loc[m, "Value"]
+        return int(v.iloc[0]) if len(v) else None
+
+    return {"n_spots": one("Total Number of Spots", spots_object),
+            "n_surfaces": one("Total Number of Surfaces", surfaces_object),
+            "n_voxels_image": one("Number of Voxels")}
+
+
+def overall_class_counts(path_or_wb, spots_object: str = "Spots 1") -> dict:
+    """Imaris's "Number of labelled Spots per Class" rows of the Overall sheet for ``spots_object``, as
+    ``{class name: count}`` with the label group dropped ("Set 1::Class A" -> "Class A"); {} without them."""
+    ov = read_sheet(path_or_wb, "Overall")
+    if "Class" not in ov.columns:
+        return {}
+    m = ov["Variable"] == "Number of labelled Spots per Class"
+    if "Surpass Object" in ov.columns:
+        m &= ov["Surpass Object"] == spots_object
+    return {str(c).split("::")[-1]: int(v) for c, v in zip(ov.loc[m, "Class"], ov.loc[m, "Value"])}
+
+
+#: the export's sheet of Imaris's classify statistic; Imaris cuts sheet names to 31 characters
+NN3_SHEET_PREFIX = "Average Distance To 3 Neare"
+NN3_COLUMN = "Average Distance To 3 Nearest Neighbours"
+
+
+def _object_rows(df: pd.DataFrame, category: str, obj: str) -> pd.DataFrame:
+    m = df["Category"] == category
+    if "Surpass Object" in df.columns:
+        m &= df["Surpass Object"] == obj
+    return df[m]
+
+
+def _stat(wb, sheet: str, value_col: str, category: str, obj: str) -> pd.Series:
+    df = _object_rows(read_sheet(wb, sheet), category, obj)
+    return pd.Series(pd.to_numeric(df[value_col], errors="coerce").to_numpy(float),
+                     index=df["ID"].astype(np.int64).to_numpy())
+
+
+def read_export_objects(path, *, spot_channel: int, mask_channel: int, spots_object: str = "Spots 1",
+                        surfaces_object: str = "Surfaces 1") -> dict:
+    """The spots and surfaces of an Imaris statistics export with the statistics entry 9 (e) checks.
+    ``spot_channel`` and ``mask_channel`` are 0-based DataSet channel indices (the sheets count from 1).
+
+    ``spots``: ID, x, y, z (Imaris stage um), diameter_x, diameter_y, diameter_z, ic_spot and ic_mask (Intensity
+    Center of the spot and mask channels), imax_mask (Intensity Max of the mask channel: the lab's coloc
+    value) and nn3 (the export's Average Distance To 3 Nearest Neighbours, rounded as the export writes it; NaN
+    without that sheet). ``surfaces``: ID, x, y, z (the Position sheet), volume and imax_mask. ``overall``: the
+    totals of ``overall_totals``. ``class_counts``: ``overall_class_counts``. ``sheets``: the sheet names."""
+    wb = _workbook(path)
+    try:
+        pos = read_sheet(wb, "Position").rename(columns=_XYZ)
+        sp = _object_rows(pos, "Spot", spots_object)
+        su = _object_rows(pos, "Surface", surfaces_object)
+        spots = pd.DataFrame({"ID": sp["ID"].astype(np.int64).to_numpy(),
+                              **{c: pd.to_numeric(sp[c]).to_numpy(float) for c in ("x", "y", "z")}})
+        surfaces = pd.DataFrame({"ID": su["ID"].astype(np.int64).to_numpy(),
+                                 **{c: pd.to_numeric(su[c]).to_numpy(float) for c in ("x", "y", "z")}})
+        dia = _object_rows(read_sheet(wb, "Diameter"), "Spot", spots_object).set_index("ID")
+        for c, k in (("Diameter X", "diameter_x"), ("Diameter Y", "diameter_y"), ("Diameter Z", "diameter_z")):
+            spots[k] = pd.to_numeric(dia[c], errors="coerce").reindex(spots["ID"]).to_numpy(float)
+        sc, mc = int(spot_channel) + 1, int(mask_channel) + 1
+        spots["ic_spot"] = _stat(wb, f"Intensity Center Ch={sc} Img=1", "Intensity Center", "Spot",
+                                 spots_object).reindex(spots["ID"]).to_numpy()
+        spots["ic_mask"] = _stat(wb, f"Intensity Center Ch={mc} Img=1", "Intensity Center", "Spot",
+                                 spots_object).reindex(spots["ID"]).to_numpy()
+        imax = f"Intensity Max Ch={mc} Img=1"
+        spots["imax_mask"] = _stat(wb, imax, "Intensity Max", "Spot", spots_object).reindex(spots["ID"]).to_numpy()
+        surfaces["imax_mask"] = _stat(wb, imax, "Intensity Max", "Surface",
+                                      surfaces_object).reindex(surfaces["ID"]).to_numpy()
+        surfaces["volume"] = _stat(wb, "Volume", "Volume", "Surface", surfaces_object).reindex(surfaces["ID"]).to_numpy()
+        nn3 = next((s for s in wb.sheetnames if s.startswith(NN3_SHEET_PREFIX)), None)
+        spots["nn3"] = (_stat(wb, nn3, NN3_COLUMN, "Spot", spots_object).reindex(spots["ID"]).to_numpy()
+                        if nn3 is not None else np.full(len(spots), np.nan))
+        return {"spots": spots, "surfaces": surfaces,
+                "overall": overall_totals(wb, spots_object, surfaces_object),
+                "class_counts": overall_class_counts(wb, spots_object), "sheets": list(wb.sheetnames)}
+    finally:
+        wb.close()

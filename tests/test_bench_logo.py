@@ -518,6 +518,57 @@ def test_select_grid_rounding_tie_breaks_and_missing():
         logo.replay_grid(idx, configs, ["v1"], [])
 
 
+ADDED = ("n2rad51_20260105a_HS_male_001", "n2rad51_20260105a_HS_male_002", "n2rad51_20260105a_HS_male_003",
+         "n2rad51_20260105b_HS_male_001")
+
+
+def _addition_entries(usable=(True, True, True, True)) -> list[Entry]:
+    return [Entry(tag=t, results_dir=Path("."), split="train",
+                  extra={"role": "train", "condition": "HS", "sex": "male", "spot_truth_usable": u, "addition": True})
+            for t, u in zip(ADDED, usable)]
+
+
+def test_folds_with_the_additions_of_entry_9():
+    """The additions (train, another session) are held out and trained on like train gonads but never stand
+    in for a held-out val gonad, although their tags sort before every registered tag: the six registered
+    folds keep their selection gonads, the designated split keeps its val gonads and gains the additions in
+    train, and the grid's fold selections of the registered folds stay what they were."""
+    reg = {f["held_out"]: f for f in logo.logo_folds(_real_split_entries(), require_cache=False)}
+    assert sorted(list(ADDED) + list(reg))[:4] == sorted(ADDED)      # the additions sort first
+    folds = logo.logo_folds(_real_split_entries() + _addition_entries(), require_cache=False)
+    by = {f["held_out"]: f for f in folds}
+    assert len(folds) == 10 and set(by) == set(reg) | set(ADDED)
+    for t, f in reg.items():
+        assert by[t]["val"] == f["val"] and by[t]["substitute"] == f["substitute"]
+        assert by[t]["train"] == sorted(set(f["train"]) | set(ADDED))
+    assert by["n2rad51_HS_herm_001"]["substitute"] == "n2rad51_HS_herm_000"
+    for f in folds:
+        assert not set(f["val"]) & set(ADDED) and f["substitute"] not in ADDED
+    for t in ADDED:
+        assert by[t]["role"] == "train" and by[t]["val"] == ["n2rad51_HS_herm_001", "n2rad51_noHS_herm_001"]
+    d = logo.designated_split(folds)
+    assert d["val"] == ["n2rad51_HS_herm_001", "n2rad51_noHS_herm_001"]
+    assert d["train"] == sorted(list(ADDED) + ["n2rad51_HS_herm_000", "n2rad51_noHS_herm_000", "n2rad51_noHS_male_000",
+                                               "n2rad51_noHS_male_001"])
+    # an addition whose spot truth is not usable (entry 9 (e) failed) takes no part: nine folds
+    assert len(logo.logo_folds(_real_split_entries() + _addition_entries((True, True, True, False)),
+                               require_cache=False)) == 9
+    # the grid's selections in the registered folds do not move (selection gonads unchanged)
+    grid = logo.prereg_spotmax_grid()[:6]
+    idx = logo.RunIndex()
+    for i, c in enumerate(grid):
+        for t in list(reg) + list(ADDED):
+            _put(idx, c, t, _tm(0.9 if (i + len(t)) % 6 == 0 else 0.5))
+    for t, f in reg.items():
+        assert logo.replay_grid(idx, grid, by[t]["train"], by[t]["val"])["selected"] == \
+            logo.replay_grid(idx, grid, f["train"], f["val"])["selected"]
+    # a manifest that labels an addition val is refused (its role is fixed in code)
+    bad = _addition_entries()
+    bad[0].extra["role"] = "val"
+    with pytest.raises(ValueError, match="pre-registered split says 'train'"):
+        logo.logo_folds(_real_split_entries() + bad, require_cache=False)
+
+
 def _real_split_entries() -> list[Entry]:
     rg = ("n2rad51_HS_male_000", "n2rad51_HS_male_002")
     tags = [f"n2rad51_{c}_{s}_{i:03d}" for c in ("noHS", "HS") for s in ("herm", "male") for i in range(3)]
@@ -667,8 +718,11 @@ def test_bench_logo_grid_configs_and_select_prereg_grid(planted_bench, capsys, m
     d3 = g / "selection_d3.json"
     assert mod.main([*common, "select", "--backend", "spotmax", "--out", str(d3), "--runs", *runs]) == 3
     dd = json.loads(d3.read_text(encoding="utf-8"))
-    assert set(dd) == {"backend", "runs", "objective", "folds", "complete", "missing"}
+    assert set(dd) == {"backend", "runs", "objective", "folds", "designated", "complete", "missing"}
     assert dd["objective"] == bt.OBJECTIVE_TEXT and {f["stage"] for f in dd["folds"]} == {"S1"}
+    # the D3 replay on the designated split too (protocol changelog entry 9: the tuned log's frozen set)
+    assert dd["designated"]["stage"] == "S1" and dd["designated"]["val"] == ["synth_val_c"]
+    assert {m["fold"] for m in dd["missing"]} == {"synth_HS_b", "synth_noHS_a", "synth_val_c", "designated"}
 
 
 def _real_split_manifest(root: Path, *, with_val: bool = True) -> tuple[Path, Path]:

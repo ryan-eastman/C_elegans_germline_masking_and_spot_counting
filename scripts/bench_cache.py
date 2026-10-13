@@ -2,7 +2,7 @@
 
     python scripts/bench_cache.py [--manifest C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/manifest.json]
         [--split-file tests/golden/rad51_split.json] [--cache-root C:/Users/ryane/germquant_golden/bench_cache]
-        [--tags TAG ...] [--z-chunk 8] [--verify-sha256] [--overwrite]
+        [--tags TAG ...] [--z-chunk 8] [--verify-sha256] [--overwrite] [--additions tests/golden/rad51_additions.json]
 
 For every manifest entry whose results folder holds the golden pipeline outputs (nuclei table, label
 image, spots table, image summary, run manifest) it writes <cache-root>/<tag>/ with foci.npy and dna.npy
@@ -14,6 +14,10 @@ germquant.benchmark.detector for every field). Arrays are written through numpy'
 planes at a time. Entries without outputs are skipped and listed; an existing complete cache is kept
 unless --overwrite. The test gonads are cached like the others: the cache holds images and labels,
 no metric, and scoring a test gonad stays behind the guard of bench_detector.py.
+
+--additions (the record of protocol changelog entry 9) supplies the .nd2 path, size and sha256 of the added
+gonads, as the split record does for the registered ones; the manifest must list them (a manifest built with
+scripts/benchmark_manifest.py --additions). Without it an addition's .nd2 comes from the manifest, unverified.
 
 At the end it prints the size on disk per gonad and in total, and writes <cache-root>/cache_index.json.
 Exit code 0 unless a gonad failed with an error (a skip is not an error).
@@ -45,6 +49,8 @@ def parse_args(argv=None):
     ap.add_argument("--verify-sha256", action="store_true",
                     help="hash every .nd2 and refuse one that is not the registered file")
     ap.add_argument("--overwrite", action="store_true", help="rebuild caches that already exist")
+    ap.add_argument("--additions", default=None,
+                    help="the additions record of protocol changelog entry 9 (supplies their .nd2 size and sha256)")
     return ap.parse_args(argv)
 
 
@@ -63,6 +69,11 @@ def main(argv=None) -> int:
         split = json.loads(Path(args.split_file).read_text(encoding="utf-8"))
     else:
         print(f"note: no split record at {args.split_file}; .nd2 paths come from the manifest, no sha256")
+    if args.additions:
+        from germquant.validate.benchmark_split import load_additions
+
+        added = load_additions(args.additions)["gonads"]
+        split = {"gonads": list((split or {}).get("gonads", [])) + added}
     root = Path(args.cache_root)
     root.mkdir(parents=True, exist_ok=True)
     results, failed = [], []

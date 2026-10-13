@@ -155,3 +155,99 @@ def test_recipe_refusals(tiny_bench, capsys):  # noqa: F811
     assert "REFUSED" in capsys.readouterr().out
     assert cli.main([*_base(b, b["root"] / "z"), "--recipe-from", str(b["root"]), "--val-tags", "synth_val_c"]) == 2
     assert "drop --val-tags" in capsys.readouterr().out
+
+
+ADDED = "n2rad51_20260105a_HS_male_001"
+
+
+def _plant_addition(b) -> Path:
+    """One planted gonad under a tag of protocol changelog entry 9, in the manifest as an addition (train, HS
+    male), and an additions record naming it (the record validates: its role is fixed in code)."""
+    from test_bench_detector import _write_gonad
+
+    from germquant.validate import benchmark_split as bs
+
+    g = _write_gonad(b["root"], ADDED, "train", "HS", (3, 5, 2, 4), 15)
+    entry = dict(g["entry"], sex="male", addition=True, session="2026-01-05")
+    doc = json.loads(b["manifest"].read_text(encoding="utf-8"))
+    doc["gonads"].append(entry)
+    b["manifest"].write_text(json.dumps(doc), encoding="utf-8")
+    rec = {"name": "synthetic additions", "changelog_entry": 9,
+           "registered_split": {"roles_sha256": bs.roles_sha256()},
+           "roles": {"train": [ADDED], "val": [], "test": []},
+           "gonads": [{"tag": ADDED, "role": "train", "session": "2026-01-05", "condition": "HS", "sex": "male",
+                       "stem": entry["stem"],
+                       "nd2": {"path": entry["nd2"], "size_bytes": 10, "sha256": "a" * 64},
+                       "ims": {"path": entry["ims"], "size_bytes": 10, "sha256": "b" * 64, "region_growing": False},
+                       "spot_truth": {"source": "ims", "status": "usable"}}]}
+    bs.validate_additions(rec)
+    path = b["root"] / "additions.json"
+    path.write_text(json.dumps(rec), encoding="utf-8")
+    return path
+
+
+def test_recipe_with_the_additions_of_entry_9(tiny_bench, capsys):  # noqa: F811
+    """With --additions an addition is a train gonad after the split's own (the recipe's order, then the
+    additions in record order); the card names both sessions and the heat-shock male. Without the record the
+    addition cannot be named, and a record that calls an addition test or names a registered gonad is refused.
+    bench_logo.py net3d-fold trains a fold on the recipe's gonads plus the addition and refuses the folds without
+    --additions."""
+    import importlib.util
+
+    from germquant import cli
+    from germquant.spots.net3d.train import resolve_gonads
+
+    b = tiny_bench
+    adds = _plant_addition(b)
+    sel_dir = b["root"] / "selected"
+    assert cli.main([*_base(b, sel_dir), "--epochs", "2", *TRAIN_ARGS, "--thresholds", "0.02,0.3"]) == 0
+    capsys.readouterr()
+    gon = resolve_gonads(b["split"], b["manifest"], adds)
+    assert gon["train"] == ["synth_noHS_a", "synth_HS_b", ADDED] and gon["val"] == ["synth_val_c"]
+    assert gon["sessions"][ADDED] == "2026-01-05" and gon["sessions"]["synth_noHS_a"] is None
+    order = ["synth_noHS_a", "synth_HS_b", "synth_val_c", ADDED]
+    tv = b["root"] / "trainval_entry9"
+    rc = cli.main([*_base(b, tv), "--recipe-from", str(sel_dir), "--train-tags", *order, "--additions", str(adds)])
+    assert rc == 0, capsys.readouterr().out
+    card = json.loads((tv / "model_card.json").read_text(encoding="utf-8"))
+    assert card["training_gonad_tags"] == order
+    lim = " ".join(card["limitations"])
+    assert "2 imaging sessions (2025-11-05, 2026-01-05" in lim and f"Heat-shock males among the training gonads: ['{ADDED}']" in lim
+    logd = json.loads((tv / "training_log.json").read_text(encoding="utf-8"))
+    assert logd["settings"]["additions_file"]["path"].endswith("additions.json")
+    # without the record the addition is not a gonad of the split
+    with pytest.raises(ValueError, match="cannot be used"):
+        cli.main([*_base(b, b["root"] / "x"), "--recipe-from", str(sel_dir), "--train-tags", *order])
+    bad = json.loads(adds.read_text(encoding="utf-8"))
+    bad["gonads"][0]["role"] = "test"
+    adds.with_name("bad.json").write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(ValueError, match="never val or test"):
+        resolve_gonads(b["split"], b["manifest"], adds.with_name("bad.json"))
+    bad["gonads"][0].update(role="train", tag="n2rad51_HS_male_001")
+    adds.with_name("bad.json").write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(ValueError, match="registered gonad"):
+        resolve_gonads(b["split"], b["manifest"], adds.with_name("bad.json"))
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("bench_logo", root / "scripts" / "bench_logo.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    common = ["--manifest", str(b["manifest"]), "--cache-root", str(b["root"] / "cache"), "--trials-log",
+              str(b["root"] / "trials.jsonl"), "--n-boot", "20"]
+    fold = ["net3d-fold", "--held-out", "synth_HS_b", "--recipe-from", str(sel_dir), "--models-root",
+            str(b["root"] / "folds"), "--out-root", str(b["root"] / "heldout"), "--split-file", str(b["split"]),
+            "--device", "cpu", "--prep-dir", str(b["root"] / "prep")]
+    assert mod.main([*common, *fold]) == 2
+    assert "pass --additions" in capsys.readouterr().out
+    assert mod.main([*common, *fold, "--additions", str(adds)]) == 0, capsys.readouterr().out
+    fcard = json.loads((b["root"] / "folds" / "fold_synth_HS_b" / "model_card.json").read_text(encoding="utf-8"))
+    assert fcard["training_gonad_tags"] == ["synth_noHS_a", "synth_val_c", ADDED]
+    rec = bd_read(b["root"] / "trials.jsonl")[-1]
+    assert rec["note"]["logo"]["trained_on"] == ["synth_noHS_a", "synth_val_c", ADDED]
+    assert rec["note"]["logo"]["additions_file"] == str(adds)
+
+
+def bd_read(path):
+    from germquant.benchmark import detector as bd
+
+    return bd.read_jsonl(path)

@@ -437,3 +437,30 @@ def test_cache_skips_entries_without_outputs(tmp_path):
     with pytest.raises(FileNotFoundError, match="no complete cache"):
         bd.load_cache("synth_empty", tmp_path / "cache")
     assert bd.cache_size_bytes(tmp_path / "cache") == {"per_tag": {}, "total": 0}
+
+
+def test_cache_from_the_additions_record(tmp_path):
+    """bench_cache.py --additions: an addition of protocol changelog entry 9 is cached against the .nd2 size and
+    sha256 of the additions record (sha256 source named so); a stack of another size is refused."""
+    tag = "n2rad51_20260105a_HS_male_001"
+    g = _write_gonad(tmp_path, tag, "train", "HS", (3, 1, 2, 4), 21)
+    nd2 = Path(g["entry"]["nd2"])
+    data = nd2.read_bytes()
+    rec = {"gonads": [{"tag": tag, "nd2": {"path": str(nd2), "size_bytes": len(data),
+                                            "sha256": hashlib.sha256(data).hexdigest()}}]}
+    foci, dna, _labels, _p = _planted((3, 1, 2, 4), 21)
+    stack = Stack(data=np.stack([dna, np.zeros_like(dna), foci]), spacing=SP, channel_names=list(CHANNELS),
+                  path=nd2, spacing_ok=True)
+    e = Entry(tag=tag, results_dir=Path(g["entry"]["results_dir"]), split="train", nd2=nd2, stem=g["entry"]["stem"],
+              extra={"role": "train", "condition": "HS", "sex": "male", "addition": True})
+    st = bd.cache_gonad(e, tmp_path / "cache2", split_record=rec, reader=lambda p: stack, verify_sha256=True)
+    assert st["status"] == "written"
+    meta = bd.load_cache(tag, tmp_path / "cache2", arrays=()).meta
+    assert meta["role"] == "train" and meta["nd2"]["sha256_source"] == "additions record" and meta["nd2"]["sha256_verified"]
+    rec["gonads"][0]["nd2"]["size_bytes"] += 1
+    with pytest.raises(ValueError, match="registered"):
+        bd.cache_gonad(e, tmp_path / "cache3", split_record=rec, reader=lambda p: stack)
+    # an addition labelled val by a manifest is refused before anything is written
+    bad = Entry(tag=tag, results_dir=e.results_dir, split="val", nd2=nd2, stem=e.stem, extra={"role": "val"})
+    with pytest.raises(ValueError, match="pre-registered split says 'train'"):
+        bd.cache_gonad(bad, tmp_path / "cache4", split_record=rec, reader=lambda p: stack)
