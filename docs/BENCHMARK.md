@@ -2352,22 +2352,26 @@ to 29 min per addition, the log sets 1.3 h, the nine fold models and the train-p
 ### Results of the revision (2026-10-12; protocol changelog entry 15)
 
 Post hoc under rule 3 (protocol changelog entry 15 gives the run, its checks and disclosures, and the sha256 of every
-artefact). These are development estimates on train and val gonads: no test gonad was run, scored or opened, no
-`--final` run was made and `final_runs.jsonl` does not exist. Every number is read from the reports of step 4e
-(`$E/logo/report`, all nine folds; `$E/logo/report_registered6`; `$E/logo/report_hs_males`), from
-`$E/log_selection.json` and from the held-out folders under `$E/logo/heldout/`; nothing was recomputed. Cluster
-bootstrap by gonad, 1000 resamples, seed 20251105; Class A+B truth; end-to-end counts on the deployed nucleus masks. CCC,
-bias and MAE are on the truth masks of section 5.1 (bias and MAE in foci per truth nucleus); F1 inside R is the spot F1
+artefact; entry 16 corrects entry 15, and its corrections are applied here). These are development estimates on train
+and val gonads: no test gonad was run, scored or opened, no `--final` run was made and `final_runs.jsonl` does not
+exist. Every number is read from the reports of step 4e (`$E/logo/report`, all nine folds;
+`$E/logo/report_registered6`; `$E/logo/report_hs_males`), from `$E/log_selection.json`, from the held-out folders
+under `$E/logo/heldout/` (the mean counts: their per_gonad.csv) and, for the estimates and selections before the
+revision, from `prereg_grid/logo/report_f1R` (pooled, paired and per gonad), `logo_e1/selection_log.json` (the fold
+selections of E1) and `log_tuned.json` (the D3 selection); the per-fold moves of net3d are differences between the
+per-gonad rows of `report_f1R` and of `$E/logo/report`. Nothing was recomputed. Cluster bootstrap by gonad, 1000
+resamples, seed 20251105; Class A+B truth; end-to-end counts on the deployed nucleus masks. CCC, bias and MAE are on
+the truth masks of section 5.1 (bias and MAE in foci per truth nucleus); F1 inside R is the spot F1
 of section 5.2 and whole-field F1 the older `spots_all` score. "net3d" and "log tuned" are the procedures of the
 revision: every fold trains or tunes with the heat-shocked males it does not hold out, so on the six registered folds
 they are not the procedures of "Leave-one-gonad-out" and "Results of the pre-registered SpotMAX grid". "SpotMAX grid" is
 the grid selection, SpotMAX re-tuned since decision 2; the D3 SpotMAX replay is not part of the revision.
 
 **What ran.** The launcher of "Entry 13" from the worktree of commit 08f6285 (entry 14), 18:07 to 23:52 MDT on
-2026-10-12, after the queue ahead (the b90ebdf rerun, whose gate passed at 18:42 MDT, and a live-imaging training
-outside the protocol). Of its 74 steps, 72 exited with code 0 and two, the select rounds 0 and 1 of 4b, with code 3
-(sets still to run), which the select loop expects. The frozen checks passed after every step, and trial lines 388 to
-738 (351 records) all carry 08f6285 without `-dirty` and name no test gonad.
+2026-10-12, after the queue ahead (a live-imaging training outside the protocol, which ended at 18:40 MDT, then the
+b90ebdf rerun, whose gate passed at 18:42 MDT). Of its 74 steps, 72 exited with code 0 and two, the select rounds 0
+and 1 of 4b, with code 3 (sets still to run), which the select loop expects. The frozen checks passed after every
+step, and trial lines 388 to 738 (351 records) all carry 08f6285 without `-dirty` and name no test gonad.
 
 * Step 2: the deployed pipeline at 8666f07 on the four additions, 1512 to 1755 s each, Cellpose segmentation, no flood
   (`$G/additions/8666f07/`).
@@ -2376,9 +2380,12 @@ outside the protocol). Of its 74 steps, 72 exited with code 0 and two, the selec
 * 4a: the recipe check at 08f6285, all 134 tensors equal to `net3d_20261010/checkpoints/epoch_004.pt`.
 * 4b: the log reproduction check (logB_d0.5_s2.5_k0.5_g2_m0 on n2rad51_noHS_male_000 equal to its D3 run nucleus by
   nucleus), the 55 D3 sets on the three gonads of `$NEW`, then two fill rounds (17 stage-B and 13 stage-C sets; 30 sets
-  new to the record, 85 in this replay's search). The candidate cap of the log backend (30000) was reached in 49 of these
-  tuning runs, on the three gonads of `$NEW`, n2rad51_HS_herm_001 and n2rad51_noHS_herm_000 (the warning names no set;
-  those counts are floors); no held-out run reached it.
+  new to the record, 85 in this replay's search). The candidate cap of the log backend (30000) was reached in 49 of
+  these tuning runs: 18 on the three gonads of `$NEW` (the six sets at diameter 0.35 um on each), 19 val runs on
+  n2rad51_HS_herm_001 (every set at pre-gate 2; three of the five designated finalists among them) and 12 on
+  n2rad51_noHS_herm_000 (a train gonad, and the substitute val gonad of one fold). Those counts are floors, and those
+  finalists' val scores rest on them; the selection logA_d0.5_s2 and the finalist logB_d0.5_s2_k0.5_g3_m0 reached the
+  cap in no run (protocol changelog entry 16 (b)). No held-out run reached it.
 * 4c: held-out runs of the tuned log in all nine folds, and of the log defaults, SpotMAX deployed and the grid selection
   in the three new folds; the six registered folds of the last three were reused after their reproduction checks passed.
 * 4d: the nine fold models and the train-plus-val model. 4e: the three reports.
@@ -2386,7 +2393,7 @@ outside the protocol). Of its 74 steps, 72 exited with code 0 and two, the selec
 **The tuned log: the replay now selects the log defaults.** The selections (`$E/log_selection.json`), next to those of
 the D3 replay without the additions ("The tuned classical detectors" above):
 
-| held out | fold val gonads | selected now | selected before (E1) |
+| held out | fold val gonads | selected now | selected before (E1; designated row: D3) |
 |---|---|---|---|
 | n2rad51_20260105a_HS_male_001 | HS_herm_001, noHS_herm_001 | logA_d0.5_s2 | (new fold) |
 | n2rad51_20260105a_HS_male_002 | HS_herm_001, noHS_herm_001 | logA_d0.5_s2 | (new fold) |
@@ -2397,14 +2404,15 @@ the D3 replay without the additions ("The tuned classical detectors" above):
 | n2rad51_noHS_herm_001 | HS_herm_001, noHS_herm_000 (substitute) | logB_d0.5_s2_k0.5_g3_m0 | logC_d0.5_s2.25_k0.5_g2_m1 |
 | n2rad51_noHS_male_000 | HS_herm_001, noHS_herm_001 | logB_d0.5_s2_k0.5_g3_m0 | logC_d0.46_s2.25_k0.5_g2_m1 |
 | n2rad51_noHS_male_001 | HS_herm_001, noHS_herm_001 | logA_d0.5_s2 | logB_d0.5_s2.5_k0.5_g2_m0 |
-| designated (the set taken to test) | HS_herm_001, noHS_herm_001 | logA_d0.5_s2 | logB_d0.5_s2.5_k0.5_g2_m0 (`log_tuned.json`) |
+| designated (the set taken to test) | HS_herm_001, noHS_herm_001 | logA_d0.5_s2 | logB_d0.5_s2.5_k0.5_g2_m0 (D3, `log_tuned.json`; E1 has no designated selection) |
 
 logA_d0.5_s2 is diameter 0.5 um and SNR 2.0 with every other key at its default: the log backend's code defaults
 (pre-gate 3.0) and the golden `spots:` section (z merge on), that is, the log defaults in effect. In the seven folds
 that select it, the held-out spot tables of the tuned log and of the log defaults are byte-identical.
 logB_d0.5_s2_k0.5_g3_m0 is the same set with z merge off. On the designated split the stage-A grid is won by SNR 2.0
 (in D3 by 2.5), and all five finalists are at SNR 2.0 (val objective, the D3 germline CCC rounded: 0.926 for the
-selection, 0.922 to 0.925 for the other four). The designated selection differs from `log_tuned.json`, so
+selection, 0.922 to 0.925 for the other four, the three at pre-gate 2 among them on capped val runs; see 4b above). The
+designated selection differs from `log_tuned.json`, so
 `final_params/log_tuned_entry9.json` was written: `{"log": {"diameter_um": 0.5, "min_snr": 2.0}}` (sha256 0fa43134...).
 
 **net3d.** The fold models (`$G/models/net3d_logo_entry9/fold_<held-out tag>/`), each trained by the frozen recipe on the
@@ -2440,7 +2448,7 @@ n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002, in that order; seed
 | SpotMAX deployed | 0.694 [0.431, 0.829] | +0.80 [-2.00, +2.75] | 3.81 [2.78, 5.44] | 0.740 [0.515, 0.874] | 0.482 [0.407, 0.603] (0.457 / 0.510) | 0.332 [0.241, 0.447] | 3280 / 7170 |
 | SpotMAX grid | 0.285 [0.082, 0.689] | -2.81 [-7.10, +0.46] | 4.65 [1.92, 8.34] | 0.419 [0.237, 0.740] | 0.403 [0.288, 0.578] (0.540 / 0.321) | 0.242 [0.162, 0.384] | 2067 / 3827 |
 
-Class A truth changes no row by more than 0.006 in CCC (net3d 0.871, log tuned 0.891, log defaults 0.891, SpotMAX
+Class A truth changes no row by more than 0.005 in CCC (net3d 0.871, log tuned 0.891, log defaults 0.891, SpotMAX
 deployed 0.693, SpotMAX grid 0.287). With the detector-only count the CCC is 0.876, 0.812, 0.812, 0.153 and 0.180.
 
 **The six registered folds** (676 truth nuclei, 4567 germline nuclei, 2054 truth spots in R), with the six-gonad
@@ -2454,15 +2462,15 @@ estimate before the revision ("Results of the pre-registered SpotMAX grid", `pre
 | SpotMAX deployed | 0.601 [0.499, 0.718] | +2.66 [+1.95, +3.28] | 2.79 [2.28, 3.31] | 0.750 [0.688, 0.814] | 0.614 [0.543, 0.661] | 0.415 [0.320, 0.562] | the same, reproduced |
 | SpotMAX grid | 0.684 [0.551, 0.788] | +0.72 [-0.46, +1.70] | 1.78 [1.38, 2.30] | 0.772 [0.690, 0.876] | 0.603 [0.512, 0.655] | 0.366 [0.234, 0.543] | the same, reproduced |
 
-Do the six-fold numbers reproduce? For the three detectors the revision does not change, yes, exactly: all 38 pooled
-rows of the log defaults, SpotMAX deployed and the grid selection in `report_registered6`, and all 3 x 38 paired rows
-among them, equal those of `prereg_grid/logo/report_f1R` character for character (same held-out tables, same gonads,
-same resamples). For net3d and the tuned log, no, and by design: every fold now trains or tunes with the heat-shocked
-males, so these are new estimates of new procedures. net3d's drop is one fold. Held out, n2rad51_HS_herm_000 gets CCC
-0.227 and bias +8.12 (12.18 foci per truth nucleus where the truth has 4.06; before 0.825 and -1.70), while the other
-five registered folds move by -0.026 to +0.024. The tuned log gains on both heat-shocked hermaphrodites (0.979 and 0.911
-against 0.951 and 0.550) and loses on the four gonads without heat shock (0.482 to 0.826 against 0.772 to 0.964), where
-it overcounts by +1.24 to +2.99.
+Do the six-fold numbers reproduce? For the three detectors the revision does not change, yes, exactly: all 3 x 38
+pooled rows (38 for each of the log defaults, SpotMAX deployed and the grid selection) in `report_registered6`, and the
+3 x 38 paired rows among them, equal those of `prereg_grid/logo/report_f1R` character for character (same held-out
+tables, same gonads, same resamples). For net3d and the tuned log, no, and by design: every fold now trains or tunes
+with the heat-shocked males, so these are new estimates of new procedures. net3d's drop is one fold. Held out,
+n2rad51_HS_herm_000 gets CCC 0.227 and bias +8.12 (12.18 foci per truth nucleus where the truth has 4.06; before 0.825
+and -1.70), while the other five registered folds move by -0.026 to +0.024. The tuned log gains on both heat-shocked
+hermaphrodites (0.979 and 0.911 against 0.951 and 0.550) and loses on the four gonads without heat shock (0.482 to
+0.826 against 0.772 to 0.964), where it overcounts by +1.24 to +2.99.
 
 **The three heat-shocked males** (n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002; 250 truth nuclei, 1429
 germline nuclei, 4376 truth spots in R). Over three gonads the cluster bootstrap has only ten distinct resamples, so
@@ -2527,7 +2535,7 @@ The same pairs on the six registered folds and on the three heat-shocked males, 
 **What this does and does not say.**
 
 * The heat-shocked males are where the detectors separate most. SpotMAX undercounts them: the grid selection, the
-  reference of protocol section 7, by about 12 foci per truth nucleus (3.6 to 9.3 where the truth has 17.0 to 17.9),
+  reference of protocol section 7, by about 12 foci per truth nucleus (3.60 to 9.25 where the truth has 17.00 to 17.92),
   the deployed recipe by 4.2 on average and by 9.4 on n2rad51_20260105a_HS_male_002. The tuned log undercounts by 1.8,
   net3d overcounts by 3.4, and both reach an F1 inside R of 0.77 to 0.85 against 0.24 and 0.38. The heat-shock
   undercount that decision 2 named (protocol changelog entries 7 (g) and 8 (d)), seen so far on two hermaphrodites, is

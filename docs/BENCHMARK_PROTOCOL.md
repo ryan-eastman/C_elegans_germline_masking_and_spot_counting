@@ -2025,3 +2025,95 @@ point.
    (r) Not changed: the split, the roles, the test set, every gonad's truth, the val gonads, net3d's frozen recipe, the
    records, the code under src, scripts and tests, the SpotMAX rows of docs/FINAL_SCORING.md, and decision 1 (nothing is
    scored on test until the project lead confirms one of its options).
+16. 2026-10-13. Corrections to entry 15, written after two independent reviews of it and before any test scoring.
+   Entry 15 is committed (94a28ed), so by the precedent of entries 10 (g), 12 and 14 it is corrected here, not edited;
+   docs/BENCHMARK.md and docs/FINAL_SCORING.md are corrected as (f) lists. No test gonad was run, scored or opened for
+   this entry ((g) lists the reads): no `--final` run was made, `final_runs.jsonl` does not exist, and none of the 738
+   records of `trials.jsonl` names a test gonad. No test result was computed, and nothing was run, tuned, trained or
+   selected; every number below was read from the outputs of the run of entry 15 or of earlier entries.
+   (a) Rule 3, which entry 15 did not apply in full. Entry 15 changes the frozen methods ((p)) but does not say which
+   test numbers had been seen at that point. They are the deployed pipeline's (entries 1, 2 and 5 (f)), those of the
+   pre-protocol sweep of entry 6 (b), and the deployed pipeline's summary line for n2rad51_noHS_male_002 disclosed in
+   entry 13 (g). No result of net3d or of the tuned log, before or after the revision, exists for a test gonad.
+   (b) Entry 15 (d), the candidate cap. Of the 49 tuning runs that reached it, 18 are train runs on the three gonads of
+   $NEW (step 22), 19 are val runs on the designated val gonad n2rad51_HS_herm_001 (step 28: the six stage-B sets at
+   pre-gate 2; step 39: all 13 stage-C sets) and 12 are runs on n2rad51_noHS_herm_000 (step 30: the four stage-B sets
+   at pre-gate 2 with k 0.5 or 0.75; step 41: by their counts, the eight stage-C sets at diameter 0.46 or 0.5 um), a
+   train gonad of the designated split and the substitute val gonad of the fold that holds out n2rad51_noHS_herm_001.
+   The warning names no set; the step logs place the runs by their candidate counts. A set's count does not depend on
+   its SNR or z merge (the cap comes before both), cannot grow with a larger k (the minimum separation in diameters) or
+   pre-gate, and is the same in every run on a gonad: E1's val runs of the same pre-gate-2 sets on n2rad51_HS_herm_001
+   (`logo_e1/val_scoring_log.err.log`) gave the counts of steps 28 and 39 (49611, 43967 and 35646; 63482, 49611 and
+   39058). In step 22, where each gonad runs in a worker of its own, they are the six stage-A sets at diameter 0.35 um
+   on each gonad (logA_d0.35_s1.5 to _s4, one count per gonad), no finalist among them. So three of the five
+   designated finalists were scored on capped runs, on n2rad51_HS_herm_001 (val) and n2rad51_noHS_herm_000 (train):
+   logB_d0.5_s2_k0.5_g2_m1 (val objective 0.924), logB_d0.5_s2_k0.5_g2_m0 (0.923) and logC_d0.46_s2_k0.5_g2_m0
+   (0.922), against 0.926 for the selected logA_d0.5_s2. In the fold that holds out n2rad51_noHS_herm_001, whose two
+   val gonads both carry capped runs of these sets, logB_d0.5_s2_k0.5_g3_m0 (0.891) is selected over logA_d0.5_s2
+   (0.890), and the three pre-gate-2 finalists score 0.888. logA_d0.5_s2 and logB_d0.5_s2_k0.5_g3_m0 reached the cap
+   in no run on any of the nine gonads, the E1 val runs that supply logA_d0.5_s2's val score
+   (`logo_e1/val_scoring/log`) among them: on every gonad the sets with k 0.5 and pre-gate 3 at 0.5 um stayed under it
+   (steps 22 and 25 to 33; logB_d0.5_s2_k0.5_g3_m0's val runs are those of steps 28 and 31). A capped run keeps the
+   30000 candidates with the brightest raw peak before the SNR gate, which is relative to the local annulus, so a
+   dropped candidate might have passed it: those counts are floors, and uncapped runs of the three finalists might
+   score higher or lower. By entry 6 (c) a capped run is scored as it is and its warning reported; nothing is rerun
+   and the selection stands. Unlike the grid (entry 7 (b)), val runs reached the cap here; entry 15 (d) omitted it.
+   (c) Other corrections to entry 15, each checked against the run outputs.
+   (1) (a): the queue ahead ended with the live-imaging training of (j) (END 18:40:42 MDT) and then the b90ebdf rerun of
+   (i) (END 18:42:48); from 18:41:33 the launcher waited for the rerun only, and it went on at 18:43:33.
+   (2) (g): "17.0 to 17.9 truth foci per traced nucleus" is per truth nucleus (`tm_mean_expert` of the held-out
+   per_gonad.csv, over 64, 98 and 88 truth nuclei). Per traced nucleus (our germline nuclei with more than half their
+   volume in one truth mask; 61, 94 and 84 of them) the truth has 17.1 to 19.1. The grid selection counts 3.60 to 9.25
+   foci per truth nucleus there, not 3.6 to 9.3: 9.25 is exact, and the tables print exact halves as Python formats
+   them (net3d's bias on n2rad51_HS_herm_000 is exactly 8.125, printed +8.12 in (h) and in the tables).
+   (3) (h): there are 38 pooled rows per detector, so all 3 x 38 pooled rows of the log defaults, SpotMAX deployed and
+   the grid selection, and the 3 x 38 paired rows among them, equal those of `prereg_grid/logo/report_f1R`.
+   (4) (i) and (n): the unit-test counts leave out the deselected test. The gate's pytest (`-m "not model"`) gave 891
+   passed, 6 skipped and 1 deselected, and the run of (n) 973 passed, 6 skipped and 1 deselected.
+   (5) (m): in a tree digest the lines are sorted by path in code-point order and each line ends in LF, the last
+   included; every tree digest of (m) reproduces only so. The header line of `artefact_sha256_entry15.txt` is read the
+   same way; the file is not changed, since (m) pins its sha256.
+   (6) (n): "the per_gonad.csv of five held-out folders" should read: the per_gonad.csv of one held-out folder per
+   heat-shocked gonad and detector (20 for the five gonads and four detectors of the mean-count table).
+   (d) Labels (rule 3). Everything of entry 15 is post hoc under rule 3 (entries 9 (j) and 15 (o)), and so is every
+   write-up that uses it, the status line of decision 1 that entry 15 added to docs/FINAL_SCORING.md and the fragility
+   directions it added to 4.7 among them. The tuned log of the revised frozen methods is post hoc under entries 9, 11,
+   12 and 15, like net3d: its replay tuned on n2rad51_HS_male_000 (spot truth on the post hoc criteria of entry 11;
+   entry 12 (a)) and on n2rad51_20260105a_HS_male_001 (kept under entry 11's post hoc reading). Entry 15 and the revised
+   table cited entries 9 and 15 only for it.
+   (e) Decision 1 (entry 15 (q)). Under option (1) the re-export of n2rad51_HS_male_002 can no longer enter as a
+   further declared development revision before test scoring (entries 10 (g)(8) and 13 (b)): after the first scoring
+   it could only be the revision of section 10, which uses the second and last test scoring of each method family and
+   is post hoc, or it does not enter on this test set at all. The project lead said "okay i will re export" (entry 11).
+   Both options, with this consequence, go back to him; nothing is scored on test until he confirms one. The
+   designated selection of the tuned log, and 7 of its 9 fold selections, are the configuration of the log defaults;
+   the folds that hold out n2rad51_noHS_herm_001 and n2rad51_noHS_male_000 select logB_d0.5_s2_k0.5_g3_m0 (entry 15
+   (d)), so the six-fold 0.777 of entry 15 (h) is the fold procedure's, not that of the log defaults.
+   (f) The documents. docs/BENCHMARK.md, "Results of the revision", corrected in place: its sources (the earlier
+   estimates come from `prereg_grid/logo/report_f1R` and `logo_e1/selection_log.json`), the order of the queue ahead,
+   the cap in 4b ((b)), the header of the selection table (the designated row's earlier selection is that of D3,
+   `log_tuned.json`; E1 has no designated selection), the Class A bound (0.005: the largest change is net3d's, -0.004),
+   the 3 x 38 rows and the range 3.60 to 9.25. docs/FINAL_SCORING.md: new status lines under decisions 1 and 5 (no
+   earlier line edited); the tuned log row of the revised table now cites entries 9, 11, 12 and 15; the comment on the
+   spot source in 4.1 names the tuned log's replayed selection too; the tuned log and net3d clauses of the 4.2 template
+   name the entry-9 parameter files, their sha256, the net3d model with its sha256 and training commit, the config hash
+   and the parameter hash, in brackets so that a ten-fold revision can fill them; and 4.7 labels its entry-9 fragility
+   directions post hoc.
+   (g) Reads for this entry: the three documents; `revision_9folds.log` and the step logs of steps 22 and 25 to 45
+   (headers, run lines and cap warnings), through a filter on the test tags and stems, whose withheld lines were not
+   seen; `logo_e1/val_scoring_log.err.log` and `.out.log`, `logo_e1/val_scoring/log/configs.json` and
+   `logo_e1/selection_log.json`, through the same filter; `E9/log_selection.json`; the per_gonad.csv of the held-out
+   folders of the five heat-shocked gonads under all five detectors (25 files); the pooled CSV of `E9/logo/report` and
+   the pooled and paired CSVs of `E9/logo/report_registered6` and `prereg_grid/logo/report_f1R`; two trial records
+   (lines 709 and 730, through the filter); the pytest line of `t5_gate_main_b90ebdf.md`; the first lines of
+   `artefact_sha256_entry15.txt` through the filter (its 13 filter hits are the stem 20260105_n2_hs_MALE_1 of the
+   2026-01-05 additions, not a sealed name) and its sha256; the tree digests of `M/net3d_trainval_entry9`,
+   `M/net3d_recipe_check_entry9`, `E9/logs`, the golden of n2rad51_20260105a_HS_male_001 and the cache of
+   n2rad51_20260105a_HS_male_002, recomputed with and without the last LF; the counts (only) of cap warnings in the
+   logs of `tuning_d3` and `logo_e1`; the source of the log backend and of the harness's parameter hash and parameter
+   overlay. The unit tests (973 passed, 6 skipped, 1 deselected by `-m "not model"`, on the CPU) and ruff 0.17.0 (all
+   checks passed) ran on this commit's tree. None of these reads opened, read, hashed or parsed a test-gonad file, a
+   20251105_n2_hs_MALE_1* file or an aggregate table, and no test-gonad row of any manifest was printed.
+   (h) Not changed: entry 15's text, the run's outputs and their sha256, the selections, the frozen methods of the
+   revised table of docs/FINAL_SCORING.md section 2, and everything entry 15 (r) lists; decision 1 stays open (nothing
+   is scored on test until the project lead confirms one of its options).

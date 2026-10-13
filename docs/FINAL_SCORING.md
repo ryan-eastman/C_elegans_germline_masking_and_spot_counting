@@ -132,6 +132,19 @@ option of this decision goes back to the project lead with these results: (1) sc
 (2) wait for the re-export of n2rad51_HS_male_002, a further declared development revision with ten folds. Questions (b)
 and (c) above stay open. No test gonad is scored until he confirms one option.
 
+Status (2026-10-13, protocol changelog entry 16, which corrects entry 15 and the status line above): the results and
+the frozen methods of the status line above are post hoc under rule 3 (protocol changelog entries 9 (j) and 15 (o)),
+as is every write-up that uses them. The heat-shocked males' truth has about 17 foci per truth nucleus (17.0 to 17.9),
+not per traced nucleus (there 17.1 to 19.1). The designated selection of the replayed tuned log, and 7 of its 9 fold
+selections, are the configuration of the log defaults; the folds that hold out n2rad51_noHS_herm_001 and
+n2rad51_noHS_male_000 select logB_d0.5_s2_k0.5_g3_m0 (z merge off), and the six-fold 0.777 is that of the fold
+procedure. Three of the five designated finalists of the replay, all three at pre-gate 2, were scored on val runs that
+reached the candidate cap (entry 16 (b)); the selection and the other finalist did not reach it, and the selection
+stands. Under option (1) the re-export of n2rad51_HS_male_002 can no longer enter as a development revision before
+test scoring: after the first scoring it could only be the revision of protocol section 10, which uses the second and
+last test scoring of each method family and is post hoc. The option is still his, with questions (b) and (c) above:
+no test gonad is scored until he confirms one.
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not
@@ -262,6 +275,10 @@ logA_d0.5_s2 (in effect the log defaults), not the set of `log_tuned.json`, so `
 `net3d_trainval_entry9.json` (the model trained on nine gonads) replaces `net3d_trainval.json`; both are post hoc
 (entries 9 and 15). The SpotMAX rows stand.
 
+Status (2026-10-13, protocol changelog entry 16): the tuned log of the revised table is post hoc under entries 9, 11, 12
+and 15, like net3d, since its replay tuned on n2rad51_HS_male_000 and n2rad51_20260105a_HS_male_001; the status line
+above cited entries 9 and 15 only.
+
 ## 2. The frozen methods
 
 | competitor | backend | parameters (`--params` file) | weights | what it is |
@@ -296,7 +313,7 @@ written; for the test scoring its tuned log and net3d rows are replaced by those
 |---|---|---|---|---|
 | SpotMAX deployed | spotmax | `final_params/spotmax_deployed.json`: `{}` (sha256 e3566b3a..., unchanged) | none | the 8666f07 recipe, config hash 84bdda5a5230; not touched by the revision |
 | SpotMAX re-tuned (grid selection `pg_otsu_e4.0_z0.8`; decision 2) | spotmax | `final_params/spotmax_retuned_grid.json` (sha256 919c4ab5..., unchanged) | none | selected on the two val gonads (protocol changelog entry 6 (d)); the additions are train gonads and enter no val selection (entry 9 (c)), so it does not change; by section 7 the SpotMAX reference |
-| tuned log | log | `final_params/log_tuned_entry9.json` (sha256 0fa43134d1e66e5221755e99d5af461d7e80ab55e6cbd747242bebad5c5338eb): `{"log": {"diameter_um": 0.5, "min_snr": 2.0}}` | none | logA_d0.5_s2, the designated selection of the D3 procedure replayed with n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002 in train (entry 9 (g)): diameter 0.5 um and SNR 2.0, every other key at its default (pre-gate 3.0; z merge as in the golden `spots:` section), so in effect the log defaults; post hoc (entries 9 and 15). Replaces `log_tuned.json` (3a65e844...), which stays in `final_params/` and is not scored |
+| tuned log | log | `final_params/log_tuned_entry9.json` (sha256 0fa43134d1e66e5221755e99d5af461d7e80ab55e6cbd747242bebad5c5338eb): `{"log": {"diameter_um": 0.5, "min_snr": 2.0}}` | none | logA_d0.5_s2, the designated selection of the D3 procedure replayed with n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002 in train (entry 9 (g)): diameter 0.5 um and SNR 2.0, every other key at its default (pre-gate 3.0; z merge as in the golden `spots:` section), so in effect the log defaults; post hoc (entries 9, 11, 12 and 15). Replaces `log_tuned.json` (3a65e844...), which stays in `final_params/` and is not scored |
 | net3d (train plus val) | net3d | `final_params/net3d_trainval_entry9.json` (sha256 953b75193cbaee28d60460bdf9f4d81e87c4c8808991563116716eca064ea533) | `models/net3d_trainval_entry9/model.pt`, sha256 ef986d09671907918cb485e7a13363daf25eba0c051b7456d6fcd5032a0eef52 (commit 08f6285) | the frozen recipe of net3d_20261010 (epoch 4 of the 40-epoch schedule, threshold 0.40, seed 0) retrained on the nine train and val gonads with usable spot truth, in this order: n2rad51_HS_herm_000, n2rad51_noHS_herm_000, n2rad51_noHS_male_000, n2rad51_noHS_male_001, n2rad51_HS_herm_001, n2rad51_noHS_herm_001, n2rad51_HS_male_000 (by the recorded export of entry 11), n2rad51_20260105a_HS_male_001 and _002; post hoc (entries 9, 11, 12 and 15). Replaces `net3d_trainval.json` (2f9097e6..., model d091b9ef...), which stays and is not scored |
 
 `final_params/` now holds eight files: the six of 2026-10-10 and 2026-10-11, unchanged, and the two entry-9 files,
@@ -348,7 +365,8 @@ python -c "from germquant.provenance import file_sha256; print(file_sha256(r'C:/
 # the additions of protocol changelog entry 9 are the recorded files (must print [])
 python -c "from germquant.validate import benchmark_split as bs; print(bs.check_addition_files(bs.load_additions('tests/golden/rad51_additions.json'), hashes=True))"
 # the recorded spot source of protocol changelog entry 11 (n2rad51_HS_male_000's 2025-12-31 export, on which the
-# train-plus-val net3d depends) is the pinned file, checked against the split (must print [])
+# train-plus-val net3d and the tuned log's replayed selection depend) is the pinned file, checked against the split
+# (must print [])
 python -c "from germquant.validate import benchmark_split as bs; print(bs.check_spot_source_files(bs.load_spot_sources('tests/golden/rad51_spot_sources.json', bs.load_split('tests/golden/rad51_split.json')), hashes=True))"
 # the parameter files are the frozen ones (sha256 as in section 2; Get-FileHash prints them in upper case):
 # spotmax_retuned_grid.json, the grid selection of decision 2, is 919C4AB5... (protocol changelog entry 8);
@@ -384,14 +402,19 @@ Append to section 11 of docs/BENCHMARK_PROTOCOL.md (fill the brackets), then com
 > `spotmax_retuned_grid.json`, sha256 919c4ab5...); the SpotMAX reference of section 7 is SpotMAX re-tuned, chosen
 > on val under the primary metric (truth-mask CCC 0.822 against 0.556 for the deployed recipe, a comparison in
 > sample; decision 2, entry 8); if W1 fails, SpotMAX stays deployed with [the 8666f07 recipe or the grid selection]
-> (section 10); tuned log (backend log,
-> params file sha256 [3a65e844..., or that of log_tuned_entry9.json; post hoc, protocol changelog entry 9, when
-> log_tuned_entry9.json replaces log_tuned.json]); net3d (backend net3d, model.pt sha256
-> [sha256], the frozen recipe of net3d_20261010 retrained on the [nine or ten] train and val gonads with usable
-> spot truth ([seven or eight] registered: the six with spot truth from their .ims, n2rad51_HS_male_000 by the
-> recorded export of entry 11 (`tests/golden/rad51_spot_sources.json`, sha256 [8e145fb1...]; its criteria post hoc,
-> entry 12 (a))[, n2rad51_HS_male_002 by its re-export of entry N]; [two] additions of entry 9, as the decisions
-> file of entries 10 and 11 and any later entry keeps them); post hoc, protocol changelog entries 9, 11 and 12).
+> (section 10); tuned log (backend log, params file `[log_tuned_entry9.json]`, sha256 [0fa43134...]:
+> [logA_d0.5_s2, in effect the log defaults], the designated selection of the D3 procedure replayed with the
+> heat-shocked males in train; config hash 84bdda5a5230 (the golden runs' config, whose `spots:` section its params
+> are laid over), parameter hash [as its run records give it]; post hoc, protocol changelog entries 9, 11, 12 and
+> 15[, and the entry of a later revision]); net3d (backend net3d, params file `[net3d_trainval_entry9.json]`, sha256
+> [953b7519...], naming `[models/net3d_trainval_entry9/model.pt]`, sha256 [ef986d09...], trained at [08f6285];
+> config hash 84bdda5a5230 (as for the tuned log), parameter hash [as its run records give it]; the frozen recipe of
+> net3d_20261010 retrained on the [nine or ten] train and val gonads with usable spot truth ([seven or eight]
+> registered: the six with spot truth from their .ims, n2rad51_HS_male_000 by the recorded export of entry 11
+> (`tests/golden/rad51_spot_sources.json`, sha256 [8e145fb1...]; its criteria post hoc, entry 12 (a))[,
+> n2rad51_HS_male_002 by its re-export of entry N]; [two] additions of entry 9, as the decisions file of entries 10
+> and 11 and any later entry keeps them); post hoc, protocol changelog entries 9, 11, 12 and 15[, and the entry of a
+> later revision]).
 > Decisions 1 to 5 of docs/FINAL_SCORING.md: [one line
 > each]. No test result has been computed at this point.
 
@@ -529,11 +552,12 @@ decision 2, SpotMAX re-tuned (`spotmax_retuned` in the report):
   and spot F1 without Class B, every one per gonad and pooled (section 5.4), with the run records of
   final_runs.jsonl (versions, git sha, params sha256) and the split file sha256.
 
-The fragility directions after the entry-9 revision (protocol changelog entry 15), as the fragility item above asks:
-they are read from `entry9/logo/report/logo_paired.csv` (all nine folds; `report_registered6` and `report_hs_males` are
-reported next to it). Its labels are net3d (the fold models), log_tuned, log_defaults, spotmax_deployed and
-spotmax_grid (the grid selection; it has no D3 SpotMAX replay). Each test pair is read against the pair below, with
-the truth-mask CCC and the F1 inside R of that report (an asterisk marks an interval that excludes zero):
+The fragility directions after the entry-9 revision (protocol changelog entry 15), post hoc under rule 3 (entries 9 (j),
+15 (o) and 16 (d)), as the fragility item above asks: they are read from `entry9/logo/report/logo_paired.csv` (all nine
+folds; `report_registered6` and `report_hs_males` are reported next to it). Its labels are net3d (the fold models),
+log_tuned, log_defaults, spotmax_deployed and spotmax_grid (the grid selection; it has no D3 SpotMAX replay). Each test
+pair is read against the pair below, with the truth-mask CCC and the F1 inside R of that report (an asterisk marks an
+interval that excludes zero):
 
 | test pair | read against (entry-9 report) | truth masks CCC | F1 inside R |
 |---|---|---|---|
