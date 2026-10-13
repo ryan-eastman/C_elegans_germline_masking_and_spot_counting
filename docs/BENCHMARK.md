@@ -2225,12 +2225,54 @@ development revision of entry 13 (b).
   admitted only by `benchmark_split.reexport_spot_truth_usable`: an export of that project (region growing off, its
   13,972 spots and 82 surfaces), the frame check, and section 4.4 at least 0.9935 by `--truth-check`.
 * **Next.** Its truth export with `--frame-check` into a folder of its own, section 4.4 and the other checks of entry
-  9 (d)(5), reported in a later entry; then, only if they pass, its bench cache and step 4 below with ten folds, into
-  folders of their own.
+  9 (d)(5), reported in a later entry; then, only if they pass, step 4 below with ten folds, into folders of their own
+  (the bench cache of n2rad51_HS_male_002 exists since 2026-10-10 and is reused; corrected in place by entry 18
+  (b)(3)).
 * **Consequences of the new file at the registered path.** Every checkout that still holds the registered split record
-  (main at b90ebdf among them) now fails `test_split_paths_exist_with_the_registered_sizes` on the workstation, and so
-  does the tranche-5 gate from main, until main holds this record (PR #13). `germquant_golden/copy_imaris_n2_v2.ps1`
-  and `run_truth_benchmark.ps1` must not be rerun as they stand (entry 17 (i) lists every script that reads the path).
+  (the local main checkout at b90ebdf among them) now fails `test_split_paths_exist_with_the_registered_sizes` on the
+  workstation, and so does the tranche-5 gate from main, until main holds this record. PR #13 was merged into main
+  (255abca) at 12:19:53 MDT, before entry 17 was committed, so main holds the registered record too; entries 17 and 18
+  reach it only by a new pull request from this branch (corrected in place by entry 18 (b)(7)).
+  `germquant_golden/copy_imaris_n2_v2.ps1` and `run_truth_benchmark.ps1` must not be rerun as they stand (entry 17 (i)
+  lists every script that reads the path).
+
+### Entry 18: the re-export passes its checks, and the ten-fold launcher (2026-10-13)
+
+Post hoc under rule 3 (protocol changelog entry 18 gives the details). Written after the checks of the re-export and
+before any step of the ten-fold run; no test gonad was run, scored or opened.
+
+* **The truth export of the re-export** (`germquant imaris-truth --nd2 --frame-check` into
+  `germquant_golden/imaris_truth_reexport/n2rad51_HS_male_002/`): 13,972 spots, 82 surfaces. Every check passed
+  (`entry17/truth_checks.json`): the stored frame (channel 545 1.0, strict 0.9989; mask channel 1.0); the nucleus truth
+  byte for byte and voxel for voxel that of the registered export; the image data of all four channels equal to the
+  superseded .ims, and channels 0 to 2 to the .nd2; section 4.4 0.9962 (13,919 of 13,972; like for like 0.9998), where
+  the superseded export had 0.9935; the creation parameters as registered, with region growing off and Quality 6.847.
+* **The spots.** Every spot of the superseded object is in the re-export at the identical position; the 21 extra spots
+  are Class A, one of them in a traced nucleus. The 82 traced nuclei hold 1,829 spots (15 to 30 each), all Class A.
+* **The ten-fold launcher.** `C:/Users/ryane/germquant_golden/run_revision_10folds.ps1` with
+  `revision_10folds_helpers.py`: step 3 for the new fold (`manifest_entry17.json` again with the re-export's 4.4 table,
+  its check, the existing bench cache of n2rad51_HS_male_002 verified and reused, its golden reproduction), then step 4
+  below in full with ten folds, into `$B/entry17/revision_10folds/` and model and parameter files ending in `_10folds`;
+  log `germquant_golden/revision_10folds.log`. It runs only from the commit of entry 18 (`-Sha`; the detached worktree
+  `germquant_wt_<sha7>`), only if that commit names the launcher's and the helper's sha256 and changes no code against
+  da5e932, and only if its preflight passes (every check of the re-export passed, the pinned truth files, the nine-fold
+  outputs as entry 15 (m) records them). The nine-fold outputs are frozen, and none feeds a selection or a held-out
+  score; the net3d region maps that the nine-fold run built for three gonads are reused by key. After the reviews of
+  entry 18 (its (c)(2)(x)): step 3 also reruns the dry run's semantic checks on the manifest it wrote and pins that
+  manifest's sha256, which every later check requires; a last step repeats the content checks of the preflight.
+* **Decisions declared before the run** (entry 18 (c)(4)): step 4 again in full (the 55 D3 sets on all four gonads of
+  `$NEW`); the search label `10folds_log`; `log_tuned_10folds.json` only if the designated selection is not the set of
+  `log_tuned_entry9.json`; a check that the 55 sets on the three gonads of the nine-fold run equal their nine-fold
+  scores; a fourth report on the nine folds of entry 15; the frozen methods after the run (net3d
+  `net3d_trainval_10folds.json`; the tuned log `log_tuned_10folds.json` if written, otherwise `log_tuned_entry9.json`;
+  SpotMAX unchanged); after the run, "score now" from the project lead scores those frozen methods (decision 1 in
+  docs/FINAL_SCORING.md).
+* **The folds**, in the order they run: n2rad51_20260105a_HS_male_001, n2rad51_20260105a_HS_male_002,
+  n2rad51_HS_herm_000, n2rad51_HS_herm_001 (val), n2rad51_HS_male_000, n2rad51_HS_male_002, n2rad51_noHS_herm_000,
+  n2rad51_noHS_herm_001 (val), n2rad51_noHS_male_000, n2rad51_noHS_male_001. n2rad51_HS_male_002 trains after
+  n2rad51_HS_male_000 and before the additions (entry 11 (f)): eighth of ten in the train-plus-val model.
+* **Dry run** (14:09 MDT, from germquant_wt_hsmales at da5e932 with this entry in its working tree, after the review
+  fixes): every check passed. Estimate: about 3 h (2.5 to 4 h), about 45 min of it on the GPU.
 
 ### The revision plan (commands, order, compute)
 
@@ -2339,6 +2381,11 @@ python scripts/bench_reproduce_golden.py --manifest $B/manifest_entry9.json --ta
    `section_4_4`, and the top-level `reexports`. The ten-fold rerun waits for the checks of entry 17 (j) and runs only
    if they pass.
 
+   Entry 18 (2026-10-13): the checks passed, and `C:/Users/ryane/germquant_golden/run_revision_10folds.ps1` runs the
+   ten-fold rerun (section "Entry 18"): `$M` is `$B/manifest_entry17.json`, written again with the re-export's 4.4
+   table, `$E` is `$B/entry17/revision_10folds`, `$NEW` is n2rad51_HS_male_000, n2rad51_HS_male_002 and the two
+   additions, the search label is `10folds_log`, and the model and parameter files end in `_10folds`.
+
 ```powershell
 $M = "$B/manifest_entry9.json"
 $USE = python -c "import json; [print(e['tag']) for e in json.load(open('$M'))['gonads'] if e.get('addition') and e['spot_truth_usable']]"
@@ -2394,6 +2441,8 @@ launcher logs an estimate per step; the GPU-bound part is about 3 to 4 h (the pi
 about 5 min, the nine fold models and the train-plus-val model 45 to 75 min). As run (entry 15): 5.75 h from start to
 end, of which 36 min waiting for the queue ahead and about 55 min waiting for the GPU lock in step 2; the pipeline 25
 to 29 min per addition, the log sets 1.3 h, the nine fold models and the train-plus-val model 36 min.
+With ten folds (entry 18): about 3 h (2.5 to 4 h) from start to end, about 45 min of it on the GPU; no step 2, and step
+3 for the new fold only (minutes).
 
 ### Results of the revision (2026-10-12; protocol changelog entry 15)
 

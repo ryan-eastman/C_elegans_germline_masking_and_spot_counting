@@ -155,6 +155,27 @@ rule 3. No test scoring has happened, so the re-export can still enter that way 
 this decision: the option is still his, with questions (b) and (c) above, and no test gonad is scored until he confirms
 one.
 
+Status (2026-10-13, protocol changelog entry 18): the truth export of the re-export of n2rad51_HS_male_002 passed every
+check that entry 17 declared (the frame check, the nucleus truth equal to the registered export, section 4.4 at 0.9962
+against the minimum 0.9935, the checks of entry 9 (d)(5)), post hoc under rule 3. The ten-fold revision of entry 13 (b)
+is prepared and declared, with the frozen methods it will give (net3d `net3d_trainval_10folds.json`; the tuned log
+`log_tuned_10folds.json` if its designated selection changes, otherwise `log_tuned_entry9.json`; SpotMAX unchanged); it
+runs only from the commit of entry 18, and its results go into a later entry. The project lead answered questions (c)
+and (b) above as they were put to him at 12:21:01 MDT (entry 18 (b)(12); apostrophes in ASCII): "1 that's fine we have
+so many datasets" to "The 2026-01-05 heat-shock males are now training data, so that session can't later serve as a test
+set. OK?", so 2026-01-05 cannot be the session of a future test set (protocol section 10); and "2 sure, did you want me
+to do that?" to "If someone ever re-saves the Spots of 20260105_n2_hs_1_MALE_1 in Imaris, may it join training?", which
+admits that path only as put (a new save of its Spots in Imaris, then a changelog entry of its own declaring its checks,
+before test scoring); the reply to him was "On 2: no, skip it for now", so none is planned and that gonad stays nucleus
+truth only. On this decision he replied neither "wait" nor "score now": he re-exported n2rad51_HS_male_002 the same
+morning, the course of option (2) of the entry-15 status line, and the messages of 11:57:21 and 12:21:01 MDT told him
+that the one answer asked of him after the ten-fold results is "score now". Entry 18 (c)(4) (D9) declares, before any
+ten-fold result: "score now" after the run scores the ten-fold frozen methods above (SpotMAX as before); the nine-fold
+set of the entry-15 status line is not offered again, since the re-export has entered before any test scoring (entry 16
+(e)); a choice of the nine-fold set made after the ten-fold results would be recorded verbatim and labelled as made
+after them. That is a reading of his course, not his words, and it is put to him with the results. Whether and when to
+score is still his: no test gonad is scored until he says "score now".
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not
