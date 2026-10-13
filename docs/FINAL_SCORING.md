@@ -117,6 +117,21 @@ re-export that arrives later on 2026-10-12 enters as the further declared revisi
 which departs from the letter of entry 12 (c). Nothing else above changes: the option of this decision and questions
 (b) and (c) stay open.
 
+Status (2026-10-13, protocol changelog entry 15): the entry-9 revision ran on nine folds on 2026-10-12, 18:07 to 23:52
+MDT, from commit 08f6285, and every check passed; no test gonad was run, scored or opened. Out of sample on the three
+heat-shocked males (250 truth nuclei, about 17 truth foci per traced nucleus), truth-mask CCC and bias in foci per truth
+nucleus: net3d 0.621 and +3.42, the tuned log 0.635 and -1.84, SpotMAX deployed 0.325 and -4.24, SpotMAX re-tuned (the
+grid selection, the reference of section 7) 0.063 and -12.36. Over all nine folds: net3d 0.876, the tuned log 0.891,
+SpotMAX deployed 0.694 and the grid selection 0.285; net3d and the tuned log are above the grid selection with intervals
+that exclude zero and do not differ from each other. On the six registered folds the unchanged detectors reproduce
+their earlier numbers exactly, while the revised net3d (0.618, from 0.878; one fold, n2rad51_HS_herm_000, overcounted
+about threefold) and the revised tuned log (0.777, from 0.893; the replay now selects the configuration of the log
+defaults) no longer differ from the grid selection in CCC (docs/BENCHMARK.md, "Results of the revision"). The frozen
+methods change as the revised table of section 2 gives: `net3d_trainval_entry9.json` and `log_tuned_entry9.json`. The
+option of this decision goes back to the project lead with these results: (1) score with the revised frozen methods, or
+(2) wait for the re-export of n2rad51_HS_male_002, a further declared development revision with ten folds. Questions (b)
+and (c) above stay open. No test gonad is scored until he confirms one option.
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not
@@ -242,6 +257,11 @@ the record and are not scored.
 Status (2026-10-12, protocol changelog entry 9): the net3d row, and the tuned log row if its replayed selection
 differs, are replaced by entry-9 files before test scoring; both are post hoc. The SpotMAX rows stand.
 
+Status (2026-10-13, protocol changelog entry 15): both rows are replaced. The replayed D3 procedure selects
+logA_d0.5_s2 (in effect the log defaults), not the set of `log_tuned.json`, so `log_tuned_entry9.json` replaces it, and
+`net3d_trainval_entry9.json` (the model trained on nine gonads) replaces `net3d_trainval.json`; both are post hoc
+(entries 9 and 15). The SpotMAX rows stand.
+
 ## 2. The frozen methods
 
 | competitor | backend | parameters (`--params` file) | weights | what it is |
@@ -268,6 +288,20 @@ three keys, the `selected_params` under `designated` in `prereg_grid/selection.j
 (dc085381... for the grid file, the hash of this set in the grid's trial records; 35d0c2a3... for
 `spotmax_retuned_primary.json`). The grid's own file is the one scored, because entry 6 (d) makes the D3 sets
 non-candidates now that the grid is confirmed.
+
+Revised after the entry-9 revision (protocol changelog entry 15, 2026-10-13). The table above is kept as it was
+written; for the test scoring its tuned log and net3d rows are replaced by those below.
+
+| competitor | backend | parameters (`--params` file) | weights | what it is |
+|---|---|---|---|---|
+| SpotMAX deployed | spotmax | `final_params/spotmax_deployed.json`: `{}` (sha256 e3566b3a..., unchanged) | none | the 8666f07 recipe, config hash 84bdda5a5230; not touched by the revision |
+| SpotMAX re-tuned (grid selection `pg_otsu_e4.0_z0.8`; decision 2) | spotmax | `final_params/spotmax_retuned_grid.json` (sha256 919c4ab5..., unchanged) | none | selected on the two val gonads (protocol changelog entry 6 (d)); the additions are train gonads and enter no val selection (entry 9 (c)), so it does not change; by section 7 the SpotMAX reference |
+| tuned log | log | `final_params/log_tuned_entry9.json` (sha256 0fa43134d1e66e5221755e99d5af461d7e80ab55e6cbd747242bebad5c5338eb): `{"log": {"diameter_um": 0.5, "min_snr": 2.0}}` | none | logA_d0.5_s2, the designated selection of the D3 procedure replayed with n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002 in train (entry 9 (g)): diameter 0.5 um and SNR 2.0, every other key at its default (pre-gate 3.0; z merge as in the golden `spots:` section), so in effect the log defaults; post hoc (entries 9 and 15). Replaces `log_tuned.json` (3a65e844...), which stays in `final_params/` and is not scored |
+| net3d (train plus val) | net3d | `final_params/net3d_trainval_entry9.json` (sha256 953b75193cbaee28d60460bdf9f4d81e87c4c8808991563116716eca064ea533) | `models/net3d_trainval_entry9/model.pt`, sha256 ef986d09671907918cb485e7a13363daf25eba0c051b7456d6fcd5032a0eef52 (commit 08f6285) | the frozen recipe of net3d_20261010 (epoch 4 of the 40-epoch schedule, threshold 0.40, seed 0) retrained on the nine train and val gonads with usable spot truth, in this order: n2rad51_HS_herm_000, n2rad51_noHS_herm_000, n2rad51_noHS_male_000, n2rad51_noHS_male_001, n2rad51_HS_herm_001, n2rad51_noHS_herm_001, n2rad51_HS_male_000 (by the recorded export of entry 11), n2rad51_20260105a_HS_male_001 and _002; post hoc (entries 9, 11, 12 and 15). Replaces `net3d_trainval.json` (2f9097e6..., model d091b9ef...), which stays and is not scored |
+
+`final_params/` now holds eight files: the six of 2026-10-10 and 2026-10-11, unchanged, and the two entry-9 files,
+written by the launcher of the revision on 2026-10-12 (`log_tuned_entry9.json` at 22:53 MDT, `net3d_trainval_entry9.json`
+at 23:51 MDT).
 
 ## 3. The order
 
@@ -307,16 +341,18 @@ $env:CUDA_VISIBLE_DEVICES = "-1"
 python scripts/bench_cache.py --tags n2rad51_noHS_male_002 --verify-sha256
 # the golden run of that gonad must be the deployed pipeline (git sha 8666f07..., config hash 84bdda5a5230)
 python -c "import json; m = json.load(open(r'C:/Users/ryane/germquant_golden/8666f07/n2rad51_noHS_male_002/run_manifest.json')); print(m['git_sha'], m['config_hash'])"
-# the net3d weights are the frozen ones (d091b9ef...; after the entry-9 revision the model of
-# net3d_trainval_entry9.json, whose sha256 the pre-scoring entry gives)
-python -c "from germquant.provenance import file_sha256; print(file_sha256(r'C:/Users/ryane/germquant_golden/models/net3d_trainval_20261010/model.pt'))"
+# the net3d weights are the frozen ones: since the entry-9 revision the model of net3d_trainval_entry9.json, which must
+# print ef986d09671907918cb485e7a13363daf25eba0c051b7456d6fcd5032a0eef52 (protocol changelog entry 15; the earlier
+# net3d_trainval_20261010 model, d091b9ef..., is not scored)
+python -c "from germquant.provenance import file_sha256; print(file_sha256(r'C:/Users/ryane/germquant_golden/models/net3d_trainval_entry9/model.pt'))"
 # the additions of protocol changelog entry 9 are the recorded files (must print [])
 python -c "from germquant.validate import benchmark_split as bs; print(bs.check_addition_files(bs.load_additions('tests/golden/rad51_additions.json'), hashes=True))"
 # the recorded spot source of protocol changelog entry 11 (n2rad51_HS_male_000's 2025-12-31 export, on which the
 # train-plus-val net3d depends) is the pinned file, checked against the split (must print [])
 python -c "from germquant.validate import benchmark_split as bs; print(bs.check_spot_source_files(bs.load_spot_sources('tests/golden/rad51_spot_sources.json', bs.load_split('tests/golden/rad51_split.json')), hashes=True))"
 # the parameter files are the frozen ones (sha256 as in section 2; Get-FileHash prints them in upper case):
-# spotmax_retuned_grid.json, the grid selection of decision 2, is 919C4AB5... (protocol changelog entry 8)
+# spotmax_retuned_grid.json, the grid selection of decision 2, is 919C4AB5... (protocol changelog entry 8);
+# log_tuned_entry9.json is 0FA43134... and net3d_trainval_entry9.json 953B7519... (protocol changelog entry 15)
 Get-FileHash -Algorithm SHA256 C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07/final_params/*.json
 # protocol section 4.4 on the test gonads: the geometric truth assignment against the lab's mask channel;
 # agreement should match the train and val gonads (99.35 to 99.99 percent, read as a minimum of 99.35 by
@@ -407,11 +443,14 @@ used.
 ### 4.5 Tuned log
 
 ```powershell
-python scripts/bench_detector.py --backend log --params $F/final_params/log_tuned.json `
+python scripts/bench_detector.py --backend log --params $F/final_params/log_tuned_entry9.json `
     --split test --final --detector-only --jobs 2 `
-    --reason "one-time test scoring (protocol section 10): tuned log (D3 selection)" `
+    --reason "one-time test scoring (protocol section 10): tuned log (the D3 procedure replayed after the entry-9 revision)" `
     --out $F/final/log_tuned
 ```
+
+Since the entry-9 revision the `--params` file is `log_tuned_entry9.json` (sha256 0fa43134..., section 2, revised
+table; protocol changelog entry 15); `log_tuned.json` stays in `final_params/` and is not scored.
 
 ### 4.6 net3d (train plus val)
 
@@ -419,11 +458,16 @@ python scripts/bench_detector.py --backend log --params $F/final_params/log_tune
 Remove-Item Env:CUDA_VISIBLE_DEVICES -ErrorAction SilentlyContinue
 $env:PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"     # a no-op on Windows, kept for the workstation rule
 python C:/Users/ryane/germquant_golden/gpu_lock.py run --name "final test scoring: net3d_trainval" -- `
-    python scripts/bench_detector.py --backend net3d --params $F/final_params/net3d_trainval.json `
+    python scripts/bench_detector.py --backend net3d --params $F/final_params/net3d_trainval_entry9.json `
     --split test --final --detector-only `
-    --reason "one-time test scoring (protocol section 10): net3d retrained on train plus val by the frozen recipe" `
+    --reason "one-time test scoring (protocol section 10): net3d retrained on the nine train and val gonads by the frozen recipe" `
     --out $F/final/net3d_trainval
 ```
+
+Since the entry-9 revision the `--params` file is `net3d_trainval_entry9.json` (sha256 953b7519...), which names
+`models/net3d_trainval_entry9/model.pt` (sha256 ef986d09..., section 2, revised table; protocol changelog entry 15);
+`net3d_trainval.json` and its model stay and are not scored. The output folder and the report label keep the name
+`net3d_trainval`.
 
 ### 4.7 The comparison
 
@@ -484,6 +528,24 @@ decision 2, SpotMAX re-tuned (`spotmax_retuned` in the report):
   `tm_class_b_*`), the detector-only count (truth_masks_detector_only), the germline and traced partitions,
   and spot F1 without Class B, every one per gonad and pooled (section 5.4), with the run records of
   final_runs.jsonl (versions, git sha, params sha256) and the split file sha256.
+
+The fragility directions after the entry-9 revision (protocol changelog entry 15), as the fragility item above asks:
+they are read from `entry9/logo/report/logo_paired.csv` (all nine folds; `report_registered6` and `report_hs_males` are
+reported next to it). Its labels are net3d (the fold models), log_tuned, log_defaults, spotmax_deployed and
+spotmax_grid (the grid selection; it has no D3 SpotMAX replay). Each test pair is read against the pair below, with
+the truth-mask CCC and the F1 inside R of that report (an asterisk marks an interval that excludes zero):
+
+| test pair | read against (entry-9 report) | truth masks CCC | F1 inside R |
+|---|---|---|---|
+| net3d_trainval - spotmax_retuned | net3d - spotmax_grid | +0.591 [+0.083, +0.807] * | +0.419 [+0.218, +0.546] * |
+| log_tuned - spotmax_retuned | log_tuned - spotmax_grid | +0.606 [+0.156, +0.776] * | +0.375 [+0.203, +0.488] * |
+| net3d_trainval - log_tuned | net3d - log_tuned | -0.015 [-0.181, +0.096] | +0.044 [-0.071, +0.111] |
+| spotmax_retuned - spotmax_deployed | spotmax_deployed - spotmax_grid, sign reversed | -0.409 [-0.589, -0.018] * | -0.079 [-0.131, -0.007] * |
+| net3d_trainval - spotmax_deployed | net3d - spotmax_deployed | +0.182 [-0.021, +0.438] | +0.340 [+0.184, +0.442] * |
+| log_tuned - spotmax_deployed | log_tuned - spotmax_deployed | +0.198 [+0.099, +0.391] * | +0.296 [+0.180, +0.370] * |
+
+On the six registered folds the truth-mask CCC of net3d and of the tuned log no longer differs from the grid selection
+(-0.066 [-0.258, +0.277] and +0.093 [-0.117, +0.342]); the write-up reports that next to the all-fold directions.
 
 ### 4.8 The post-scoring changelog entry
 

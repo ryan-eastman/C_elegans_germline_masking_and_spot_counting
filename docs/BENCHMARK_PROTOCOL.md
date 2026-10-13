@@ -1795,3 +1795,233 @@ point.
    records, `manifest_entry9.json` (d3d751b7..., until step 3 writes it again), the code under src, scripts and tests,
    the SpotMAX rows of docs/FINAL_SCORING.md, the gate of entry 13 (b) (nine folds), decision 1 (still open: nothing is
    scored on test until the project lead confirms one of its options) and its questions (b) and (c) (still open).
+15. 2026-10-13. The results of the entry-9 revision on nine folds (steps 2 to 4 of the plan in docs/BENCHMARK.md), the
+   frozen methods after it, and what entries 13 and 14 left for the results entry. Written after the run and before any
+   test scoring. No test gonad was run, scored or opened for this entry ((n) lists the reads): no `--final` run was made,
+   `final_runs.jsonl` does not exist, and none of the 738 records of `trials.jsonl` names a test gonad. No test result was
+   computed. E9 below is `germquant_golden/benchmarks/n2rad51_8666f07/entry9`, B its parent and M
+   `germquant_golden/models`.
+   (a) The run. `C:/Users/ryane/germquant_golden/run_revision_9folds.ps1` (sha256
+   85ae1eb40e0be26b28ebd5aeb147590ab82b56f682baeb0c3c9ac027a505c1bb) with `revision_9folds_helpers.py` (sha256
+   f1e53dd274d2b103f03a33a3339f70c8fa8ea82a831b565473fccdc2e5a105d0), the digests its log records at start (entry 14 (a));
+   copies of both in `E9/revision_9folds/launcher_20261012_180730/`. It ran from the detached worktree
+   `C:/Users/ryane/germquant_wt_08f6285` at commit 08f628564ff5874b987ffcd16fa70f798c11e3db (entry 14, committed at
+   17:56:25 MDT), with PYTHONPATH set to its src, from 18:07:30 to 23:52:40 MDT on 2026-10-12 (5.75 h; log
+   `germquant_golden/revision_9folds.log`). It waited for the queue ahead until 18:43:33 (the b90ebdf rerun of (i), then
+   the live-imaging training of (j)), required the b90ebdf gate line, and ran 74 steps. 72 exited with code 0. Steps 23
+   and 34, the select rounds 0 and 1 of 4b, exited with code 3, the code by which `bench_logo.py select` names sets still
+   to run; the select loop of entry 13 (c)(4) ran those sets, and round 2 (step 45) exited 0. After each of the 74 steps
+   the checks of entries 13 (c)(7) and 14 (d)(6) passed: the 3955 frozen files, the 11 test-named paths tracked by a hash
+   of the path, the seven pinned sha256, `trials.jsonl` append-only, and no new trial record naming a test gonad, being a
+   final run or carrying another sha. `trials.jsonl` had 387 lines at the start and 738 at the end: lines 388 to 738,
+   351 records (334 log, 8 SpotMAX, 9 net3d; 287 with split train, 64 with split val), every one at 08f6285 without
+   `-dirty`. Step 6 waited about 55 minutes for the GPU lock, which live-imaging evaluation jobs outside this protocol
+   held from 19:38 MDT ((j)).
+   (b) Steps 2 and 3. The deployed pipeline at 8666f07 ran on the four additions, one gonad per call: 1755, 1512, 1597
+   and 1572 s for n2rad51_20260105a_HS_male_001, _002, _003 and n2rad51_20260105b_HS_male_001, none near the 6 h limit.
+   Before the next one started, each golden had exit code 0, git_sha 8666f079..., config hash 84bdda5a5230 and
+   segmentation "cellpose" (`germquant_golden/additions/8666f07/<tag>/`, 14 files each). `manifest_entry9.json` was
+   written again (sha256 f41d1bab983707eab3672943234c2ce362b039f270f178644622caf2a947f2c3). Against the entry-11 file
+   (d3d751b7..., kept as `E9/revision_9folds/backup/manifest_entry9_as_written_by_entry11.json`) it differs as entry 14
+   (c) allows and no more: the additions' output flags, the split file's path (from germquant_wt_hsmales to
+   germquant_wt_08f6285; sha256 955eeff5..., registered_on 2026-10-09), created_utc and the summary's outputs_complete.
+   Its twelve registered entries equal those of `manifest.json` apart from the output flags and the spot-source keys of
+   n2rad51_HS_male_000, and spot truth is usable for exactly the nine gonads of entry 13 (b). The four caches are
+   complete (`bench_cache/cache_index.json` rewritten; the file before the run is in `E9/revision_9folds/backup/`), and
+   the harness reproduces each addition's golden spot table in every compared column and every per-nucleus count,
+   parquet and CSV (`E9/reproduce_golden.json`).
+   (c) 4a. The recipe check at 08f6285 (`M/net3d_recipe_check_entry9/model.pt`): all 134 tensors equal to
+   `net3d_20261010/checkpoints/epoch_004.pt`, epoch 4, threshold 0.40.
+   (d) 4b, the tuned log. The reproduction check of entry 14 (d)(2) passed: logB_d0.5_s2.5_k0.5_g2_m0 on
+   n2rad51_noHS_male_000 at 08f6285 equals its D3 run nucleus by nucleus (513 nuclei; matched, ours and expert spots 765,
+   979 and 930; trial line 388). The 55 D3 sets ran on the three train gonads new to spot truth ($NEW: n2rad51_HS_male_000,
+   n2rad51_20260105a_HS_male_001 and _002; `E9/log_d3_on_additions`, lines 389 to 443). The replay then called for 17
+   stage-B sets (round 1, on each gonad of the nine folds, both val gonads with the stage label suffix `val2`; lines 444
+   to 596) and 13 stage-C sets (round 2, 8 of them on n2rad51_20260105a_HS_male_002; lines 597 to 708): 30 sets new to the
+   record, and 85 distinct log sets in this replay's search, over the 60 of section 6.4 when counted per competitor (the
+   reading of entries 3, 6 (d) and 9 (g)). The designated selection (the split's own train gonads with the three
+   heat-shocked males, and its two val gonads; stage-A best logA_d0.5_s2, stage-B best logB_d0.5_s2_k0.5_g2_m0, five
+   finalists) is logA_d0.5_s2, with val objective 0.926 (the D3 germline CCC, rounded) and whole-field F1 0.558. That is
+   not the set of `log_tuned.json` (logB_d0.5_s2.5_k0.5_g2_m0), so `final_params/log_tuned_entry9.json` was written at
+   22:53 MDT: `{"log": {"diameter_um": 0.5, "min_snr": 2.0}}`. These are the log backend's code defaults, and every other
+   key keeps its default (pre-gate 3.0) or the golden `spots:` value (z merge on), so the tuned log is now, in effect, the
+   log defaults: in the seven folds that select logA_d0.5_s2 the held-out spot tables of the tuned log and the log
+   defaults are byte-identical. The folds that hold out n2rad51_noHS_herm_001 and n2rad51_noHS_male_000 select
+   logB_d0.5_s2_k0.5_g3_m0, the same set with z merge off. Under D3 the stage-A best was SNR 2.5; with the three
+   heat-shocked males in train the D3 objective prefers SNR 2.0. The candidate cap of the log backend (30000) was reached
+   in 49 tuning runs (steps 22, 28, 30, 39 and 41: the three gonads of $NEW, n2rad51_HS_herm_001 and
+   n2rad51_noHS_herm_000; the warning names no set), whose counts are floors; no held-out run reached it.
+   (e) 4c. Held-out runs: the tuned log in all nine folds (lines 709 to 717); the log defaults, SpotMAX deployed and the
+   grid selection in the three new folds (lines 718 to 726). The new folds select on the designated val gonads (entry 9
+   (h)), so their grid set is that of `spotmax_retuned_grid.json`. The reproduction checks of entry 13 (c)(3) passed for
+   all three detectors (the fold of n2rad51_noHS_male_000 rerun, every table equal but the run times; lines 727 to 729),
+   and the six registered folds were then copied from `prereg_grid/logo/heldout_rescored/` (log defaults, SpotMAX
+   deployed) and `prereg_grid/logo/heldout/spotmax_grid/`.
+   (f) 4d. Nine fold models by the frozen recipe, one per held-out gonad, each trained on the other eight in the order of
+   entry 11 (f) (`M/net3d_logo_entry9/fold_<held-out tag>/`; held-out lines 730 to 738), and the train-plus-val model,
+   `C:/Users/ryane/germquant_golden/models/net3d_trainval_entry9/model.pt`, sha256
+   ef986d09671907918cb485e7a13363daf25eba0c051b7456d6fcd5032a0eef52, trained at 08f6285 on n2rad51_HS_herm_000,
+   n2rad51_noHS_herm_000, n2rad51_noHS_male_000, n2rad51_noHS_male_001, n2rad51_HS_herm_001, n2rad51_noHS_herm_001,
+   n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and n2rad51_20260105a_HS_male_002, in that order (seed 0, 4 epochs
+   of the 40-epoch schedule, epoch losses 0.084911, 0.059035, 0.055511 and 0.056500, threshold 0.40, 162 s on the RTX
+   5090 under the GPU lock), with its `model_card.json`. `final_params/net3d_trainval_entry9.json` names it. It was not
+   scored on anything: every gonad with usable spot truth outside the test set is one of its training gonads.
+   (g) The results (docs/BENCHMARK.md, "Results of the revision", gives every table; `E9/logo/report`,
+   `E9/logo/report_registered6`, `E9/logo/report_hs_males`). Pooled truth-mask CCC of section 5.1 (Class A+B truth,
+   end-to-end counts) [95 percent cluster-bootstrap interval], bias in foci per truth nucleus, and F1 inside R of section
+   5.2. All nine folds (926 truth nuclei): net3d 0.876 [0.694, 0.942], +2.07, 0.822; tuned log 0.891 [0.785, 0.948],
+   +0.48, 0.778; log defaults 0.891 [0.785, 0.948], +0.47, 0.778; SpotMAX deployed 0.694 [0.431, 0.829], +0.80, 0.482;
+   the grid selection (SpotMAX re-tuned) 0.285 [0.082, 0.689], -2.81, 0.403. The three heat-shocked males (250 truth
+   nuclei; 17.0 to 17.9 truth foci per traced nucleus): net3d 0.621 [0.436, 0.857], +3.42, 0.850; tuned log 0.635
+   [0.345, 0.934], -1.84, 0.774; SpotMAX deployed 0.325 [0.099, 0.740], -4.24, 0.381; the grid selection 0.063 [0.007,
+   0.335], -12.36, 0.241 (it counts 3.6 to 9.3 foci per truth nucleus there). Paired over the nine folds, intervals
+   that exclude zero: net3d and the tuned log above the grid selection in truth-mask CCC (+0.591 [+0.083, +0.807] and
+   +0.606 [+0.156, +0.776]) and F1 inside R (+0.419 [+0.218, +0.546] and +0.375 [+0.203, +0.488]); both above SpotMAX
+   deployed in F1 inside R (+0.340 and +0.296), and the tuned log also in CCC (+0.198 [+0.099, +0.391]); SpotMAX
+   deployed above the grid selection in CCC (+0.409 [+0.018, +0.589]). Not surviving: net3d against the tuned log (CCC
+   -0.015 [-0.181, +0.096], F1 inside R +0.044 [-0.071, +0.111]) and net3d against SpotMAX deployed in CCC (+0.182
+   [-0.021, +0.438]). These are development estimates; nothing here is a win condition.
+   (h) The six registered folds, against entries 4 (b) and 7 (d). The three detectors the revision does not change
+   reproduce exactly: all 38 pooled rows of the log defaults, SpotMAX deployed and the grid selection, and the 3 x 38
+   paired rows among them, equal those of `prereg_grid/logo/report_f1R` character for character (truth-mask CCC 0.777,
+   0.601 and 0.684; F1 inside R 0.786, 0.614 and 0.603). net3d and the tuned log are no longer the procedures of entries
+   4 and 7, since every fold now trains or tunes with the three heat-shocked males, and their estimates change: net3d
+   0.618 [0.405, 0.923] against 0.878 [0.834, 0.935], the tuned log 0.777 [0.624, 0.920] against 0.893 [0.818, 0.955];
+   F1 inside R 0.770 against 0.858 and 0.785 against 0.848. net3d's drop is one fold: held out, n2rad51_HS_herm_000
+   gets CCC 0.227 and bias +8.12 (12.18 foci per truth nucleus where the truth has 4.06; entry 4 (b): 0.825 and -1.70),
+   while its other five registered folds move by -0.026 to +0.024. The tuned log gains on both heat-shocked
+   hermaphrodites (CCC 0.979 and 0.911 against 0.951 and 0.550) and loses on the four gonads without heat shock (0.482 to
+   0.826 against 0.772 to 0.964). On the six folds neither revised method differs from the grid selection in truth-mask
+   CCC any more (net3d -0.066 [-0.258, +0.277], tuned log +0.093 [-0.117, +0.342]; entry 7 (d): +0.194 and +0.209, both
+   excluding zero); both stay above it in F1 inside R (+0.167 [+0.081, +0.281] and +0.182 [+0.085, +0.335]). SpotMAX
+   re-tuned by the D3 replay, a column of entries 4 and 7, is not part of the revision (decision 2 made the grid
+   selection the re-tuned competitor).
+   (i) The b90ebdf rerun (entries 10 (i), 11 (j)(1), 12 (n), 13 (f) and 14 (h)). The deployed pipeline from main at
+   b90ebdf on all 23 tags of `tests/golden/real_manifest.json`, the four test gonads among them
+   (`run_g4_main_b90ebdf.ps1`; GPU lock from 10:17:58 MDT), then `scripts/t5_gate.py --require-golden`: both steps exited
+   0, and the gate passed at 18:42 MDT on 2026-10-12 (00:42 UTC on 2026-10-13; the run's END line 18:42:48;
+   `germquant_golden/t5_gate_main_b90ebdf.md` and `.json`): 23 golden images and 0 failing comparisons against the
+   bc62476 outputs (strict columns and IDs), 23 and 0 against the pinned 8666f07 outputs, and ruff, the unit tests (891
+   passed, 6 skipped), the scope check and the workstation pins passed. It opened no truth file and computed no metric
+   against truth; nothing was tuned or selected on it. For this entry its gate summary and the queue lines of
+   `revision_9folds.log` were read, not `g4_main_b90ebdf.log`.
+   (j) The live-imaging work of the same night, outside this protocol. `run_live_training_r1.ps1` (from 15:15:32 MDT,
+   waiting for the GPU lock; END 18:40:42 MDT, both steps exit 0) trained two nucleus models on live-imaging GFP::SYP-2
+   training pairs (`germquant train-nuclei` from the main checkout, bases germline_nuclei_combined and cpsam; pairs in
+   `C:/Users/ryane/live_results/herm_training_pairs_r1_corrected`, models in `C:/Users/ryane/live_results/models_r1`),
+   and evaluation jobs of those models (`live_eval_*`) held the GPU lock from 19:38 MDT during step 6. They use no
+   benchmark image, truth, cache, model or parameter file and write under `C:/Users/ryane/live_results` (and the GPU
+   lock), and the frozen checks after every step passed. They do not touch the benchmark; they only delayed step 6.
+   (k) The step-log lines withheld by the launcher (entry 14 (d)(9)). Nine lines in four steps, each replaced by a marker
+   in its step log and counted in `revision_9folds.log`: step 11 (`benchmark_manifest.py`, 4 lines, its status rows of
+   the test gonads) and step 13 (`bench_cache.py`, 3 lines, the sizes of the three cached test gonads), as entry 14
+   (d)(9) foresaw; and one line in each of steps 17 and 69 (the recipe check and the train-plus-val model), which entry
+   14 did not foresee: the INFO line of `germquant.spots.net3d.train` that lists the train, val and left-out gonads and,
+   as "test (never opened)", the four test gonads by tag (`spots/net3d/train.py`, line 677 at 08f6285: the trainer logs
+   the test gonads it leaves unopened). The withheld text was not kept and was not seen. The logs of the fold models in
+   `E9/logs`, which `bench_logo.py net3d-folds` writes itself, name no test gonad and no test stem (checked line by line
+   through a filter that printed nothing of them).
+   (l) The launcher's dry run (entry 14 (h)). Dry runs from the worktree of 08f6285 ran at 18:02 and 18:04 MDT, before the
+   run (`%TEMP%/revision_9folds_dry_20261012_180207` and `_180428`, each with its state file, a dry select and a first
+   fill round). `-DryRun` prints its verdict to the console and writes it to no file, so this entry cannot quote it; the
+   run itself then passed every check of (a) to (f). The scratch tests of entry 14 (i) ran at 642eb26 and were not
+   repeated at 08f6285.
+   (m) The artefacts and their sha256. Files: `revision_9folds.log`
+   e92c11ac2c71a8fb47372d016838ecd0abcd61c7c089ab4e53510bc06eb31fda; `B/manifest_entry9.json`
+   f41d1bab983707eab3672943234c2ce362b039f270f178644622caf2a947f2c3; `bench_cache/cache_index.json`
+   52190d6eb581983817c761245c3202ffe45d49f9c58d4b7249b975421ea09bc7 (hashed as bytes, not parsed: it lists test-gonad
+   sizes); `B/trials.jsonl` after the run (738 lines) c728a504e7bcac5ecdec9b66927fbb4adc8a983885879b28a38ebf6713b40b4f;
+   `B/final_params/net3d_trainval_entry9.json` 953b75193cbaee28d60460bdf9f4d81e87c4c8808991563116716eca064ea533;
+   `B/final_params/log_tuned_entry9.json` 0fa43134d1e66e5221755e99d5af461d7e80ab55e6cbd747242bebad5c5338eb;
+   `E9/log_selection.json` 8b8abd5bf52aeb45fa740f5c954f4207a289d6a041936d3a1ffea8bdf56e525c; `E9/reproduce_golden.json`
+   d04089f1b64b17570b8a234ccce527330b17a8f7a826b62f0175c3871a51ebeb; `additions/8666f07/golden_manifest.json`
+   eeb12201f810844b2e54c30ea7bd6ac9e5c97610a55f85b2084dc9425e463861; `M/net3d_recipe_check_entry9/model.pt`
+   3c1029fd6f8481ced083827f24ebfab65e3ad5937c3064ad22edcfb65dfbb05c (it differs from epoch_004.pt in metadata only, as in
+   entry 4 (b)); `M/net3d_trainval_entry9/model.pt` ef986d09671907918cb485e7a13363daf25eba0c051b7456d6fcd5032a0eef52;
+   the fold models `M/net3d_logo_entry9/fold_<held-out tag>/model.pt`: n2rad51_20260105a_HS_male_001
+   6ef20de9a382648bbb1a2cc05a1f2999edef065f1e58bcb28508e6643fb37c91, n2rad51_20260105a_HS_male_002
+   272d63704c57a5f39edc18baf7e83911f414f3469ad988717fd92ff7fd63ccd0, n2rad51_HS_herm_000
+   5f4234bf9c09a0055345286a103d69ce0e5451cb9a24e4c5697c6f50241d2be3, n2rad51_HS_herm_001
+   f37d2643503b92aa850d50394b4f177050ba804e00243c54cfe4a7b60c8054e8, n2rad51_HS_male_000
+   d4c0f5047138fe3922cda37b1f5d8ecde45b6a9f03424ac9c764a5814e42a571, n2rad51_noHS_herm_000
+   9420e59ad2c46dbe035aa671c485abf673011703e72c9ac49b5562bd093b116f, n2rad51_noHS_herm_001
+   68b08bc3b40b633264c847a5d9156d09482b744e05b6df9aa42223464b5f4d30, n2rad51_noHS_male_000
+   43da3c81696a7d581211154972a24546a923a6e4f6271f2d9ed4d6880ba3f613, n2rad51_noHS_male_001
+   815d2b94173fc19b4fd4a69be240c9871d598908c447af1aad5d52ac41c632f0; the reports (`logo_report.json`, `logo_pooled.csv`,
+   `logo_per_gonad.csv`, `logo_paired.csv`): `E9/logo/report`
+   d1f17c3d7fc8c243300f5c3a6628a49b05f6f2f7312b6dc7fe97a05ab0e7b9c4,
+   e4f8ff706a0ac8bd9719cc3631b0d2e54f3434a2c719d5468537d193ef5e04be,
+   de291f3ae7ae3af217b4ccef4deeedc41d860e4e36b50b78c9bf6dd6fc91b4cb,
+   938f0eee622e1d56163791c91f437e9ec3c3df14f7b93dde227bab8a57c0e566; `E9/logo/report_registered6`
+   92cb8f8831eebeed5faf2bf693a159c724a406f8ffd2571a22f242408bff10e1,
+   7ca3339c1cfd286d5b65c557453f7820de1d5436446f5cf58c772171cdd659f6,
+   813a7c2819afa6f94a5f5222123524dca47f8dcdac904fd0b261e0ad9cf45af7,
+   cb77926855f0c310257b53ae02e1bd462937f1eb793fcadd879ff02dbef84859; `E9/logo/report_hs_males`
+   672f838e543fb6e962b7564613a2c5e5bc7a81fe9da08f6345bb7a718ea7b612,
+   ae7a8704e88bc8d13b6e476aed950908df9b41e40c1fb0c058f26df0ff0bd647,
+   b53c09916fe59fe212f193497479a0ecbb436d88a18a37f94a520de0123eee36,
+   3399b61e986c36e366b87e4fa15638bf897d61bb673d2e69f75cd0aa856b4360; the b90ebdf gate summary
+   `germquant_golden/t5_gate_main_b90ebdf.md` 2d7a2dd0e913364602020db479d13cafa6137d4bd66100068f7077aab3aba976 and its
+   `.json` 6d920874ba6acc5575c4ced8032a42043c8fa8f2a362894262aaf64840daba2c. Folders, as tree digests (the sha256 of the
+   UTF-8 text of the lines "<sha256>  <path relative to the folder>", one per file, sorted by path, LF), with their file
+   counts: `E9/log_d3_on_additions` (443) 14670b78435ed07a92bd17c8560bfd4a172a051ca3df558c7b0de7b8c27aa459;
+   `E9/logo/heldout` (315) 1a434f8dac2fe7292ab16813bebe3da35194e8e6b62d5682e9d8a3b8c79cefef; `E9/logs` (18)
+   867ac5bc79dfd96b1b766edfa280744e4dfd7efa2ead62c3bcd1df73271c0381; `E9/revision_9folds` without the sums file below
+   (1782: step logs, backups, launcher copies, reproduction checks, fill rounds, snapshot)
+   4748efd6b2343a19ccdf025582bab3eae1459c0f0ac7948659fc6c633331199a; `M/net3d_recipe_check_entry9` (8)
+   7d711dbbe30a72a024104617512c12f797ef9d79fbff22f7db1e981c9ce429b2; `M/net3d_logo_entry9` (72)
+   48b3d0d6d535b9f61c25ea2ea5a56be38047a669aa33db598fa68affcb1d499f; `M/net3d_trainval_entry9` (8)
+   4c3386a26c8fc4e0a4196c942c7b3266494cc86ac7f3eb2283d295a8e5f7746d; the goldens `additions/8666f07/<tag>` (14 each)
+   n2rad51_20260105a_HS_male_001 1c36c9ff69c51a7e61cccc221dda597e5d8d495d778fde77d71f73abfc84fed0, _002
+   1e1d34c040128043debea7df1c8a93934dd5bbe510e9aa99315d78a1db63f46e, _003
+   c97333f2ebda975506c78bc2127fcfd10c303a9cac58751018a8e3872eaf8f81, n2rad51_20260105b_HS_male_001
+   b24e227356ab6470b20fc98cf17dbf8ed518e2158d2c82c3fdc9211efe7d96fe; the caches `bench_cache/<tag>` (5 each)
+   n2rad51_20260105a_HS_male_001 39bc8223ae72c85b289f1c3941ae441804963a79deace052e2eb89346d4ed106, _002
+   cdfe539a30ef8cb0ee5045f58c33b5d94a57cd3d4f718d9d344d909af283bbbf, _003
+   18b2515f96753680f79b0c49a04998f8c1048bca02fb4c9df03e5683573f14d0, n2rad51_20260105b_HS_male_001
+   df84e2e188329675fe7ab7e8cc15a9b0985cf00819cc5d7c008aef0182a0a97a. Every file of these folders is listed with its
+   sha256 in `E9/revision_9folds/artefact_sha256_entry15.txt` (sha256
+   6a146662835bd52c6d36b059e86a814148d153544831cde9164d2910c0059cba), written for this entry after the run; it is the only
+   file this entry adds under `germquant_golden`. The pinned artefacts are unchanged: `final_params` holds its six
+   earlier files with the sha256 of docs/FINAL_SCORING.md section 2 (`log_tuned.json` 3a65e844..., `net3d_trainval.json`
+   2f9097e6..., `spotmax_retuned_grid.json` 919c4ab5..., `spotmax_deployed.json` e3566b3a...,
+   `spotmax_retuned_d3.json` 67db0cf7..., `spotmax_retuned_primary.json` 84e27f45...) and
+   `net3d_trainval_20261010/model.pt` is still d091b9ef...
+   (n) Reads for this entry: the three documents; `revision_9folds.log`; the step logs (the launcher had withheld their
+   test-naming lines), through grep or a filter; the three reports (held-out gonads checked by a filter: none a test
+   gonad); the per_gonad.csv of five held-out folders (the mean counts of the heat-shocked gonads) and a byte comparison
+   of the tuned-log and log-default held-out spot tables; `log_selection.json`; the eight `final_params` files; the pooled
+   and paired CSVs of `prereg_grid/logo/report_f1R`; the model card (through a filter that withheld its list of test
+   gonads) and training log of `net3d_trainval_entry9`; folder listings of E9, `additions/8666f07`, the four additions'
+   caches and the three new model folders, through a filter (none withheld); `trials.jsonl` (counts, sha, split and
+   backend of lines 388 to 738, every line checked for test names by a filter, nothing printed); the files and folders of
+   (m), hashed; the gate summary of (i), the two queue launchers' scripts and the START, STEP and END lines of the
+   live-training log; listings and two state files of the dry-run folders of (l), through a filter; the source line of
+   (k) and the log backend's defaults; a listing that shows `final_runs.jsonl` absent. The unit tests (973 passed, 6
+   skipped, on the CPU) and ruff 0.17.0 (all checks passed) ran on this commit's tree; the suite's size check stats the
+   registered stacks, test gonads among them, as at every gate, and opens no file. None of these reads opened, read, hashed or parsed a test-gonad file, a 20251105_n2_hs_MALE_1* file or an
+   aggregate table, and no test-gonad row of any manifest was printed.
+   (o) Labels. Everything here belongs to the entry-9 development revision before the first test scoring and is post hoc
+   under rule 3, here and in every write-up that uses it (entries 9 (j), 13 (e) and 14 (h)); the net3d model and the
+   tuned log of (c) to (f) are post hoc methods. No method, parameter, gonad or order was changed after the results: the
+   files of (d) and (f) are those entry 9 (g) declared, written by the launcher. The readings of (d), (g) and (h) (the
+   tuned log as the log defaults in effect, net3d's drop as one fold) were made after the results and change nothing. It
+   is not the revision of section 10; the two test scorings per method family are untouched. No test result was
+   computed.
+   (p) Frozen after the revision (docs/FINAL_SCORING.md section 2, a revised table appended): SpotMAX deployed and SpotMAX
+   re-tuned (the grid selection, chosen on the two val gonads, which the additions do not enter) unchanged; the tuned log
+   is `log_tuned_entry9.json` (in effect the log defaults), replacing `log_tuned.json`; net3d is
+   `net3d_trainval_entry9.json` with the model of (f), replacing `net3d_trainval.json`. The replaced files stay in
+   `final_params/` for the record and are not scored. docs/FINAL_SCORING.md sections 4.1, 4.5 and 4.6 now name the new
+   files; 4.7 gains the fragility directions of the entry-9 report.
+   (q) Back to the project lead, with these results: decision 1 (now (1) score with the frozen methods of (p), or (2)
+   wait for the re-export of n2rad51_HS_male_002, a further declared development revision with ten folds) and its
+   questions (b) and (c), still unanswered; which SpotMAX setting the pipeline keeps if W1 fails (entry 8 (e)). For the
+   write-up next to W1 and W2, should test be scored: on the heat-shocked males the reference (the grid selection) misses
+   about 12 foci per truth nucleus out of sample, so it is weak on half the test set (entry 8 (d)); net3d trained with
+   the heat-shocked males overcounts the one heat-shocked hermaphrodite it did not see about threefold, and one test
+   gonad is a heat-shocked hermaphrodite; the tuned log is in effect the log defaults. Still to be written into the
+   pre-scoring entry: the code commit, the config hash, and the sha256 of the parameter files and of the net3d weights.
+   (r) Not changed: the split, the roles, the test set, every gonad's truth, the val gonads, net3d's frozen recipe, the
+   records, the code under src, scripts and tests, the SpotMAX rows of docs/FINAL_SCORING.md, and decision 1 (nothing is
+   scored on test until the project lead confirms one of its options).
