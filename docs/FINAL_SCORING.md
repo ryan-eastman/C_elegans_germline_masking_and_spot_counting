@@ -10,6 +10,16 @@ first attempt stopped at the section 4.4 check of n2rad51_HS_male_001 (agreement
 and the second passed every check, that one under the project lead's answer recorded in entry 20 (b) (like for like
 0.99855). The pre-scoring entry is entry 20. No test gonad has been scored, and no test result has been computed.
 
+Status (2026-10-13, protocol changelog entry 21): steps 3 to 7 of section 3 have run, from the commit of entry 20
+(0609659): the four `--final` runs of 4.3 to 4.6 (final_runs.jsonl lines 1 to 4, every test gonad with output for
+every method; the golden check of 4.3 True for all four; net3d's first launch failed on an environment error before
+any record and ran once more, entry 21 (b)) and the comparison of 4.7. Against the reference R, SpotMAX re-tuned, W1
+is not met by net3d (truth-mask CCC difference +0.441 [-0.374, +0.625]) or by the tuned log (+0.518 [-0.005, +0.670]),
+and W2 is met by both (F1 inside R difference +0.414 and +0.426). Neither new detector replaces SpotMAX, which stays
+deployed with the 8666f07 recipe (section 10; entry 20 (c)). The post-scoring entry is entry 21; these are the first
+test results of the new methods, any change from here on is post hoc, and a second scoring needs a revision declared
+in the changelog first.
+
 The test gonads (protocol section 3): n2rad51_HS_herm_002, n2rad51_HS_male_001, n2rad51_noHS_herm_002,
 n2rad51_noHS_male_002.
 
@@ -684,6 +694,14 @@ The frozen tuned log is the configuration of the log defaults; in that report ev
 inside R. On the six registered folds the truth-mask CCC of net3d and of the tuned log does not differ from the grid
 selection (-0.273 [-0.451, +0.225] and +0.089 [-0.124, +0.342]), and net3d's F1 inside R lead over it no longer
 excludes zero (+0.073 [-0.026, +0.254]); the write-up reports that next to the all-fold directions.
+
+Status (2026-10-13, protocol changelog entry 21): read as above from `final/report/logo_paired.csv` (sha256
+a2ed4037...; every method had output for all four test gonads, so `report` ran once and no pairwise rerun was needed).
+W1: "net3d_trainval - spotmax_retuned" diff +0.441, lo -0.374; "log_tuned - spotmax_retuned" diff +0.518, lo -0.005;
+not met for either. W2: +0.414 and +0.426, met for both. Fragility against the table of entry 19: every truth-mask CCC
+direction and five of the six F1 inside R directions agree; "net3d_trainval - log_tuned" on the F1 inside R has
+opposite point signs (test -0.012 [-0.210, +0.153], ten-fold +0.015 [-0.118, +0.081]) and is reported as fragile, a
+reading (entry 21 (g)). The numbers of the last item are in entry 21, tables 1 and 2.
 
 ### 4.8 The post-scoring changelog entry
 

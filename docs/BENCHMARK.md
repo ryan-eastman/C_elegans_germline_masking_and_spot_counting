@@ -2341,6 +2341,16 @@ parentheses):
   unchanged. Whether and when to score is the project lead's (decision 1): no test gonad is scored until he says
   "score now".
 
+Status (2026-10-13, protocol changelog entry 21): the project lead replied "Merged and score it", read as "score now"
+(entry 20 (a)), and the four test gonads were scored once with the frozen methods above (docs/FINAL_SCORING.md 4.3 to
+4.7; final_runs.jsonl lines 1 to 4; commit 0609659). Pooled truth-mask CCC on test: net3d 0.857 [0.271, 0.953], the
+tuned log 0.935 [0.539, 0.954], SpotMAX deployed 0.753 [0.282, 0.883] and the grid selection, the reference R, 0.417
+[0.257, 0.646]; F1 inside R 0.767, 0.779, 0.471 and 0.353. Against R neither new detector meets W1 (net3d +0.441
+[-0.374, +0.625], the tuned log +0.518 [-0.005, +0.670]); both meet W2. SpotMAX stays deployed with the 8666f07 recipe
+(entry 20 (c)). The leave-one-gonad-out estimates of this document stay development estimates; the directions of the
+test pairs agree with those of the ten-fold report except net3d against the tuned log on the F1 inside R (entry 21
+(g)). These are the first test results of the new methods, and everything from here on is post hoc.
+
 ### The revision plan (commands, order, compute)
 
 Steps 1 and 1b were run at the commits they name. Run the rest from a clean checkout of a commit that holds
