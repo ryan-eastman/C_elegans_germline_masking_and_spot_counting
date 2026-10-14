@@ -16,7 +16,8 @@ docs/BENCHMARK_PROTOCOL.md is the pre-registration; this module is its machine-r
 
 * The additions (protocol changelog entry 9). ``tests/golden/rad51_additions.json`` lists gonads of
   another imaging session added to TRAIN after the split was registered, in a record of their own, so
-  the split file stays byte-identical (``REGISTERED_SPLIT_SHA256``) and no registered role moves.
+  the split file stayed byte-identical (it moved only by the re-export of entry 17; ``REGISTERED_SPLIT_SHA256``) and
+  no registered role moves.
   ``ADDITION_ROLES`` fixes their roles in code (train only; an addition is never val or test and never
   stands in for a val gonad in a leave-one-gonad-out fold); ``build_additions`` assembles the record
   (scripts/make_rad51_additions.py), ``load_additions`` reads and validates it, ``check_addition_files``
@@ -38,6 +39,13 @@ docs/BENCHMARK_PROTOCOL.md is the pre-registration; this module is its machine-r
   admits exactly that file (``spot_source_tag_of``, ``guard_export_read``, ``guard_truth_read``);
   ``load_spot_sources`` reads and validates the record; ``build_manifest(..., spot_sources=...)`` points the
   gonad's truth at the export from that source and decides its spot truth by ``spot_source_truth_usable``.
+* The re-exports of protocol section 4.1 (changelog entry 17). ``REEXPORTS`` pins, for a registered train gonad
+  whose Imaris project was re-exported without region growing, the re-exported .ims (size, sha256) and the
+  superseded one; the split record carries the re-export (scripts/make_rad51_split.py --only rebuilds that gonad's
+  entry without opening any other gonad's files) and the moved pins ``REGISTERED_SPLIT_SHA256``.
+  ``build_manifest(..., reexports_truth_root=...)`` points the gonad's truth at the export of the re-exported
+  project and decides its spot truth by ``reexport_spot_truth_usable``; without that export its spot truth stays
+  excluded (the registered truth folder holds the export of the superseded project).
 
 Nothing here touches the pipeline: the module reads files and writes JSON. The Imaris reading is kept
 separate from validate/imaris_ims.py on purpose, so the truth-export work can change that module
@@ -45,6 +53,7 @@ without touching the split record.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -117,6 +126,36 @@ REGION_GROWING_NOTE = (
 REGION_GROWING_UNKNOWN_NOTE = (
     "region_growing is null: the Spots creation parameters could not be read from the .ims, so whether "
     "region growing was on is unknown.")
+
+#: protocol section 4.1 and changelog entry 17: the registered gonads whose Imaris project was re-exported without
+#: region growing after registration (train only; never val or test, and no role moves). The split record carries
+#: the re-exported .ims (its size, sha256 and creation facts, scripts/make_rad51_split.py --only); the superseded
+#: .ims keeps its digests here. A re-export's spot truth is used only from a truth export of the re-exported project
+#: that passes ``reexport_spot_truth_usable`` (``build_manifest(reexports_truth_root=...)``); until then the manifest
+#: excludes it, since the registered truth folder holds the export of the superseded project.
+REEXPORTS_CHANGELOG_ENTRY = 17
+REEXPORTS = {
+    "n2rad51_HS_male_002": {
+        "changelog_entry": 17,
+        "date": "2026-10-13",
+        "ims": {"size_bytes": 1501317079,
+                "sha256": "7b06a0fb84a0b2eecb4688096f250756b3ffafb51d7bc9db1d0eda6da6d9400e"},
+        "superseded_ims": {
+            "path": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2_superseded/20251105_n2_hs_MALE _002.ims",
+            "size_bytes": 1514954684,
+            "sha256": "dc53183cf9b1d549f3d04128861ca4a9e26b2dcb34dadfebfd9fffd8ebb7d78e"},
+        # the split record's note on the re-export (build_split adds it when the .ims is this re-export)
+        "note": ("Re-exported from Imaris without region growing (protocol section 4.1, changelog entry 17): on "
+                 "2026-10-13 the Spots of the registered project were rebuilt with Spots Region Growing off "
+                 "(mEnableRegionGrowing is false in the Spots creation parameters) and the project was saved as a "
+                 "new .ims, which replaces the registered one (1514954684 bytes, sha256 "
+                 "dc53183cf9b1d549f3d04128861ca4a9e26b2dcb34dadfebfd9fffd8ebb7d78e, kept in "
+                 "imaris/HS_ims2_superseded/). Its spot truth is excluded from spot scoring until a truth export of "
+                 "this .ims passes the frame check, the section 4.4 check and the checks of changelog entry 9 (d)(5) "
+                 "(benchmark_split.reexport_spot_truth_usable). Its Surfaces have the registered count (82) and "
+                 "creation parameters and remain nucleus truth."),
+    },
+}
 
 _POINTS_CP = "Scene8/Content/Points0/CreationParameters"
 _SPOTS = "Scene8/Content/Points0/Spot"
@@ -262,22 +301,49 @@ def nd2_summary(path) -> dict:
 
 
 def build_split(real_manifest, ims_root, hash_cache: dict | None = None, registered_on: str | None = None,
-                read_metadata: bool = True) -> dict:
+                read_metadata: bool = True, only=None, base: dict | None = None) -> dict:
     """Assemble the split record from the n2rad51 entries of a real manifest (their .nd2 paths) and
     the Imaris projects under ``ims_root`` (<ims_root>/<noHS_ims2|HS_ims2>/<stem>.ims). Every file is
     hashed unless ``hash_cache`` (see load_hash_cache) has its digest at the same size. With
-    ``read_metadata`` the .nd2 sizes and voxel size and the Imaris summary are added."""
+    ``read_metadata`` the .nd2 sizes and voxel size and the Imaris summary are added.
+
+    ``only`` (tags) with ``base`` (an earlier split record) rebuilds the entries of those gonads only and copies
+    every other entry from ``base`` as it is, without looking at its files: the re-export of protocol section 4.1
+    (changelog entry 17) changes one train gonad, and a full rebuild would open every gonad's .nd2 and .ims, the
+    test gonads' among them. A test gonad is refused before anything is read, and the files of a rebuilt gonad pass
+    the role guard (``guard_truth_read``) before they are hashed or opened."""
     runs = json.loads(Path(real_manifest).read_text(encoding="utf-8"))
     by_tag = {r["tag"]: r for r in runs if r.get("tag") in PREREGISTERED_ROLES}
     missing = sorted(set(PREREGISTERED_ROLES) - set(by_tag))
     if missing:
         raise ValueError(f"{real_manifest}: no entry for the registered tag(s) {missing}")
+    base_by: dict = {}
+    if only is not None:
+        only = list(only)
+        if base is None:
+            raise ValueError("only needs base, the split record whose other entries are kept as they are")
+        unknown = sorted(set(only) - set(PREREGISTERED_ROLES))
+        if unknown or not only:
+            raise ValueError(f"only names no registered gonad or one that is not registered: {unknown or only}")
+        tests = sorted(t for t in only if PREREGISTERED_ROLES[t] == "test")
+        if tests:
+            raise PermissionError(f"refused: {tests} is a test gonad; its files are never opened, so its entry "
+                                  "cannot be rebuilt")
+        validate_split(base)
+        base_by = {g["tag"]: g for g in base["gonads"]}
+        if {t: g["role"] for t, g in base_by.items()} != PREREGISTERED_ROLES:
+            raise ValueError("the base split record does not hold the registered gonads with their registered roles")
     gonads = []
     for tag, role in PREREGISTERED_ROLES.items():
+        if only is not None and tag not in only:
+            gonads.append(copy.deepcopy(base_by[tag]))         # kept as it is; its files are not looked at
+            continue
         parts = tag_parts(tag)
         nd2_path = Path(by_tag[tag]["nd2"])
         stem = nd2_path.stem
         ims_path = Path(ims_root) / IMS_SUBDIR[parts["condition"]] / f"{stem}.ims"
+        if only is not None:
+            guard_truth_read([nd2_path, ims_path])            # the role guard, by the registered stem
         entry = {"tag": tag, "role": role, "condition": parts["condition"], "sex": parts["sex"],
                  "replicate": parts["replicate"], "stem": stem,
                  "nd2": _record_with_cache(nd2_path, hash_cache),
@@ -293,6 +359,9 @@ def build_split(real_manifest, ims_root, hash_cache: dict | None = None, registe
             notes.append(REGION_GROWING_NOTE)
         elif rg is None:
             notes.append(REGION_GROWING_UNKNOWN_NOTE)
+        rx = reexport_of(entry)
+        if rx is not None:
+            notes.append(rx["note"])
         entry["notes"] = notes
         gonads.append(entry)
     split = {
@@ -370,6 +439,15 @@ def gonad(split: dict, tag: str) -> dict:
     raise KeyError(tag)
 
 
+def reexport_of(g: dict) -> dict | None:
+    """The ``REEXPORTS`` record of a split entry whose .ims is the pinned re-export (same sha256), None for any
+    other entry (a gonad that was not re-exported, or an older split record that still names the superseded .ims)."""
+    rx = REEXPORTS.get(g.get("tag"))
+    if rx is None or (g.get("ims") or {}).get("sha256") != rx["ims"]["sha256"]:
+        return None
+    return rx
+
+
 def check_split_files(split: dict, hashes: bool = False) -> list[str]:
     """Problems with the registered files: missing, a different size, and with ``hashes`` a different
     sha256 (which reads every file; about a minute for the 24 files when they are in the disk cache).
@@ -398,15 +476,17 @@ ADDITIONS_REGISTERED_ON = "2026-10-11"
 ADDITIONS_CHANGELOG_ENTRY = 9
 #: the session of the registered split (every gonad of PREREGISTERED_ROLES was imaged that day)
 REGISTERED_SESSION = "2025-11-05"
-#: sha256 of tests/golden/rad51_split.json as registered (and as it was when entry 9 added the additions): the
-#: workstation checkout (CRLF line endings, the digest every manifest records) and the same bytes with LF line
-#: endings (the git blob, a Linux checkout). The file changes only by the re-export of protocol section 4.1, with a
-#: changelog line and new pinned digests here, in the same commit (protocol changelog entry 10 (g)(8));
-#: tests/test_rad51_additions.py pins both, so any edit has to be deliberate and logged. The additions record (entry 9)
-#: and the spot-sources record (entry 11) carry the digests of the split they were made against; those records stay
-#: as committed when the split moves (their tests pin those historical digests and check the roles live, entry 12)
-REGISTERED_SPLIT_SHA256 = "955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f"
-REGISTERED_SPLIT_SHA256_LF = "989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85"
+#: sha256 of tests/golden/rad51_split.json as it stands: the workstation checkout (CRLF line endings, the digest every
+#: manifest records) and the same bytes with LF line endings (the git blob, a Linux checkout). The file changes only by
+#: a re-export of protocol section 4.1, with a changelog entry and new pinned digests here, in the same commit
+#: (protocol changelog entry 10 (g)(8)); tests/test_rad51_additions.py pins both, so any edit has to be deliberate and
+#: logged. Moved once: by the re-export of n2rad51_HS_male_002 (protocol changelog entry 17, ``REEXPORTS``), from the
+#: split as registered on 2026-10-09 (955eeff5... with CRLF, 989bfa08... with LF, 14,690 bytes; also the split of
+#: entries 9 to 16). The additions record (entry 9) and the spot-sources record (entry 11) carry the digests of the
+#: split they were made against; those records stay as committed when the split moves (their tests pin those
+#: historical digests and check the roles live, entry 12). The roles never move (``roles_sha256``, 32e2ee0b...)
+REGISTERED_SPLIT_SHA256 = "01b95dd21488eae8c7f615ce61201ce6b955b2725846ab9d221dfb93c9dc4d7d"
+REGISTERED_SPLIT_SHA256_LF = "edb022392fbfb8d33eee5eb64fdb6cd22421c4cec6bc25768f708060aa3302d7"
 #: the additions of protocol changelog entry 9 and their roles: train only, fixed here so that no manifest or
 #: record can move them (detector.gonad_role refuses a conflict); an addition leaves the benchmark only for a
 #: defect on the truth side, recorded in the changelog
@@ -494,7 +574,8 @@ def roles_sha256(roles: dict | None = None) -> str:
 
 
 def split_file_unchanged(path) -> bool:
-    """True when ``path`` holds the registered split file byte for byte (with CRLF or with LF line endings)."""
+    """True when ``path`` holds the split file of the pins byte for byte (with CRLF or with LF line endings): the
+    registered record, as the re-export of protocol changelog entry 17 moved it (``REGISTERED_SPLIT_SHA256``)."""
     b = Path(path).read_bytes()
     return (hashlib.sha256(b).hexdigest() == REGISTERED_SPLIT_SHA256
             or lf_sha256(b) == REGISTERED_SPLIT_SHA256_LF)
@@ -1203,6 +1284,47 @@ def spot_source_truth_usable(source: dict | None, truth_params: dict | None, tru
     return _decision_or_section_4_4(agreement, decision, SPOT_SOURCE_RULE)
 
 
+# ---- the re-exports of protocol section 4.1 (changelog entry 17) ----
+
+REEXPORT_RULE = "entry 17"
+
+
+def reexport_spot_truth_usable(g: dict, truth_params: dict | None, truth_check: dict | None = None
+                               ) -> tuple[bool, str]:
+    """Whether the spot truth of a registered train gonad whose .ims is a re-export of protocol section 4.1
+    (``REEXPORTS``, changelog entry 17) may be scored, and why. Declared in entry 17, before the re-export's truth
+    was exported. The rules, in order:
+
+    1. the split entry is not the pinned re-export (``reexport_of``): not usable;
+    2. no truth params (no truth export of the re-exported project yet): not usable;
+    3. the truth params were written from the re-exported project's own spots: spot source "ims", region growing
+       off, and the spot and surface counts of the split record (the export of the superseded project, in the
+       registered truth folder, has region growing on, 13,951 spots and no frame check);
+    4. the frame check of entry 9 (d)(3) ran and chose a frame;
+    5. section 4.4: ``truth_check`` (this gonad's row of scripts/check_truth_assignment.py) must reach
+       ``SECTION_4_4_MIN``; a failed or missing check leaves the spot truth unusable until a changelog entry
+       decides it.
+
+    The other checks of entry 9 (d)(5) that apply to a re-export (its creation parameters, its nucleus truth against
+    the registered export) are reported in the changelog entry that admits it."""
+    if reexport_of(g) is None:
+        return False, "not the re-exported project of protocol changelog entry 17"
+    if truth_params is None:
+        return False, "no truth export of the re-exported project yet (entry 17)"
+    ims = g.get("ims") or {}
+    src = (truth_params.get("spots_source") or {}).get("source")
+    if not (src == "ims" and truth_params.get("region_growing") is False
+            and truth_params.get("n_spots") == ims.get("n_spots")
+            and truth_params.get("n_surfaces") == ims.get("n_surfaces")):
+        return False, ("the truth params were not written from the re-exported project (its spot source, region "
+                       "growing, spot or surface count differ; entry 17)")
+    fc = truth_params.get("frame_check")
+    if fc is None or fc.get("chosen") is None:
+        return False, "frame check of entry 9 (d)(3) missing or failed"
+    agreement = None if truth_check is None else truth_check.get("agreement")
+    return _decision_or_section_4_4(agreement, None, REEXPORT_RULE)
+
+
 def load_truth_check(path) -> dict[str, dict]:
     """The rows of a section 4.4 table written by scripts/check_truth_assignment.py --out, by tag, with
     ``agreement`` and the counts as numbers. ``path`` may be a list of tables (protocol changelog entry 11: the
@@ -1351,11 +1473,56 @@ def _apply_spot_source(entry: dict, source: dict, src_root: Path, patterns: dict
     })
 
 
+def _apply_reexport(entry: dict, g: dict, rx: dict, root: Path | None, patterns: dict,
+                    truth_check: dict | None) -> None:
+    """A registered entry whose .ims is a re-export of protocol section 4.1 (``REEXPORTS``, changelog entry 17):
+    ``reexport`` records it with the superseded .ims. With ``root`` (the folder of the truth exports of re-exported
+    projects) the truth files come from <root>/<tag>/, the registered truth folder (the export of the superseded
+    project) is kept as ``registered_truth_dir``, and ``spot_truth_usable`` follows ``reexport_spot_truth_usable``
+    with this gonad's row of ``truth_check``. Without it the truth stays the registered folder and the spot truth is
+    excluded, since that folder holds the export of the superseded .ims. The role guard runs first (a re-export is a
+    train gonad's), before any truth params are read."""
+    from germquant.benchmark.detector import guard_test
+
+    stem, tag = entry["stem"], entry["tag"]
+    guard_test([tag])
+    rec = {"changelog_entry": rx["changelog_entry"], "ims_sha256": rx["ims"]["sha256"],
+           "superseded_ims": dict(rx["superseded_ims"]), "truth_root": posix(root) if root is not None else None}
+    if root is None:
+        entry.update({"reexport": rec, "spot_truth_usable": False,
+                      "spot_truth_reason": ("re-exported (entry 17): no truth export of the re-exported project was "
+                                            "given (reexports_truth_root); the registered truth folder holds the "
+                                            "export of the superseded .ims")})
+        return
+    tdir = root / tag
+    truth = {k: _exists_record(tdir / pat.format(stem=stem)) for k, pat in patterns.items()}
+    found = sorted(p.name for p in tdir.iterdir() if p.name.startswith(f"{stem}__imaris_")) if tdir.is_dir() else []
+    params = None
+    if truth.get("params", {}).get("exists"):
+        try:
+            params = json.loads(Path(truth["params"]["path"]).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            params = None
+    usable, why = reexport_spot_truth_usable(g, params, truth_check)
+    entry.update({
+        "registered_truth_dir": entry["truth_dir"],
+        "truth_dir": posix(tdir),
+        "truth": {**truth, "found": found},
+        "truth_complete": all(truth[k]["exists"] for k in REQUIRED_TRUTH if k in truth),
+        "reexport": rec,
+        "spot_truth_usable": usable,
+        "spot_truth_reason": why,
+        "section_4_4": (None if truth_check is None else
+                        {k: truth_check.get(k) for k in ("agreement", "n_spots", "n_agree",
+                                                         "n_coloc_on_removed_fragment", "n_both_different")}),
+    })
+
+
 def build_manifest(split: dict, results_root, truth_root, name: str | None = None,
                    truth_files: dict | None = None, split_path=None, additions: dict | None = None,
                    additions_results_root=None, additions_path=None, truth_check=None,
                    spot_truth_decisions=None, spot_sources: dict | None = None, spot_sources_path=None,
-                   spot_sources_truth_root=None) -> dict:
+                   spot_sources_truth_root=None, reexports_truth_root=None) -> dict:
     """One entry per gonad of the split: role, condition, sex, stem, the .nd2 and .ims (exists, size
     matches the registered size), the pipeline outputs under <results_root>/<tag>/ and the truth files
     under <truth_root>, each with its path and an exists flag, plus ``outputs_complete`` (nuclei table,
@@ -1376,12 +1543,18 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
     the registered train gonads it names: their truth files are read from <spot_sources_truth_root>/<tag>/ (the
     export from the recorded source), ``spot_truth_usable`` follows ``spot_source_truth_usable`` with this gonad's
     row of ``truth_check``, and ``recorded_spot_source`` records the source; every other registered entry stays exactly
-    as without it. The record is recorded with its sha256 under ``spot_sources_file``."""
+    as without it. The record is recorded with its sha256 under ``spot_sources_file``.
+
+    A registered entry whose .ims is a re-export of protocol section 4.1 (``reexport_of``, changelog entry 17) is
+    never usable on its region-growing flag alone: without ``reexports_truth_root`` its spot truth is excluded (the
+    registered truth folder holds the export of the superseded .ims); with it, the truth comes from
+    <reexports_truth_root>/<tag>/ and ``spot_truth_usable`` follows ``reexport_spot_truth_usable`` with this gonad's
+    row of ``truth_check`` (``_apply_reexport``). The top-level ``reexports`` records them."""
     if spot_truth_decisions is not None and additions is None:
         raise ValueError("truth_check and spot_truth_decisions apply to the additions only")
-    if truth_check is not None and additions is None and spot_sources is None:
+    if truth_check is not None and additions is None and spot_sources is None and reexports_truth_root is None:
         raise ValueError("truth_check and spot_truth_decisions apply to the additions only (and truth_check to the "
-                         "recorded spot sources of entry 11)")
+                         "recorded spot sources of entry 11 and the re-exports of entry 17)")
     if spot_sources is not None and spot_sources_truth_root is None:
         raise ValueError("spot_sources needs spot_sources_truth_root, the folder of the exports from the sources")
     patterns = dict(TRUTH_FILES, **(truth_files or {}))
@@ -1416,8 +1589,14 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
             "notes": list(g.get("notes", [])),
         })
         source = spot_source_of(spot_sources, tag)
+        rx = reexport_of(g)
+        if source is not None and rx is not None:
+            raise ValueError(f"{tag}: a recorded spot source (entry 11) and a re-export (entry 17) cannot both apply")
         if source is not None:
             _apply_spot_source(entries[-1], source, Path(spot_sources_truth_root), patterns, checks.get(tag))
+        if rx is not None:
+            _apply_reexport(entries[-1], g, rx, Path(reexports_truth_root) if reexports_truth_root is not None
+                            else None, patterns, checks.get(tag))
     if additions is not None:
         validate_additions(additions)
         if (additions.get("registered_split") or {}).get("roles_sha256") != roles_sha256(
@@ -1474,6 +1653,17 @@ def build_manifest(split: dict, results_root, truth_root, name: str | None = Non
             "rule": ("benchmark_split.spot_source_truth_usable: the export's own checks (E1 to E9 and the frame "
                      "check), then a changelog decision, else section 4.4 at least 0.9935 (protocol changelog entry "
                      "11)")}
+    rx_tags = [e["tag"] for e in entries if "reexport" in e]
+    if rx_tags or reexports_truth_root is not None:
+        manifest["reexports"] = {
+            "changelog_entry": REEXPORTS_CHANGELOG_ENTRY,
+            "truth_root": posix(reexports_truth_root) if reexports_truth_root is not None else None,
+            "tags": rx_tags,
+            "truth_check": _truth_check_record(truth_check) if reexports_truth_root is not None else None,
+            "rule": ("benchmark_split.reexport_spot_truth_usable: a truth export of the re-exported project (spot "
+                     "source ims, region growing off, the split record's spot and surface counts), the frame check, "
+                     "then section 4.4 at least 0.9935 (protocol changelog entry 17); without reexports_truth_root, "
+                     "excluded")}
     return manifest
 
 

@@ -540,12 +540,12 @@
    },
    "ims": {
     "path": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _002.ims",
-    "size_bytes": 1514954684,
-    "sha256": "dc53183cf9b1d549f3d04128861ca4a9e26b2dcb34dadfebfd9fffd8ebb7d78e",
-    "n_spots": 13951,
+    "size_bytes": 1501317079,
+    "sha256": "7b06a0fb84a0b2eecb4688096f250756b3ffafb51d7bc9db1d0eda6da6d9400e",
+    "n_spots": 13972,
     "n_surfaces": 82,
-    "region_growing": true,
-    "spot_quality_threshold": 6.84666,
+    "region_growing": false,
+    "spot_quality_threshold": 6.847,
     "shape_xyz": [
      2600,
      2600,
@@ -558,7 +558,7 @@
     ]
    },
    "notes": [
-    "Spots exported with Imaris region growing on (mEnableRegionGrowing is true in the Spots creation parameters). The spot truth of this gonad is excluded from spot scoring until it is re-exported without region growing; the surfaces are unaffected and remain nucleus truth."
+    "Re-exported from Imaris without region growing (protocol section 4.1, changelog entry 17): on 2026-10-13 the Spots of the registered project were rebuilt with Spots Region Growing off (mEnableRegionGrowing is false in the Spots creation parameters) and the project was saved as a new .ims, which replaces the registered one (1514954684 bytes, sha256 dc53183cf9b1d549f3d04128861ca4a9e26b2dcb34dadfebfd9fffd8ebb7d78e, kept in imaris/HS_ims2_superseded/). Its spot truth is excluded from spot scoring until a truth export of this .ims passes the frame check, the section 4.4 check and the checks of changelog entry 9 (d)(5) (benchmark_split.reexport_spot_truth_usable). Its Surfaces have the registered count (82) and creation parameters and remain nucleus truth."
    ]
   }
  ]

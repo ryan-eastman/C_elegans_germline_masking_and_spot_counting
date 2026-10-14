@@ -2198,6 +2198,149 @@ launcher, before any step of the revision ran. No method, parameter, gonad or or
   closed; every GERMQUANT_* variable and CELLPOSE_LOCAL_MODELS_PATH cleared; lines naming a test gonad withheld from
   the step logs.
 
+### Entry 17: the re-export of n2rad51_HS_male_002 (2026-10-13)
+
+Post hoc under rule 3 (protocol changelog entry 17 gives the details). Written before any result on the re-export. The
+project lead rebuilt the Spots of n2rad51_HS_male_002 in Imaris with region growing off and saved the project as a new
+.ims ("Should be saved"); this is the data-change commit of the section 4.1 path, the start of the further declared
+development revision of entry 13 (b).
+
+* **The file.** Saved on the lab NAS next to the original (1,501,317,079 bytes, 11:52:56 MDT), copied to
+  `C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/` (sha256 7b06a0fb...). It now sits at the registered path
+  (`HS_ims2/20251105_n2_hs_MALE _002.ims`); the registered file (dc53183c...) moved to `HS_ims2_superseded/` with a
+  README. 13,972 spots, all at radius 0.2 um, region growing off; Quality 6.847 (the registered filter said 6.84666;
+  the instructions gave the rounded value); every other Spots and Surfaces creation parameter as registered; 82
+  surfaces.
+* **The split record and its pins.** Only n2rad51_HS_male_002's `ims` block and note change (size, sha256, spots,
+  region growing, Quality); the roles (32e2ee0b...) and every other entry stay byte for byte. Rebuilt with
+  `scripts/make_rad51_split.py --only n2rad51_HS_male_002 --base tests/golden/rad51_split.json --hash-cache
+  tests/golden/rad51_split.json`, which never opens another gonad's files (a full rebuild would open the test gonads').
+  The file is now 01b95dd2... with CRLF and edb02239... with LF (was 955eeff5... and 989bfa08...), and
+  `REGISTERED_SPLIT_SHA256` and `REGISTERED_SPLIT_SHA256_LF` moved with it; the additions and spot-sources records keep
+  their historical digests.
+* **Its spot truth stays out until it passes its checks.** The exclusion of a region-growing gonad followed the split
+  record's flag, so it would have lifted by itself, onto the registered truth folder, which holds the export of the
+  superseded project. A re-exported gonad (`benchmark_split.REEXPORTS`) is now excluded from every manifest unless
+  `scripts/benchmark_manifest.py --reexports-truth-root DIR` names the export of the re-exported project, and then
+  admitted only by `benchmark_split.reexport_spot_truth_usable`: an export of that project (region growing off, its
+  13,972 spots and 82 surfaces), the frame check, and section 4.4 at least 0.9935 by `--truth-check`.
+* **Next.** Its truth export with `--frame-check` into a folder of its own, section 4.4 and the other checks of entry
+  9 (d)(5), reported in a later entry; then, only if they pass, step 4 below with ten folds, into folders of their own
+  (the bench cache of n2rad51_HS_male_002 exists since 2026-10-10 and is reused; corrected in place by entry 18
+  (b)(3)).
+* **Consequences of the new file at the registered path.** Every checkout that still holds the registered split record
+  (the local main checkout at b90ebdf among them) now fails `test_split_paths_exist_with_the_registered_sizes` on the
+  workstation, and so does the tranche-5 gate from main, until main holds this record. PR #13 was merged into main
+  (255abca) at 12:19:53 MDT, before entry 17 was committed, so main holds the registered record too; entries 17 and 18
+  reach it only by a new pull request from this branch (corrected in place by entry 18 (b)(7)).
+  `germquant_golden/copy_imaris_n2_v2.ps1` and `run_truth_benchmark.ps1` must not be rerun as they stand (entry 17 (i)
+  lists every script that reads the path).
+
+### Entry 18: the re-export passes its checks, and the ten-fold launcher (2026-10-13)
+
+Post hoc under rule 3 (protocol changelog entry 18 gives the details). Written after the checks of the re-export and
+before any step of the ten-fold run; no test gonad was run, scored or opened.
+
+* **The truth export of the re-export** (`germquant imaris-truth --nd2 --frame-check` into
+  `germquant_golden/imaris_truth_reexport/n2rad51_HS_male_002/`): 13,972 spots, 82 surfaces. Every check passed
+  (`entry17/truth_checks.json`): the stored frame (channel 545 1.0, strict 0.9989; mask channel 1.0); the nucleus truth
+  byte for byte and voxel for voxel that of the registered export; the image data of all four channels equal to the
+  superseded .ims, and channels 0 to 2 to the .nd2; section 4.4 0.9962 (13,919 of 13,972; like for like 0.9998), where
+  the superseded export had 0.9935; the creation parameters as registered, with region growing off and Quality 6.847.
+* **The spots.** Every spot of the superseded object is in the re-export at the identical position; the 21 extra spots
+  are Class A, one of them in a traced nucleus. The 82 traced nuclei hold 1,829 spots (15 to 30 each), all Class A.
+* **The ten-fold launcher.** `C:/Users/ryane/germquant_golden/run_revision_10folds.ps1` with
+  `revision_10folds_helpers.py`: step 3 for the new fold (`manifest_entry17.json` again with the re-export's 4.4 table,
+  its check, the existing bench cache of n2rad51_HS_male_002 verified and reused, its golden reproduction), then step 4
+  below in full with ten folds, into `$B/entry17/revision_10folds/` and model and parameter files ending in `_10folds`;
+  log `germquant_golden/revision_10folds.log`. It runs only from the commit of entry 18 (`-Sha`; the detached worktree
+  `germquant_wt_<sha7>`), only if that commit names the launcher's and the helper's sha256 and changes no code against
+  da5e932, and only if its preflight passes (every check of the re-export passed, the pinned truth files, the nine-fold
+  outputs as entry 15 (m) records them). The nine-fold outputs are frozen, and none feeds a selection or a held-out
+  score; the net3d region maps that the nine-fold run built for three gonads are reused by key. After the reviews of
+  entry 18 (its (c)(2)(x)): step 3 also reruns the dry run's semantic checks on the manifest it wrote and pins that
+  manifest's sha256, which every later check requires; a last step repeats the content checks of the preflight.
+* **Decisions declared before the run** (entry 18 (c)(4)): step 4 again in full (the 55 D3 sets on all four gonads of
+  `$NEW`); the search label `10folds_log`; `log_tuned_10folds.json` only if the designated selection is not the set of
+  `log_tuned_entry9.json`; a check that the 55 sets on the three gonads of the nine-fold run equal their nine-fold
+  scores; a fourth report on the nine folds of entry 15; the frozen methods after the run (net3d
+  `net3d_trainval_10folds.json`; the tuned log `log_tuned_10folds.json` if written, otherwise `log_tuned_entry9.json`;
+  SpotMAX unchanged); after the run, "score now" from the project lead scores those frozen methods (decision 1 in
+  docs/FINAL_SCORING.md).
+* **The folds**, in the order they run: n2rad51_20260105a_HS_male_001, n2rad51_20260105a_HS_male_002,
+  n2rad51_HS_herm_000, n2rad51_HS_herm_001 (val), n2rad51_HS_male_000, n2rad51_HS_male_002, n2rad51_noHS_herm_000,
+  n2rad51_noHS_herm_001 (val), n2rad51_noHS_male_000, n2rad51_noHS_male_001. n2rad51_HS_male_002 trains after
+  n2rad51_HS_male_000 and before the additions (entry 11 (f)): eighth of ten in the train-plus-val model.
+* **Dry run** (14:09 MDT, from germquant_wt_hsmales at da5e932 with this entry in its working tree, after the review
+  fixes): every check passed. Estimate: about 3 h (2.5 to 4 h), about 45 min of it on the GPU.
+
+### Entry 19: results of the ten-fold revision (2026-10-13)
+
+Post hoc under rule 3 (protocol changelog entry 19 gives the run and its checks, every pooled value of the four
+reports with its interval, the paired differences, the per-gonad rows of the new fold and the disclosures).
+Development estimates on train and val gonads: no test gonad was run, scored or opened, no `--final` run was made and
+`final_runs.jsonl` does not exist. The reports are `$B/entry17/revision_10folds/logo/report` (all ten folds),
+`report_registered6`, `report_hs_males` (the four heat-shocked males with spot truth) and `report_entry15_folds` (the
+nine folds of entry 15, for a like-for-like comparison of the points; its intervals are not entry 15's, since the
+bootstrap draws gonads by position and the order of the gonads differs, entry 19 (c)(1)).
+
+* **The run.** The launcher of "Entry 18" from the worktree of commit 481cb8c, 14:20:02 to 16:48:54 MDT on 2026-10-13
+  (2.48 h): 70 steps, 68 with exit code 0 and the select rounds 0 and 1 of 4b with code 3, which the select loop
+  expects; the frozen check passed after every step and the final check after 4e. Trial lines 739 to 1124 (386 records)
+  all carry 481cb8c and name no test gonad. Step 3: `manifest_entry17.json` again (sha256 13c967e6...), the cache of
+  n2rad51_HS_male_002 verified and its golden reproduction identical. 4a: the recipe check bit for bit. 4b: the 55 D3
+  sets on the four gonads of `$NEW` (those of the nine-fold run equal to their nine-fold scores) and two fill rounds
+  with the same 17 stage-B and 13 stage-C sets as before; the candidate cap was reached in 55 tuning runs, the pattern
+  of entry 16 (b), and in no held-out run.
+* **The tuned log.** The designated selection is again logA_d0.5_s2 (val objective 0.926), the set of
+  `log_tuned_entry9.json`, so no `log_tuned_10folds.json` was written and the frozen tuned log stays what it was, in
+  effect the log defaults. Six folds select logA_d0.5_s2; the four that hold out a gonad without heat shock select
+  logB_d0.5_s2_k0.5_g3_m0 (z merge off; three folds) or logB_d0.5_s2_k0.5_g2_m1 (pre-gate 2; the fold of
+  n2rad51_noHS_male_000), because an SNR-1.75 set enters their five finalists on the train objective and pushes
+  logA_d0.5_s2 out (three folds) or logB_d0.5_s2_k0.5_g3_m0 out (the fold of n2rad51_noHS_male_000, where logA_d0.5_s2
+  was no finalist in entry 15 either; entry 19 (c)(3)). So "tuned log" (the fold procedure) and "log defaults" (the
+  frozen set) differ in those four folds, by less than 0.01 in a fold's truth-mask CCC.
+* **net3d.** Ten fold models (`$G/models/net3d_logo_10folds/`), each trained by the frozen recipe on the other nine
+  gonads, and the train-plus-val model `$G/models/net3d_trainval_10folds/model.pt` (sha256 039a5b32...; trained at
+  481cb8c on the ten train and val gonads, n2rad51_HS_male_002 eighth), which
+  `final_params/net3d_trainval_10folds.json` (sha256 3efb7d9d...) names. It was not scored: every gonad with usable
+  spot truth outside the test set trained it.
+
+**Truth-mask CCC [95 percent interval] and bias in foci per truth nucleus**, pooled (in the last column, entry 15's
+CCC on the same nine folds in parentheses):
+
+| detector | all ten folds | six registered folds | four heat-shocked males | entry 15's nine folds (entry 15) |
+|---|---|---|---|---|
+| net3d | 0.834 [0.569, 0.943], +2.12 | 0.411 [0.216, 0.909], +2.19 | 0.639 [0.412, 0.851], +1.98 | 0.798 [0.471, 0.947], +2.00 (0.876) |
+| tuned log | 0.905 [0.812, 0.948], +0.43 | 0.773 [0.616, 0.919], +1.35 | 0.653 [0.333, 0.875], -1.44 | 0.891 [0.773, 0.949], +0.49 (0.891) |
+| log defaults | 0.906 [0.814, 0.948], +0.42 | 0.777 [0.623, 0.920], +1.33 | as the tuned log | 0.891 [0.777, 0.949], +0.47 (0.891) |
+| SpotMAX deployed | 0.745 [0.475, 0.850], +0.56 | 0.601 [0.499, 0.718], +2.66 | 0.384 [0.143, 0.665], -3.72 | 0.694 [0.437, 0.826], +0.80 (0.694) |
+| grid selection | 0.298 [0.110, 0.643], -3.76 | 0.684 [0.551, 0.788], +0.72 | 0.075 [0.012, 0.191], -12.87 | 0.285 [0.077, 0.687], -2.81 (0.285) |
+
+**F1 inside R (protocol section 5.2) [95 percent interval]**, pooled (in the last column, entry 15's value in
+parentheses):
+
+| detector | all ten folds | six registered folds | four heat-shocked males | entry 15's nine folds (entry 15) |
+|---|---|---|---|---|
+| net3d | 0.803 [0.678, 0.865] | 0.676 [0.502, 0.880] | 0.858 [0.839, 0.876] | 0.788 [0.654, 0.868] (0.822) |
+| tuned log | 0.788 [0.755, 0.825] | 0.784 [0.723, 0.859] | 0.790 [0.753, 0.828] | 0.778 [0.743, 0.821] (0.778) |
+| log defaults | 0.789 [0.756, 0.825] | 0.786 [0.726, 0.859] | as the tuned log | 0.778 [0.744, 0.821] (0.778) |
+| SpotMAX deployed | 0.469 [0.404, 0.560] | 0.614 [0.543, 0.661] | 0.392 [0.344, 0.431] | 0.482 [0.403, 0.595] (0.482) |
+| grid selection | 0.381 [0.285, 0.523] | 0.603 [0.512, 0.655] | 0.255 [0.194, 0.314] | 0.403 [0.281, 0.580] (0.403) |
+
+* **The new fold, n2rad51_HS_male_002** (82 truth nuclei, 22.30 truth foci per truth nucleus, the densest gonad of
+  the set): truth-mask CCC 0.378 for net3d (25.84 foci per truth nucleus detected), 0.369 for the tuned log (22.11),
+  0.175 for SpotMAX deployed (20.17) and 0.026 for the grid selection (7.88).
+* **net3d on the registered folds** drops from 0.618 (entry 15) to 0.411. The fold that holds out n2rad51_HS_herm_000
+  now counts 16.36 foci per truth nucleus where the truth has 4.06 (entry 15: 12.18), the one that holds out
+  n2rad51_noHS_male_000 6.46 where it has 3.55 (entry 15: 4.67), and the one that holds out n2rad51_HS_herm_001 0.98
+  where it has 1.71 (entry 15: 1.46). The only input that differs for those fold models is n2rad51_HS_male_002 in their
+  training sets and the order it shifts (entry 19 (c)(2)); why it moves them so is not tested.
+* **What is frozen for test scoring** (entry 18 (c)(4), (D9); docs/FINAL_SCORING.md section 2, the table of entry 19):
+  net3d `net3d_trainval_10folds.json`, the tuned log `log_tuned_entry9.json`, SpotMAX deployed and the grid selection
+  unchanged. Whether and when to score is the project lead's (decision 1): no test gonad is scored until he says
+  "score now".
+
 ### The revision plan (commands, order, compute)
 
 Steps 1 and 1b were run at the commits they name. Run the rest from a clean checkout of a commit that holds
@@ -2293,6 +2436,23 @@ python scripts/bench_reproduce_golden.py --manifest $B/manifest_entry9.json --ta
    entry 11, and n2rad51_HS_male_002 once its re-export is usable), then `$USE`: nine folds now, ten with the
    re-export. The folds, the D3 replay and the net3d folds follow the manifest by themselves.
 
+   Entry 17 (2026-10-13): the re-export arrived and entered by that path (the split record, its two pins and the
+   changelog in one commit). Its spot truth no longer follows the split's region-growing flag alone: every manifest
+   excludes it unless `--reexports-truth-root` names the folder of its own truth export (never
+   `$G/imaris_truth/n2rad51_HS_male_002`, the export of the superseded project), and then
+   `benchmark_split.reexport_spot_truth_usable` decides (region growing off and its 13,972 spots and 82 surfaces in the
+   truth params, the frame check, section 4.4 at least 0.9935 by `--truth-check`). The ten-fold manifest goes next to
+   `manifest_entry9.json` under a file name of its own (`manifest_entry9.json` keeps its bytes), and its equality
+   check against `manifest.json` leaves out, for n2rad51_HS_male_002, `ims_record`, `notes`, `reexport`,
+   `registered_truth_dir`, `truth_dir`, `truth`, `truth_complete`, `spot_truth_usable`, `spot_truth_reason` and
+   `section_4_4`, and the top-level `reexports`. The ten-fold rerun waits for the checks of entry 17 (j) and runs only
+   if they pass.
+
+   Entry 18 (2026-10-13): the checks passed, and `C:/Users/ryane/germquant_golden/run_revision_10folds.ps1` runs the
+   ten-fold rerun (section "Entry 18"): `$M` is `$B/manifest_entry17.json`, written again with the re-export's 4.4
+   table, `$E` is `$B/entry17/revision_10folds`, `$NEW` is n2rad51_HS_male_000, n2rad51_HS_male_002 and the two
+   additions, the search label is `10folds_log`, and the model and parameter files end in `_10folds`.
+
 ```powershell
 $M = "$B/manifest_entry9.json"
 $USE = python -c "import json; [print(e['tag']) for e in json.load(open('$M'))['gonads'] if e.get('addition') and e['spot_truth_usable']]"
@@ -2348,6 +2508,8 @@ launcher logs an estimate per step; the GPU-bound part is about 3 to 4 h (the pi
 about 5 min, the nine fold models and the train-plus-val model 45 to 75 min). As run (entry 15): 5.75 h from start to
 end, of which 36 min waiting for the queue ahead and about 55 min waiting for the GPU lock in step 2; the pipeline 25
 to 29 min per addition, the log sets 1.3 h, the nine fold models and the train-plus-val model 36 min.
+With ten folds (entry 18): about 3 h (2.5 to 4 h) from start to end, about 45 min of it on the GPU; no step 2, and step
+3 for the new fold only (minutes).
 
 ### Results of the revision (2026-10-12; protocol changelog entry 15)
 

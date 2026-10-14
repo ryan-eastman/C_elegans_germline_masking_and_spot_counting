@@ -26,12 +26,17 @@ ROLES_SHA256 = "32e2ee0b4a0dc193fe941b995449447d11004a377289e5ce8e3eda5af5ddec00
 # (g)(8)): these historical digests are pinned here, and the roles are checked live (protocol changelog entry 12)
 SPLIT_AT_ENTRY_9 = ("955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f",
                     "989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85")
+# the split file since the re-export of n2rad51_HS_male_002 (protocol changelog entry 17; CRLF and LF): the live pins
+# of benchmark_split must equal these, so a change of the pins alone, or of the file alone, fails here
+SPLIT_AT_ENTRY_17 = ("01b95dd21488eae8c7f615ce61201ce6b955b2725846ab9d221dfb93c9dc4d7d",
+                     "edb022392fbfb8d33eee5eb64fdb6cd22421c4cec6bc25768f708060aa3302d7")
 MALES =["n2rad51_20260105a_HS_male_001", "n2rad51_20260105a_HS_male_002", "n2rad51_20260105a_HS_male_003"]
 HS1 = "n2rad51_20260105b_HS_male_001"
 
 
 def test_registered_split_is_unchanged_and_its_roles_pinned():
     data = SPLIT.read_bytes()
+    assert (bs.REGISTERED_SPLIT_SHA256, bs.REGISTERED_SPLIT_SHA256_LF) == SPLIT_AT_ENTRY_17
     assert (hashlib.sha256(data).hexdigest() == bs.REGISTERED_SPLIT_SHA256
             or bs.lf_sha256(data) == bs.REGISTERED_SPLIT_SHA256_LF)
     assert bs.split_file_unchanged(SPLIT)

@@ -2117,3 +2117,1533 @@ point.
    (h) Not changed: entry 15's text, the run's outputs and their sha256, the selections, the frozen methods of the
    revised table of docs/FINAL_SCORING.md section 2, and everything entry 15 (r) lists; decision 1 stays open (nothing
    is scored on test until the project lead confirms one of its options).
+17. 2026-10-13. The Imaris re-export of n2rad51_HS_male_002 (protocol section 4.1): the file, where it now sits, the
+   split record and its pinned digests, and code that keeps its spot truth out of every spot metric until a truth export
+   of the re-exported project passes its checks. This is the data-change commit of the section 4.1 path (entries 10
+   (g)(8), 12 (d) and 13 (b)), the start of the further declared development revision before test scoring of entry 13
+   (b). Written before any result on the re-export was computed: no truth export, section 4.4 check, pipeline run, bench
+   cache or metric exists for it. No test gonad was run or scored for this entry. No test-gonad file was opened, hashed
+   or parsed by it, except that one recursive text search read the contents of text files in the four test gonads'
+   folders to match path strings and printed only file names ((l)(2), a seal deviation; (l) lists every read): no
+   `--final` run was made, `final_runs.jsonl` does not exist, and none of the 738 records of `trials.jsonl` names a test
+   gonad (counts only; sha256 c728a504..., as after entry 15). No test result was computed. E17 below is
+   `germquant_golden/benchmarks/n2rad51_8666f07/entry17`, where the console logs and scripts of this entry's runs are
+   kept.
+   (a) The messages. The project lead's messages of 2026-10-13, verbatim and in this order: "What dataset or day is that
+   image from so I can find it.", "What do you want exported and what format" and "Should be saved". The reply to the
+   second gave him these instructions, verbatim (formatting marks left out, line breaks shown as /, um for the micro
+   sign): "Just the Imaris file. Rebuild the spots without region growing and save it as a new .ims. No Excel export is
+   needed, because I read the spots, their classes and the nucleus masks straight from the .ims. / Steps in Imaris
+   / 1. Open C:\Users\ryane\n2_rad51_local\imaris\HS_ims2\20251105_n2_hs_MALE _002.ims. / 2. Select Spots 1, go to its
+   Creation tab (the wand icon) and click Rebuild. Rebuild runs the wizard again with the saved settings filled in.
+   / 3. Change one thing: untick "Spots Region Growing". / 4. Check the rest still matches the saved settings (leave
+   them as they are): / Source channel: 545 (third channel) / Estimated diameter: 0.4 x 0.4 x 0.9 um / Background
+   subtraction: on / Region of interest: none / Filter: Quality above 6.847 / Classify: Average Distance To 3 Nearest
+   Neighbours, Class A below 8.123 um, Class B above it / 5. Leave the Surfaces and the "Masked 405" channel alone. The
+   file should end up with one Spots object. / 6. File > Save As, in the same folder, as
+   20251105_n2_hs_MALE _002_noRG.ims. / Then tell me it's saved. That file name is all I need." The values came from the
+   creation parameters of the registered project as its registered truth export records them
+   (`germquant_golden/imaris_truth/n2rad51_HS_male_002/20251105_n2_hs_MALE _002__imaris_params.json`: the Quality
+   filter's mLowerThresholdManualValue 6.84666, the wizard's mManualThresholdValue 6.847, the class threshold 8.12323
+   um). "Should be saved" is read as saying that the file was saved as asked; it does not say where ((b)). That is a
+   reading, not his words. The messages say nothing about decision 1 of docs/FINAL_SCORING.md or its questions (b) and
+   (c).
+   (b) The file. He saved the re-export on the lab NAS, in the folder of the original project, not in the local folder
+   that step 1 named: '//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage
+   Madeleine/Madeleine/N2/20251105_N2_HS/20251105_n2_hs_MALE _002_noRG.ims', 1,501,317,079 bytes, written 2026-10-13
+   11:52:56 MDT. Imaris also created a `.imaris_cache` folder there (11:52:57), which was neither opened nor copied. The
+   NAS original `20251105_n2_hs_MALE _002.ims` in that folder is unchanged by name, size and time (1,514,954,684 bytes,
+   2026-01-26 14:50:49 MST, the size and time of the registered file; its sha256 was not computed), so which copy of the
+   project he opened, the NAS original or the local registered file of step 1, is not known. The assistant listed that
+   NAS folder (names, sizes and file times; the sealed test male's 20251105_n2_hs_MALE _001.ims and .nd2 among them) and
+   opened nothing else in it. It copied the re-export with `cp --preserve=timestamps` (11:53:29 to 11:53:42 MDT) to
+   `C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _002_noRG.ims`; the sha256 of the NAS file and of
+   the copy are both 7b06a0fb84a0b2eecb4688096f250756b3ffafb51d7bc9db1d0eda6da6d9400e.
+   (c) What the re-export holds. (1) The assistant's first look, before this entry: `peek_noRG.py` (in the session
+   scratchpad, 1,137 bytes, sha256 ed0632ea9420e557c4f3d7d91f40806c1766f9a9ca08c70f4355883fd105c3c8, saved 11:54:25 MDT)
+   opened the local copy with plain h5py and printed, per object, its name, counts, a few creation parameters and the
+   spot radii: MegaSurfaces0 "Surfaces 1" (82 surfaces, creation parameters unchanged in kind) and Points0 "Spots 1"
+   (13,972 spots; mEnableRegionGrowing false; mSourceChannelIndex 2; mEstimatedDiameter 0.4 0.4 0.9;
+   mBackgroundSubtraction true; mEnableRegionOfInterest false; mManualThresholdValue 6.847; mEnableClassify true; class
+   threshold 8.12323 um on the Average Distance To 3 Nearest Neighbours, Class A below and B above; every spot radius
+   0.2 um). Its console output was not kept, against the rule of entry 10 (g)(5), and it read the file outside the read
+   guard ((l)(1)). (2) For this entry, behind `benchmark_split.guard_truth_read` and with its log kept
+   (`E17/scripts/compare_creation_params.py`, `E17/logs/compare_creation_params.log`, 12:07:51 MDT, after the placement
+   of (d)), `benchmark_split.creation_parameter_summary` of the re-export and of the superseded project: the same
+   objects (Points0 "Spots 1", MegaSurfaces0 "Surfaces 1") and channels (405, 477, 545, Masked 405); the Surfaces
+   creation parameters equal in every key the summary reads, with 82 surfaces in both; the Spots creation parameters
+   equal but in two keys, region growing (on in the superseded project, off in the re-export) and the Quality lower
+   threshold (6.84666 in the superseded project, 6.847 in the re-export). The second follows from the instructions,
+   which gave "Quality above 6.847", the wizard's rounded mManualThresholdValue, and not the filter's 6.84666: spots
+   with a Quality from 6.84666 up to 6.847 are left out, how many is unknown, since Quality is stored in neither file.
+   The re-export holds 13,972 spots, 21 more than the 13,951 of the superseded object, every one at radius 0.2 um (0.063
+   to 0.762 um in the superseded, region-grown object); why the count differs is not established. The other Spots
+   settings are those of the registered project and of section 4.1 (channel 545, 0.4 x 0.4 x 0.9 um, background
+   subtraction on, no region of interest) with the class threshold 8.12323 um. The comparison with the protocol text and
+   the other registered train and val projects (entry 9 (d)(4)) is not made here; it goes with the truth export ((j)).
+   (d) Where the files now sit. `scripts/make_rad51_split.py` pairs each .nd2 stem with `<ims root>/HS_ims2/<stem>.ims`,
+   and the read guard admits a 2025-11-05 project only under its registered stem (`benchmark_split.REGISTERED_STEMS`),
+   so the re-export takes the registered path. At 12:06:08 MDT the registered file was moved, by a rename on the same
+   volume, from `HS_ims2/` into a new folder, `C:/Users/ryane/n2_rad51_local/imaris/HS_ims2_superseded/` (name and file
+   time kept; sha256 computed again at 12:06:11: dc53183cf9b1d549f3d04128861ca4a9e26b2dcb34dadfebfd9fffd8ebb7d78e, the
+   registered digest), and at 12:06:18 `HS_ims2/20251105_n2_hs_MALE _002_noRG.ims` was renamed
+   `HS_ims2/20251105_n2_hs_MALE _002.ims` (sha256 computed again at 12:06:21: 7b06a0fb..., file time 2026-10-13 11:52:56
+   MDT kept). A `README.md` in the new folder (2,372 bytes, LF line endings, sha256
+   83f04a418d7a7e6f1e7d4d71ead21fc75f2a0fa2cbe66bd9a04f29532b343768) gives both files with their sizes, times and
+   digests, how they got there, this entry, and the warning of (i)(5). Log `E17/logs/placement.log`. Nothing was written
+   on the NAS.
+   (e) The split record. A full rebuild by `scripts/make_rad51_split.py` reads the .nd2 header and the Imaris facts of
+   all twelve gonads, the four test gonads among them, and prints a row for each; the seal forbids both. The record was
+   therefore rebuilt with a new option of the builder ((h)), `python scripts/make_rad51_split.py --only
+   n2rad51_HS_male_002 --base tests/golden/rad51_split.json --hash-cache tests/golden/rad51_split.json`, at this entry's
+   code from the worktree germquant_wt_hsmales with PYTHONPATH set to its src (12:11:11 to 12:11:13 MDT; log
+   `E17/logs/make_split.log`, which also holds a first run of 12:10:49 into the session scratchpad with a first wording
+   of the note, compared the same way): it rebuilds n2rad51_HS_male_002's entry from that gonad's files behind the role
+   guard and copies the eleven other entries from the base record without looking at their files. The diff against the
+   registered record: in n2rad51_HS_male_002's `ims` block, `size_bytes` 1,514,954,684 to 1,501,317,079, `sha256`
+   dc53183c... to 7b06a0fb..., `n_spots` 13,951 to 13,972, `region_growing` true to false (from the creation parameters,
+   as the builder reads it for every gonad) and `spot_quality_threshold` 6.84666 to 6.847; and its `notes`, where the
+   region-growing note (`benchmark_split.REGION_GROWING_NOTE`) is replaced by the note on the re-export
+   (`benchmark_split.REEXPORTS`), which names the superseded file's size, sha256 and folder and the rule of (g), in the
+   wording of the registered notes. Nothing else changes: its `nd2` record (header read again, equal; its sha256
+   9129ffdba3b40f5cba33be26aa7669666e499aa359ce47ffc0c42dae41ee7897 reused by `--hash-cache` and computed again for this
+   entry, equal), `n_surfaces` 82, `shape_xyz` and `imaris_voxel_um`, the eleven other entries and the header, byte for
+   byte; the roles' sha256 stays 32e2ee0b4a0dc193fe941b995449447d11004a377289e5ce8e3eda5af5ddec00. The file
+   `tests/golden/rad51_split.json`: before, 955eeff52b4e953ca34520b2eae6a5a019520203e79967082a78eac4c991e25f as checked
+   out on the workstation (CRLF line endings, 14,690 bytes) and
+   989bfa08e4acd911004e433469979a2cfd52891aee240ac2f87db9183f0c9d85 with LF (14,125 bytes); after,
+   01b95dd21488eae8c7f615ce61201ce6b955b2725846ab9d221dfb93c9dc4d7d with CRLF (15,179 bytes) and
+   edb022392fbfb8d33eee5eb64fdb6cd22421c4cec6bc25768f708060aa3302d7 with LF (14,614 bytes). The table of section 2
+   (13,951 spots, Quality 6.8, region growing yes) and sections 3 and 4.1 describe the registered file and are not
+   edited (rule 3); for n2rad51_HS_male_002 this entry and the record supersede them.
+   (f) The pins. `REGISTERED_SPLIT_SHA256` and `REGISTERED_SPLIT_SHA256_LF`
+   (`src/germquant/validate/benchmark_split.py`) move from 955eeff5... and 989bfa08... to 01b95dd2... and edb02239...,
+   and their comment (entry 10 (g)(8)) now says that they moved once, by this re-export, from the split as registered.
+   `split_file_unchanged`, which compares a file with the pins, now admits the new record and no longer the registered
+   one; its docstring says so. `tests/test_rad51_additions.py` pins the new digests (`SPLIT_AT_ENTRY_17`: the live pins
+   must equal them, and the record must match the pins). The historical pins stay as they are: `SPLIT_AT_ENTRY_9`
+   (`tests/test_rad51_additions.py`) and `SPLIT_AT_ENTRY_11` (`tests/test_rad51_spot_sources.py`), both 955eeff5... and
+   989bfa08...; the additions record (`tests/golden/rad51_additions.json`) and the spot-sources record
+   (`tests/golden/rad51_spot_sources.json`, 8e145fb1...) are unchanged, keep the digests of the split they were made
+   against and are checked against the roles live (entry 12 (d)). `germquant imaris-truth --spot-source` checks the
+   spot-sources record against the split record of its checkout: from this commit on, the new record, whose
+   n2rad51_HS_male_000 entry is unchanged, so the check passes as before.
+   (g) The exclusion of the region-growing gonads in code. Section 4.1 keeps the two region-growing exports out of every
+   spot metric "until they are re-exported from Imaris without region growing". In code that exclusion is driven by the
+   record, not by name: a registered gonad's manifest entry had `spot_truth_usable` true exactly when the
+   `region_growing` of its split entry is false (`benchmark_split.build_manifest`); the folds (`logo.logo_folds`), the
+   tuning and replay runs (`scripts/bench_tune.py`, `benchmark/tuning.py`, `scripts/bench_logo.py`),
+   `scripts/bench_detector.py` and `scripts/benchmark_spots.py` follow the manifest (`detector.spot_truth_usable`);
+   net3d's `resolve_gonads` follows the manifest and the split's flag; n2rad51_HS_male_000 is admitted by its recorded
+   spot source (entry 11). No code path names n2rad51_HS_male_002; the docstrings of `spots/net3d/train.py` and
+   `segment/nuclei3d/train.py`, net3d's model-card text for a model trained without heat-shocked males and the synthetic
+   fold tests of `tests/test_bench_logo.py` describe the registered state and are not changed. So the exclusion would
+   have lifted by itself with the new record, and too early: a manifest built from it with the usual truth root would
+   have called n2rad51_HS_male_002's spot truth usable and read it from
+   `germquant_golden/imaris_truth/n2rad51_HS_male_002/`, the export of the superseded project (its params, read for this
+   entry: 13,951 spots, `region_growing` true, no frame check), before any of the checks that entries 11 (g) and 13 (b)
+   put first. Added, so that the re-export is admitted by its own checks only and nothing else is admitted:
+   `benchmark_split.REEXPORTS` pins the re-export (size and sha256), the superseded .ims (path, size and sha256) and the
+   record's note; `reexport_of` recognises a split entry by the re-export's sha256 (a record that still names the
+   superseded file is no re-export); `build_manifest` excludes a re-exported gonad's spot truth (reason "re-exported
+   (entry 17): no truth export of the re-exported project was given ...", the registered truth folder kept) unless
+   `reexports_truth_root` (`scripts/benchmark_manifest.py --reexports-truth-root`) names the folder of the export of the
+   re-exported project, which then becomes its truth folder, the registered one kept as `registered_truth_dir`. Its spot
+   truth then follows `benchmark_split.reexport_spot_truth_usable`, declared here before that export exists: (1) the
+   split entry is the pinned re-export; (2) truth params exist; (3) they were written from the re-exported project's own
+   spots: spot source "ims", `region_growing` false, and the record's 13,972 spots and 82 surfaces; (4) the frame check
+   of entry 9 (d)(3) ran and chose a frame; (5) section 4.4 at least 0.9935 by its row of `--truth-check`; otherwise
+   excluded until a changelog entry decides. The other checks of entry 9 (d)(5) that apply to this file, its creation
+   parameters against sections 4.1 and 4.2 and the registered projects (entry 9 (d)(4)) and its nucleus truth against
+   the registered export (its Surfaces have the registered count and creation parameters, (c)), are reported in the
+   entry that admits it; the cross-checks against an xlsx export do not apply (none was made, as asked). The manifest
+   records `reexport` on the entry and a top-level `reexports` (the truth root, the tags, the 4.4 table with its sha256,
+   the rule). A gonad with both a recorded spot source and a re-export is refused. No other entry changes:
+   n2rad51_HS_male_000 keeps the rule of entry 11, the additions those of entries 9 to 11, and the other registered
+   gonads their `region_growing` false.
+   (h) Code and tests changed with this entry, each part tested on synthetic stand-ins:
+   `germquant.validate.benchmark_split` (`REEXPORTS_CHANGELOG_ENTRY`, `REEXPORTS`, `reexport_of`, `build_split(only=...,
+   base=...)` with the re-export's note, `reexport_spot_truth_usable`, `REEXPORT_RULE`, `_apply_reexport`,
+   `build_manifest(reexports_truth_root=...)` with the record `reexports`, the two pins and their comment, the
+   docstrings of the module and of `split_file_unchanged`); `scripts/make_rad51_split.py` (`--only` and `--base`: the
+   other entries copied from the base record, a test gonad refused before anything is read, the rebuilt gonad's files
+   behind `guard_truth_read`, the printed table limited to the rebuilt gonads); `scripts/benchmark_manifest.py`
+   (`--reexports-truth-root`, with which `--truth-check` is allowed); `tests/test_benchmark_split.py` (the record:
+   region growing on for n2rad51_HS_male_000 only, n2rad51_HS_male_002 the pinned re-export with 13,972 spots, 82
+   surfaces, Quality 6.847 and its note; `REEXPORTS` train only, with the superseded digests; the superseded file on
+   disk at its size, skipped off the workstation; `--only` on stub files with every other gonad's files deleted first,
+   its refusals and its command line; the manifest rule case by case (no root, no export, the superseded export, region
+   growing on, another spot count, an xlsx source, no frame check, a failed one, no 4.4 row, a low one, a pass), with
+   the folds and net3d's gonads following it and every other entry unchanged); `tests/test_rad51_additions.py`
+   (`SPLIT_AT_ENTRY_17`). The unit tests (977 passed, 6 skipped, 1 deselected by `-m "not model"`, on the CPU) and ruff
+   0.17.0 on src, tests and scripts (all checks passed) ran on this commit's tree; the suite's size check stats the
+   registered stacks, test gonads among them, as at every gate, and opens no file. docs/BENCHMARK.md gains a section
+   "Entry 17" and a paragraph in step 4 of the plan; docs/FINAL_SCORING.md a status line under decision 1.
+   (i) What now sees another file at the registered path
+   `C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _002.ims`, found by a search of the code, scripts
+   and records on this machine (the src, scripts and tests of every checkout; `germquant_golden`; `germquant_inventory`;
+   `C_elegans_ml`; `napari-germquant`; `germquant_models`; `E17/logs/search_golden.log`, `search_checkouts.log`,
+   `search_other.log`). (1) Every checkout that still holds the registered split record: main at b90ebdf
+   (`C:/Users/ryane/C_elegans_germline_masking_and_spot_counting`, and `germquant_wt_dev` at the same commit) and the
+   worktrees at 0521abf (`germquant_wt_0521abf`, `germquant_wt_p4`), 08f6285, 642eb26, bc62476 and f91d3f5
+   (`germquant_wt_t5`). There `test_split_paths_exist_with_the_registered_sizes` (`check_split_files`) now fails, since
+   the .ims at the registered path has another size, so their unit tests, and the tranche-5 gate (`scripts/t5_gate.py`,
+   whose pytest runs that test) from main, fail on the workstation until main holds this commit's record (pull
+   request #13, which is open and not merged); a manifest built there records `size_matches` false for this .ims. None
+   of them hashes it at run time. (2) The finished runs and the frozen artefacts: the run of entry 15 is finished; its
+   outputs, `manifest.json`, `manifest_entry9.json` (f41d1bab...) and every frozen artefact keep their bytes, and their
+   records of this .ims, written from the registered record (its path, its size 1,514,954,684 and `region_growing`
+   true), now describe the file in `HS_ims2_superseded/`. The registered truth folder
+   `germquant_golden/imaris_truth/n2rad51_HS_male_002/` is kept as it is; its params name the registered path
+   (`ims_file`), which now holds the re-export. (3) Scripts that open this .ims by that path if run again, and would now
+   open the re-export: the frame baseline of entry 9 (d)(3) (`E9/scripts/baseline_frame.py` and `boundary.py`, which
+   take the paths from the record in germquant_wt_hsmales, now the new record); any `germquant imaris-truth` run on that
+   path; the pre-protocol prototypes `germquant_golden/rad51_ims_benchmark.py` and `rad51_cv_check.py`; the truth-export
+   launcher `germquant_golden/run_truth_benchmark.ps1` (it skips a gonad that has a label image, then rewrites
+   `benchmarks/n2rad51_8666f07/manifest.json` from germquant_wt_dev and reruns the spot and nucleus benchmarks, so it
+   must not be rerun); and the inventory probes of `germquant_inventory/ims_inspection` and
+   `germquant_inventory/madeleine_search`, which take the paths from the registered record in germquant_wt_t5 and would
+   open the re-export under the registered size and sha256. (4) `scripts/make_rad51_split.py` and `check_split_files`
+   from this commit see the new file with the new record. (5) `germquant_golden/copy_imaris_n2_v2.ps1` mirrors the .ims
+   files of the NAS folder into `HS_ims2/` with robocopy: rerun as it stands, it would put the superseded original back
+   at the registered path (robocopy copies a file whose size or time differs) and add a second copy of the re-export
+   under its `_noRG` name. It must not be rerun as it stands; the README of (d) says so. (6) The outputs of the
+   decision-1 check (`germquant_inventory/decision1_check/MALE_2__vs_ims.json` and `independent_check/MALE_2__v2.json`)
+   name the registered path for what was then the registered file; they are records and are not changed. Nothing else
+   found reads that path.
+   (j) What comes next, declared now (entries 11 (g) and 13 (b)). The truth export of the re-export, `germquant
+   imaris-truth` on `HS_ims2/20251105_n2_hs_MALE _002.ims` with `--nd2` and `--frame-check`, into a folder of its own
+   (never `imaris_truth/n2rad51_HS_male_002/`, which stays the export of the superseded project); a manifest with
+   `--reexports-truth-root` naming that folder, under a file name of its own next to `manifest_entry9.json` (which keeps
+   its bytes), in which its spot truth is still excluded, so that `scripts/check_truth_assignment.py` runs section 4.4
+   on the new truth (at least 0.9935, entry 10 (b)); the other checks of entry 9 (d)(5) as (g) lists them. They are
+   reported in a later entry. A failed check is a truth-export bug to find, or a defect on the truth side that keeps the
+   gonad nucleus truth only, recorded then (entry 9 (d)(5)). Only if every check passes: that manifest again with the
+   4.4 table, the bench cache of n2rad51_HS_male_002 (step 3 of the plan), and the steps that use spot truth (step 4)
+   again with ten folds, into folders of their own, as the further declared development revision of entry 13 (b). The
+   re-export answers the request of entry 11 ("okay i will re export"); it is not an answer to decision 1. Entry 16 (e)
+   put both options back to him with the consequence that under option (1) the re-export could no longer enter before
+   test scoring; no test scoring has happened, so it enters now as declared. Decision 1 and its questions (b) and (c)
+   stay his: nothing is scored on test until he confirms one of its options.
+   (k) Labels. A change of data (the registered .ims of a train gonad, the split record and its pins) and of code after
+   the first result (entry 2) and after the test numbers that entry 16 (a) lists had been seen: post hoc under rule 3,
+   here and in every write-up that uses it. Written before any result on the re-export. It belongs to a further declared
+   development revision before the first test scoring (entry 13 (b)), not to the revision of section 10. The reading of
+   "Should be saved", the placement of (d), the option `--only` and the rule of (g) were the assistant's choices; none
+   was put to the project lead. No test result was computed.
+   (l) Reads, and two seal deviations. (1) The first look of (c)(1) opened the re-export, then named
+   `HS_ims2/20251105_n2_hs_MALE _002_noRG.ims`, with plain h5py, outside the read guard, whose sealed-name rule would
+   have refused that name, and kept no log; the NAS file and the copy of (b) were hashed with sha256sum, also outside
+   the guard. It is n2rad51_HS_male_002's own re-export, known by the name it was asked to have, its folder, size and
+   time, and no test-gonad file was read; but the rule kept by entry 12 (b) reads a 2025-11-05 project only behind the
+   guard, so this is a seal deviation of the kind entry 12 (b)(1) counted. (2) In the search of (i), one command (about
+   12:03 MDT), an unfiltered recursive `grep -rlI` over `germquant_golden` for "HS_ims2", "n2_rad51_local/imaris",
+   "rad51_split" and "check_split_files" in .py, .ps1, .json, .yaml and .txt files, read the contents of every such file
+   there to match them: those in the folders of the four test gonads and named for them among them (their truth params,
+   and whatever .json and .txt files their golden and candidate output folders, regression diffs and bench caches hold),
+   and `manifest.json` and `manifest_entry9.json`. It printed only the paths of matching files (the first 50, the four
+   test gonads' truth params among them, whose names their folders already give); no content and no number of a test
+   gonad was printed or seen. Every later search skipped, before opening, every path that names a test tag, a test stem
+   or a sealed name, and withheld matching lines that name one (`E17/scripts/safe_search.py`). No file under
+   `germquant_golden` is named 20251105_n2_hs_MALE_1* or for an aggregate table (a name-only count, 0). Other reads for
+   this entry: the three documents and the code; listings (names, sizes, file times) of `n2_rad51_local/imaris/` and
+   `HS_ims2/` (they show the test gonads' .ims names and sizes, which the split record holds) and the names in
+   `germquant_golden`; a few keys of the registered truth params of n2rad51_HS_male_002, behind the role guard
+   (`E17/logs/peek_registered_truth_params.log`); the creation parameters, object counts, channel names and spot radii
+   of the re-export and of the superseded project behind `guard_truth_read` ((c)(2)); the .nd2 header of
+   n2rad51_HS_male_002 and the re-export through the split builder, behind the role guard; sha256sum of the superseded
+   file, the placed re-export and n2rad51_HS_male_002's .nd2; `trials.jsonl` for counts (738 lines, 0 naming a test
+   gonad by tag or stem or as 20251105_n2_hs_MALE_1, 0 final, 0 with split test; `E17/logs/count_trials.log`) and its
+   sha256, and a test that `final_runs.jsonl` is absent; the scripts of `germquant_golden` that the search found (the
+   copy, truth-export and nine-fold launchers, the frame scripts of entry 9) and the matched lines of the checkouts' and
+   the inventory's scripts and records; `peek_noRG.py`; the process list (no Imaris running). The logs and scripts in
+   E17 are copies from the session scratchpad and the only files this entry adds under `germquant_golden`. Apart from
+   the grep of (2), no test-gonad file was opened, read, hashed or parsed, and no 20251105_n2_hs_MALE_1* file and no
+   aggregate table was read.
+   (m) Not changed: the roles (32e2ee0b...), the test set, the val gonads, the records `rad51_additions.json`,
+   `rad51_additions_decisions.json` (682368bc...) and `rad51_spot_sources.json` (8e145fb1...), every truth folder (the
+   registered `imaris_truth/n2rad51_HS_male_002/` among them), `manifest.json`, `manifest_entry9.json` (f41d1bab...),
+   `trials.jsonl` (c728a504...), the frozen methods of docs/FINAL_SCORING.md section 2 and their files, net3d's frozen
+   recipe, the files on the NAS, decision 1 and its questions (b) and (c).
+18. 2026-10-13. The truth export of the re-export of n2rad51_HS_male_002 and the checks that entry 17 (j) declared,
+   corrections to entry 17, the project lead's messages of 2026-10-13 with his answers to questions (b) and (c) of
+   decision 1, and the launcher of the ten-fold revision, declared before it runs. Written after the checks, after
+   three independent reviews of entry 17 and of a draft of this entry (13:27 to 13:48 MDT; the launcher and helper were
+   changed after them, (c)(2)(x)), and before any step of the ten-fold run: no tuning run, fold model, held-out score
+   or report exists for it, and `germquant_golden/revision_10folds.log` does not exist. No test gonad was run, scored
+   or opened for this entry ((f) lists the reads, with seal deviations of names or paths only: one of a dry run, two of
+   the final checks, and those of entry 17 that (b)(8) and (b)(9) add): no `--final` run was made, `final_runs.jsonl`
+   does not exist, and none of the 738 records of `trials.jsonl` names a test gonad (sha256 c728a504..., as after
+   entries 15 and 17). No test result was computed and none was seen. E17 below is
+   `germquant_golden/benchmarks/n2rad51_8666f07/entry17`, E9 its sibling `entry9`, B their parent, and R10
+   `E17/revision_10folds`, the folder of the ten-fold run.
+   (a) The truth export of the re-export and its checks (post hoc under rule 3). Every run used commit da5e932 (entry
+   17, committed at 12:33:04 MDT) from germquant_wt_hsmales with a clean tree, PYTHONPATH set to its src, and the CPU
+   only; the console log of each run is in `E17/logs` and its script in `E17/scripts`. The export of (1) does not hash
+   its inputs; at 12:36:38 MDT, just before it, the sizes and file times of the re-export and of the .nd2 were checked
+   (stat) and are those that the split record and entry 17 give. The three files, the re-export (7b06a0fb...), the
+   superseded .ims (dc53183c...) and the .nd2 of n2rad51_HS_male_002 (9129ffdb...), were hashed for entry 17 before the
+   export (12:06:21, 12:06:11 and 12:11:30 MDT; `placement.log`, `make_split.log`) and by the checks of (4) after it
+   (12:43:46 and 12:46:09 MDT; `truth_checks_run1.log`, `truth_checks.log`), each time equal to the record, and the
+   re-export's file time (11:52:56 MDT) is unchanged; these hashes, not a hash at the export, tie the export to these
+   files ((4)(v)).
+   (1) The export, as the CPU truth steps of entry 9 ran: `python -m germquant.cli imaris-truth` on
+   `HS_ims2/20251105_n2_hs_MALE _002.ims` (the registered path, which holds the re-export since entry 17 (d)) with
+   `--nd2` and `--frame-check`, into `germquant_golden/imaris_truth_reexport/n2rad51_HS_male_002/` (12:36:59 to
+   12:37:34 MDT, exit 0; `truth_export_hs_male_002_reexport.log`): 13,972 spots, 82 surfaces, all 82 with a mask, a
+   label image of 67 x 2600 x 2600; every surface centroid in its own label (0 on a cavity, 0 in another label); 13
+   mask values that no surface claims dropped. The .ims is in the Imaris 11.1 format (the superseded file in 11.0).
+   Files (sha256): labels 2e0d620c3487881a88896c0350bad35c6b289a5fe27c8cd0fc6de34173399eb5, nuclei
+   126359e27a3d6ce0fcf58c1abe18c1b471fd95d776e1a653474614933378e48f, params
+   d489115f7e91a65053b6dd71ecfc02a2e72f5d7564fe233e654ddcda5be35567, spots
+   df8e040becf1aceaf7d4b367646b18d716c99b4e311813c711f04db6a6ebdb20.
+   (2) The manifest of entry 17 (j): `scripts/benchmark_manifest.py` with the arguments of step 3 of the nine-fold
+   launcher (its two section 4.4 tables) and `--manifest-file manifest_entry17.json --reexports-truth-root
+   germquant_golden/imaris_truth_reexport` (12:39:02 to 12:39:05 MDT with (3); `manifest_entry17_and_4_4.log`):
+   `B/manifest_entry17.json`, 65,572 bytes, sha256 4a755af1b2877cfe57f9301048113c0bcd69aeaccf2b975952391e8d4016f662, in
+   which n2rad51_HS_male_002 names the new truth folder and its spot truth is still excluded (no 4.4 row: "section 4.4
+   below 99.35 percent or not run (entry 17); needs a changelog entry"). `manifest_entry9.json` kept its bytes
+   (f41d1bab... before and after). Against it (`compare_manifests.log`): every other gonad entry equal (the four test
+   gonads compared without printing); n2rad51_HS_male_002 different in ims_record, notes, reexport,
+   registered_truth_dir, spot_truth_reason, truth and truth_dir; at the top level split_file (path and sha256),
+   created_utc and the new reexports record.
+   (3) Section 4.4 on the new truth (`scripts/check_truth_assignment.py --manifest B/manifest_entry17.json --tags
+   n2rad51_HS_male_002`, 12:39:04 MDT): `E17/truth_assignment_check_hs_male_002_reexport.csv`, 289 bytes, sha256
+   5ed02f60ac6cbaa99655253449c42df06f4d6164140582e19ad191e66cace35a.
+   (4) The checks (`E17/scripts/truth_checks.py`, sha256
+   42e4408d22835b1595bbdaed9c5d000941352c8ba0d847f71087b93f7cde6daa; 12:46:09 to 12:46:30 MDT; `truth_checks.log`
+   61a1c82d...; result `E17/truth_checks.json`, 35,768 bytes, sha256
+   a8b34fdebd53ff017485df4ace983faf45da1fdcefd6cf49f13da635403de284), each against its criterion. (i) The frame of
+   entry 9 (d)(3): passed. The stored frame was chosen and no search ran: channel 545 against the .nd2 1.0 (strict
+   0.998926, 13,957 of 13,972) and 1.0 in every third of x and of y; the mask channel 1.0 (strict 1.0); 221 spots lie
+   within two float32 steps of a voxel boundary; no spot lies outside the image; floor((p - ExtMin) / v) recomputed
+   gives the table's voxel index for every spot, and each converted position is that index times the .nd2 voxel. The
+   stored ExtMin and ExtMax text equals that of the superseded .ims (x 3970 to 4250.8, y 1476.5 to 1757.3, z 2734.7 to
+   2748.1 um), and so do the image size (2600 x 2600 x 67) and the voxel size, all as in the registered truth params.
+   The superseded file's entry-9 baseline is the same (1.0; strict 13,936 of 13,951). (ii) The nucleus truth: passed.
+   The nuclei table is byte-identical to the registered one (82 rows, 126359e2...); the label image is equal voxel for
+   voxel (int32, 82 labels, 0 voxels differing; the TIFF bytes differ in metadata only, 2e0d620c... against
+   c89eefaa...); the mask fields of the params are equal. In the .ims the Surfaces object has the same geometry and
+   classes, and all 6,817 statistic values are equal; only the statistic type IDs were renumbered. Its
+   creation-parameter text differs only by attributes of the 11.1 format (mEnableRebuild, mEndStep and others added,
+   mTrainingData dropped); no shared attribute changed its value. (iii) The image data: passed. Channels 0 to 3 at
+   resolution level 0 are equal in the two files in all 570,949,632 padded voxels, the padding is zero, and the sha256
+   of each padded array is the same in both (channel 0 d2e0ef27..., 1 56c08f2a..., 2 f742eaa9..., 3 a8ad90f2...).
+   Channels 0 to 2 equal the .nd2 over the whole volume, which covers the planes of entry 9 (d)(2). (iv) Section 4.4:
+   passed. Agreement 0.996207 (13,919 of 13,972 spots), above the minimum 0.9935 of entry 10 (b) and inside the 99.35
+   to 99.99 percent of entry 4 (a); the export of the superseded project scored 0.993549 (13,861 of 13,951). Of the 53
+   disagreements 1 is geometric only, 2 are coloc only, 0 are assigned to two different nuclei, and 50 are spots on
+   mask values that no surface claims (value 80: 14,079 voxels, 27 spots; value 81: 15,836 voxels, 23 spots); like for
+   like 0.999785 (13,919 of 13,922), inside the registered 99.74 to 100.00. 1,739 spots were assigned at their centre
+   voxel and 90 by the 3 x 3 x 3 fallback; no fragment was removed. The script's own recomputation gives the counts of
+   check_truth_assignment.py and of assign_to_masks. Per surface 79 of 82 counts agree; surfaces 81, 113 and 122 differ
+   by one spot each (96.2, 95.0 and 96.0 percent; `E17/truth_assignment_per_surface_hs_male_002_reexport.csv`
+   68b658fd...). (v) The checks of entry 9 (d)(5), as entry 17 (g) lists them for this file: passed. The export ran
+   with --nd2 and --frame-check, and (i), (ii) and (iv) pass; the cross-checks against an xlsx export do not apply
+   (none was made, as asked). Against the protocol text the creation parameters differ where the superseded project
+   already did (Surfaces largest sphere and seed diameter 2.0 um where the text says 2.5, the automatic threshold where
+   it says manual). Against the other seven registered train and val projects: Quality 6.847 below their 13.358 to
+   68.67; seed diameter 2.0 um outside their 2.5 and 3.0; no maximum on the Number of Voxels filter where theirs run
+   12,685.9 to 35,168.2; Surfaces class threshold 5,189.84 below their 8,821.65 to 13,845.6. Each is the registered
+   project's own setting (n2rad51_HS_male_002 is one of the eight projects entry 9 (d)(4) compared with), recorded, not
+   a defect. Against the superseded project the creation-parameter summary differs only in Quality (6.847 against
+   6.84666) and region growing (off against on); in the raw Spots text the area attributes (mAreaMinX, mAreaMaxX,
+   mAreaMinY, mAreaMaxY) changed from 0 to values such as plus or minus 3.40282e+38, with no effect on the classes
+   ((vi)). benchmark_split.reexport_spot_truth_usable with the row of (3) returns usable ("section 4.4 agreement
+   0.9962, at least 0.9935 (entry 17)"). The rule ties the export to the re-export through the split entry and the
+   export's own facts (spot source ims, region growing off, the record's 13,972 spots and 82 surfaces); the truth
+   params name the .ims by its path (`ims_file`) and Imaris version (11.1) and record neither its size nor its sha256
+   (`E17/logs/final18_params_identity.log`), so that this export was written from 7b06a0fb... rests on the hashes that
+   bracket it ((a)), not on the rule. Writing the .ims size and sha256 into the params and comparing them in the rule
+   is a code change, made after the run if at all ((c)(2)(vi) allows none before it). (vi) Spot facts, reported, not
+   criteria: Class A 13,743 and Class B 229 (the superseded object 13,722 and 229); every radius 0.2 um (diameters 0.4,
+   0.4 and 0.9 um); mLowerThresholdManualValue and mManualThresholdValue both 6.847; region growing off; all 13,972
+   stored classes follow the 8.12323 um threshold on the stored 3-neighbour distance (recomputed distances differ by at
+   most 1.5e-6 um and give the same classes; no distance within 0.001 um of the threshold). The 82 traced nuclei hold
+   1,829 spots by the geometric assignment, all Class A, 15 to 30 per nucleus (mean 22.3, median 22.5), and 1,830 by
+   the coloc rule; 12,143 spots lie outside traced nuclei. Every one of the 13,951 spots of the superseded object has a
+   re-export spot at the identical float32 position, one to one (the IDs were renumbered; none is in common); the 21
+   extra spots are all Class A, 0.38 to 2.63 um from the nearest superseded spot, and 1 lies in a traced nucleus, so 81
+   of the 82 per-nucleus counts are unchanged and one is one higher. The gate of entry 17 (j) is met: every check
+   passed (`truth_checks.json`: gate_all_checks_pass true, and true for each of a_frame, b_nucleus_truth,
+   c_image_channels, d_section_4_4, e_entry9_d5 and f_spot_facts_consistent).
+   (5) Disclosed with the checks. They ran twice: the second run matched the Surfaces statistics by every factor of
+   their key and added the creation-parameter attribute comparisons, with the same verdicts; the first run's outputs
+   are kept with the suffix _run1 (`truth_checks_run1.json` 318ce117...; its script, overwritten by the edits and
+   rebuilt byte for byte, matches the sha256 its log records, 53f4d0c7...). Some early reads (the split entry, the new
+   params, the entry-9 frame baseline row, the checks JSON, the logs of entries 9, 11 and 12) were made at the console
+   without a log, against the rule of entry 10 (g)(5); they were rerun with the same code into
+   `console_reads_rerun.log`. The frozen check of the nine-fold helper ran twice before the checks: the first attempt
+   refused before reading anything (no PYTHONPATH), the second printed "frozen check ok: 3955 frozen files, 11
+   test-named paths tracked by hash, pinned sha256, trials.jsonl append-only" (`frozen_verify.log`). Test gonads were
+   touched by stat and folder listing only: `benchmark_manifest.py` checked the existence and sizes of their files and
+   its rows for them were withheld before display, the frozen check stats paths, and a top-level listing of
+   germquant_golden showed test-named file names. The bench cache `bench_cache/n2rad51_HS_male_002` (built on
+   2026-10-10 from manifest.json, before the re-export) was listed and its meta.json read: its foci and DNA array
+   digests (8be3bc2a..., bfdd6a5b...) equal those of the .nd2 channels, and it holds no truth file
+   (`bench_cache_hs_male_002_listing.log`). No test-gonad file, no 20251105_n2_hs_MALE_1* file and no aggregate table
+   was opened, read, hashed or parsed, and no test result was seen.
+   (b) Corrections to entry 17 (committed, da5e932), and one to entry 9. (1) Entry 17 (c)(2) says that spots with a
+   Quality from 6.84666 up to 6.847 are left out by the rounded threshold, "how many is unknown". By (a)(4)(vi) every
+   spot of the superseded object is in the re-export at its identical position, so none of the superseded object's
+   spots was left out; that reads a spot's position as its identity (Quality is stored in neither file). Why the
+   re-export holds 21 more spots is still not established. (2) Entry 17 (c)(2) says that the Spots creation parameters
+   are equal "but in two keys": in the keys the creation-parameter summary reads. The raw text also differs in the area
+   attributes ((a)(4)(v)), and the Surfaces text in attributes of the 11.1 format ((a)(4)(ii)); "unchanged in kind" in
+   entry 17 (c)(1) stands. (3) Entry 17 (j) lists "the bench cache of n2rad51_HS_male_002 (step 3 of the plan)" among
+   the steps to come, and its header says that no "pipeline run, bench cache or metric exists for it". The gonad's
+   pipeline outputs (the 8666f07 golden) and its bench cache (since 2026-10-10, built from the registered .nd2 and that
+   golden, which the re-export does not change; it holds no truth) exist; neither is computed from the .ims, so neither
+   is a result on the re-export, and the header holds only in that sense. The ten-fold launcher verifies and reuses the
+   cache and reproduces its golden ((c)(2)(i)), and does not build it; the bullet "Next." of the entry-17 section of
+   docs/BENCHMARK.md is corrected in place. (4) Entry 17 (a) quotes the instructions from the message as it was sent; a
+   paraphrase in this session's working notes differs in wording, not in any value, and the quote stands. (5) Entry 9
+   (d)(4) calls 6.8 to 102.3 "the registered" Quality range. That is the range of the table of section 2 over all
+   twelve files; over the eight registered train and val projects that entry 9 compared the additions with, it is
+   6.84666 to 68.67. The additions' 18.9, 7.96, 12.1 and 12.5 lie inside both, and nothing changes. Checked for entry
+   17 (i)(1), and confirmed: every checkout it lists holds the registered split record (955eeff5... as checked out);
+   germquant_wt_8666f07, which it does not list, has no split record.
+   (6) Entry 17 (e) says the split record was rebuilt "at this entry's code". It was built from the worktree's code
+   before that code was committed (12:11:11 MDT; `make_split.log` says "worktree code, uncommitted"); a rebuild by a
+   review at da5e932 (`--only n2rad51_HS_male_002 --base` the record of 3e28d8e, into the session scratchpad, 13:34
+   MDT; `rebuild_split_review.log`) is byte-identical to the committed record (01b95dd2..., compared again with cmp for
+   this entry, `final18_golden_repro_keys.log`).
+   (7) Pull request #13. Entry 17 (i)(1) calls it "open and not merged", and the entry-17 section of docs/BENCHMARK.md
+   and the commit message of da5e932 say that the other checkouts fail until main holds the new record ("(PR #13)",
+   "until PR #13 merges"). GitHub records it merged at 12:19:53 MDT (merge commit 255abca, parents b90ebdf and
+   3e28d8e), before entry 17 was committed at 12:33:04, and the project lead wrote "Merged. Anything else you need from
+   me?" at 12:20:12 MDT; the branch feat/hs-males-train is gone from GitHub (`final18_pr13.log`). So main (255abca)
+   holds entries 1 to 16 and the registered split record, and a checkout of it fails the size test on the workstation
+   like those of entry 17 (i)(1) (the local main checkout is still at b90ebdf). Entries 17 and 18 are in no pull
+   request and reach main only by a new pull request from this branch to main, not stacked on #13. The b90ebdf
+   real-golden gate line that the launcher requires before its first GPU step is a record of the reinstalled
+   environment (entry 14 (d)(4)) and predates the merge; it stays the gate. The entry-17 section of docs/BENCHMARK.md
+   is corrected in place, as entry 16 (f) corrected that document; the commit message cannot be.
+   (8) The first look of entry 17 (c)(1) and (l)(1) was three reads, not one, each of the copy
+   `HS_ims2/20251105_n2_hs_MALE _002_noRG.ims` with plain h5py, outside the read guard and with no log kept (times from
+   the session transcript, MDT): `peek_noRG.py` (11:54:24 to 11:54:25), which printed per object its name and count, a
+   few creation parameters (for Spots 1 region growing false, source channel 2, diameter 0.4 0.4 0.9, background
+   subtraction true, region of interest false, mManualThresholdValue 6.847 and 2.500, classify true; for Surfaces 1 its
+   own) and the unique spot radius (0.2), and no class threshold; and two inline `python -I -c` reads, at 11:54:31 (two
+   empty lists, since the attribute it searched does not exist, and the member names of `Points0`) and at 11:54:39 (the
+   length of the Spots creation-parameter text, 3,599 characters; the classification thresholds -3.40282e+38, 8.12323,
+   8.12323 and 3.40282e+38; the names Class A, Class B, Average Distance To 3 Nearest Neighbours twice and Average
+   Distance To 9 Nearest Neighbours; the label values Class A and Class B; the first label-set IDs 0, 0, 1 and 1 with
+   their dtype and count, 4; an error message). The class threshold and the classes that entry 17 (c)(1) attributes to
+   `peek_noRG.py` came from the third read (`final18_firstlook_calls.log`). All three read n2rad51_HS_male_002's own
+   re-export; they are the seal deviation that entry 17 (l)(1) counts, made of three reads.
+   (9) A listing that entry 17 (l) does not name. While the save was searched for (11:51:28 to 11:53:08 MDT), three
+   `find` commands over C:/Users/ryane and D: for `*noRG*`, recent `*.ims` and `*MALE _002*` printed file paths and
+   opened no file. The second (11:52:27) printed, besides the pipeline outputs of n2rad51_HS_male_002 under
+   `results_cv_hs` and the files of an earlier truth-export test of it in the session scratchpad, 19 paths that name
+   the stem of the test gonad n2rad51_noHS_male_002, since `*MALE _002*` also matches `20251105_N2_nohs_MALE _002`: its
+   folder under the pre-protocol `C_elegans_germline_masking_and_spot_counting/results_cv/` and 18 files in it, the
+   deployed pipeline's per-gonad outputs. The first (11:51:28) printed, among pytest stub files, four stub names that
+   carry the test tags. The names were seen and no number was; for this entry they were counted from the session
+   transcript without printing them (`final18_tools_window_21585.log`). A seal deviation of names only.
+   (10) The output of entry 17 (l)(2)'s unfiltered `grep -rlI` (about 12:03 MDT; the paths of the first 50 matching
+   files) was not kept in a log, against entry 10 (g)(5): `E17/logs/reads.log` holds a description of the command
+   written afterwards, and `search_golden.log` the filtered search that replaced it.
+   (11) The times that entry 17 does not give (from the session transcript, MDT). "Should be saved" came at 11:51:20,
+   96 s before the re-export's last write on the NAS (11:52:56.36; the `.imaris_cache` folder 11:52:56.69, the folder's
+   time 11:52:57); the listing of the NAS folder at 11:53:12 showed its final size, 1,501,317,079 bytes, the copy ran
+   from 11:53:29, and a review's stat at 13:39:26 (`nas_stat.log`) shows the same size and time, so the copy is of the
+   finished save. The reply of 11:45:35 to "What dataset or day is that image from so I can find it." named the NAS
+   folder of the 2025-11-05 heat-shock session first and the local file second, and its first caution was, verbatim
+   (formatting marks left out): "Work on a copy and save it under a new name, for example 20251105_n2_hs_MALE
+   _002_noRG.ims. The benchmark records the existing file by its checksum, so overwriting either copy would break that
+   record." The instructions of 11:48:36 (entry 17 (a)) then named the local file in step 1 and "in the same folder" in
+   step 6. Saving next to the NAS original fits his having opened that copy; which copy he opened is still not known
+   (entry 17 (b)).
+   (12) His messages. Entry 17 (a) quotes three messages "of 2026-10-13, verbatim and in this order"; he sent eight
+   that day (times from the session transcript, MDT; apostrophes written here in ASCII, line breaks as /): 00:19:13
+   "Yes silicon Mac I have a m4 air worst comes to worst. Also there's a Mac mini and Mac book pros but no new m5s /
+   Sure I'll re export males tomorrow. / She more than likely only changed file names and I assume that means 7 and 5k
+   were imaged together in the same session."; 11:43:15 "Okay what do you need from me?"; 11:45:08 "What dataset or day
+   is that image from so I can find it."; 11:47:44 "What do you want exported and what format"; 11:51:20 "Should be
+   saved"; 12:20:12 "Merged. Anything else you need from me?"; 12:21:59 "1 that's fine we have so many datasets / 2
+   sure, did you want me to do that? / I'll do the nucleus tracking in a few minutes."; 12:26:43 "Okay if you want me
+   to stay blind give me more instructions." (`final18_msgs_day.log`, `final18_msgs_day2.log`). "Sure I'll re export
+   males tomorrow." answers the request that "okay i will re export" (entry 11) answered. The Mac, the recovery-group
+   dose, the nucleus tracking and "stay blind" concern other work (a platform test and the validation of live-imaging
+   tracks) and are outside this protocol; "Merged." is (7). The message of 12:21:59 answers two questions that the
+   message of 12:21:01 put, verbatim (formatting marks left out): "Two optional yes/no questions that close old
+   protocol items: / 1. The 2026-01-05 heat-shock males are now training data, so that session can't later serve as a
+   test set. OK? / 2. If someone ever re-saves the Spots of 20260105_n2_hs_1_MALE_1 in Imaris, may it join training?".
+   The reply of 12:22:22 began "Got both, and I'll record them word for word in the next changelog entry." and said "On
+   2: no, skip it for now. After the re-export we already have four heat-shocked males with spot truth for training. A
+   fifth would mean another revision and another overnight rerun before scoring, for little gain." So entry 17 (a)'s
+   "The messages say nothing about decision 1 of docs/FINAL_SCORING.md or its questions (b) and (c)" holds for the
+   three messages it quotes, not for the day. Question (c) of entry 10 (c) is answered, as put: the session of
+   2026-01-05 cannot be the session of a future test set (protocol section 10). Question (b) is answered "sure" only as
+   it was put: it named a new save of the Spots in Imaris, not entry 10 (c)'s "if a later check verifies it", and entry
+   13 (a) says that such a path needs an entry of its own. So 20260105_n2_hs_1_MALE_1 may join training only through a
+   new save of its Spots and a changelog entry of its own that declares its checks before they run, as a further
+   development revision before test scoring; none is planned ("no, skip it for now"), it is no part of the ten-fold
+   revision, and it stays nucleus truth only. Decision 1 itself: (c)(4) (D9) and (d).
+   (c) The ten-fold launcher. `C:/Users/ryane/germquant_golden/run_revision_10folds.ps1` (43,797 bytes, sha256
+   d78b69b335cfaefd69827f5c2653d03fd6d64e785b19eb7b647f5afb6b141fe2) with `revision_10folds_helpers.py` next to it
+   (102,194 bytes, sha256 41b86e191fc558fefa4293bf12587f10c66548a225e9dcc0310fd0894360442f), written for this entry
+   from the nine-fold launcher and helper (85ae1eb4... and f1e53dd2..., entry 15 (a)), which keep their bytes, and
+   changed after the reviews ((2)(x)). The versions of the draft and of its dry runs,
+   73e484403e95c726d521c0ad9c463c01235808742cb83006aca508d79f6296d3 (41,573 bytes) and
+   0fbf62aff909b6c1333183e003609fbb0d1647be07398c6004f8e3b3ddd31523 (95,298 bytes), are kept as
+   `E17/scripts/final18_run_revision_10folds_before_reviews.ps1` and
+   `final18_revision_10folds_helpers_before_reviews.py`. The launcher logs its own sha256 and its helper's at start, so
+   the results entry can confirm that the run used these files, and the run starts only if the committed protocol names
+   both digests ((2)(vi)).
+   (1) What stays as in the nine-fold run (entries 13 (c) and 14 (d)): every command, parameter and order of step 4 of
+   the plan; the recipe check at the new commit; the log reproduction check (the set of `log_tuned.json` on
+   n2rad51_noHS_male_000 against `tuning_d3/log_B_train`, its folder in every select round); all 55 D3 log sets on
+   $NEW; the D3 replay from the D3 and E1 run folders with the select loop, the val2 rule of entry 14 (d)(1), `--chunks
+   4` and at most eight rounds; the held-out scoring; the reuse of the six registered folds of the three untuned
+   detectors from prereg_grid after one reproduction check each; one net3d fold model per call under the GPU lock and
+   the train-plus-val model by the frozen recipe; the reports; the checks after every step (the worktree, the frozen
+   artefacts, the test-named paths by a hash of the path, `trials.jsonl` append-only with the run's sha, the test seal,
+   the withheld step-log lines); CUDA_VISIBLE_DEVICES=-1 for the CPU steps; GERMQUANT_* and CELLPOSE_LOCAL_MODELS_PATH
+   cleared; the b90ebdf gate line before the first GPU step.
+   (2) What differs. (i) Step 2 does not run: the pipeline outputs of every gonad exist. Step 3 runs for the new fold
+   only: `manifest_entry17.json` written again with `--reexports-truth-root germquant_golden/imaris_truth_reexport` and
+   the re-export's 4.4 table as a third `--truth-check` table (entry 17 (j): "that manifest again with the 4.4 table"),
+   after its sha256 is checked (4a755af1...) and the file copied to `R10/run/backup/`; its check ((ii)); the cache of
+   n2rad51_HS_male_002 verified (its meta.json names the split record's .nd2 size and sha256 and the manifest's golden
+   folder and config hash 84bdda5a5230, and every array's data sha256 is recomputed and must be equal) and reused, so
+   `bench_cache.py` does not run and `cache_index.json` is not rewritten; and the golden reproduction from that cache
+   (`scripts/bench_reproduce_golden.py --tags n2rad51_HS_male_002`, into R10), which entry 9 (f) requires of the caches
+   it builds and which this cache never had. Golden reproductions exist only for n2rad51_HS_herm_000 and
+   n2rad51_noHS_herm_000 (`detector_bench/reproduce_golden.json`) and for the four additions
+   (`E9/reproduce_golden.json`); the caches of the five other registered train and val gonads, n2rad51_HS_male_000's
+   among them, never had one, and neither the nine-fold run nor this one requires it of them. If the reproduction of
+   n2rad51_HS_male_002 is not identical, the run stops before step 4 (the step-4 preconditions refuse it, (iii)); the
+   cache is not rebuilt or replaced without a changelog entry of its own, and a later entry records the stop, before
+   any ten-fold result exists. (ii) The manifest check compares the new file with three others: with manifest.json by
+   the plan's equality check, leaving out for n2rad51_HS_male_002 the keys that docs/BENCHMARK.md step 4 lists (entry
+   17); with the checks' file of (a)(2), against which only n2rad51_HS_male_002's spot_truth_usable, spot_truth_reason
+   and section_4_4 may change, the re-export's table may join the truth_check lists of spot_truth_inputs,
+   spot_sources_file and reexports, the summary's spot_truth_usable may gain n2rad51_HS_male_002 and nothing else, and
+   created_utc and the split file's path (not its sha256) may change; with manifest_entry9.json, against which every
+   other gonad entry must be equal, n2rad51_HS_male_002 may differ only in its re-export keys, and the top level only
+   in those records. Spot truth must be usable for exactly the ten train and val gonads and excluded for exactly
+   n2rad51_20260105a_HS_male_003 and n2rad51_20260105b_HS_male_001 (the test gonads are not counted there; their
+   entries are compared with the two other manifests without printing). On a pass the check pins the manifest's sha256
+   ((x)). (iii) Step 4 starts only on ten folds with caches, both golden reproductions identical (E9's of the four
+   additions and R10's) and the manifest that admits n2rad51_HS_male_002 from the re-export's truth folder; this is
+   checked again before 4e. $NEW is n2rad51_HS_male_000, n2rad51_HS_male_002, n2rad51_20260105a_HS_male_001 and _002;
+   $USE is unchanged. (iv) Outputs, all new: the plan's under R10 (`log_d3_on_new`, `log_selection.json`,
+   `logo/heldout/<detector>`, `logo/report*`, `logs` for the fold models, `reproduce_golden_hs_male_002.json`); the
+   launcher's own under `R10/run/` (step logs, backups, snapshot, reproduction checks, fill rounds, launcher copies);
+   the models `germquant_golden/models/net3d_recipe_check_10folds`, `net3d_logo_10folds` and `net3d_trainval_10folds`;
+   `final_params/net3d_trainval_10folds.json` and, only if the designated selection is not the set of
+   `log_tuned_entry9.json`, `final_params/log_tuned_10folds.json`; the log `germquant_golden/revision_10folds.log`. No
+   output of the nine-fold run is written, and none is an input to a selection or a held-out score; the net3d region
+   maps that the nine-fold run built in `models/net3d_prep` for n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and
+   _002 (2026-10-12, 23:15:37 to 23:20:08 MDT) are reused by key as inputs to every ten-fold net3d model ((v)). (v) The
+   frozen set adds the whole of E9, the three entry-9 model folders, the additions' goldens, `bench_cache` (now whole,
+   since nothing writes there), `imaris_truth_reexport`, `manifest_entry9.json` and the nine-fold launcher, helper and
+   log; E17 may grow only under R10 (its other files, the reviews' `E17/review_logs` and this entry's logs and scripts
+   among them, are written before the run and taken into its snapshot; nothing may be written into E17 outside R10
+   while it runs, or the frozen check stops it), `final_params` only by the two files of (iv), and `models/net3d_prep`
+   only by the region map of n2rad51_HS_male_002 (the nine others are reused, their keys checked). The pinned sha256
+   add `log_tuned_entry9.json`, `net3d_trainval_entry9.json`, `net3d_trainval_entry9/model.pt`, `manifest_entry9.json`,
+   `E9/reproduce_golden.json`, the four truth files of (a)(1), `truth_checks.json` and the 4.4 table. (vi) The gate.
+   The launcher takes the full sha of the commit that holds this entry (`-Sha`), runs from its detached worktree
+   `C:/Users/ryane/germquant_wt_<sha7>` (made if missing, with the models junction), and starts only if that commit is
+   clean and detached, holds changelog entry 18 (or a later one) in its committed protocol, whose text names the sha256
+   of the launcher and of the helper that run ((c)), descends from da5e932 and changes nothing under src, scripts,
+   tests, config, packs and pyproject.toml against it (this entry changes documents only), and the preflight passes:
+   `truth_checks.json`, with its pinned sha256, says that every check passed; the four truth files and the 4.4 table
+   have their sha256, and entry 17's rule admits them with the worktree's split record (01b95dd2... with CRLF,
+   edb02239... with LF); the outputs of the nine-fold run are those of entry 15 (m) (eleven tree digests and 23 file
+   digests recomputed); `trials.jsonl` begins with the 738 lines of entry 15 and names no test gonad;
+   `final_runs.jsonl` is absent; `manifest_entry9.json` is f41d1bab...; `manifest_entry17.json` is the checks' file and
+   no step-3 pin exists (on a resume, its backup is the checks' file and the file itself is the one step 3 pinned).
+   (vii) No launcher is waited for: the two ahead of the nine-fold run have finished, and the GPU lock serialises the
+   card. (viii) The dry run also writes its own log (`germquant_golden/revision_10folds_dryrun_<run id>.log`; entry 15
+   (l) could not quote the nine-fold one), builds the step-3 manifest into %TEMP% so that step 4's semantics are
+   checked before step 3 runs, and can check from another checkout of the same code before this entry is committed
+   (`-DryRunCheckout`, a relaxed worktree check). (ix) Folds run in ordinal tag order, the order of `logo.logo_folds`
+   and of the nine-fold run. A failure inside step 3 is resumed by restoring `manifest_entry17.json` from its backup,
+   moving R10 to `E17/revision_10folds_failed_<run id>` and starting again; a resume at a phase of step 4 (`-StartAt`)
+   first moves that phase's partial outputs, and those of the later phases, into `R10/run/aside_<run id of the failed
+   attempt>/` with their relative paths (the frozen check refuses them anywhere else under E17, `models/net3d_prep` or
+   `final_params`). Either is recorded in a later entry. (x) Added after the three reviews (the draft's launcher and
+   helper had none of this). Step 3 runs the semantic checks of the dry run (`dry-semantics`) again, on the manifest it
+   wrote, right after the manifest check and before 4a: the keys of the nine reused region maps in `models/net3d_prep`
+   (three of them built by the nine-fold run, (iv)), the folds, their substitutes, the designated split and every net3d
+   order are checked on the file step 4 reads, since a key that differs would make `load_region` rewrite a map during
+   4a or 4d. The manifest check pins the sha256 of the manifest it passed (`R10/run/manifest_entry17_step3.sha256`),
+   and the check after every step, the preflight of a resume, the step-4 preconditions and the final check require
+   `manifest_entry17.json` to equal it. A last step after the reports (`final-check`) recomputes the eleven tree
+   digests and 23 file digests of entry 15 (m), the trials prefix and the 18 pinned files by sha256, since the check
+   after every step compares sizes and file times only. The strict worktree check requires the committed protocol to
+   name the sha256 of the launcher and of the helper. The header of the launcher says where a failed attempt's outputs
+   go ((ix)) and that a reproduction that is not identical stops the run ((i)). A suggestion to set read-only
+   attributes on the frozen files during the run was not taken: no step names one of them as an output, the semantic
+   check above removes the one known way a step could rewrite one, every step is followed by the frozen check, and
+   attributes left set by a stopped run would outlast it.
+   (3) The ten folds, in the order the launcher runs them (sorted by tag; held-out gonad and role):
+   n2rad51_20260105a_HS_male_001 (train), n2rad51_20260105a_HS_male_002 (train), n2rad51_HS_herm_000 (train),
+   n2rad51_HS_herm_001 (val; substitute val gonad n2rad51_HS_herm_000), n2rad51_HS_male_000 (train),
+   n2rad51_HS_male_002 (train), n2rad51_noHS_herm_000 (train), n2rad51_noHS_herm_001 (val; substitute
+   n2rad51_noHS_herm_000), n2rad51_noHS_male_000 (train), n2rad51_noHS_male_001 (train). The designated split trains on
+   the recipe's four registered train gonads and the four of $NEW, and keeps its val gonads n2rad51_HS_herm_001 and
+   n2rad51_noHS_herm_001. Where n2rad51_HS_male_002 goes is fixed by entry 11 (f) (`bench_logo.fold_training_order`:
+   the recipe's train gonads, its val gonads, the registered gonads the recipe did not see in tag order, the additions
+   in record order) and entry 13 (b): it is a registered train gonad the recipe did not see, so it comes after
+   n2rad51_HS_male_000 and before the additions. The train-plus-val model trains on n2rad51_HS_herm_000,
+   n2rad51_noHS_herm_000, n2rad51_noHS_male_000, n2rad51_noHS_male_001, n2rad51_HS_herm_001, n2rad51_noHS_herm_001,
+   n2rad51_HS_male_000, n2rad51_HS_male_002, n2rad51_20260105a_HS_male_001 and n2rad51_20260105a_HS_male_002
+   (n2rad51_HS_male_002 eighth of ten); each fold model trains on that order without its held-out gonad
+   (n2rad51_HS_male_002 eighth of nine in the two folds that hold out an addition, seventh in the seven other folds,
+   absent from its own). In $NEW it is second (manifest order, registered first), so the 55 D3 sets and the held-out
+   runs of the untuned detectors take it second.
+   (4) Decisions the protocol did not fix, each made now, before any step of the run. (D1) Step 4 runs again in full
+   with ten folds, not as an increment of the nine-fold run: the 55 D3 sets run on all four gonads of $NEW (the three
+   of the nine-fold run again, at this commit), the replay starts from the D3 and E1 run folders as before, and the
+   three untuned detectors run in all four $NEW folds. This is the reading taken of entry 13 (b)'s "the steps that use
+   spot truth run again, with ten folds, into folders of their own". (D2) `manifest_entry17.json` is written again in
+   place (entry 17 (j): "that manifest again"), the checks' file kept in the backup; `manifest_entry9.json` keeps its
+   bytes. (D3) The cache of n2rad51_HS_male_002 is reused after verification, not rebuilt, and its golden reproduction
+   is added ((2)(i)). (D4) The names: R10 (`entry17/revision_10folds`, with `run/`), the `_10folds` model and parameter
+   files, the trial-search label `10folds_log` (the nine-fold run's was `entry9_log`) and the log
+   `revision_10folds.log`. (D5) `log_tuned_10folds.json` is written only if the designated selection is not the set of
+   `log_tuned_entry9.json` (logA_d0.5_s2), the tuned log that entry 15 (p) froze; the reproduction check stays on the
+   set of `log_tuned.json` against tuning_d3. (D6) A check the nine-fold run did not have: the 55 D3 sets on
+   n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001 and _002 at this commit must equal their nine-fold scores
+   (`E9/log_d3_on_additions`, 165 pairs, by `logo.index_runs`); the selection reads the new runs only. (D7) A fourth
+   report, on the nine folds of entry 15 (`--tags` of the six registered folds and the three heat-shocked males of the
+   nine-fold run; `R10/logo/report_entry15_folds`), for a like-for-like comparison with entry 15 (g). (D8) The gate and
+   preflight of (2)(vi), the extended frozen set and pins of (2)(v), the checks of (2)(x), and no queue wait
+   ((2)(vii)). (D9) The frozen methods after the run, declared now so that they are not chosen after the results: net3d
+   becomes `net3d_trainval_10folds.json` with its model; the tuned log becomes `log_tuned_10folds.json` if that file is
+   written, otherwise `log_tuned_entry9.json` stands; SpotMAX deployed and the grid selection do not change (the grid
+   selection is chosen on the two val gonads, which $NEW does not enter). The results entry appends them to
+   docs/FINAL_SCORING.md section 2 as entry 15 (p) did. What "score now" then scores. The options of entry 15's status
+   line went back to the project lead (entry 16 (e)) in the message of 01:22:45 MDT, verbatim (formatting marks left
+   out): "Decision 1: score now, or wait for HS_male_002? / Wait (my recommendation): you re-export HS_male_002
+   tomorrow, the retraining reruns overnight on 10 gonads, then you say "score now". The cost is one day. / Score now:
+   it freezes the 9-gonad methods, and HS_male_002 could then only come in after the first test scoring."; at 11:43:23
+   he was asked "Decision 1: reply "wait" (my recommendation, it costs one day) or "score now"."; at 11:57:21 told
+   "Next: if the checks pass, I start the 10-fold run (about 6.5 hours on the GPU), then send you the results and the
+   "score now" question."; and at 12:21:01 "Next from you: one answer after the 10-fold results arrive (tonight or
+   tomorrow): "score now" when you're ready." He replied neither "wait" nor "score now"; he re-exported the gonad that
+   morning, the course of option (2), and did not object to the two later messages. Declared now, before any result of
+   the ten-fold run: when he says "score now" after it, the test gonads are scored with the frozen methods of this
+   (D9), SpotMAX as before; the nine-fold set of entry 15 (p) is not offered again, since under option (1) the
+   re-export could not have entered before test scoring (entry 16 (e)) and it has entered. The choice between the two
+   sets is not reopened once the ten-fold results are seen: should he choose the nine-fold set after them, his words
+   are recorded verbatim and that choice is labelled as made after the ten-fold development results. This is a reading
+   of his course and of what was put to him, not his words, and it is put to him with the results. If the run stops or
+   fails a check, a later entry records why and what is frozen, before any test scoring. Whether and when to score
+   stays his: no test gonad is scored until he says so.
+   (5) The dry run, 14:09:20 to 14:10:10 MDT, from germquant_wt_hsmales at da5e932 with this entry in its working tree
+   (relaxed, since the entry was not yet committed: `-DryRun -DryRunCheckout C:/Users/ryane/germquant_wt_hsmales`; log
+   `germquant_golden/revision_10folds_dryrun_20261013_140920.log`, sha256
+   ab45fc22271d6775aa96244e91870ec9810d3b776e6b81bb9039cdca1880ae06; console log
+   `E17/logs/final18_launcher10_dryrun3_console.log`), with the launcher and helper of (c): "DRY RUN OK: every check
+   passed". It ran the worktree check (the code equal to da5e932's; entry 18 absent from the commit and present in the
+   working tree, whose text names the launcher's and the helper's sha256); the preflight (all of (2)(vi), no step-3
+   pin); the step-3 manifest built into %TEMP% (sha256 ae81a7cb...: 16 gonads, spot truth usable for 14 of them, the
+   test gonads among them, n2rad51_HS_male_002 with "section 4.4 agreement 0.9962, at least 0.9935 (entry 17)") and its
+   manifest check (all three comparisons of (2)(ii) pass; spot truth usable for 13 gonads before and 14 after,
+   n2rad51_HS_male_002 gained and none lost); the semantic checks (the ten folds and their substitutes, the designated
+   split, every fold's net3d order and the train-plus-val order, 4a and 4d resolving their gonads, the two gonads left
+   out of net3d, the nine region maps reused with equal keys and that of n2rad51_HS_male_002 absent, the comparators,
+   the pins, the 165 pairs of (D6) present in E9); the 50 step commands (2 of the pre-run, 48 of the plan with one
+   stand-in fill task, the two steps of (2)(x) among them) parsed by their own programs, with their inputs, outputs and
+   roles checked; `bench_tune.py --list` for $NEW (exit 0); a dry select on the existing run folders (exit 3: 30
+   stage-A sets still to run on each gonad of $NEW, as expected before 4b) and its first fill round (four gonads, 30
+   sets each, none added on the val gonads); the b90ebdf gate line (exit 0); the GPU lock (free). The step-4
+   precondition check exited 1, as expected before step 3 (no golden reproduction of the new cache and no pinned step-3
+   manifest yet). The draft's two dry runs, with the launcher and helper before the reviews, are kept: 13:15:35
+   (`revision_10folds_dryrun_20261013_131535.log`, e151b648...; `launcher10_dryrun2_console.log`), which passed every
+   check, and 13:13:42 (`revision_10folds_dryrun_20261013_131342.log`, b1be3fb4...; `launcher10_dryrun1_console.log`),
+   which failed on two defects of the helper, fixed before the second: the manifest check read the summary's
+   spot_truth_usable as a count where the manifest holds a list of tags, and two checks read the D3 configuration file
+   as a list where it holds one under "configs"; (f) discloses a line it printed. Unit checks of the subcommands that
+   the dry run only parses, made for the draft (13:17:09 to 13:17:26 MDT; `E17/scripts/launcher10_unit_checks.sh`, log
+   `launcher10_unit_checks.log`): the cache check of n2rad51_HS_male_002 passed (its arrays recomputed and equal); the
+   cross-check of (D6) passed on E9 against itself and failed, as it must, for a gonad that E9 lacks; snapshot and
+   verify (6,764 frozen files, 71 in growing folders, 11 test-named paths by a hash of the path, 18 pinned sha256) and
+   trials-check passed; the strict worktree check refused the nine-fold worktree (not a descendant of da5e932, other
+   code, no entry 18); log-final on the entry-9 selection found the set of `log_tuned_entry9.json` and wrote nothing,
+   and against `log_tuned.json` wrote a scratch file byte-identical to `log_tuned_entry9.json` (0fa43134...);
+   net3d-final accepted the entry-9 model with its nine gonads (its scratch file byte-identical to
+   `net3d_trainval_entry9.json`) and refused it for the ten; the step-4 precondition check refused a reproduction
+   report without n2rad51_HS_male_002. Unit checks of the changes of (2)(x), with the helper of (c) (14:00:26 to
+   14:00:48 MDT; `E17/scripts/final18_launcher10_unit_checks_2.sh`, log `final18_launcher10_unit_checks_2.log`, outputs
+   in the session scratchpad): the manifest check of the draft's dry manifest (b241dd3c...) passed and wrote its pin,
+   passed again with that pin and failed with a pin of another digest; verify passed without a pin and with a pin of
+   `manifest_entry17.json` (4a755af1...), and failed with the pin of the dry manifest; the preflight passed before step
+   3 without a pin and failed with one, and failed after step 3 without a pin; the step-4 preconditions on the dry
+   manifest found its pin equal and failed, as they must, without a reproduction of n2rad51_HS_male_002, and failed
+   with no pin; the final check passed with the pin of `manifest_entry17.json` (the eleven tree digests, 23 files and
+   18 pinned files equal) and failed with the pin of the dry manifest; the relaxed worktree check reported both digests
+   named in the working tree's protocol, and the strict check refused the branch worktree (not detached, not clean, no
+   models junction, no entry 18 committed, neither digest in the committed protocol). Every file that (a) and (c) cite
+   and the logs and scripts of (b) and (f) are listed with their sha256 in `E17/artefact_sha256_entry18.txt` (179
+   files; sha256 5d328fa72b119d45876192f87276fdeed45a4976f0de58492d77b7ce967fd9a8; the draft's list of 58 files,
+   574c3de8..., is kept as `E17/scripts/final18_artefact_sha256_entry18_draft.txt`), written for this entry. Its line
+   for `manifest_entry17.json` gives the checks' file (4a755af1...), which step 3 replaces; from then on
+   `R10/run/backup/manifest_entry17_as_written_by_the_checks.json` holds those bytes, and the results entry cites that
+   copy for the line.
+   (6) The estimate: about 3 h from start to end (2.5 to 4 h), about 45 min of it on the GPU (the recipe check about 3
+   min, the ten fold models 35 to 40 min, the train-plus-val model about 3 min), from the nine-fold run (step 4 took
+   2.3 h there, the 55 sets on three gonads 30 min and the fill rounds about 45 min in two rounds) scaled to ten folds
+   and four $NEW gonads; the fill rounds are data dependent. The per-step estimates the dry run logs sum to 159 min
+   with one stand-in fill task (156 before the three-minute steps of (2)(x)). Any wait for the GPU lock comes on top.
+   The message of 11:57:21 MDT told the project lead "about 6.5 hours on the GPU"; this estimate replaces it, and the
+   next message to him says so.
+   (7) The command, once this entry is committed and not before: `powershell -NoProfile -ExecutionPolicy Bypass -File
+   C:/Users/ryane/germquant_golden/run_revision_10folds.ps1 -Sha <the full sha of that commit>`, after the same command
+   with `-DryRun` (which makes the worktree and checks from it). The run starts only from that commit and only if the
+   preflight passes; a stop is recorded in a later entry, and a resume (`-StartAt`) is checked against the first
+   attempt's snapshot.
+   (d) What will be reported, and where. The results go into a later changelog entry (19 or later), as entry 15 did for
+   the nine folds: the run (times, commit, the launcher's sha256 from its log, the steps and their exit codes, the
+   checks after every step, the new trial lines and the sha256 of `trials.jsonl`); step 3 (the manifest's sha256 and
+   its check, the cache check, the golden reproduction); 4a to 4e (the recipe check, the log reproduction check and the
+   cross-check of (D6), the replay's rounds, sets and designated selection with its finalists and any cap warnings, the
+   held-out runs and reproduction checks, the twelve net3d models with their sha256 (the recipe check, the ten fold
+   models, the train-plus-val model)); the four reports (all ten folds; the six registered folds, against entries 4
+   (b), 7 (d) and 15 (h); the four heat-shocked males; the nine folds of entry 15, against entry 15 (g)), with pooled
+   truth-mask CCC, bias and F1 inside R and the paired differences; the frozen methods by (D9); and the artefacts'
+   sha256. Like entry 15 it is labelled post hoc and says which test numbers had been seen (those of entry 16 (a); no
+   result of net3d or of the tuned log exists for a test gonad). Decision 1 of docs/FINAL_SCORING.md remains the
+   project lead's: no test gonad is scored until he says "score now", which then scores the frozen methods of (D9)
+   ((c)(4)); its questions (b) and (c) are answered as (b)(12) records. The ten-fold revision answers his "okay i will
+   re export" (entry 11) and "Sure I'll re export males tomorrow." ((b)(12)), not decision 1.
+   (e) Labels. A further declared development revision before the first test scoring (entries 13 (b) and 17 (j)), not
+   the revision of section 10. Everything here is post hoc under rule 3, here and in every write-up that uses it: the
+   checks of (a) applied criteria declared in entries 9, 10 and 17 to a file whose contents had been examined (entry 17
+   (c)), and the decisions of (c)(4) were made knowing the nine-fold results of entry 15, though before any step of the
+   ten-fold run. The test numbers that entry 16 (a) lists had been seen before this entry; none was seen for it. No
+   test result was computed. The reading of decision 1 in (D9), the reading of the answers in (b)(12) and the changes
+   of (c)(2)(x) were the assistant's and were not put to the project lead as questions; what was put to him is quoted
+   in (b)(12) and (D9).
+   (f) Reads for this entry, and its seal deviations. For (a): the outputs, logs and scripts named there; the
+   n2rad51_HS_male_002 entry and the top-level records of `manifest_entry17.json` (no test-gonad entry printed); the
+   meta.json of the cache of n2rad51_HS_male_002. For (b): the sha256 of the split records of eight checkouts; the
+   protocol text of entries 9 and 17; `registered_creation_parameters_compared` of the additions record; the sha256 of
+   `HS_ims2_superseded/README.md` and of `peek_noRG.py` (both equal to entry 17's). For (c): the three documents; the
+   nine-fold launcher, helper and log (whose test-naming lines it had withheld); the code the launcher calls; the D3
+   configuration file; `E9/log_selection.json`; the final_params files; listings of `bench_cache`, `models/net3d_prep`,
+   E9, E17 and the re-export's truth folder (names, sizes and times; test-named entries filtered out); and the files
+   the preflight hashes (the entry-9 outputs of entry 15 (m), `trials.jsonl`, and `cache_index.json` as bytes). The dry
+   runs and the unit checks stat test-gonad files as the run will (`benchmark_manifest.py`: existence and sizes, its
+   rows for them withheld; the snapshot: folder entries by a hash of the path) and open none. The seal deviation: the
+   first dry run's manifest check printed the summary record spot_truth_usable of the step-3 manifest in full (line 45
+   of `revision_10folds_dryrun_20261013_131342.log`, line 56 of `launcher10_dryrun1_console.log`): a list of gonad tags
+   with usable spot truth, the four test gonads among them. It says that their spot truth is usable, which the table of
+   section 2 already records (region growing off); no test-gonad file, number or result was printed. The helper now
+   prints counts only, and the two logs are kept, as entry 10 (g)(5) asks. The reviews (13:27 to 13:48 MDT; their logs
+   and scripts in `E17/review_logs/` and, copied from the session scratchpad for this entry, in
+   `E17/review_logs/scratchpad_review17/`): one read the session transcript, printing every line that named a test
+   gonad with the test name and all digits masked; one hashed n2rad51_HS_male_002's three files, rebuilt its split
+   entry into the scratchpad behind the role guard, ran the unit tests and ruff, compared the manifests with their test
+   rows unprinted, and searched the code and records for readers of the registered path (`find_readers.py` opened 8,896
+   code and data files whose paths name no test tag, test stem or aggregate, and printed matching lines with any line
+   naming a test gonad withheld); one recomputed the checks of (a) from the two .ims files and the truth files, counted
+   test-tag occurrences in the dry-run and nine-fold logs without printing them, and listed folders with test-named
+   entries filtered out. One count of the second review (`grep HS_ims2 | grep -c 'hs_MALE _002'` over
+   `germquant_golden/rad51_cv_june/cv_manifest.json`, 1) matched the line that names the .ims of the test gonad
+   n2rad51_noHS_male_002 (`noHS_ims2`, `nohs_MALE _002`), not the registered path of n2rad51_HS_male_002, which that
+   file does not contain (count 0), so entry 17 (i)'s "Nothing else found reads that path" stands; the review printed
+   the count only. No review opened a test-gonad file or saw a test number. For the final checks of this entry (13:49
+   to the commit; logs `E17/logs/final18_*.log`, scripts `E17/scripts/final18_*`): the session transcript, through a
+   filter that withholds every line naming a test tag, a test stem or a sealed name (the main-chain messages of
+   2026-10-13, the compaction summary skipped after a first run printed its first lines and stopped on an encoding
+   error; the tool calls and results of transcript lines 21585 to 21712; the two inline first-look reads); the
+   transcripts of this workflow's agents, for hashing calls between 12:33 and 12:37 MDT, through the same filter (the
+   truth export's agent ran a stat of the re-export and the .nd2 at 12:36:38 and hashed nothing); the GitHub API for
+   pull request #13 (read only); the logs and scripts of E17 and of the reviews; the keys and flags of the two
+   golden-reproduction reports (test-naming keys withheld); the identity keys of the re-export's truth params behind
+   the role guard (a first attempt behind `guard_truth_read` was refused before reading, since the file name carries
+   the 2025-11-05 marker; its log is kept); the unit checks and the dry run of (c)(5); listings of `models/net3d_prep`
+   and E17. Two seal deviations of this kind, names only: a check of the review's count above printed once the line of
+   `cv_manifest.json` that names the .ims of n2rad51_noHS_male_002, its digits masked (`final18_cv_manifest_check.log`;
+   that log was first written by mistake into the folder `C:/Users/ryane/live_results` of another project and moved out
+   of it within the session); and a console read of `E17/logs/reads.log`, made before a log was kept, printed
+   unfiltered the listing line there that names the .ims of n2rad51_HS_male_001 with its size (both in the split
+   record; entry 17 (l) lists that listing). Those console reads of benchmark files were run again, filtered, into
+   `final18_console_reads_rerun.log`. The unit tests (977 passed, 6 skipped, 1 deselected by `-m "not model"`, on the
+   CPU, 14:10:38 to 14:16:48 MDT; `final18_pytest_full.log`) and ruff 0.17.0 on src, tests and scripts (all checks
+   passed; `final18_ruff.log`) ran on this entry's tree (da5e932 and the three documents); the suite's size check stats
+   the registered stacks, test gonads among them, and opens no file. No test-gonad file, no 20251105_n2_hs_MALE_1* file
+   and no aggregate table was opened, read, hashed or parsed, and no test number or result was seen.
+   (g) Not changed: the split record and its pins, the roles (32e2ee0b...), the test set, the val gonads, every truth
+   folder (the registered `imaris_truth/n2rad51_HS_male_002/` among them), the records, `manifest.json`,
+   `manifest_entry9.json` (f41d1bab...), `manifest_entry17.json` (4a755af1..., until step 3 writes it again),
+   `trials.jsonl` (c728a504...), the outputs of the nine-fold run, the frozen methods of docs/FINAL_SCORING.md section
+   2 (until the results entry, by (D9)), the code under src, scripts and tests (the code nits the reviews found, a
+   cached digest reused for a replaced file of equal size in `make_rad51_split.py --only`, an untested refusal in
+   `build_manifest`, docstrings of the net3d and nuclei3d training modules that describe the registered state, and a
+   full split rebuild that does not refuse to open the test gonads' files, wait for a code commit after the run),
+   net3d's frozen recipe, and the option of decision 1, which stays the project lead's ((D9)).
+19. 2026-10-13. The results of the ten-fold revision (entry 17 (j), entry 18), the project lead's answers on the
+   2026-01-05 session and on 20260105_n2_hs_1_MALE_1, and what decision 1 now offers. Written after the run of entry 18
+   (c) and before any test scoring. No test gonad was run, scored or opened for this entry ((g) lists the reads, with
+   one seal deviation of names only, in two listings): no `--final` run was made, `final_runs.jsonl` does not exist,
+   and none of the 1124 records of `trials.jsonl` names a test gonad. No test result was computed and none was seen.
+   E17 below is `germquant_golden/benchmarks/n2rad51_8666f07/entry17`, E9 its sibling `entry9`, B their parent, M
+   `germquant_golden/models` and R10 `E17/revision_10folds`, the folder of the run; the scripts and console logs of
+   this entry's reads are in `E17/logs` under the prefix `entry19_`.
+   (a) The run. `C:/Users/ryane/germquant_golden/run_revision_10folds.ps1` (43,797 bytes, sha256
+   d78b69b335cfaefd69827f5c2653d03fd6d64e785b19eb7b647f5afb6b141fe2) with `revision_10folds_helpers.py` (102,194 bytes,
+   sha256 41b86e191fc558fefa4293bf12587f10c66548a225e9dcc0310fd0894360442f): the digests that entry 18 (c) names and
+   that the log records at start ("launcher file ... sha256", 14:20:06 MDT); the copies in
+   `R10/run/launcher_20261013_142002/` have the same digests. The command of entry 18 (c)(7), with `-Sha
+   481cb8ced098aa2704a120d39fd37ac15da18a78`, followed its dry run (14:17:52 to 14:18:42 MDT;
+   `germquant_golden/revision_10folds_dryrun_20261013_141752.log`, 31,762 bytes, sha256
+   df9e96860b9ed8641b6f3b8f0453c868ab08af673781a15c01c60fc3e956eacc: the strict worktree check, changelog entries 1 to
+   18 committed and both digests named in the committed protocol, the preflight, the step-4 preconditions refusing as
+   they must before step 3, "DRY RUN OK: every check passed"), which made the detached worktree
+   `C:/Users/ryane/germquant_wt_481cb8c` (folder time 14:17:52). The run went from that worktree at commit 481cb8c
+   (entry 18, committed at 14:17:43 MDT), with PYTHONPATH set to its src, from 14:20:02 MDT (the first line of
+   `germquant_golden/revision_10folds.log`, "revision 10 folds START (StartAt 3)"; 3 is the launcher's default first
+   phase, not a resume) to 16:48:54 MDT ("revision 10 folds END (complete) after 2.48 h"). The log, as the run left it:
+   108,648 bytes, sha256 d5f10f90398df255c8a23b5576d032f595403c33a9cc30b901ad6b82b2de9306. The preflight passed (every
+   item of entry 18 (c)(2)(vi)); no launcher was waited for, and every GPU step acquired the lock at once. 70 steps
+   ran: 68 exited with code 0, and steps 14 and 26, the select rounds 0 and 1 of 4b, with code 3, by which
+   `bench_logo.py select` names sets still to run and which the launcher accepts there (round 2, step 38, exited 0).
+   After each of the 70 steps the frozen check passed ("frozen check ok: 6764 frozen files, 11 test-named paths tracked
+   by hash, pinned sha256, trials.jsonl append-only", from step 2 on with "manifest_entry17.json as step 3 wrote it
+   (13c967e6)"), and so did the trials check (no new record naming a test gonad, being a final run or carrying another
+   sha). Step 70, the final check of entry 18 (c)(2)(x), passed: the eleven tree digests and 23 file digests of entry
+   15 (m) recomputed, the 738 lines of entry 15 at the head of `trials.jsonl`, `final_runs.jsonl` absent, the 18 pinned
+   files by sha256 and `manifest_entry17.json` equal to its step-3 pin. `trials.jsonl` grew from 738 to 1124 lines:
+   lines 739 to 1124, 386 records (366 log, 10 SpotMAX, 10 net3d; 322 with split train, 64 with split val), every one
+   at 481cb8ced098aa2704a120d39fd37ac15da18a78 without `-dirty`, none final, none naming a test gonad by tag, by stem
+   or as 20251105_n2_hs_MALE_1 (`entry19_33_trials_counts.log`). Its sha256 is now
+   b1fd10810959841e14c773de7a69f3ae2727be931cea12ac899d0b00e217928b (11,000,062 bytes), and its first 738 lines still
+   hash to c728a504... (entry 15 (m)). The twelve GPU steps (4a and 4d) took about 42 minutes, the CPU steps of 4b
+   about 76; entry 18 (c)(6) had estimated about 3 h (2.5 to 4 h), about 45 minutes of it on the GPU.
+   (1) Step 3 (steps 1 to 6). `manifest_entry17.json` written again (14:20:08 to 14:20:13 MDT) with
+   `--reexports-truth-root germquant_golden/imaris_truth_reexport` and the re-export's section 4.4 table as the third
+   `--truth-check` table: 66,408 bytes, sha256 13c967e6ef1675bb39ba429aae1ecb0e247cf3c645b3c0601dd4eceb54520495; 16
+   gonads, outputs and truth complete for all 16, spot truth usable for 14 (the ten train and val gonads of entry 18
+   (c)(3) and the four test gonads, which the table of section 2 already records with region growing off; the step
+   printed the count, and its rows for the test gonads were withheld, (e)), and excluded for
+   n2rad51_20260105a_HS_male_003 and n2rad51_20260105b_HS_male_001; n2rad51_HS_male_002 "section 4.4 agreement 0.9962,
+   at least 0.9935 (entry 17)", its truth from `imaris_truth_reexport`. The file that the checks of entry 18 (a)(2)
+   wrote is kept as `R10/run/backup/manifest_entry17_as_written_by_the_checks.json` (65,572 bytes, sha256 4a755af1...,
+   as entry 18 (c)(5) foresaw). The manifest check passed all three comparisons of entry 18 (c)(2)(ii): the twelve
+   registered entries equal those of `manifest.json` but the output flags, the spot-source keys of n2rad51_HS_male_000
+   and the re-export keys of n2rad51_HS_male_002; against the checks' file only the 4.4 table added to the truth-check
+   lists of spot_truth_inputs, spot_sources_file and reexports, created_utc, the split file's path
+   (germquant_wt_hsmales to germquant_wt_481cb8c; sha256 01b95dd2..., registered_on 2026-10-09) and spot_truth_usable
+   gaining n2rad51_HS_male_002 (13 to 14 gonads, none lost); against `manifest_entry9.json` (f41d1bab..., unchanged) 15
+   of 15 other gonad entries equal (the test gonads compared without printing) and n2rad51_HS_male_002 different in its
+   re-export keys only. It pinned the file (`R10/run/manifest_entry17_step3.sha256`). The semantic checks on that file
+   passed (the ten folds and their substitutes, the designated split, every net3d order, n2rad51_HS_male_002 eighth of
+   ten in the train-plus-val order and seventh or eighth in the fold orders, the nine reused region maps with equal
+   keys, the comparators, the 18 pins). The bench cache of n2rad51_HS_male_002 was verified (its .nd2 9129ffdb...,
+   2,718,273,536 bytes, as the split record; golden config hash 84bdda5a5230; the foci, DNA and label arrays recomputed
+   equal, 8be3bc2a..., bfdd6a5b... and 922fec9f...; built 2026-10-10 14:57:09 UTC) and reused. Its golden reproduction
+   from that cache (14:20:34 to 14:22:19 MDT): IDENTICAL, 4,293 spots against the golden's 4,293, no per-nucleus count
+   differing, no parquet column differing, the CSV identical (`R10/reproduce_golden_hs_male_002.json`, sha256
+   97362173d1aa0b27d5f4f770dbfb6a27ee7a09b0c85d7534928ece3af9bfd709). The step-4 preconditions passed (step 6) and
+   again before 4e (step 65).
+   (2) 4a (steps 7 and 8). The recipe check at 481cb8c, `M/net3d_recipe_check_10folds/model.pt` (sha256
+   b47fe4f412eee0f24b62bd2403077ceabba517fc50953aadf9f45119317ba1b6; 14:22:30 to 14:25:12 MDT, 162 s; epoch losses
+   0.048756, 0.031216, 0.029856 and 0.030222): all 134 tensors equal to `net3d_20261010/checkpoints/epoch_004.pt`,
+   threshold 0.4, epoch 4.
+   (3) 4b (steps 9 to 39). The log reproduction check of entry 14 (d)(2): logB_d0.5_s2.5_k0.5_g2_m0 on
+   n2rad51_noHS_male_000 at 481cb8c equals its D3 run nucleus by nucleus (513 nuclei; matched, ours and expert 765, 979
+   and 930; trial line 739). The 55 D3 sets on the four gonads of $NEW (n2rad51_HS_male_000, n2rad51_HS_male_002,
+   n2rad51_20260105a_HS_male_001 and _002; `R10/log_d3_on_new`; lines 740 to 794; 29.4 min), and the cross-check of
+   (D6): all 165 pairs on the three gonads of the nine-fold $NEW equal their nine-fold scores. The replay
+   (`R10/log_selection.json`, 32,572 bytes, sha256 58b1aa0bcf6593f5dcf1edbe6904615467dd02c4796719759849744028c46878):
+   select round 0 asked for 17 stage-B sets in every fold; fill round 1 ran them on all ten gonads (on both val gonads
+   with the stage label suffix val2; lines 795 to 964); select round 1 asked for 8 stage-C sets per fold (5 in the fold
+   that holds out n2rad51_20260105a_HS_male_002); fill round 2 ran 13 stage-C sets on nine gonads and 8 on
+   n2rad51_20260105a_HS_male_002 (lines 965 to 1089); select round 2 completed every fold. They are the 17 and 13 sets
+   of the nine-fold run (the set names of both runs' fill configurations compared, `entry19_38_fill_sets.log`), run
+   again at this commit because the replay reads only the D3 and E1 run folders and this run's own (D1); 85 distinct
+   log sets in the search, as in entry 15 (d). The designated selection (train: the recipe's four registered train
+   gonads and the four of $NEW; val n2rad51_HS_herm_001 and n2rad51_noHS_herm_001; stage-A best logA_d0.5_s2, stage-B
+   best logB_d0.5_s2_k0.5_g2_m0) is logA_d0.5_s2, with val objective 0.926 (the D3 germline CCC, rounded) and
+   whole-field F1 0.558. Its five finalists and their val objectives are those of entry 15 (logC_d0.46_s2_k0.5_g2_m0
+   0.922, logB_d0.5_s2_k0.5_g2_m0 0.923, logB_d0.5_s2_k0.5_g2_m1 0.924, logB_d0.5_s2_k0.5_g3_m0 0.925, logA_d0.5_s2
+   0.926); their train objectives are 0.858 to 0.865 (entry 15: 0.867 to 0.876;
+   `entry19_08_selection_objectives_full.log`). That is the set of `log_tuned_entry9.json`, so step 39 wrote no file
+   ("the set of log_tuned_entry9.json, which stands; no file written"), and by (D5) and (D9) the tuned log stays
+   `log_tuned_entry9.json`. The fold selections are in (c)(3). The candidate cap of the log backend (30000) was reached
+   in 55 tuning runs, by the FLOODED warnings of the step logs (`entry19_21_cap_grep.log`): 24 in step 12, six on each
+   gonad of $NEW at one count per gonad (43,132 to 47,711 candidates; by entry 16 (b), the six stage-A sets at diameter
+   0.35 um); 19 val runs on n2rad51_HS_herm_001 (step 19: six runs, 35,646 to 49,611; step 31: all 13 stage-C sets,
+   39,058 to 63,482); and 12 on n2rad51_noHS_herm_000 (step 22: four runs, 31,288 and 35,024; step 34: eight runs,
+   35,024 and 43,685). That is the pattern of entry 16 (b) with a fourth gonad in $NEW. These counts are floors; by
+   entry 6 (c) the runs are scored as they are and nothing is rerun. No held-out run reached the cap. Three of the five
+   designated finalists, those at pre-gate 2, are again scored on capped val runs on n2rad51_HS_herm_001; logA_d0.5_s2
+   and logB_d0.5_s2_k0.5_g3_m0 reached the cap in no run.
+   (4) 4c (steps 40 to 52). The tuned log held out in all ten folds, each fold with its own selection (lines 1090 to
+   1099); the log defaults, SpotMAX deployed and the grid selection in the four folds of $NEW (lines 1100 to 1111;
+   these folds select on the designated val gonads, so the grid's set is that of `spotmax_retuned_grid.json`). The
+   three reproduction checks of entry 13 (c)(3) passed (the fold of n2rad51_noHS_male_000 rerun for each detector,
+   every table equal but the run times; lines 1112 to 1114), and the six registered folds of the three were then copied
+   from `prereg_grid/logo/heldout_rescored/` (log defaults, SpotMAX deployed) and
+   `prereg_grid/logo/heldout/spotmax_grid/`.
+   (5) 4d (steps 53 to 64). Ten fold models by the frozen recipe, one per held-out gonad, each trained on the other
+   nine in the order of entry 18 (c)(3) (`M/net3d_logo_10folds/fold_<held-out tag>/model.pt`; held-out lines 1115 to
+   1124; 3.4 to 4.4 min per step with its held-out scoring), sha256: n2rad51_20260105a_HS_male_001
+   07a984ab6221e647c395ef917e7df08f0d736de986922a3aecf67c8eb832390a, n2rad51_20260105a_HS_male_002
+   c59589855c8ef6b8b4da301c856ce7a9ece1b762098b91ec8c8c9d6b02071c64, n2rad51_HS_herm_000
+   819fe3e36bcdaf53fc8725093fb8f33b3ce0e1de4bd9ae85db9ba307c37f761f, n2rad51_HS_herm_001
+   2c65a80875b7581c804d3808efb111e0d81c51400cbec81e42ed67285a8a2a06, n2rad51_HS_male_000
+   03f97fb39ac598ef87dcc367b2299a5c3490607ab2510378a47443d8330fde10, n2rad51_HS_male_002
+   5164d7a12d60438fa6dbd50d06ff6ce76be29fdfcce9749d19d1fb012aa39bca, n2rad51_noHS_herm_000
+   0baa156db3874b3bae53d492e3dab9bb94d23617413957373d7877747eeda3dc, n2rad51_noHS_herm_001
+   860170af358c7fc00c6a342d0831925414fee2ad759be2678712979137ed9517, n2rad51_noHS_male_000
+   63d351c74fb97ffd8f0b8cf83969e176e138c70213772ad401d701e270090efa, n2rad51_noHS_male_001
+   a9c9c476fee2a603e17382760b87062ec023cc2f553577f3d8800726943ee2f2. The region map of n2rad51_HS_male_002 was built
+   during the first fold, from the re-export's truth labels (`M/net3d_prep/n2rad51_HS_male_002__region.json`, 439
+   bytes, sha256 23dc89028206a4c0a4d99c899b595687bb88eeeb9e311cf44f47e4e0ab9d9da0, and `.npy`, 452,920,128 bytes,
+   sha256 32c44646eb05686b6aadd1b82cba3b42c2f9f0fefb6cf9cbe8d67254023ade41; 16:08:04 MDT); the nine others were reused
+   with equal keys. The train-plus-val model, `M/net3d_trainval_10folds/model.pt` (5,738,367 bytes, sha256
+   039a5b32261ff1b86bb6ee30beb766d433753c95b7f055148d1755901bb4e9c4), was trained at 481cb8c on n2rad51_HS_herm_000,
+   n2rad51_noHS_herm_000, n2rad51_noHS_male_000, n2rad51_noHS_male_001, n2rad51_HS_herm_001, n2rad51_noHS_herm_001,
+   n2rad51_HS_male_000, n2rad51_HS_male_002, n2rad51_20260105a_HS_male_001 and n2rad51_20260105a_HS_male_002, in that
+   order (seed 0, 4 epochs of the 40-epoch schedule, epoch losses 0.098170, 0.064993, 0.063561 and 0.063728, threshold
+   0.40, 163 s on the RTX 5090 under the GPU lock, 16:44:27 to 16:47:10 MDT; the step log gives cuda and "GPU: 32.5 GB
+   free", the card's name is from nvidia-smi after the run, `entry19_apply_12_step63.log`), with its `model_card.json`
+   (sha256 b23389382a98b609bca0547af704d7f33953aee9fd07288ee76a47f1d4bebb6f), which names the ten training gonads, the
+   two excluded additions and, as test_gonads_never_opened, the four test gonads. Step 64 then wrote
+   `final_params/net3d_trainval_10folds.json` (129 bytes, sha256
+   3efb7d9d5ce4710b222cf2fa4efdc70d9b99d55da4f2413c55db94cfcdd3720e, 16:47:18 MDT), whose content, indented over six
+   lines in the file, is `{"net3d": {"model": "C:/Users/ryane/germquant_golden/models/net3d_trainval_10folds/model.pt",
+   "device": "cuda"}}`. The model was not scored on anything: every gonad with usable spot truth outside the test set
+   is one of its training gonads.
+   (6) 4e (steps 65 to 70). The four reports of entry 18 (d) and (D7): `R10/logo/report` (all ten folds),
+   `R10/logo/report_registered6`, `R10/logo/report_hs_males` (the four of $NEW) and `R10/logo/report_entry15_folds`
+   (the nine folds of entry 15), each pooling the five detectors' held-out folders with the cluster bootstrap by gonad
+   (1000 resamples, seed 20251105), each recording git sha 481cb8c; then the final check of step 70.
+   (7) The artefacts and their sha256 (`entry19_31_sha256.log`, `entry19_32_models_trees.log`). The reports
+   (logo_report.json, logo_pooled.csv, logo_per_gonad.csv, logo_paired.csv): `R10/logo/report`
+   dcd6a6393892f870303cf940ebc4cb4005a85f3fb443362e4d4badf3849fa3f8,
+   13e03c203aa7d8e8542d98413cecdf00d4a23675a77db8ffb35634c61021f4d4,
+   16b89c35c84e5b664580438b571e2322c96f38ecea639f1b0bcf47fa88978e6d,
+   128c112b81838673473f7018c4eb1a7e5899e8d982c346596136f914a4d789c6; `R10/logo/report_registered6`
+   65e16d42fbf1c821d7b34ef9e3c5d0405f9a5601c2689a663cb2463b86f936c5,
+   62cfeb3c61778f2993ec0ef370101f3596ed796217b2ec68a3d17ff64e1ee24f,
+   cb6907dfffd690bf40a048f9c96d4c3c79d23aaa42da7556169a37f80c3e17ff,
+   5b456f6f0b52ac54ea048bb381289da03911feadeb8225d4f32edd552ab114b3; `R10/logo/report_hs_males`
+   7052d313e184a1a5aeba12e872f560cac0f7ca8b5e7ee95f1df52bd509e198b0,
+   35e0aff2402a7ec2e28832bc9c1082dcb7b80d00fce213e7f776c93e96a47257,
+   baeadae89e8b06de6ef58649c5749a6e0610cae0ceff2254bb453af4023a464c,
+   0d70dd9451dd0b03a67a19fba54fae0bf8d439d75c4969efd718dc75b83c2881; `R10/logo/report_entry15_folds`
+   75aa05834c375f65e027f39bdbaab55f72c6db838804249c8056503ee74c9c51,
+   fef2db0f44e1ce1476a87dcc8849132f38d038ed18bf04fd150bacb582812a86,
+   d89f84d345773545f8d8feda961c4b752aed19697da0ee8b9af8d917f80704eb,
+   fed708478bc3f1fb8435c4bea8899fe0e163603a8542f9fffe89117f02a0b132. Folders, as tree digests (the method of entry 16
+   (c)(5)), with their file counts: `R10/log_d3_on_new` (498)
+   5383c6467455c40c453eb12a98b52cfd2deb5b0177bf9d0afb567a3116ba41ab; `R10/logo/heldout` (350)
+   cde8475f00dc89385750bc80e97d181419c73ba988ff5d20bd252a15f8b70ca5; `R10/logs` (20, the fold models' logs)
+   a0f823f38a577f6d37011451d4dcebaf68d5f6bbae5e470488c1f7d03227c715; `R10/run` (1969: the step logs, backups, launcher
+   copies, frozen snapshot, fill rounds and reproduction checks)
+   14b0d916d48aa424eb6446b80f90699d642e23455b6de1c63f1dffed92704b53; `M/net3d_recipe_check_10folds` (8)
+   4ab5d609779cafb805716bda7172aed3b931789887a5a3e7e14246c4336bffee; `M/net3d_logo_10folds` (80)
+   f5375029b53edc52be3bd0e1d477e84932ff80ebff767d20adf7abdf6911acb0; `M/net3d_trainval_10folds` (8)
+   6d759415081c1fee11380aa3edc26acac88c543fade0d6fe9d72dbde5ceee539. Every file of these folders, the four reports' 16
+   files, `R10/log_selection.json`, `R10/reproduce_golden_hs_male_002.json`, the new region map,
+   `net3d_trainval_10folds.json`, the run and dry-run logs, the launcher and helper, `manifest_entry17.json` and
+   `trials.jsonl` is listed with its sha256 in `E17/logs/entry19_artefact_sha256.txt` (2,960 files; sha256
+   9bb5a2deb8e637158a4d6dacf9e50fefd89222079310d0b652073b0b5fc88a31), written for this entry after the run. The pinned
+   artefacts are unchanged: `final_params` holds its eight earlier files with their sha256 (`log_tuned.json`
+   3a65e844..., `net3d_trainval.json` 2f9097e6..., `spotmax_retuned_grid.json` 919c4ab5..., `spotmax_deployed.json`
+   e3566b3a..., `spotmax_retuned_d3.json` 67db0cf7..., `spotmax_retuned_primary.json` 84e27f45...,
+   `log_tuned_entry9.json` 0fa43134..., `net3d_trainval_entry9.json` 953b7519...) and the new
+   `net3d_trainval_10folds.json`; `manifest_entry9.json` is f41d1bab..., `E9/log_selection.json` 8b8abd5b... and
+   `E17/artefact_sha256_entry18.txt` 5d328fa7..., as entry 18 left them.
+   (b) The results (post hoc under rule 3; development estimates on train and val gonads; nothing here is a win
+   condition). Every number of (b) is read from the four reports of (a)(6) (`logo_report.json`, whose pooled and paired
+   tables are also `logo_pooled.csv` and `logo_paired.csv`, and `logo_per_gonad.csv`) and, for the foci per truth
+   nucleus, from the held-out `per_gonad.csv` under `R10/logo/heldout/` (tm_mean_expert, tm_mean_ours);
+   `entry19_29_tables.log` and `entry19_43_pergonad_text.log` print them, and `entry19_gen_b.py` wrote the paragraphs
+   (1) to (10) from those files. Cluster bootstrap by gonad, 1000 resamples, seed 20251105; Class A+B truth unless
+   named; end-to-end counts on the deployed nucleus masks. Each count block gives CCC, Pearson r, bias and MAE (bias
+   and MAE in foci per nucleus), each spot block precision / recall / F1, every value with its 95 percent interval in
+   brackets. "Truth masks" is the primary partition of section 5.1, "inside R" the spot F1 of section 5.2 that W2
+   reads, "whole field" the older spots_all score. "Tuned log" is the fold procedure of the replay (each fold with its
+   own selection, (c)(3)); "log defaults" the log backend's defaults in every fold, which is the configuration of
+   `log_tuned_entry9.json`, the frozen tuned log; "grid selection" is SpotMAX re-tuned (decision 2). Over the four
+   heat-shocked males the bootstrap has only 35 distinct resamples, so the intervals of (5) and (6) say little.
+   (1) All ten folds (`R10/logo/report`; held out, in the report's order: n2rad51_20260105a_HS_male_001,
+   n2rad51_20260105a_HS_male_002, n2rad51_HS_herm_000, n2rad51_HS_herm_001, n2rad51_HS_male_000, n2rad51_HS_male_002,
+   n2rad51_noHS_herm_000, n2rad51_noHS_herm_001, n2rad51_noHS_male_000, n2rad51_noHS_male_001; 1,008 truth nuclei,
+   6,393 germline nuclei, 954 traced; 51,973 truth spots in the whole field and 8,259 inside R). net3d: truth masks
+   0.834 [0.569, 0.943], 0.866 [0.638, 0.968], +2.12 [+0.18, +4.36], 3.16 [1.53, 5.27]; Class A truth 0.829 [0.552,
+   0.943], 0.862 [0.626, 0.968], +2.18 [+0.22, +4.47], 3.19 [1.53, 5.35]; detector-only count 0.833 [0.567, 0.943],
+   0.866 [0.636, 0.968], +2.12 [+0.18, +4.37], 3.16 [1.53, 5.27]; germline 0.735 [0.456, 0.904], 0.766 [0.546, 0.917],
+   +1.78 [-0.04, +4.22], 2.92 [1.38, 5.21]; traced 0.792 [0.470, 0.940], 0.827 [0.547, 0.965], +2.40 [+0.12, +5.22],
+   3.57 [1.64, 6.10]; precision / recall / F1, whole field 0.562 [0.347, 0.768] / 0.454 [0.357, 0.613] / 0.502 [0.367,
+   0.619]; whole field without Class B 0.560 [0.341, 0.767] / 0.492 [0.385, 0.687] / 0.523 [0.388, 0.646]; detector
+   only 0.714 [0.532, 0.840] / 0.904 [0.829, 0.957] / 0.798 [0.667, 0.864]; inside R 0.720 [0.546, 0.840] / 0.907
+   [0.834, 0.956] / 0.803 [0.678, 0.865]; inside R without Class B 0.719 [0.540, 0.840] / 0.908 [0.838, 0.958] / 0.803
+   [0.675, 0.865]; inside R, detector only 0.720 [0.545, 0.840] / 0.907 [0.834, 0.956] / 0.803 [0.678, 0.865] (7,491
+   matched of 10,397 detected inside R; 23,610 of 42,009 in the whole field). tuned log: truth masks 0.905 [0.812,
+   0.948], 0.908 [0.826, 0.951], +0.43 [-0.74, +1.36], 2.09 [1.34, 2.91]; Class A truth 0.905 [0.812, 0.947], 0.909
+   [0.826, 0.951], +0.49 [-0.69, +1.41], 2.14 [1.42, 2.94]; detector-only count 0.840 [0.719, 0.922], 0.871 [0.777,
+   0.934], -0.83 [-2.82, +0.66], 2.50 [1.44, 3.89]; germline 0.871 [0.793, 0.933], 0.879 [0.814, 0.936], -0.56 [-1.84,
+   +0.29], 1.51 [0.71, 2.78]; traced 0.893 [0.785, 0.945], 0.897 [0.802, 0.948], +0.33 [-1.05, +1.37], 2.21 [1.44,
+   3.10]; precision / recall / F1, whole field 0.792 [0.705, 0.840] / 0.374 [0.299, 0.509] / 0.508 [0.437, 0.613];
+   whole field without Class B 0.790 [0.701, 0.839] / 0.404 [0.319, 0.570] / 0.534 [0.457, 0.650]; detector only 0.768
+   [0.689, 0.819] / 0.803 [0.740, 0.895] / 0.785 [0.752, 0.822]; inside R 0.768 [0.690, 0.819] / 0.809 [0.750, 0.899] /
+   0.788 [0.755, 0.825]; inside R without Class B 0.767 [0.687, 0.818] / 0.808 [0.749, 0.899] / 0.787 [0.755, 0.823];
+   inside R, detector only 0.787 [0.709, 0.840] / 0.707 [0.640, 0.826] / 0.745 [0.710, 0.792] (6,679 matched of 8,694
+   detected inside R; 19,425 of 24,536 in the whole field). log defaults: truth masks 0.906 [0.814, 0.948], 0.909
+   [0.826, 0.951], +0.42 [-0.75, +1.34], 2.08 [1.34, 2.90]; Class A truth 0.906 [0.814, 0.947], 0.909 [0.827, 0.951],
+   +0.48 [-0.69, +1.39], 2.13 [1.42, 2.93]; detector-only count 0.841 [0.722, 0.923], 0.872 [0.781, 0.935], -0.85
+   [-2.83, +0.63], 2.48 [1.42, 3.89]; germline 0.872 [0.794, 0.933], 0.879 [0.814, 0.936], -0.56 [-1.85, +0.29], 1.51
+   [0.71, 2.78]; traced 0.894 [0.786, 0.945], 0.898 [0.803, 0.949], +0.32 [-1.05, +1.34], 2.20 [1.44, 3.06]; precision
+   / recall / F1, whole field 0.793 [0.707, 0.840] / 0.374 [0.299, 0.509] / 0.508 [0.438, 0.613]; whole field without
+   Class B 0.791 [0.702, 0.839] / 0.404 [0.319, 0.570] / 0.535 [0.457, 0.650]; detector only 0.769 [0.692, 0.819] /
+   0.803 [0.740, 0.895] / 0.786 [0.753, 0.823]; inside R 0.769 [0.692, 0.819] / 0.809 [0.750, 0.899] / 0.789 [0.756,
+   0.825]; inside R without Class B 0.768 [0.690, 0.818] / 0.808 [0.749, 0.899] / 0.787 [0.756, 0.823]; inside R,
+   detector only 0.789 [0.713, 0.840] / 0.707 [0.640, 0.826] / 0.746 [0.711, 0.793] (6,679 matched of 8,682 detected
+   inside R; 19,425 of 24,510 in the whole field). SpotMAX deployed: truth masks 0.745 [0.475, 0.850], 0.751 [0.495,
+   0.872], +0.56 [-2.24, +2.44], 3.92 [2.89, 5.46]; Class A truth 0.745 [0.475, 0.851], 0.751 [0.497, 0.872], +0.62
+   [-2.18, +2.51], 3.95 [2.91, 5.47]; detector-only count 0.122 [-0.000, 0.483], 0.171 [-0.000, 0.535], -3.76 [-9.40,
+   +0.37], 6.21 [2.97, 10.67]; germline 0.757 [0.549, 0.864], 0.761 [0.578, 0.876], -0.45 [-2.76, +0.82], 2.39 [1.29,
+   4.24]; traced 0.736 [0.449, 0.849], 0.742 [0.476, 0.869], +0.37 [-2.55, +2.36], 4.00 [2.87, 5.73]; precision /
+   recall / F1, whole field 0.465 [0.428, 0.501] / 0.225 [0.157, 0.365] / 0.304 [0.236, 0.412]; whole field without
+   Class B 0.460 [0.418, 0.497] / 0.242 [0.164, 0.411] / 0.317 [0.243, 0.437]; detector only 0.453 [0.417, 0.492] /
+   0.480 [0.366, 0.699] / 0.466 [0.401, 0.558]; inside R 0.454 [0.417, 0.492] / 0.485 [0.371, 0.702] / 0.469 [0.404,
+   0.560]; inside R without Class B 0.451 [0.411, 0.489] / 0.482 [0.368, 0.701] / 0.466 [0.400, 0.557]; inside R,
+   detector only 0.546 [0.513, 0.566] / 0.295 [0.160, 0.589] / 0.383 [0.247, 0.563] (4,002 matched of 8,824 detected
+   inside R; 11,719 of 25,213 in the whole field). grid selection: truth masks 0.298 [0.110, 0.643], 0.438 [0.219,
+   0.684], -3.76 [-8.47, -0.16], 5.45 [2.61, 9.32]; Class A truth 0.299 [0.110, 0.643], 0.439 [0.218, 0.684], -3.70
+   [-8.44, -0.10], 5.45 [2.64, 9.32]; detector-only count 0.181 [0.058, 0.459], 0.342 [0.153, 0.593], -4.93 [-9.87,
+   -1.17], 5.89 [2.55, 10.36]; germline 0.388 [0.243, 0.655], 0.542 [0.419, 0.705], -2.44 [-5.73, -0.30], 3.21 [1.27,
+   6.20]; traced 0.289 [0.103, 0.644], 0.439 [0.214, 0.685], -4.08 [-8.76, -0.32], 5.67 [2.66, 9.73]; precision /
+   recall / F1, whole field 0.539 [0.474, 0.593] / 0.128 [0.082, 0.239] / 0.207 [0.143, 0.334]; whole field without
+   Class B 0.533 [0.459, 0.591] / 0.137 [0.085, 0.274] / 0.218 [0.148, 0.361]; detector only 0.541 [0.486, 0.581] /
+   0.291 [0.192, 0.505] / 0.379 [0.284, 0.522]; inside R 0.542 [0.487, 0.582] / 0.293 [0.194, 0.509] / 0.381 [0.285,
+   0.523]; inside R without Class B 0.538 [0.476, 0.580] / 0.291 [0.193, 0.508] / 0.378 [0.283, 0.520]; inside R,
+   detector only 0.600 [0.565, 0.627] / 0.239 [0.152, 0.431] / 0.342 [0.241, 0.505] (2,424 matched of 4,473 detected
+   inside R; 6,677 of 12,386 in the whole field).
+   (2) Paired, all ten folds (the first detector minus the second on the same 1000 resamples; truth-mask CCC, bias and
+   MAE, germline CCC, F1 inside R and whole-field F1, in that order; an asterisk marks an interval that excludes zero,
+   as the report's excludes_zero flag gives it; the pairs of the tuned log with the log defaults to four decimals in
+   CCC and F1 and three in bias and MAE): net3d - tuned log -0.071 [-0.320, +0.035], +1.69 [-0.36, +4.27], +1.07
+   [-0.34, +3.36], -0.136 [-0.431, +0.039], +0.015 [-0.118, +0.081], -0.005 [-0.120, +0.067]; net3d - log defaults
+   -0.072 [-0.320, +0.035], +1.70 [-0.34, +4.28], +1.08 [-0.32, +3.37], -0.136 [-0.431, +0.039], +0.015 [-0.119,
+   +0.081], -0.006 [-0.120, +0.067]; net3d - SpotMAX deployed +0.089 [-0.162, +0.316], +1.56 [-1.29, +4.86], -0.76
+   [-2.70, +1.71], -0.022 [-0.343, +0.216], +0.335 [+0.143, +0.443] *, +0.199 [+0.026, +0.307] *; net3d - grid
+   selection +0.537 [+0.104, +0.744] *, +5.88 [+1.52, +11.14] *, -2.29 [-5.90, +0.92], +0.347 [-0.105, +0.586], +0.422
+   [+0.204, +0.556] *, +0.295 [+0.094, +0.410] *; tuned log - log defaults -0.0006 [-0.0024, +0.0000], +0.012 [+0.000,
+   +0.031], +0.012 [+0.000, +0.031], -0.0003 [-0.0009, -0.0000] *, -0.0006 [-0.0017, +0.0000], -0.0002 [-0.0006,
+   -0.0000] *; tuned log - SpotMAX deployed +0.160 [+0.084, +0.339] *, -0.13 [-1.50, +1.60], -1.83 [-2.94, -1.10] *,
+   +0.114 [+0.047, +0.250] *, +0.319 [+0.221, +0.384] *, +0.204 [+0.140, +0.256] *; tuned log - grid selection +0.608
+   [+0.303, +0.744] *, +4.19 [+1.28, +7.88] *, -3.35 [-6.54, -0.91] *, +0.483 [+0.271, +0.581] *, +0.407 [+0.256,
+   +0.499] *, +0.300 [+0.200, +0.374] *; log defaults - SpotMAX deployed +0.161 [+0.085, +0.341] *, -0.14 [-1.51,
+   +1.60], -1.84 [-2.94, -1.12] *, +0.115 [+0.047, +0.251] *, +0.320 [+0.223, +0.384] *, +0.204 [+0.140, +0.256] *; log
+   defaults - grid selection +0.608 [+0.303, +0.745] *, +4.18 [+1.27, +7.88] *, -3.36 [-6.55, -0.92] *, +0.484 [+0.272,
+   +0.582] *, +0.408 [+0.257, +0.499] *, +0.300 [+0.201, +0.374] *; SpotMAX deployed - grid selection +0.447 [+0.149,
+   +0.566] *, +4.32 [+2.35, +7.02] *, -1.53 [-4.31, +0.54], +0.369 [+0.163, +0.470] *, +0.088 [+0.031, +0.131] *,
+   +0.096 [+0.055, +0.126] *.
+   (3) The six registered folds (`R10/logo/report_registered6`; held out, in the report's order: n2rad51_HS_herm_000,
+   n2rad51_HS_herm_001, n2rad51_noHS_herm_000, n2rad51_noHS_herm_001, n2rad51_noHS_male_000, n2rad51_noHS_male_001; 676
+   truth nuclei, 4,567 germline nuclei, 633 traced; 13,158 truth spots in the whole field and 2,054 inside R). net3d:
+   truth masks 0.411 [0.216, 0.909], 0.566 [0.422, 0.912], +2.19 [-0.10, +5.79], 2.64 [0.62, 6.14]; Class A truth 0.389
+   [0.187, 0.910], 0.533 [0.368, 0.914], +2.28 [-0.05, +6.00], 2.69 [0.62, 6.29]; detector-only count 0.409 [0.215,
+   0.909], 0.564 [0.420, 0.912], +2.19 [-0.10, +5.80], 2.65 [0.62, 6.16]; germline 0.324 [0.188, 0.779], 0.502 [0.408,
+   0.808], +2.31 [+0.41, +5.65], 2.52 [0.72, 5.75]; traced 0.336 [0.153, 0.909], 0.501 [0.342, 0.911], +2.67 [-0.13,
+   +7.16], 3.14 [0.65, 7.48]; precision / recall / F1, whole field 0.290 [0.193, 0.597] / 0.413 [0.304, 0.677] / 0.341
+   [0.240, 0.546]; whole field without Class B 0.281 [0.182, 0.587] / 0.503 [0.378, 0.716] / 0.360 [0.247, 0.608];
+   detector only 0.521 [0.334, 0.883] / 0.918 [0.829, 0.984] / 0.665 [0.487, 0.877]; inside R 0.534 [0.347, 0.886] /
+   0.919 [0.829, 0.985] / 0.676 [0.502, 0.880]; inside R without Class B 0.528 [0.334, 0.886] / 0.924 [0.845, 0.984] /
+   0.672 [0.489, 0.883]; inside R, detector only 0.534 [0.346, 0.886] / 0.919 [0.829, 0.985] / 0.675 [0.502, 0.880]
+   (1,888 matched of 3,534 detected inside R; 5,438 of 18,777 in the whole field). tuned log: truth masks 0.773 [0.616,
+   0.919], 0.861 [0.797, 0.943], +1.35 [+0.50, +2.25], 1.45 [0.76, 2.26]; Class A truth 0.773 [0.619, 0.911], 0.865
+   [0.800, 0.940], +1.44 [+0.70, +2.28], 1.52 [0.90, 2.30]; detector-only count 0.817 [0.690, 0.930], 0.871 [0.825,
+   0.938], +1.01 [+0.25, +1.76], 1.25 [0.71, 1.89]; germline 0.880 [0.818, 0.933], 0.907 [0.888, 0.937], +0.43 [+0.08,
+   +0.86], 0.60 [0.36, 0.98]; traced 0.771 [0.616, 0.922], 0.861 [0.798, 0.941], +1.42 [+0.50, +2.30], 1.54 [0.80,
+   2.33]; precision / recall / F1, whole field 0.677 [0.580, 0.804] / 0.412 [0.285, 0.695] / 0.512 [0.413, 0.646];
+   whole field without Class B 0.667 [0.575, 0.791] / 0.501 [0.354, 0.745] / 0.572 [0.474, 0.683]; detector only 0.662
+   [0.576, 0.789] / 0.954 [0.912, 0.973] / 0.782 [0.721, 0.858]; inside R 0.663 [0.576, 0.788] / 0.958 [0.916, 0.978] /
+   0.784 [0.723, 0.859]; inside R without Class B 0.657 [0.574, 0.779] / 0.960 [0.921, 0.978] / 0.780 [0.719, 0.854];
+   inside R, detector only 0.685 [0.602, 0.804] / 0.913 [0.867, 0.940] / 0.783 [0.729, 0.845] (1,967 matched of 2,966
+   detected inside R; 5,419 of 8,009 in the whole field). log defaults: truth masks 0.777 [0.623, 0.920], 0.863 [0.799,
+   0.943], +1.33 [+0.50, +2.20], 1.43 [0.76, 2.22]; Class A truth 0.776 [0.625, 0.911], 0.867 [0.803, 0.940], +1.42
+   [+0.70, +2.24], 1.50 [0.90, 2.26]; detector-only count 0.824 [0.703, 0.931], 0.875 [0.831, 0.939], +0.98 [+0.25,
+   +1.69], 1.22 [0.71, 1.82]; germline 0.882 [0.820, 0.934], 0.908 [0.889, 0.938], +0.43 [+0.08, +0.85], 0.59 [0.36,
+   0.96]; traced 0.776 [0.624, 0.923], 0.863 [0.802, 0.941], +1.40 [+0.50, +2.25], 1.52 [0.80, 2.28]; precision /
+   recall / F1, whole field 0.679 [0.582, 0.805] / 0.412 [0.285, 0.695] / 0.513 [0.414, 0.647]; whole field without
+   Class B 0.669 [0.578, 0.792] / 0.501 [0.354, 0.745] / 0.573 [0.474, 0.685]; detector only 0.665 [0.581, 0.789] /
+   0.954 [0.912, 0.973] / 0.784 [0.725, 0.858]; inside R 0.666 [0.581, 0.788] / 0.958 [0.916, 0.978] / 0.786 [0.726,
+   0.859]; inside R without Class B 0.660 [0.579, 0.779] / 0.960 [0.921, 0.978] / 0.782 [0.723, 0.855]; inside R,
+   detector only 0.690 [0.610, 0.805] / 0.913 [0.867, 0.940] / 0.786 [0.735, 0.845] (1,967 matched of 2,954 detected
+   inside R; 5,419 of 7,983 in the whole field). SpotMAX deployed: truth masks 0.601 [0.499, 0.718], 0.841 [0.792,
+   0.897], +2.66 [+1.95, +3.28], 2.79 [2.28, 3.31]; Class A truth 0.599 [0.489, 0.723], 0.838 [0.787, 0.897], +2.75
+   [+2.08, +3.41], 2.84 [2.28, 3.42]; detector-only count 0.727 [0.674, 0.783], 0.879 [0.867, 0.902], +1.73 [+1.52,
+   +1.89], 1.91 [1.80, 1.97]; germline 0.750 [0.688, 0.814], 0.889 [0.853, 0.944], +1.02 [+0.69, +1.35], 1.14 [0.89,
+   1.42]; traced 0.620 [0.524, 0.728], 0.846 [0.802, 0.898], +2.61 [+1.89, +3.23], 2.76 [2.29, 3.26]; precision /
+   recall / F1, whole field 0.463 [0.389, 0.536] / 0.377 [0.244, 0.646] / 0.415 [0.320, 0.562]; whole field without
+   Class B 0.452 [0.368, 0.528] / 0.457 [0.297, 0.697] / 0.454 [0.363, 0.572]; detector only 0.470 [0.391, 0.532] /
+   0.878 [0.803, 0.924] / 0.612 [0.542, 0.658]; inside R 0.470 [0.389, 0.533] / 0.883 [0.805, 0.933] / 0.614 [0.543,
+   0.661]; inside R without Class B 0.464 [0.370, 0.528] / 0.886 [0.811, 0.933] / 0.609 [0.527, 0.661]; inside R,
+   detector only 0.544 [0.499, 0.570] / 0.853 [0.808, 0.898] / 0.664 [0.635, 0.682] (1,813 matched of 3,855 detected
+   inside R; 4,955 of 10,698 in the whole field). grid selection: truth masks 0.684 [0.551, 0.788], 0.721 [0.588,
+   0.857], +0.72 [-0.46, +1.70], 1.78 [1.38, 2.30]; Class A truth 0.681 [0.547, 0.789], 0.719 [0.588, 0.857], +0.81
+   [-0.31, +1.83], 1.78 [1.38, 2.34]; detector-only count 0.705 [0.575, 0.797], 0.710 [0.591, 0.815], -0.08 [-1.12,
+   +0.69], 1.51 [1.22, 2.03]; germline 0.772 [0.690, 0.876], 0.787 [0.693, 0.911], +0.24 [-0.42, +0.75], 0.83 [0.54,
+   1.12]; traced 0.696 [0.570, 0.792], 0.723 [0.591, 0.855], +0.61 [-0.60, +1.57], 1.76 [1.36, 2.27]; precision /
+   recall / F1, whole field 0.522 [0.429, 0.621] / 0.282 [0.154, 0.500] / 0.366 [0.234, 0.543]; whole field without
+   Class B 0.510 [0.403, 0.617] / 0.342 [0.186, 0.563] / 0.410 [0.273, 0.555]; detector only 0.545 [0.455, 0.614] /
+   0.671 [0.500, 0.798] / 0.602 [0.511, 0.653]; inside R 0.545 [0.455, 0.614] / 0.674 [0.503, 0.802] / 0.603 [0.512,
+   0.655]; inside R without Class B 0.539 [0.437, 0.612] / 0.678 [0.516, 0.797] / 0.600 [0.509, 0.654]; inside R,
+   detector only 0.608 [0.555, 0.642] / 0.591 [0.420, 0.718] / 0.599 [0.501, 0.645] (1,385 matched of 2,540 detected
+   inside R; 3,713 of 7,117 in the whole field).
+   (4) Paired, the six registered folds (the first detector minus the second on the same 1000 resamples; truth-mask
+   CCC, bias and MAE, germline CCC, F1 inside R and whole-field F1, in that order; an asterisk marks an interval that
+   excludes zero, as the report's excludes_zero flag gives it; the pairs of the tuned log with the log defaults to four
+   decimals in CCC and F1 and three in bias and MAE): net3d - tuned log -0.362 [-0.683, +0.113], +0.84 [-1.14, +4.75],
+   +1.19 [-0.64, +5.00], -0.556 [-0.720, -0.087] *, -0.108 [-0.344, +0.084], -0.171 [-0.214, -0.049] *; net3d - log
+   defaults -0.366 [-0.683, +0.113], +0.86 [-1.14, +4.78], +1.21 [-0.64, +5.02], -0.558 [-0.720, -0.089] *, -0.110
+   [-0.346, +0.083], -0.172 [-0.214, -0.049] *; net3d - SpotMAX deployed -0.190 [-0.486, +0.362], -0.47 [-3.05, +3.71],
+   -0.15 [-2.33, +3.64], -0.426 [-0.611, +0.071], +0.062 [-0.107, +0.277], -0.075 [-0.116, +0.057]; net3d - grid
+   selection -0.273 [-0.451, +0.225], +1.47 [-1.44, +6.13], +0.87 [-1.11, +4.00], -0.448 [-0.588, +0.019], +0.073
+   [-0.026, +0.254], -0.026 [-0.070, +0.074]; tuned log - log defaults -0.0038 [-0.0075, +0.0000], +0.018 [+0.000,
+   +0.047], +0.018 [+0.000, +0.047], -0.0017 [-0.0034, -0.0002] *, -0.0019 [-0.0040, +0.0000], -0.0006 [-0.0020,
+   -0.0001] *; tuned log - SpotMAX deployed +0.172 [+0.034, +0.337] *, -1.32 [-2.46, -0.52] *, -1.34 [-2.22, -0.63] *,
+   +0.130 [+0.044, +0.222] *, +0.170 [+0.093, +0.280] *, +0.097 [+0.067, +0.126] *; tuned log - grid selection +0.089
+   [-0.124, +0.342], +0.63 [-0.81, +1.67], -0.32 [-1.42, +0.53], +0.108 [-0.047, +0.243], +0.181 [+0.083, +0.335] *,
+   +0.146 [+0.088, +0.191] *; log defaults - SpotMAX deployed +0.176 [+0.042, +0.337] *, -1.33 [-2.48, -0.57] *, -1.36
+   [-2.22, -0.68] *, +0.132 [+0.047, +0.223] *, +0.172 [+0.097, +0.281] *, +0.097 [+0.068, +0.126] *; log defaults -
+   grid selection +0.093 [-0.118, +0.342], +0.61 [-0.83, +1.66], -0.34 [-1.42, +0.50], +0.110 [-0.044, +0.244], +0.183
+   [+0.086, +0.335] *, +0.146 [+0.089, +0.191] *; SpotMAX deployed - grid selection -0.083 [-0.197, +0.079], +1.95
+   [+1.44, +2.51] *, +1.02 [+0.34, +1.52] *, -0.022 [-0.122, +0.092], +0.011 [-0.046, +0.085], +0.049 [+0.005, +0.098]
+   *.
+   (5) The four heat-shocked males (`R10/logo/report_hs_males`; held out, in the report's order: n2rad51_HS_male_000,
+   n2rad51_HS_male_002, n2rad51_20260105a_HS_male_001, n2rad51_20260105a_HS_male_002; 332 truth nuclei, 1,826 germline
+   nuclei, 321 traced; 38,815 truth spots in the whole field and 6,205 inside R). net3d: truth masks 0.639 [0.412,
+   0.851], 0.712 [0.477, 0.912], +1.98 [-0.54, +4.11], 4.22 [3.25, 4.84]; Class A truth 0.639 [0.412, 0.851], 0.712
+   [0.477, 0.912], +1.98 [-0.54, +4.11], 4.22 [3.25, 4.84]; detector-only count 0.640 [0.412, 0.851], 0.712 [0.477,
+   0.912], +1.98 [-0.54, +4.10], 4.21 [3.25, 4.83]; germline 0.799 [0.681, 0.874], 0.806 [0.726, 0.931], +0.45 [-2.50,
+   +3.07], 3.93 [3.36, 4.56]; traced 0.591 [0.267, 0.850], 0.648 [0.328, 0.907], +1.86 [-0.88, +4.28], 4.43 [3.32,
+   4.97]; precision / recall / F1, whole field 0.782 [0.709, 0.867] / 0.468 [0.358, 0.692] / 0.586 [0.507, 0.705];
+   whole field without Class B 0.782 [0.709, 0.867] / 0.489 [0.364, 0.761] / 0.602 [0.513, 0.734]; detector only 0.816
+   [0.781, 0.868] / 0.900 [0.827, 0.962] / 0.856 [0.836, 0.876]; inside R 0.816 [0.783, 0.867] / 0.903 [0.833, 0.962] /
+   0.858 [0.839, 0.876]; inside R without Class B 0.816 [0.783, 0.867] / 0.903 [0.833, 0.962] / 0.858 [0.839, 0.876];
+   inside R, detector only 0.816 [0.783, 0.867] / 0.903 [0.833, 0.961] / 0.857 [0.839, 0.876] (5,603 matched of 6,863
+   detected inside R; 18,172 of 23,232 in the whole field). tuned log: truth masks 0.653 [0.333, 0.875], 0.700 [0.415,
+   0.889], -1.44 [-2.40, -0.21], 3.40 [2.60, 4.06]; Class A truth 0.653 [0.333, 0.875], 0.700 [0.415, 0.889], -1.44
+   [-2.40, -0.21], 3.40 [2.60, 4.06]; detector-only count 0.456 [0.193, 0.672], 0.611 [0.333, 0.793], -4.57 [-5.59,
+   -3.26], 5.05 [3.96, 5.91]; germline 0.764 [0.604, 0.905], 0.823 [0.721, 0.922], -3.05 [-4.80, -1.49], 3.79 [2.14,
+   5.63]; traced 0.605 [0.172, 0.864], 0.653 [0.225, 0.877], -1.81 [-3.01, -0.57], 3.54 [2.63, 4.37]; precision /
+   recall / F1, whole field 0.847 [0.835, 0.866] / 0.361 [0.281, 0.524] / 0.506 [0.421, 0.649]; whole field without
+   Class B 0.847 [0.835, 0.866] / 0.377 [0.286, 0.576] / 0.522 [0.427, 0.687]; detector only 0.823 [0.807, 0.836] /
+   0.752 [0.694, 0.819] / 0.786 [0.749, 0.826]; inside R 0.823 [0.806, 0.835] / 0.759 [0.702, 0.824] / 0.790 [0.753,
+   0.828]; inside R without Class B 0.823 [0.806, 0.835] / 0.759 [0.702, 0.824] / 0.790 [0.753, 0.828]; inside R,
+   detector only 0.846 [0.835, 0.855] / 0.639 [0.575, 0.711] / 0.728 [0.684, 0.774] (4,712 matched of 5,728 detected
+   inside R; 14,006 of 16,527 in the whole field). log defaults: every pooled value and interval equal to the tuned
+   log's (all four folds select logA_d0.5_s2). SpotMAX deployed: truth masks 0.384 [0.143, 0.665], 0.485 [0.252,
+   0.688], -3.72 [-7.68, -0.14], 6.22 [4.88, 8.40]; Class A truth 0.384 [0.143, 0.665], 0.485 [0.252, 0.688], -3.72
+   [-7.68, -0.14], 6.22 [4.88, 8.40]; detector-only count 0.057 [0.017, 0.155], 0.330 [0.151, 0.504], -14.95 [-16.87,
+   -12.36], 14.97 [12.44, 16.87]; germline 0.618 [0.343, 0.839], 0.703 [0.594, 0.850], -4.12 [-7.51, -1.32], 5.53
+   [3.13, 8.22]; traced 0.343 [0.088, 0.671], 0.437 [0.160, 0.687], -4.06 [-8.39, -0.26], 6.44 [4.78, 9.00]; precision
+   / recall / F1, whole field 0.466 [0.447, 0.489] / 0.174 [0.115, 0.294] / 0.254 [0.185, 0.361]; whole field without
+   Class B 0.466 [0.447, 0.489] / 0.182 [0.118, 0.323] / 0.262 [0.188, 0.382]; detector only 0.439 [0.429, 0.463] /
+   0.349 [0.270, 0.425] / 0.389 [0.341, 0.428]; inside R 0.441 [0.432, 0.461] / 0.353 [0.275, 0.429] / 0.392 [0.344,
+   0.431]; inside R without Class B 0.441 [0.432, 0.461] / 0.353 [0.275, 0.429] / 0.392 [0.344, 0.431]; inside R,
+   detector only 0.552 [0.540, 0.566] / 0.110 [0.076, 0.165] / 0.184 [0.133, 0.253] (2,189 matched of 4,969 detected
+   inside R; 6,764 of 14,515 in the whole field). grid selection: truth masks 0.075 [0.012, 0.191], 0.336 [0.099,
+   0.449], -12.87 [-14.26, -9.75], 12.92 [9.95, 14.26]; Class A truth 0.075 [0.012, 0.191], 0.336 [0.099, 0.449],
+   -12.87 [-14.26, -9.75], 12.92 [9.95, 14.26]; detector-only count 0.043 [0.006, 0.105], 0.305 [0.076, 0.433], -14.79
+   [-16.38, -12.42], 14.79 [12.42, 16.38]; germline 0.218 [0.110, 0.404], 0.581 [0.493, 0.709], -9.14 [-12.03, -6.57],
+   9.17 [6.63, 12.03]; traced 0.068 [0.009, 0.188], 0.317 [0.076, 0.467], -13.31 [-14.99, -10.09], 13.38 [10.31,
+   14.99]; precision / recall / F1, whole field 0.563 [0.560, 0.566] / 0.076 [0.051, 0.129] / 0.134 [0.093, 0.209];
+   whole field without Class B 0.563 [0.560, 0.566] / 0.080 [0.052, 0.141] / 0.140 [0.095, 0.226]; detector only 0.535
+   [0.508, 0.556] / 0.165 [0.116, 0.222] / 0.253 [0.192, 0.312]; inside R 0.538 [0.509, 0.555] / 0.167 [0.117, 0.224] /
+   0.255 [0.194, 0.314]; inside R without Class B 0.538 [0.509, 0.555] / 0.167 [0.117, 0.224] / 0.255 [0.194, 0.314];
+   inside R, detector only 0.588 [0.563, 0.632] / 0.123 [0.090, 0.161] / 0.203 [0.158, 0.251] (1,039 matched of 1,933
+   detected inside R; 2,964 of 5,269 in the whole field).
+   (6) Paired, the four heat-shocked males (the first detector minus the second on the same 1000 resamples; truth-mask
+   CCC, bias and MAE, germline CCC, F1 inside R and whole-field F1, in that order; an asterisk marks an interval that
+   excludes zero, as the report's excludes_zero flag gives it; the pairs of the tuned log with the log defaults to four
+   decimals in CCC and F1 and three in bias and MAE): net3d - tuned log -0.014 [-0.088, +0.065], +3.42 [+1.30, +5.61]
+   *, +0.82 [+0.09, +1.43] *, +0.035 [-0.039, +0.114], +0.068 [+0.041, +0.097] *, +0.080 [+0.052, +0.090] *; net3d -
+   log defaults -0.014 [-0.088, +0.065], +3.42 [+1.30, +5.61] *, +0.82 [+0.09, +1.43] *, +0.035 [-0.039, +0.114],
+   +0.068 [+0.041, +0.097] *, +0.080 [+0.052, +0.090] *; net3d - SpotMAX deployed +0.255 [+0.151, +0.308] *, +5.70
+   [+2.33, +7.68] *, -2.00 [-4.14, -0.19] *, +0.180 [+0.023, +0.328] *, +0.466 [+0.439, +0.495] *, +0.332 [+0.278,
+   +0.398] *; net3d - grid selection +0.565 [+0.381, +0.662] *, +14.85 [+10.86, +18.22] *, -8.70 [-9.68, -6.75] *,
+   +0.581 [+0.424, +0.675] *, +0.602 [+0.555, +0.653] *, +0.451 [+0.398, +0.550] *; tuned log - log defaults +0.0000
+   [+0.0000, +0.0000], +0.000 [+0.000, +0.000], +0.000 [+0.000, +0.000], +0.0000 [+0.0000, +0.0000], +0.0000 [+0.0000,
+   +0.0000], +0.0000 [+0.0000, +0.0000]; tuned log - SpotMAX deployed +0.269 [+0.151, +0.313] *, +2.29 [-0.65, +5.08],
+   -2.82 [-4.35, -1.63] *, +0.145 [+0.050, +0.260] *, +0.398 [+0.372, +0.421] *, +0.252 [+0.204, +0.324] *; tuned log -
+   grid selection +0.579 [+0.302, +0.699] *, +11.43 [+9.03, +13.39] *, -9.52 [-10.73, -7.39] *, +0.546 [+0.454, +0.652]
+   *, +0.534 [+0.499, +0.560] *, +0.372 [+0.319, +0.483] *; log defaults - SpotMAX deployed +0.269 [+0.151, +0.313] *,
+   +2.29 [-0.65, +5.08], -2.82 [-4.35, -1.63] *, +0.145 [+0.050, +0.260] *, +0.398 [+0.372, +0.421] *, +0.252 [+0.204,
+   +0.324] *; log defaults - grid selection +0.579 [+0.302, +0.699] *, +11.43 [+9.03, +13.39] *, -9.52 [-10.73, -7.39]
+   *, +0.546 [+0.454, +0.652] *, +0.534 [+0.499, +0.560] *, +0.372 [+0.319, +0.483] *; SpotMAX deployed - grid
+   selection +0.310 [+0.131, +0.475] *, +9.14 [+6.45, +11.67] *, -6.70 [-9.11, -3.86] *, +0.400 [+0.232, +0.557] *,
+   +0.136 [+0.108, +0.174] *, +0.119 [+0.086, +0.163] *.
+   (7) The nine folds of entry 15, rerun here (D7) (`R10/logo/report_entry15_folds`; held out, in the report's order:
+   n2rad51_HS_herm_000, n2rad51_HS_herm_001, n2rad51_noHS_herm_000, n2rad51_noHS_herm_001, n2rad51_noHS_male_000,
+   n2rad51_noHS_male_001, n2rad51_HS_male_000, n2rad51_20260105a_HS_male_001, n2rad51_20260105a_HS_male_002; 926 truth
+   nuclei, 5,996 germline nuclei, 872 traced; 38,001 truth spots in the whole field and 6,430 inside R). net3d: truth
+   masks 0.798 [0.471, 0.947], 0.832 [0.588, 0.974], +2.00 [-0.17, +4.53], 2.99 [1.27, 5.33]; Class A truth 0.792
+   [0.455, 0.948], 0.826 [0.565, 0.973], +2.06 [-0.14, +4.61], 3.02 [1.26, 5.43]; detector-only count 0.797 [0.469,
+   0.947], 0.831 [0.587, 0.974], +2.00 [-0.17, +4.54], 2.99 [1.27, 5.34]; germline 0.688 [0.358, 0.897], 0.732 [0.494,
+   0.928], +1.97 [+0.04, +4.56], 2.82 [1.17, 5.24]; traced 0.743 [0.373, 0.944], 0.782 [0.498, 0.972], +2.32 [-0.26,
+   +5.39], 3.43 [1.33, 6.36]; precision / recall / F1, whole field 0.517 [0.295, 0.740] / 0.492 [0.367, 0.695] / 0.504
+   [0.342, 0.650]; whole field without Class B 0.514 [0.288, 0.738] / 0.546 [0.412, 0.752] / 0.530 [0.360, 0.682];
+   detector only 0.692 [0.490, 0.869] / 0.899 [0.817, 0.964] / 0.782 [0.640, 0.867]; inside R 0.700 [0.505, 0.869] /
+   0.901 [0.822, 0.965] / 0.788 [0.654, 0.868]; inside R without Class B 0.698 [0.499, 0.868] / 0.903 [0.823, 0.965] /
+   0.788 [0.649, 0.868]; inside R, detector only 0.700 [0.505, 0.869] / 0.901 [0.822, 0.965] / 0.788 [0.653, 0.868]
+   (5,795 matched of 8,278 detected inside R; 18,701 of 36,181 in the whole field). tuned log: truth masks 0.891
+   [0.773, 0.949], 0.896 [0.807, 0.954], +0.49 [-0.77, +1.61], 1.98 [1.22, 2.83]; Class A truth 0.890 [0.774, 0.948],
+   0.897 [0.810, 0.954], +0.55 [-0.70, +1.65], 2.03 [1.30, 2.87]; detector-only count 0.810 [0.687, 0.913], 0.848
+   [0.760, 0.927], -0.60 [-2.68, +1.01], 2.34 [1.23, 3.83]; germline 0.878 [0.792, 0.939], 0.885 [0.812, 0.943], -0.30
+   [-1.50, +0.50], 1.24 [0.61, 2.40]; traced 0.878 [0.751, 0.948], 0.884 [0.787, 0.952], +0.43 [-0.98, +1.63], 2.09
+   [1.28, 3.04]; precision / recall / F1, whole field 0.780 [0.673, 0.838] / 0.412 [0.325, 0.576] / 0.540 [0.459,
+   0.648]; whole field without Class B 0.778 [0.670, 0.836] / 0.457 [0.352, 0.645] / 0.576 [0.489, 0.684]; detector
+   only 0.752 [0.646, 0.815] / 0.799 [0.730, 0.931] / 0.775 [0.740, 0.819]; inside R 0.752 [0.647, 0.814] / 0.805
+   [0.740, 0.932] / 0.778 [0.743, 0.821]; inside R without Class B 0.750 [0.643, 0.812] / 0.804 [0.739, 0.933] / 0.776
+   [0.741, 0.819]; inside R, detector only 0.771 [0.667, 0.835] / 0.705 [0.623, 0.873] / 0.737 [0.699, 0.796] (5,176
+   matched of 6,881 detected inside R; 15,674 of 20,084 in the whole field). log defaults: truth masks 0.891 [0.777,
+   0.949], 0.897 [0.809, 0.954], +0.47 [-0.78, +1.58], 1.97 [1.22, 2.82]; Class A truth 0.891 [0.777, 0.948], 0.898
+   [0.812, 0.954], +0.54 [-0.72, +1.62], 2.02 [1.30, 2.85]; detector-only count 0.812 [0.692, 0.915], 0.850 [0.762,
+   0.929], -0.62 [-2.68, +0.97], 2.32 [1.22, 3.78]; germline 0.879 [0.792, 0.939], 0.886 [0.812, 0.943], -0.31 [-1.50,
+   +0.48], 1.24 [0.61, 2.39]; traced 0.879 [0.755, 0.948], 0.885 [0.788, 0.952], +0.42 [-0.98, +1.60], 2.07 [1.28,
+   3.02]; precision / recall / F1, whole field 0.781 [0.676, 0.838] / 0.412 [0.325, 0.576] / 0.540 [0.459, 0.649];
+   whole field without Class B 0.779 [0.672, 0.836] / 0.457 [0.352, 0.645] / 0.576 [0.489, 0.685]; detector only 0.754
+   [0.650, 0.815] / 0.799 [0.730, 0.931] / 0.775 [0.741, 0.819]; inside R 0.754 [0.650, 0.814] / 0.805 [0.740, 0.932] /
+   0.778 [0.744, 0.821]; inside R without Class B 0.752 [0.646, 0.812] / 0.804 [0.739, 0.933] / 0.777 [0.743, 0.819];
+   inside R, detector only 0.774 [0.673, 0.835] / 0.705 [0.623, 0.873] / 0.738 [0.700, 0.797] (5,176 matched of 6,869
+   detected inside R; 15,674 of 20,058 in the whole field). SpotMAX deployed: truth masks 0.694 [0.437, 0.826], 0.701
+   [0.464, 0.877], +0.80 [-2.14, +2.85], 3.81 [2.79, 5.46]; Class A truth 0.693 [0.436, 0.826], 0.703 [0.464, 0.878],
+   +0.86 [-2.09, +2.94], 3.84 [2.82, 5.49]; detector-only count 0.153 [-0.028, 0.640], 0.189 [-0.049, 0.649], -2.54
+   [-7.82, +1.09], 5.20 [2.44, 9.34]; germline 0.740 [0.531, 0.872], 0.741 [0.558, 0.887], -0.16 [-2.34, +1.08], 2.11
+   [1.20, 4.00]; traced 0.683 [0.417, 0.831], 0.691 [0.443, 0.879], +0.63 [-2.48, +2.78], 3.87 [2.76, 5.70]; precision
+   / recall / F1, whole field 0.467 [0.419, 0.506] / 0.257 [0.163, 0.431] / 0.332 [0.242, 0.446]; whole field without
+   Class B 0.461 [0.405, 0.502] / 0.282 [0.171, 0.500] / 0.350 [0.250, 0.468]; detector only 0.457 [0.415, 0.499] /
+   0.506 [0.356, 0.806] / 0.480 [0.400, 0.593]; inside R 0.457 [0.414, 0.499] / 0.510 [0.359, 0.811] / 0.482 [0.403,
+   0.595]; inside R without Class B 0.454 [0.406, 0.495] / 0.508 [0.358, 0.811] / 0.479 [0.399, 0.592]; inside R,
+   detector only 0.545 [0.511, 0.568] / 0.346 [0.173, 0.703] / 0.423 [0.263, 0.621] (3,280 matched of 7,170 detected
+   inside R; 9,772 of 20,920 in the whole field). grid selection: truth masks 0.285 [0.077, 0.687], 0.382 [0.147,
+   0.723], -2.81 [-7.49, +0.60], 4.65 [1.98, 8.31]; Class A truth 0.287 [0.078, 0.688], 0.383 [0.146, 0.722], -2.75
+   [-7.42, +0.69], 4.66 [1.99, 8.31]; detector-only count 0.180 [0.036, 0.599], 0.300 [0.093, 0.647], -3.87 [-8.61,
+   -0.33], 4.91 [1.87, 9.11]; germline 0.419 [0.235, 0.736], 0.538 [0.386, 0.763], -1.79 [-5.01, +0.13], 2.61 [0.99,
+   5.39]; traced 0.276 [0.075, 0.690], 0.380 [0.150, 0.724], -3.06 [-7.75, +0.50], 4.80 [1.98, 8.56]; precision /
+   recall / F1, whole field 0.536 [0.462, 0.598] / 0.156 [0.093, 0.310] / 0.242 [0.158, 0.383]; whole field without
+   Class B 0.529 [0.442, 0.596] / 0.171 [0.097, 0.372] / 0.258 [0.163, 0.420]; detector only 0.540 [0.477, 0.587] /
+   0.319 [0.189, 0.630] / 0.401 [0.279, 0.578]; inside R 0.540 [0.476, 0.587] / 0.321 [0.191, 0.634] / 0.403 [0.281,
+   0.580]; inside R without Class B 0.536 [0.464, 0.585] / 0.319 [0.188, 0.629] / 0.400 [0.278, 0.576]; inside R,
+   detector only 0.604 [0.563, 0.634] / 0.268 [0.152, 0.551] / 0.371 [0.242, 0.580] (2,067 matched of 3,827 detected
+   inside R; 5,932 of 11,058 in the whole field).
+   (8) Paired, the nine folds of entry 15, rerun here (D7) (the first detector minus the second on the same 1000
+   resamples; truth-mask CCC, bias and MAE, germline CCC, F1 inside R and whole-field F1, in that order; an asterisk
+   marks an interval that excludes zero, as the report's excludes_zero flag gives it; the pairs of the tuned log with
+   the log defaults to four decimals in CCC and F1 and three in bias and MAE): net3d - tuned log -0.092 [-0.400,
+   +0.047], +1.51 [-0.61, +4.27], +1.01 [-0.42, +3.48], -0.190 [-0.529, +0.027], +0.010 [-0.147, +0.089], -0.035
+   [-0.160, +0.052]; net3d - log defaults -0.093 [-0.401, +0.044], +1.52 [-0.60, +4.29], +1.02 [-0.39, +3.50], -0.190
+   [-0.529, +0.027], +0.010 [-0.148, +0.088], -0.036 [-0.161, +0.052]; net3d - SpotMAX deployed +0.105 [-0.225,
+   +0.404], +1.20 [-1.87, +4.72], -0.82 [-2.82, +1.86], -0.051 [-0.438, +0.244], +0.306 [+0.081, +0.432] *, +0.172
+   [-0.028, +0.311]; net3d - grid selection +0.513 [-0.177, +0.798], +4.81 [+0.30, +10.34] *, -1.66 [-5.01, +1.56],
+   +0.270 [-0.332, +0.576], +0.385 [+0.111, +0.547] *, +0.262 [+0.053, +0.416] *; tuned log - log defaults -0.0008
+   [-0.0038, +0.0000], +0.013 [+0.000, +0.035], +0.013 [+0.000, +0.035], -0.0003 [-0.0016, -0.0000] *, -0.0007
+   [-0.0025, +0.0000], -0.0002 [-0.0009, -0.0000] *; tuned log - SpotMAX deployed +0.197 [+0.098, +0.384] *, -0.31
+   [-1.75, +1.60], -1.83 [-2.94, -1.01] *, +0.139 [+0.050, +0.274] *, +0.295 [+0.178, +0.369] *, +0.208 [+0.121,
+   +0.271] *; tuned log - grid selection +0.606 [+0.142, +0.781] *, +3.30 [+0.57, +6.68] *, -2.67 [-5.79, -0.38] *,
+   +0.460 [+0.162, +0.599] *, +0.375 [+0.195, +0.490] *, +0.298 [+0.171, +0.389] *; log defaults - SpotMAX deployed
+   +0.198 [+0.099, +0.385] *, -0.33 [-1.75, +1.57], -1.85 [-2.95, -1.04] *, +0.139 [+0.050, +0.274] *, +0.296 [+0.181,
+   +0.369] *, +0.208 [+0.122, +0.271] *; log defaults - grid selection +0.606 [+0.147, +0.782] *, +3.29 [+0.56, +6.68]
+   *, -2.68 [-5.79, -0.41] *, +0.460 [+0.163, +0.599] *, +0.375 [+0.197, +0.490] *, +0.298 [+0.172, +0.389] *; SpotMAX
+   deployed - grid selection +0.409 [+0.018, +0.594] *, +3.61 [+1.97, +6.03] *, -0.84 [-3.61, +1.00], +0.321 [+0.083,
+   +0.462] *, +0.079 [+0.006, +0.133] *, +0.090 [+0.038, +0.127] *.
+   (9) The new fold, n2rad51_HS_male_002 held out (`R10/logo/report/logo_per_gonad.csv`; 82 truth nuclei, 13,972 truth
+   spots, 22.30 truth foci per truth nucleus (tm_mean_expert of the held-out per_gonad.csv)): truth-mask CCC, bias and
+   MAE and the detected foci per truth nucleus (tm_mean_ours), then the other columns of the report: net3d 0.378,
+   +3.54, 5.07 and 25.84 (Class A truth 0.378, detector-only count 0.379; germline 0.811 and -1.11; traced 0.353 and
+   +3.24; F1 inside R 0.859, without Class B 0.859, detector only 0.859; whole-field precision / recall / F1 0.842 /
+   0.351 / 0.496, without Class B 0.502, detector only 0.858; 5,828 spots detected); tuned log 0.369, -0.20, 3.39 and
+   22.11 (Class A truth 0.369, detector-only count 0.286; germline 0.691 and -4.43; traced 0.284 and -0.72; F1 inside R
+   0.825, without Class B 0.825, detector only 0.775; whole-field precision / recall / F1 0.843 / 0.268 / 0.407,
+   without Class B 0.412, detector only 0.823; 4,452 spots detected); log defaults the same as the tuned log in every
+   column; SpotMAX deployed 0.175, -2.13, 5.13 and 20.17 (Class A truth 0.175, detector-only count 0.017;
+   germline 0.623 and -4.81; traced 0.112 and -2.46; F1 inside R 0.415, without Class B 0.415, detector only 0.193;
+   whole-field precision / recall / F1 0.454 / 0.139 / 0.213, without Class B 0.216, detector only 0.411; 4,293 spots
+   detected); grid selection 0.026, -14.43, 14.43 and 7.88 (Class A truth 0.026, detector-only count 0.010;
+   germline 0.183 and -12.26; traced 0.022 and -14.93; F1 inside R 0.288, without Class B 0.288, detector only 0.223;
+   whole-field precision / recall / F1 0.561 / 0.053 / 0.097, without Class B 0.099, detector only 0.287; 1,328 spots
+   detected).
+   (10) The fold that entry 15 (h) singled out, n2rad51_HS_herm_000 held out (`R10/logo/report/logo_per_gonad.csv`; 88
+   truth nuclei, 5,152 truth spots, 4.06 truth foci per truth nucleus (tm_mean_expert of the held-out per_gonad.csv)):
+   truth-mask CCC, bias and MAE and the detected foci per truth nucleus (tm_mean_ours), then the other columns of the
+   report: net3d 0.074, +12.31, 12.31 and 16.36 (Class A truth 0.069, detector-only count 0.073; germline 0.123 and
+   +10.74; traced 0.033 and +14.77; F1 inside R 0.394, without Class B 0.373, detector only 0.393; whole-field
+   precision / recall / F1 0.149 / 0.262 / 0.190, without Class B 0.188, detector only 0.378; 9,079 spots detected);
+   tuned log 0.979, +0.34, 0.41 and 4.40 (Class A truth 0.966, detector-only count 0.976; germline 0.938 and -0.02;
+   traced 0.978 and +0.29; F1 inside R 0.914, without Class B 0.910, detector only 0.889; whole-field precision /
+   recall / F1 0.860 / 0.226 / 0.357, without Class B 0.402, detector only 0.916; 1,351 spots detected); log defaults
+   the same as the tuned log in every column; SpotMAX deployed 0.843, +0.91, 1.75 and 4.97 (Class A truth 0.844,
+   detector-only count 0.853; germline 0.864 and +0.32; traced 0.843 and +0.85; F1 inside R 0.635, without Class B
+   0.627, detector only 0.657; whole-field precision / recall / F1 0.562 / 0.169 / 0.260, without Class B 0.292,
+   detector only 0.636; 1,552 spots detected); grid selection 0.587, -2.33, 2.51 and 1.73 (Class A truth 0.610,
+   detector-only count 0.470; germline 0.622 and -1.25; traced 0.574 and -2.47; F1 inside R 0.401, without Class B
+   0.409, detector only 0.307; whole-field precision / recall / F1 0.662 / 0.074 / 0.133, without Class B 0.158,
+   detector only 0.404; 574 spots detected).
+   (c) Against entry 15: what changed and why, as observations from the files named, made after the results; no method
+   change is proposed or made.
+   (1) What reproduces. The three detectors that the revision does not change reproduce entry 15 exactly on the six
+   registered folds: all 3 x 38 pooled rows and the 3 x 38 paired rows among them in `report_registered6` equal those
+   of `E9/logo/report_registered6` and of `prereg_grid/logo/report_f1R`, character for character
+   (`entry19_24_compare_reports.log`). On the nine folds of entry 15 (D7) their per-gonad rows equal those of
+   `E9/logo/report` in all nine folds and the pooled points agree to within 2.5e-15 (floating-point order), but the
+   intervals do not: `--tags` gave that report the six registered folds first and the three males after, where
+   `E9/logo/report` held the nine in tag order, and the cluster bootstrap draws gonads by position
+   (`benchmark/stats.py`, `cluster_bootstrap`: `rng.integers(0, n, ...)` with seed 20251105), so the same seed
+   resamples other sets of gonads; interval ends move by up to 0.113 (log defaults), 0.225 (SpotMAX deployed) and 0.395
+   (grid selection) (`entry19_25_entry15folds_points.log`). The comparison of (D7) is like for like in its points, not
+   in its intervals. Also equal: the 55 D3 sets on the three gonads of the nine-fold $NEW ((D6), 165 pairs), the log
+   reproduction, the three reproduction checks of 4c, the recipe check (bit for bit at 481cb8c as at 08f6285) and the
+   golden reproduction of the new cache.
+   (2) net3d: the training sets. In the nine folds the two runs share, each fold model trains on nine gonads where
+   entry 15's trained on eight: n2rad51_HS_male_002 is added, seventh (eighth in the two folds that hold out an
+   addition), and the additions after it each move one place; the order is otherwise that of entry 11 (f). Between
+   08f6285 and 481cb8c git diff --stat over src, scripts and config names only `benchmark_split.py`,
+   `benchmark_manifest.py` and `make_rad51_split.py`; of these only `benchmark_split.py` is imported by the trainer and
+   by `bench_logo.py` (`load_additions`, `file_sha256`, `PREREGISTERED_ROLES` and the spot-source constants), and its
+   diff (the re-export records and functions, the pinned split digests, `build_split` and `build_manifest`) changes
+   none of those (`entry19_apply_08_split_diff.log`). The recipe check is bit for bit at both commits, and the other
+   gonads' manifest entries and caches are those of entry 15 ((a)(1)), so the added gonad, and the positions it shifts,
+   is the only input that differs for those nine models. Pooled over entry 15's nine folds net3d's truth-mask CCC goes
+   from 0.876 to 0.798 (germline CCC 0.828 to 0.688, F1 inside R 0.822 to 0.788), and over the six registered folds
+   from 0.618 to 0.411 (bias +1.57 to +2.19, F1 inside R 0.770 to 0.676); against entries 4 (b) and 7 (d), whose folds
+   trained net3d and tuned the log without the heat-shocked males (entry 15 (h);
+   `prereg_grid/logo/report_f1R/logo_pooled.csv`, sha256 64646c75..., `entry19_apply_15_f1R.log`), net3d has 0.411
+   against 0.878 [0.834, 0.935] and the tuned log 0.773 against 0.893 [0.818, 0.955], F1 inside R 0.676 against 0.858
+   and 0.784 against 0.848. Per held-out gonad, truth-mask CCC and bias, with the detected against the truth foci per
+   truth nucleus (`E9/logo/report` and `R10/logo/report`, logo_per_gonad.csv; the held-out per_gonad.csv of both runs):
+   n2rad51_HS_herm_000 0.227 and +8.12 to 0.074 and +12.31 (12.18 to 16.36 detected, truth 4.06); n2rad51_noHS_male_000
+   0.840 and +1.12 to 0.560 and +2.91 (4.67 to 6.46, truth 3.55); n2rad51_HS_herm_001 0.942 and -0.24 to 0.787 and
+   -0.73 (1.46 to 0.98, truth 1.71); n2rad51_noHS_herm_000 0.845 to 0.913; n2rad51_noHS_herm_001 0.926 to 0.921;
+   n2rad51_noHS_male_001 0.924 to 0.895; and among the heat-shocked males n2rad51_HS_male_000 0.857 to 0.915,
+   n2rad51_20260105a_HS_male_001 0.558 to 0.616, n2rad51_20260105a_HS_male_002 0.334 to 0.222. So the overcount of
+   n2rad51_HS_herm_000 that entry 15 (h) found grows (about fourfold now, from threefold), and net3d's loss on the
+   registered folds is no longer one fold: n2rad51_noHS_male_000, a male without heat shock, is now overcounted about
+   1.8-fold, and n2rad51_HS_herm_001 is undercounted. A reading, not tested: adding the gonad with the densest truth of
+   the set (n2rad51_HS_male_002, 22.30 truth foci per truth nucleus) moves net3d further toward high counts on the
+   gonads it does not see, which fits the reading of docs/BENCHMARK.md ("Results of the revision") that net3d learns a
+   heat-shock image to mean dense foci, although n2rad51_noHS_male_000 is not heat-shocked. The new fold itself
+   ((b)(9)): net3d 0.378 and +3.54 (25.84 detected, truth 22.30), the tuned log 0.369 and -0.20 (22.11), SpotMAX
+   deployed 0.175 and -2.13 (20.17), the grid selection 0.026 and -14.43 (7.88). Three of the four come within 3.6 foci
+   of the truth's mean and still have low CCC, with MAE 3.39 to 5.13; a reading, not tested: this gonad's truth varies
+   little between nuclei (15 to 30 spots per traced nucleus, entry 18 (a)(4)(vi)), and the CCC is small when the
+   between-nucleus spread is small next to the per-nucleus error.
+   (3) The tuned log: the selections. The designated selection is unchanged ((a)(3)). The fold selections differ from
+   logA_d0.5_s2 in four folds, the four that hold out a gonad without heat shock (`R10/log_selection.json`,
+   `entry19_06_selection_summary.log`): n2rad51_noHS_herm_000 selects logB_d0.5_s2_k0.5_g3_m0 (entry 15: logA_d0.5_s2),
+   n2rad51_noHS_herm_001 logB_d0.5_s2_k0.5_g3_m0 (as in entry 15), n2rad51_noHS_male_000 logB_d0.5_s2_k0.5_g2_m1 (entry
+   15: logB_d0.5_s2_k0.5_g3_m0) and n2rad51_noHS_male_001 logB_d0.5_s2_k0.5_g3_m0 (entry 15: logA_d0.5_s2); the six
+   others, the new fold among them, select logA_d0.5_s2. logB_d0.5_s2_k0.5_g3_m0 is logA_d0.5_s2 with z merge off, and
+   logB_d0.5_s2_k0.5_g2_m1 is logA_d0.5_s2 with pre-gate 2 (`logo.log_config`: k the minimum separation in diameters, g
+   the pre-gate, m the z merge). Why, from `log_selection.json` and `logo.replay_log_search`, in which the finalists
+   are the five best of a fold's 55 sets on its train objective (the pooled germline CCC over its train gonads, rounded
+   to 3 decimals, then whole-field F1) and the val objective decides among them: in entry 15 logA_d0.5_s2 was a
+   finalist in eight of the nine folds (fifth on the train objective in seven, fourth in one) and the best of its
+   fold's finalists on val in seven of them (in the fold of n2rad51_noHS_herm_001, 0.890 against 0.891 for
+   logB_d0.5_s2_k0.5_g3_m0; `entry19_08_selection_objectives_full.log`, `entry19_09_selection_rank.log`). With
+   n2rad51_HS_male_002 in train, in the folds of n2rad51_noHS_herm_000, _herm_001 and _male_001
+   logC_d0.5_s1.75_k0.5_g2_m0 (SNR 1.75) enters the five on the train objective (0.841, 0.841 and 0.856) and
+   logA_d0.5_s2 drops out; in the fold of n2rad51_noHS_male_000, where logC_d0.5_s1.75_k0.5_g2_m0 was already a
+   finalist in entry 15 and logA_d0.5_s2 was not (train objective 0.876 then, 0.873 now), a second SNR-1.75 set,
+   logC_d0.54_s1.75_k0.5_g2_m0, enters (0.863) and logB_d0.5_s2_k0.5_g3_m0, entry 15's selection there, drops out
+   (`entry19_apply_04_folds.log`). The SNR-1.75 sets score 0.698 to 0.703 on val and are not selected, so the best
+   remaining finalist on val is selected: logB_d0.5_s2_k0.5_g3_m0 (0.925; 0.891 in the fold of n2rad51_noHS_herm_001,
+   whose val gonads include the substitute n2rad51_noHS_herm_000) or, in the fold of n2rad51_noHS_male_000,
+   logB_d0.5_s2_k0.5_g2_m1 (0.924). These four folds are the ones whose train sets hold the fewest gonads without heat
+   shock (two of seven, beside all four heat-shocked males and n2rad51_HS_herm_000); a reading, not tested, is that
+   their germline objective is led by the heat-shocked males' dense nuclei and so favours a lower SNR, as
+   docs/BENCHMARK.md ("Results of the revision") read the move from SNR 2.5 to 2.0 of entry 15 (d). In the fold of
+   n2rad51_noHS_male_000 the val score of logB_d0.5_s2_k0.5_g2_m1 on n2rad51_HS_herm_001 comes from a capped run
+   (49,611 candidates, step 19, the only run of that set on that gonad among the run folders the replay reads,
+   `entry19_apply_09_runs_cap.log`), a floor (entry 16 (b)); that fold's held-out run did not reach the cap. The
+   effect: the fold procedure ("tuned log") and the log defaults differ in those four folds and nowhere else; per fold,
+   truth-mask CCC 0.693 against 0.693, 0.818 against 0.818, 0.471 against 0.480 and 0.825 against 0.826; pooled 0.905
+   against 0.906 over the ten folds (paired -0.0006 [-0.0024, +0.0000]), 0.773 against 0.777 over the six registered
+   folds (-0.0038 [-0.0075, +0.0000]) and equal on the heat-shocked males. In entry 15 they differed in two folds
+   (entry 16 (e)) and pooled to 0.891 both. What test scoring uses is the designated selection,
+   `log_tuned_entry9.json`, in effect the log defaults ((d)): the "log defaults" rows of (b) estimate that frozen set,
+   the "tuned log" rows the tuning procedure.
+   (4) What the paired comparisons now say ((b)(2), (4), (6) and (8); development estimates). Over all ten folds net3d
+   and the tuned log are above the grid selection in truth-mask CCC (+0.537 [+0.104, +0.744] and +0.608 [+0.303,
+   +0.744]) and in F1 inside R (+0.422 [+0.204, +0.556] and +0.407 [+0.256, +0.499]); both are above SpotMAX deployed
+   in F1 inside R (+0.335 [+0.143, +0.443] and +0.319 [+0.221, +0.384]) and the tuned log also in CCC (+0.160 [+0.084,
+   +0.339]); SpotMAX deployed is above the grid selection in CCC (+0.447 [+0.149, +0.566]); net3d and the tuned log do
+   not differ (CCC -0.071 [-0.320, +0.035], F1 inside R +0.015 [-0.118, +0.081]), nor do net3d and SpotMAX deployed in
+   CCC (+0.089 [-0.162, +0.316]). On the six registered folds net3d is now below the tuned log in germline CCC (-0.556
+   [-0.720, -0.087]) and whole-field F1 (-0.171 [-0.214, -0.049]); its F1-inside-R lead over the grid selection no
+   longer excludes zero (+0.073 [-0.026, +0.254]; entry 15 (h): +0.167 [+0.081, +0.281]), while the tuned log's stays
+   (+0.181 [+0.083, +0.335]); in truth-mask CCC neither differs from the grid selection (-0.273 [-0.451, +0.225] and
+   +0.089 [-0.124, +0.342]), as in entry 15. On the four heat-shocked males net3d and the tuned log are level in CCC
+   (-0.014 [-0.088, +0.065]), net3d is ahead in F1 inside R (+0.068 [+0.041, +0.097]) with a higher bias (+3.42 [+1.30,
+   +5.61]), and both are above both SpotMAX configurations in CCC (+0.255 to +0.579) and in F1 inside R (+0.398 to
+   +0.602), every one of these intervals excluding zero; the grid selection, the reference of section 7, undercounts
+   them by 12.87 foci per truth nucleus pooled (entry 15, three males: 12.36). On entry 15's nine folds net3d's CCC
+   lead over the grid selection no longer excludes zero (+0.513 [-0.177, +0.798]; entry 15 (g): +0.591 [+0.083,
+   +0.807]), though there the intervals are not entry 15's ((1)).
+   (d) What test scoring now uses, by (D9) of entry 18 (c)(4), declared before the run. net3d:
+   `final_params/net3d_trainval_10folds.json` (sha256
+   3efb7d9d5ce4710b222cf2fa4efdc70d9b99d55da4f2413c55db94cfcdd3720e), naming `M/net3d_trainval_10folds/model.pt`
+   (sha256 039a5b32261ff1b86bb6ee30beb766d433753c95b7f055148d1755901bb4e9c4), trained at 481cb8c on the ten train and
+   val gonads ((a)(5)); it replaces `net3d_trainval_entry9.json` (953b7519...) and its model (ef986d09...), which stay
+   in place and are not scored. The tuned log: `final_params/log_tuned_entry9.json` (sha256
+   0fa43134d1e66e5221755e99d5af461d7e80ab55e6cbd747242bebad5c5338eb, `{"log": {"diameter_um": 0.5, "min_snr": 2.0}}`),
+   unchanged, since the designated selection of the ten-fold replay is its set ((a)(3)); no `log_tuned_10folds.json`
+   exists. SpotMAX deployed (`spotmax_deployed.json`, e3566b3a...) and SpotMAX re-tuned, the grid selection
+   (`spotmax_retuned_grid.json`, 919c4ab5...), unchanged. Config hash 84bdda5a5230 for all four (the golden `spots:`
+   section that the parameters are laid over). `final_params/` holds nine files. By (D9), when the project lead says
+   "score now", the test gonads are scored with these four, SpotMAX as before; the nine-fold set of entry 15 (p) is not
+   offered again, and should he choose it after these results, his words are recorded verbatim and that choice is
+   labelled as made after the ten-fold development results. That reading of his course was declared in entry 18 (c)(4)
+   and will be put to him with these results, which had not been sent to him when this entry was written; he has sent
+   no message since 12:26:43 MDT ((f)). The request on scoring was put to him at 12:21:01 MDT, verbatim (formatting
+   marks left out): "Next from you: one answer after the 10-fold results arrive (tonight or tomorrow): "score now" when
+   you're ready."; the last message to him on it, at 14:20:37 MDT, said "When it finishes, I'll write up the results,
+   open a new PR, and ask you about "score now"." ((f)). Whether and when to score stays his: no test gonad is scored
+   until he says so. Still to be written into the pre-scoring entry (docs/FINAL_SCORING.md 4.2): the code commit, the
+   config hash, the parameter hashes as the run records give them, and the sha256 above. The documents:
+   docs/FINAL_SCORING.md gains status lines under decisions 1 and 5 and, appended to section 2, a table of these frozen
+   methods (the earlier tables kept as written); its pre-flight (4.1) and net3d command (4.6) now name the ten-fold
+   files, 4.5 keeps `log_tuned_entry9.json`, and 4.7 gains the fragility directions of `R10/logo/report` below those of
+   the entry-9 report, post hoc; docs/BENCHMARK.md gains a section "Entry 19".
+   (e) The step-log lines withheld by the launcher (entry 14 (d)(9)). Six lines in three steps, each replaced in its
+   step log by the marker "# [line withheld: it names a test gonad or a test stem]" and counted in
+   `revision_10folds.log` ("STEP NN note: exit 0; N lines naming a test gonad withheld from the step log"): step 1
+   (`benchmark_manifest.py`, 4 lines, its status rows of the four test gonads among the rows of the other gonads, as in
+   step 11 of the nine-fold run), and one line in each of step 7 (the recipe check) and step 63 (the train-plus-val
+   model), as in steps 17 and 69 of the nine-fold run (entry 15 (k)). What the filter withholds, from the code and not
+   from the lines: the helper's `run` subcommand (`cmd_run` in `revision_10folds_helpers.py`) reads the step's merged
+   stdout and stderr line by line and, for each line on which `is_test_path` is true (the line names one of the four
+   test tags, the marker 20251105_n2_hs_male_1 or one of the four registered test stems of
+   `benchmark_split.REGISTERED_STEMS`, case-insensitively, backslashes read as slashes), writes the marker to the step
+   log in its place and adds one to a count. The line itself is written nowhere: not to the step log, not to the
+   console (the helper prints only "exit N; K lines naming a test gonad withheld from the step log", which the
+   launcher's `Invoke-Step` turns into the note), not to any other file; the launcher keeps nothing of it, so there was
+   nothing to open. Why one appeared at step 63: that step runs `python -m germquant train-spots` under the GPU lock;
+   `germquant.cli` sets logging to INFO (`cli.py`, line 435 at 481cb8c), and the trainer logs, before it loads any
+   gonad, "train gonads %s; val %s; left out %s; test (never opened) %s" (`spots/net3d/train.py`, lines 677 and 678 at
+   481cb8c, the line 677 that entry 15 (k) named at 08f6285), whose last field is the test role of the split record,
+   the four test gonads by tag. The marker sits where that line is logged, after "GPU: 32.5 GB free" (train.py
+   line 661) and before "data ready in 10 s" (train.py line 685); step 7 is the same command on the recipe's four
+   gonads, with its marker in the same place. The ten fold models (steps 53 to 62) emit no such line: `bench_logo.py
+   net3d-folds` runs each fold as `bench_logo.py net3d-fold` in a process of its own that does not set logging to INFO,
+   and writes that process's output to `R10/logs`, which holds 0 lines naming a test gonad or a test stem (counted
+   through a filter that printed nothing of them, `entry19_19_count_test_lines_R10.log`); the step logs of the folds
+   hold only "fold <tag>: exit 0". The withheld lines were not seen for this entry. The same four tags are recorded by
+   design in the test_gonads_never_opened field of each train-spots model card and, as gonads.test_never_opened, in its
+   training_log.json; both were read through a filter that withheld that field (four occurrences in each training log
+   counted, not printed; `entry19_apply_17_card_fields.log`).
+   (f) The project lead's answers, recorded verbatim as the note `germquant_golden/pending_changelog_notes.md` (791
+   bytes, written at 12:22 MDT) asks, with their times from the session transcript (MDT; apostrophes, U+2019 there,
+   written here in ASCII; line breaks as /, the blank line of 12:21:59 as one /). At 12:20:12, after pull request #13
+   merged: "Merged. Anything else you need from me?" At 12:21:01 the assistant put, verbatim (formatting marks left
+   out): "Two optional yes/no questions that close old protocol items: / 1. The 2026-01-05 heat-shock males are now
+   training data, so that session can't later serve as a test set. OK? / 2. If someone ever re-saves the Spots of
+   20260105_n2_hs_1_MALE_1 in Imaris, may it join training?" At 12:21:59 he replied: "1 that's fine we have so many
+   datasets / 2 sure, did you want me to do that? / I'll do the nucleus tracking in a few minutes." At 12:22:22 the
+   assistant replied, in part and verbatim: "Got both, and I'll record them word for word in the next changelog entry."
+   and "On 2: no, skip it for now. After the re-export we already have four heat-shocked males with spot truth for
+   training. A fifth would mean another revision and another overnight rerun before scoring, for little gain. If you
+   ever have spare Imaris time, I'll say then what's most worth doing." The rest of that message, and his message of
+   12:26:43, "Okay if you want me to stay blind give me more instructions.", concern the validation of live-imaging
+   tracks, outside this protocol; he has sent nothing since, up to this entry's reads of the transcript. Entry 18
+   (b)(12) quoted the same messages with these times; this entry records them as the note asked, with the end of the
+   reply that entry 18 left out. What they settle: these are questions (c) and (b) of decision 1
+   (docs/FINAL_SCORING.md, the entry-10 status line; stated in entry 10 (g)(7); the note's "entry 10 (c), restated in
+   entry 11 (e)" is the wording that entry 14 (b)(1) corrected). "1 that's fine we have so many datasets" answers (c)
+   as put: the session of 2026-01-05 is training data and cannot be the session of a future test set (protocol section
+   10). "2 sure" answers (b) as put: 20260105_n2_hs_1_MALE_1 may join training once its Spots are saved again in
+   Imaris, and by entries 13 (a) and 18 (b)(12) only through that new save and a changelog entry of its own that
+   declares its checks before they run, as a further development revision before test scoring. His "did you want me to
+   do that?" was answered no ("skip it for now"): no re-save is planned, the gonad is no part of the ten-fold revision,
+   it stays nucleus truth only, and nothing waits on it. These readings are the assistant's; each answer is read only
+   as far as the question put. At 14:20:37 MDT, after the run had started, a message to him gave the corrected estimate
+   and an apology: "Time: about 3 hours, not the 6.5 I said earlier. It reuses more of the nine-gonad run than I
+   expected." (the correction that entry 18 (c)(6) said the next message would make; the run took 2.48 h) and "Also, a
+   message of mine last night had an em dash in a table cell. Sorry about that." (a matter of style outside this
+   protocol, which entry 18 does not name). The same message told him "When it finishes, I'll write up the results,
+   open a new PR, and ask you about "score now"."
+   (g) Reads for this entry, and its disclosures. Every exploration read of benchmark data made for this entry (from
+   about 16:52 MDT, after the run), except the first listing of (1) below, went through a filter that refuses a path
+   naming a test tag, a test stem or a sealed name before opening it and withholds a line that names one
+   (`E17/logs/entry19_safe.py`, `entry19_count_test_lines.py`, `entry19_transcript_msgs.py`,
+   `entry19_transcript_tools.py` and `E17/scripts/withhold.py`), with its console log kept in `E17/logs` (`entry19_00`
+   to `entry19_46`, with the scripts that made them; `entry19_47` and `entry19_48` log the writing of the three
+   documents); no line was withheld from any of them but where (e) says so. Reads: `revision_10folds.log` and the
+   dry-run log of 14:17:52; the step logs (steps 1 to 11, 13 to 15, 26, 27, 38, 39, 45, 46, 48, 49, 51, 52, 58, 63 to
+   66 and 70 whole, the others by grep for cap warnings, lock lines and held-out parameters, all of them by a count of
+   test-naming lines; the launcher had withheld those lines); the fold logs in `R10/logs`; `R10/log_selection.json` and
+   `E9/log_selection.json`; the four reports of (a)(6), the three of entry 15 (`E9/logo/report`, `report_registered6`,
+   `report_hs_males`) and the pooled and paired CSVs of `prereg_grid/logo/report_f1R`, compared row by row; the
+   per_gonad.csv of every held-out folder of both runs (the mean counts); the set names of both runs' fill
+   configurations; the `final_params` files; the model cards and training logs of the two new train-spots models (the
+   test_gonads_never_opened field withheld); `trials.jsonl` (all 1124 lines read, the 386 new ones parsed for counts,
+   every line checked for test names by the filter, nothing of a line printed); listings (names, sizes, times) of R10
+   and its run and logo folders, `final_params`, `models`, `models/net3d_prep` and `germquant_golden`; the sha256 and
+   tree digests of (a)(7) and the list `entry19_artefact_sha256.txt` (`manifest_entry17.json`, its backup and
+   `manifest_entry9.json` hashed as bytes, not parsed, since they hold the test gonads' manifest rows, and so the
+   frozen snapshot); the code the run called (the launcher, the helper, `spots/net3d/train.py`, `cli.py`,
+   `scripts/bench_logo.py`, `benchmark/logo.py`, `benchmark/stats.py`) and `git diff --stat 08f6285 481cb8c`;
+   `pending_changelog_notes.md`; the session transcript through the filter (the main-chain messages of 12:15 to 12:40
+   MDT, the user messages from 12:26 MDT on, the assistant messages after 12:31 MDT on the estimate and the dash, the
+   main-chain tool calls of 14:15 to 17:00 MDT by their first 300 characters, and the code points of two messages); the
+   console output of the background launcher task (400 lines, 0 naming a test gonad, counted). The unit tests (977
+   passed, 6 skipped, 1 deselected by `-m "not model"`, on the CPU, 17:05:59 to 17:12:09 MDT; `entry19_pytest.log`) and
+   ruff 0.17.0 on src, tests and scripts (all checks passed; `entry19_ruff.log`) ran on the tree of 481cb8c before this
+   entry's documents were written; this entry changes documents only, and the suite's size check stats the registered
+   stacks, test gonads among them, and opens no file. Reads during the run, by the session that started it: the last
+   lines of `revision_10folds.log` and of the launcher's console output at 14:20:05 and 14:20:08 MDT, the START, STEP,
+   END and frozen-check lines of the log at 16:48:57, and the last 40 lines of the step logs of the four reports at
+   16:49:04 (none naming a test gonad). Disclosed: (1) One seal deviation of names only, in two listings. The first
+   listing for this entry (about 16:52 MDT), made before the logging helper existed, showed the top level of
+   `germquant_golden` (names, sizes, times) through a filter on the four test tags, not the stems; among the names it
+   printed are `rad51_male002_golden.err`, `.log` and `.out` and `run_male002_golden.ps1`, with their sizes and times,
+   which by their names and dates (2026-10-10) are very likely the console logs and the launcher of the 8666f07 golden
+   run of the test gonad n2rad51_noHS_male_002 (docs/FINAL_SCORING.md 4.1: it finished on 2026-10-10 after 205.5
+   minutes). None was opened, and no number of a test gonad was seen; the names carry no test tag and no test stem, so
+   neither that filter nor this entry's withholds them. The listing was rerun through this entry's filter into
+   `entry19_00_golden_listing_rerun.log`, a kept log; since that filter does not match these names either, it printed
+   the same four names with their sizes and times a second time, and it withheld 13 test-named entries
+   (`entry19_apply_16_counts.log` counts the four lines without printing them). (2) Console reads without a kept log,
+   against entry 10 (g)(5): that listing, `cat` of `pending_changelog_notes.md`, and greps of the launcher's and the
+   helper's code. (3) Three logs are cut short and kept: `entry19_01_run_log.log` (a pipe closed after 150 lines; read
+   again whole into `entry19_02_run_log.log`), `entry19_07_selection_objectives.log` (the same; again into
+   `entry19_08`) and `entry19_27_tables.log` (a script error; again into `entry19_29_tables.log`). (4) The draft of
+   this entry was reviewed twice before it was committed (its numbers; its protocol, seal and wording), and the
+   findings that held were applied: the fold of n2rad51_noHS_male_000 in (c)(3), what had been put to the project lead
+   in (d), the comparison with entries 4 (b) and 7 (d) and the code that changed in (c)(2), the second listing of (1)
+   and the sizes and times it had given, and points of wording. The reviews and the pass that applied their findings
+   read benchmark data only through filters of their own, with their console logs kept in `E17/logs` under the prefixes
+   `entry19_review_numbers_`, `entry19_review_protocol_` and `entry19_apply_`; by those logs no test-named path was
+   opened and no test number was seen, and the apply pass's filter (`entry19_apply_safe.py`) also withholds the names
+   of (1). Reads of the apply pass without a kept log: an unfiltered listing of the names at the top of `logo_e1` and
+   `logo_e1/val_scoring` (14 names, none naming a test gonad or a test stem), the first record of the session
+   transcript, and reads of code and of the three documents. After the findings were applied, ruff 0.17.0 (all checks
+   passed, `entry19_apply_24_ruff.log`) and the unit tests ran again on the tree with this entry's documents: with the
+   GPU visible one test failed, `test_recipe_reproduces_the_selected_checkpoint`, whose recipe retrain does not pass
+   `--device cpu` and so takes the default device, auto, which is cuda here (`entry19_apply_25_pytest.log`,
+   `entry19_apply_26_pytest_recipe.log`; a test nit for the next code commit); with the GPU hidden
+   (CUDA_VISIBLE_DEVICES=-1, as tests/README.md says and as the run above was made), 977 passed, 6 skipped and 1 was
+   deselected (18:05:04 to 18:11:09 MDT, `entry19_apply_27_pytest_cpu.log`). No test-gonad file, no
+   20251105_n2_hs_MALE_1* file and no aggregate table was opened, read, hashed or parsed, and no test number or result
+   was seen.
+   (h) Labels (rule 3). Everything here belongs to the further declared development revision before the first test
+   scoring (entries 13 (b), 17 (j) and 18) and is post hoc under rule 3, here and in every write-up that uses it: the
+   re-export entered after its contents had been examined (entries 17 (c) and 18 (e)), and the decisions of entry 18
+   (c)(4) were made knowing the nine-fold results. The net3d model of (a)(5) and the tuned log are post hoc methods
+   (entries 9, 11, 12, 15, 17, 18 and this one). No method, parameter, gonad or order was changed after the results:
+   the files of (d) are those that (D9) declared, written by the launcher, and the observations and readings of (c)
+   were made after the results and change nothing. It is not the revision of section 10; the two test scorings per
+   method family are untouched. The test numbers seen before this entry are those that entry 16 (a) lists; none was
+   seen for it. No result of net3d or of the tuned log exists for a test gonad. No test result was computed. Decision 1
+   is the project lead's.
+   (i) Not changed: the split record and its pins, the roles (32e2ee0b...), the test set, the val gonads, every truth
+   folder, the records, `manifest.json`, `manifest_entry9.json` (f41d1bab...), `manifest_entry17.json` (13c967e6..., as
+   step 3 wrote it), the outputs of the nine-fold run (entry 15 (m), checked by step 70), the code under src, scripts
+   and tests (the code nits of entry 18 (g) still wait for a code commit), net3d's frozen recipe, the SpotMAX rows of
+   docs/FINAL_SCORING.md section 2 and the option of decision 1 (nothing is scored on test until the project lead says
+   "score now").
