@@ -5,6 +5,11 @@ scoring that `docs/BENCHMARK_PROTOCOL.md` allows per method family (sections 7, 
 take first, the frozen methods, the exact commands in order, how the win conditions are read, and the
 changelog text to append before and after. No test gonad was scored, run or looked at while it was written.
 
+Status (2026-10-13, protocol changelog entry 20): steps 1 and 2 of section 3 have run. The pre-flight ran twice: the
+first attempt stopped at the section 4.4 check of n2rad51_HS_male_001 (agreement 0.9891 against the minimum 0.9935),
+and the second passed every check, that one under the project lead's answer recorded in entry 20 (b) (like for like
+0.99855). The pre-scoring entry is entry 20. No test gonad has been scored, and no test result has been computed.
+
 The test gonads (protocol section 3): n2rad51_HS_herm_002, n2rad51_HS_male_001, n2rad51_noHS_herm_002,
 n2rad51_noHS_male_002.
 
@@ -193,6 +198,15 @@ a changelog entry of its own, which is not planned. On this decision the project
 12:26:43 MDT, before the run (entry 19 (f)); by (D9) "score now" scores the frozen methods of the table of entry 19,
 and that reading goes to him with these results. No test gonad is scored until he says "score now".
 
+Status (2026-10-13, protocol changelog entry 20): answered. The message of 18:14:59 MDT asked the project lead to
+merge pull request #14 and to reply "score now" when ready, named the frozen methods of section 2's table of entry 19
+(net3d retrained on all ten gonads, the log at its defaults, SpotMAX unchanged) and said that switching back to the
+nine-gonad net3d would be a choice made after seeing results. Pull request #14 was merged as 988e665 at 18:20:34 MDT,
+and at 18:21:12 MDT he replied, verbatim: "Merged and score it". It is read as "score now" with those methods, the
+frozen methods of (D9) of entry 18 (c)(4), which also closes the choice between the ten-fold and the nine-fold sets;
+that is a reading of "score it", not his words (entry 20 (a)). The test gonads are scored with the methods of section
+2's table of entry 19, by the commands of section 4.
+
 ### Decision 2. Which SpotMAX configuration is the reference of section 7
 
 Section 7: the reference is "the better of SpotMAX deployed and SpotMAX re-tuned on val (chosen on val, not
@@ -274,6 +288,17 @@ to W1 and W2, which are evaluated exactly as section 7 states them (entry 8 (d) 
 settled by the reply: protocol section 10 says that if W1 fails "the SpotMAX reference stays deployed", but the
 pipeline runs the 8666f07 recipe, not this set. Which setting it keeps in that case is for the project lead to
 settle before test is scored, and the pre-scoring entry records it (section 4.2).
+
+Status (2026-10-13, protocol changelog entry 20): the setting left open above is settled. Asked at 18:35:44 MDT which
+SpotMAX stays the lab's default if neither new detector beats SpotMAX ("a) The current recipe (8666f07)", recommended,
+or "b) The grid pick"), the project lead replied at 21:04:45 MDT, verbatim: "2. whatever is best". It is read as
+delegating the choice to the recommendation: if W1 fails, and in the mixed result of protocol section 7, SpotMAX stays
+deployed with the 8666f07 recipe, chosen on the ten-fold development estimates of entry 19 (truth-mask CCC 0.745
+against 0.298 over the ten folds, 0.384 against 0.075 on the four heat-shocked males) before any test result. Post hoc
+under rule 3, and his delegation, not his words (entry 20 (c), which also corrects the question's "It won only on the
+2 validation hermaphrodites": on the six registered folds the grid selection was ahead too in its point estimate,
+0.684 against 0.601, with an interval that includes zero, and in mean absolute error). The reference R of section 7
+stays the grid selection: W1 and W2 are read against it as section 4.7 states.
 
 ### Decision 3. The limit of two test scorings per method family
 

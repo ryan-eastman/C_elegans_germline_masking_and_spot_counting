@@ -3647,3 +3647,281 @@ point.
    and tests (the code nits of entry 18 (g) still wait for a code commit), net3d's frozen recipe, the SpotMAX rows of
    docs/FINAL_SCORING.md section 2 and the option of decision 1 (nothing is scored on test until the project lead says
    "score now").
+20. 2026-10-13. Test scoring declared before any test result (protocol section 10). Methods, frozen at commit
+   988e665fcb307ad8db4f643f2188240271f4bdbf (main at the merge of pull request #14, which holds entries 1 to 19; the
+   commit that adds this entry changes documents only; (e)): SpotMAX deployed (backend spotmax, params `{}`, the
+   golden `spots:` section, config hash 84bdda5a5230; params file `spotmax_deployed.json`, sha256
+   e3566b3a06430868d71e9287dfd6c6c520a3da027aabea01951d407ee131dc2f, parameter hash
+   44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a); SpotMAX re-tuned (backend spotmax, the grid
+   selection `pg_otsu_e4.0_z0.8`, params file `spotmax_retuned_grid.json`, sha256
+   919c4ab57b83b7602d4412836c916dd33130f0d0e1738fdd5a5d2bf891d21fdf, parameter hash
+   dc085381f9992a28757dea97bcc098bb43b5a19da79587bbf57cf21bc4eb7c57); the SpotMAX reference of section 7 is SpotMAX
+   re-tuned, chosen on val under the primary metric (truth-mask CCC 0.822 against 0.556 for the deployed recipe, a
+   comparison in sample; decision 2, entry 8); if W1 fails, SpotMAX stays deployed with the 8666f07 recipe (section
+   10; (c)); tuned log (backend log, params file `log_tuned_entry9.json`, sha256
+   0fa43134d1e66e5221755e99d5af461d7e80ab55e6cbd747242bebad5c5338eb: logA_d0.5_s2, in effect the log defaults, the
+   designated selection of the D3 procedure replayed with the heat-shocked males in train; config hash 84bdda5a5230
+   (the golden runs' config, whose `spots:` section its params are laid over), parameter hash
+   a596e1b1f21d07cbddba76028a01043e4a567440c9e0dc9ed38f3dbbb5684c8e, as computed from the file and as its run records
+   will give it ((e)); post hoc, protocol changelog entries 9, 11, 12 and 15, and entries 17 to 19 of the ten-fold
+   revision, whose replay selected the same set); net3d (backend net3d, params file `net3d_trainval_10folds.json`,
+   sha256 3efb7d9d5ce4710b222cf2fa4efdc70d9b99d55da4f2413c55db94cfcdd3720e, naming
+   `models/net3d_trainval_10folds/model.pt`, sha256 039a5b32261ff1b86bb6ee30beb766d433753c95b7f055148d1755901bb4e9c4,
+   trained at 481cb8c; config hash 84bdda5a5230 (as for the tuned log), parameter hash
+   60b9ce011ba15db282772b3f9e9dc191fbf5a30362b3a7f4acc89a12a6589c0c, as computed from the file and as its run records
+   will give it ((e)); the frozen recipe of net3d_20261010 retrained on the ten train and val gonads with usable spot
+   truth (eight registered: the six with spot truth from their .ims, n2rad51_HS_male_000 by the recorded export of
+   entry 11 (`tests/golden/rad51_spot_sources.json`, sha256
+   8e145fb18e98866c53c7a670779d8b53d118a18d155c1fbf2cdfaa3de26a0693 as checked out on the workstation; its criteria
+   post hoc, entry 12 (a)), n2rad51_HS_male_002 by its re-export of entries 17 and 18; two additions of entry 9,
+   n2rad51_20260105a_HS_male_001 and _002, as the decisions file of entries 10 and 11 keeps them
+   (`tests/golden/rad51_additions_decisions.json`, sha256
+   682368bc21315a8f2594f282e006a99a158e180ca5c98e67a75e52b9fa918966 as checked out); post hoc, protocol changelog
+   entries 9, 11, 12 and 15, and entries 17 to 19 of the ten-fold revision).
+   Decisions 1 to 5 of docs/FINAL_SCORING.md: (1) answered: the project lead's "Merged and score it" (18:21:12 MDT) is
+   read as "score now" with the frozen methods above, section 2's table of entry 19 ((a); a reading, not his words).
+   (2) Settled in entry 8 ("Grid sure"): the reference R is the grid selection; the setting kept if W1 fails, which
+   entry 8 (e) left open, is the 8666f07 recipe, by his delegation "2. whatever is best" ((c); post hoc). (3) Accepted
+   in entry 6 ("Yes to everything and merged"): SpotMAX deployed and SpotMAX re-tuned use the two `--final` scorings
+   of the `spotmax` family. (4) Accepted in entry 6: Spotiflow, RS-FISH, Imaris with one global Quality threshold and
+   the human blind subset are scored after the first test results, and the write-up says so. (5) Accepted with a
+   reading in entry 6 (status lines of entries 8, 9, 15, 16 and 19): the post hoc choices of entries 2 to 4 stand and
+   are labelled; the methods are those above, the tuned log and net3d post hoc. No test result has been computed at
+   this point.
+   F below is `C:/Users/ryane/germquant_golden/benchmarks/n2rad51_8666f07` (the folder of `final_params/`,
+   `trials.jsonl` and, once the first `--final` run writes it, `final_runs.jsonl`) and FL its subfolder `final_logs`,
+   which holds one log per command of the pre-flight and of this entry (the command, its folder, start and end time
+   and exit code; written by `FL/logrun.sh`, the PowerShell scripts in `FL/ps`), the first attempt's without a prefix
+   and the second's with the prefix `attempt2_`. Times are MDT unless marked UTC; the session transcript is the jsonl
+   of this session under `C:/Users/ryane/.claude/projects/C--Users-ryane/`, read only through filters that print a
+   matching record's line number and timestamp, a record's first characters, windows of at most 240 characters around
+   a match that withhold any window naming a test tag, a test stem or 20251105 ((c)), or the full text of the two
+   assistant messages quoted below (FL/transcript_time_of_reply.py, FL/transcript_w1_search.py,
+   FL/transcript_w1_search_broad.py, FL/attempt2_transcript_timestamp_only.py, FL/attempt2_transcript_record_heads.py,
+   FL/attempt2_transcript_last_assistant_text.py, FL/attempt2_transcript_full_text.py), and, by the review of (f),
+   through filters of its own of the same kinds.
+   (a) Decision 1. At 18:14:59 MDT (00:14:59 UTC on 2026-10-14; transcript line 22111), with the results of entry 19
+   (the truth-mask CCC of each detector over all ten folds, the six registered folds and the four heat-shocked males,
+   rounded from entry 19 (b)), the assistant asked, verbatim (formatting marks left out, line breaks and list items as
+   /, the blank line as one /): "What I need / 1. Merge PR #14:
+   https://github.com/ryan-eastman/C_elegans_germline_masking_and_spot_counting/pull/14. It also fixes a test on main
+   that has been failing on the workstation since the re-export. / 2. Reply "score now" when you're ready. Say it, and
+   the four test gonads are scored with: / net3d retrained on all 10 gonads / LoG at its defaults (tuning still picks
+   the defaults) / SpotMAX unchanged / That was fixed before the run, so I recommend sticking with it. Switching back
+   to the 9-gonad net3d now would be a choice made after seeing results." Pull request #14 was merged as 988e665 at
+   18:20:34 MDT, and at 18:21:12 MDT (00:21:12.240 UTC; line 22114, the whole message) the project lead replied,
+   verbatim: "Merged and score it". It is read as decision 1 answered "score now", with the frozen methods that (D9)
+   of entry 18 (c)(4) declared before the ten-fold run and section 2's table of entry 19 records: net3d
+   `net3d_trainval_10folds.json`, the tuned log `log_tuned_entry9.json`, SpotMAX deployed and the grid selection
+   unchanged. It also answers what (D9) put to him with the results: he did not choose the nine-fold set, so the
+   choice between the two sets is closed. That is a reading of "score it", not his words: the message he answered
+   named these methods and asked for "score now", words he did not use. Line 22170 (00:35:15 UTC) also contains
+   "Merged and score it"; it is the harness's task notification of the first attempt (a record of type user), not a
+   message from him (FL/42_facts_01, FL/attempt2_42_facts_01 and _04, FL/attempt2_43_draft_01).
+   (b) Answer (1): the section 4.4 check of n2rad51_HS_male_001. The first attempt ((d)(1)) stopped at item 10 of
+   docs/FINAL_SCORING.md 4.1: n2rad51_HS_male_001, the one heat-shocked male of the test set, reached a section 4.4
+   agreement of 0.9891 (10,297 of 10,411 truth spots), below the minimum 0.9935 (entry 10 (b)). Of its 114 disagreeing
+   spots, 99 are in the check's category "on removed fragment", entry 10 (b)'s "coloc on an unclaimed value": a
+   mask-channel value that is no kept truth label, either a mask fragment below 1000 voxels or a nucleus present in
+   the mask channel but deleted from the Surfaces after masking; the other 15 are geometric-only 3 and coloc-only 12,
+   with 0 different. Like for like (entry 10 (b)), with that category taken out of count and total: 10,297 of 10,312,
+   0.99855. On the eight registered train and val gonads the category held 0 to 58 spots and on the four additions 30
+   to 95 (entry 10 (b)), so 99 lies above the registered range and above the additions' (at most 95), though as a
+   share of the gonad's truth spots (0.95 percent) it is below n2rad51_20260105a_HS_male_001's (95 of 5,187, 1.8
+   percent; entries 9 and 11 (e)). At 18:35:44 MDT (00:35:44 UTC; line 22183) the assistant reported the stop and
+   asked, verbatim (formatting marks left out, line breaks and list items as /, the blank line as one /): "The safety
+   checks stopped scoring before anything ran. Nothing was scored, committed or pushed. Two things need your answer
+   first. / 1. The heat-shocked test male (HS_male_001) fails one truth check. / The check: whether the spots match up
+   with the nucleus masks. It needs 99.35% and HS_male_001 gets 98.9%. / The cause: 99 spots sit in nuclei that were
+   deleted from the Surfaces after the mask channel was made. It's the same thing you OK'd for the new male _001 ("10
+   sure"). / Leaving those spots out, it's 99.85%, which is in range. / Effect on the main score: none. Those spots
+   aren't inside any traced nucleus. / My recommendation: same treatment as before, labelled as a decision made after
+   the check. The alternative is dropping that gonad's spot truth, which loses the only heat-shocked test male." At
+   21:04:45 MDT (03:04:45.359 UTC; line 22186, the whole message) he replied, verbatim (line breaks as /, the blank
+   line as one /): "1 . okay / 2. whatever is best". "1 . okay" is read as accepting the recommendation: the
+   like-for-like reading of entry 10 (b) and entry 11 (e) (the spots on fill values of nuclei deleted from the
+   Surfaces after masking taken out of count and total; here the whole category, see (1) below) applies to the section
+   4.4 check of n2rad51_HS_male_001, which then passes at 0.99855, above the minimum 0.9935 and inside the registered
+   like-for-like range of 99.74 to 100.00 (entry 10 (b)), as n2rad51_20260105a_HS_male_001 did at 0.9990 (entry 11
+   (e)). Its spot truth is used as exported and no file changes: the scoring reads `manifest.json` as it stands (the
+   default manifest of `scripts/bench_detector.py`, sha256
+   ecc1c84de15b64f7c63b6f6e14ebba13f78336df0cd4b65b81bf9f41701a8b2c), which records `spot_truth_usable` true for all
+   four test gonads (FL/attempt2_44_review_01, read after the review, (f)), as `scripts/benchmark_manifest.py` gives
+   it to a registered gonad that is neither a re-export nor a recorded spot source and was not exported with region
+   growing; so the section 4.4 check of a test gonad is a check of the pre-flight, not an input of the scoring. The
+   other three test gonads pass on the plain agreement (0.9969, 1.0000 and 0.9949); their like-for-like values are
+   printed and no rule uses them. Post hoc under rule 3: decided after the check's numbers were seen and before any
+   test result, and labelled so here and in every write-up that uses n2rad51_HS_male_001's spot truth. It is a reading
+   of "okay" as the answer to a recommendation that named the treatment, not his words. Two statements of the question
+   are corrected here. (1) "99 spots sit in nuclei that were deleted from the Surfaces after the mask channel was
+   made" is not verified: the check does not split its category between fragments and deleted nuclei, and nothing more
+   of that gonad's truth was read (for the additions, 256 of 259 such spots lay in deleted nuclei, entry 10 (b)). The
+   like-for-like value takes the whole category out either way, so the reading is entry 10 (b)'s, with the category's
+   wording. (2) "Effect on the main score: none. Those spots aren't inside any traced nucleus." holds for the primary
+   partition and for W1 and W2, as the code shows (checked for this entry). `scripts/check_truth_assignment.py` and
+   the scoring (`benchmark/spots.py`) read the same truth files of the manifest and assign each truth spot by the same
+   `assign_to_masks` with the same `truth_mask_lut` (fragments below `TRUTH_MASK_MIN_VOXELS`, 1000 voxels, removed). A
+   spot on the category with a geometric label counts as "different", so "different 0" means the geometric rule gave
+   none of the 99 a truth label. In `truth_mask_table` they therefore count in no truth nucleus's `expert_n`, which
+   keeps them out of the per-nucleus truth-mask blocks (truth_masks, which W1 reads, truth_masks_class_a and
+   truth_masks_detector_only) and the Class B columns `tm_class_b_*`, and in `_region_spot_scores` they lie outside R,
+   which keeps them out of spots_truth_masks (which W2 reads), spots_truth_masks_class_a and
+   spots_truth_masks_detector_only. They do enter the whole-field blocks spots_all and spots_without_class_b (kept for
+   comparison only, docs/FINAL_SCORING.md 4.7), possibly the older detector-only spot block spots_detector_only (the
+   `det_` columns, which keep the spots that `label_at_points` finds in the raw truth labels, with a 3 x 5 x 5 window
+   and no fragment removed), the harness's older germline and traced partitions on the deployed nucleus masks
+   ("traced" there is that older subset of our nuclei, not the truth masks), and the count
+   `tm_n_expert_spots_unassigned`. This is not a rule for every spot on the category: a spot whose centre voxel is
+   background can go to an adjacent kept nucleus by the 3 x 3 x 3 fallback, and the counts printed for
+   n2rad51_noHS_herm_002 imply that its 2 spots on the category are among its 3 "different", so geometrically
+   assigned; that gonad passes on the plain agreement and needs no reading.
+   (c) Answer (2): the SpotMAX setting the lab keeps if no new detector replaces it. Protocol section 10 says that if
+   W1 fails "the SpotMAX reference stays deployed", and the reference is the grid selection, which the pipeline does
+   not run (it runs the 8666f07 recipe). Entry 8 (e) and the entry-8 status line of decision 2 left that setting to
+   the project lead before test scoring, entry 15 (q) listed it again as open, and no later entry, status line or
+   message of his settled it before this answer (the first attempt searched the transcript for one and found none:
+   FL/42_facts_02 and _03c, through a filter that withholds a window naming a test tag, a test stem or 20251105, 0
+   withheld). The message of 18:35:44 MDT asked, after the part quoted in (b), verbatim (formatting marks left out,
+   line breaks and list items as /, each blank line as one /): "2. If neither new detector beats SpotMAX, which
+   SpotMAX stays as the lab's default? / a) The current recipe (8666f07). My recommendation. Across all 10 gonads it
+   scores 0.75, against 0.30 for the grid pick, and 0.38 against 0.08 on heat-shocked males. / b) The grid pick. It
+   won only on the 2 validation hermaphrodites. / This only matters if both new detectors lose. It has to be fixed
+   before scoring, because the pre-scoring entry names it. / Reply with something like "1 yes, 2 a". I'll record it,
+   and scoring restarts from the pre-flight." His reply ((b)): "2. whatever is best". It is read as delegating the
+   choice to the recommendation: if W1 fails, SpotMAX stays deployed with the 8666f07 recipe (`spotmax_deployed.json`,
+   the pipeline as it runs now), chosen on the ten-fold development estimates of entry 19 before any test result. The
+   question as put ("If neither new detector beats SpotMAX") is read as covering the mixed result of section 7 (W1 met
+   without W2) too, in which SpotMAX is not replaced either. Post hoc under rule 3, and labelled as his delegation,
+   not his words. It names the configuration the lab keeps and does not change R: W1 and W2 are read against the grid
+   selection exactly as section 7 states them (docs/FINAL_SCORING.md 4.7), and section 10's "the SpotMAX reference
+   stays deployed" is read as "SpotMAX stays deployed, with the 8666f07 recipe", a reading. The numbers of the
+   question check against entry 19 (b): truth-mask CCC 0.745 against 0.298 over the ten folds (deployed minus grid
+   +0.447 [+0.149, +0.566]) and 0.384 against 0.075 on the four heat-shocked males (+0.310 [+0.131, +0.475], over only
+   35 distinct resamples). Corrected here: "It won only on the 2 validation hermaphrodites" leaves out that on the six
+   registered folds the grid selection's point estimate was also ahead, 0.684 against 0.601 (deployed minus grid
+   -0.083 [-0.197, +0.079], an interval that includes zero), with a lower mean absolute error, 1.78 against 2.79 foci
+   per truth nucleus (deployed minus grid +1.02 [+0.34, +1.52], an interval that excludes zero) (entry 19 (b)(3) and
+   (4)); the message of 18:14:59 had shown that column ("original 6": 0.60 and 0.68). On the two val gonads, where it
+   was chosen, the grid selection leads in sample (0.822 against 0.556). The recommendation and the delegation rest on
+   the ten folds and the heat-shocked males, where the deployed recipe is ahead with intervals that exclude zero.
+   (d) The pre-flight, run twice from the worktree `C:/Users/ryane/germquant_wt_final` (branch feat/final-scoring at
+   988e665; its `models` folder a junction to the main checkout's `models`), with PYTHONPATH set to its src
+   (docs/FINAL_SCORING.md section 4) and the interpreter and `germquant.exe` of the main checkout's .venv, every
+   command of 4.1 as written, in PowerShell. (1) The first attempt, 18:24:33 to 18:31:20 MDT, after the reply of (a).
+   `git fetch origin` (origin/main 988e665fcb307ad8db4f643f2188240271f4bdbf), the worktree made detached at 988e665
+   (18:24:33), the junction and the branch (18:24:40) (FL/00_setup_01 to _06). Items 1 to 3 passed: nothing
+   uncommitted; HEAD 988e665fcb307ad8db4f643f2188240271f4bdbf; `germquant` imported from the worktree's src. Item 4
+   built the bench cache of n2rad51_noHS_male_002, the one test gonad without one ("written 3.84 GB [10.6 s]",
+   18:25:12 to 18:25:24; images and labels only, no metric), hashing its .nd2 against the split record. Items 5 and 6,
+   passed from Bash through `powershell -Command`, lost their inner quotes and failed with a Python SyntaxError before
+   reading anything (exit code 1; FL/41_preflight_05 and _06); they ran again as written from PowerShell script files
+   (FL/ps; FL/41_preflight_05b and _06b) and printed "8666f0792ff1d912ece1d5ee9a1eab7ff82cd231-dirty 84bdda5a5230" and
+   039a5b32261ff1b86bb6ee30beb766d433753c95b7f055148d1755901bb4e9c4. Items 7 and 8 printed []; item 9 the nine sha256
+   of `final_params/` that section 2 gives; item 10 the section 4.4 values given in (2) below, in which
+   n2rad51_HS_male_001 failed; items 11 and 12 "frame stored; stored frame spot-channel agreement 1.0" and "stored"
+   for each test gonad (exports to %TEMP%/preflight_frame, written 18:28:02 to 18:29:33); item 13 False. The attempt
+   stopped there with NO-GO: nothing was scored, committed or pushed, and the report of 18:35:44 went to the project
+   lead. (2) The second attempt, 21:09:36 to 21:14:45 MDT, after his answers. The worktree was checked and reused, not
+   made again: `git fetch origin`, origin/main still 988e665; the branch at 988e665, clean, no commit ahead of
+   origin/main, absent from origin; the junction in place (FL/attempt2_00_setup_01 to _08). Every command of 4.1 ran
+   from a PowerShell script file in FL/ps (`attempt2_41_*.ps1`), as written, with a few lines of context marked as not
+   part of 4.1 (FL/attempt2_41_preflight_01 to _13, every one with exit code 0). Items 1 to 3 as in the first attempt.
+   Item 4 printed "exists [0.0 s]" and 16 complete caches: an existing cache is not hashed again
+   (`detector.cache_gonad` returns before hashing), so the verification is the first attempt's, which the cache's
+   meta.json records (created 2026-10-14T00:25:24 UTC; .nd2 2,880,540,672 bytes, sha256
+   ea69a5e265b38648fe04ce546ac7e901f7db0f0f0d58056bfb628419131747ef, source the split record, sha256_verified true;
+   FL/attempt2_41_preflight_04b). Item 5 printed "8666f0792ff1d912ece1d5ee9a1eab7ff82cd231-dirty 84bdda5a5230". The
+   golden run manifests of all four test gonads carry that sha with the suffix "-dirty" and config hash 84bdda5a5230
+   (FL/attempt2_41_preflight_05b, which printed those two keys only), as do those of the eight registered train and
+   val gonads (FL/attempt2_43_draft_04). `provenance.git_sha` adds "-dirty" when `git status --porcelain` in the
+   checkout of the run prints anything, an uncommitted change or an untracked file; the manifests do not record what
+   it printed (their keys are config, config_hash, git_sha, pipeline_version, pixi_lock_sha256, run_timestamp and
+   tool_versions). The commit and the config hash that 4.1 checks match, the commit on its prefix: 4.1 gives
+   "8666f07..." and does not anticipate the suffix, so the pass of item 5 is a reading; the deployed competitor is
+   those golden outputs (section 8 item 1), and docs/FINAL_SCORING.md 4.3 checks that its scored detections are
+   identical to them. Items 6 to 9 as in the first attempt (the model 039a5b32...; [] twice; the nine sha256
+   unchanged). Item 10 printed what the first attempt printed: n2rad51_noHS_herm_002 1,300 truth spots, agreement
+   0.9969 (geometric-only 0, coloc-only 1, different 3, on the category 2), like for like 0.9985;
+   n2rad51_noHS_male_002 817, 1.0000 (0, 0, 0, 0), 1.0000; n2rad51_HS_herm_002 2,364, 0.9949 (1, 1, 1, 9), 0.9987;
+   n2rad51_HS_male_001 10,411, 0.9891 (3, 12, 0, 99), 0.9985. Three gonads pass on the plain agreement, and
+   n2rad51_HS_male_001 passes under (b) at 0.99855. Before items 11 and 12 the first attempt's scratch folder was
+   renamed %TEMP%/preflight_frame_attempt1 (21:11:29; FL/attempt2_41_preflight_10a), so that the glob of item 12 read
+   only this attempt's exports (written 21:12:05 to 21:13:25, listed in its log); both items printed as in the first
+   attempt, "stored" for all four. Item 13 printed False. The items ran in the order 1 to 9, 13, 10, 11 and 12 (item
+   13 at 21:10:37, items 10 to 12 from 21:11:34 to 21:13:26, with the context logs 04b, 05b and 10a from 21:11:21 to
+   21:11:29), as in the first attempt, which also ran item 13 before item 10 (18:26:59 and 18:27:29); the absence of
+   `final_runs.jsonl` was checked again at 21:14:45 (FL/attempt2_42_facts_10). In both attempts the loop of item 11
+   also prints each gonad's exit code after its command (FL/ps/41_11_frame_check.ps1 and
+   FL/ps/attempt2_41_11_frame_check.ps1), a line added to the command of 4.1 that the scripts do not mark as context.
+   The facts of this entry were gathered after the pre-flight (FL/attempt2_42_facts_01 to _10; FL/attempt2_43_draft_01
+   to _04): the reply times of (a) to (c), the parameter hashes and record files of (e), `provenance.git_sha()` in the
+   worktree (988e665fcb307ad8db4f643f2188240271f4bdbf, without "-dirty"), `git status` clean afterwards and
+   `final_runs.jsonl` absent (an `ls` that exits with code 2, as it must). Every test-gonad number of the pre-flight
+   is a check on the truth side (counts of truth spots and surfaces, the section 4.4 agreement, the frame check); no
+   metric of section 5 was computed for any method on any gonad. The main checkout's local main is at b90ebdf, behind
+   origin/main; with PYTHONPATH on the worktree it played no part.
+   (e) What the record holds. The code commit is 988e665fcb307ad8db4f643f2188240271f4bdbf. The commit that adds this
+   entry changes docs/BENCHMARK_PROTOCOL.md and docs/FINAL_SCORING.md only, so src, scripts and tests are those of
+   988e665. It is committed on the branch feat/final-scoring, not on main, and pushed to origin before the first
+   `--final` run. The `--final` runs of docs/FINAL_SCORING.md 4.3 to 4.6 are made from that entry commit, since
+   `--final` refuses uncommitted code: section 4's "the commit named in the pre-scoring entry" is read as this entry's
+   commit, whose src, scripts and tests are those of 988e665, so that the sha in each run record also shows that this
+   entry was committed before the run (a reading; the records' git_sha is therefore not 988e665). The post-scoring
+   entry gives that sha with the lines of `final_runs.jsonl`. The parameter hashes were computed without running a
+   detector (FL/attempt2_42_facts_06, by FL/params_hashes_without_a_run.py): `scripts/bench_detector.py` records
+   `benchmark.detector.params_sha256` of `json.loads` of the `--params` file, the sha256 of its key-sorted compact
+   JSON, and nothing changes that mapping before the record is written (`detector.effective_section` works on a deep
+   copy). Of the 1124 records of `trials.jsonl`, 48 carry the hash of `spotmax_deployed.json`, 16 that of the grid
+   selection, 17 that of `log_tuned_entry9.json` and none that of `net3d_trainval_10folds.json` (counted, no record
+   printed). The record files under tests/golden as checked out on the workstation (CRLF; FL/attempt2_42_facts_07):
+   `rad51_split.json` 01b95dd21488eae8c7f615ce61201ce6b955b2725846ab9d221dfb93c9dc4d7d, `rad51_additions.json`
+   8831db52aa3569524cc01c1f75ab1ef77d01ded5e5539f06ae36149b241772ed, `rad51_spot_sources.json` 8e145fb1... and
+   `rad51_additions_decisions.json` 682368bc... (both in full above); as git stores them (LF line endings;
+   FL/attempt2_44_review_02): `rad51_split.json` edb022392fbfb8d33eee5eb64fdb6cd22421c4cec6bc25768f708060aa3302d7,
+   `rad51_additions.json` 80f4ad125e211943406ed4350345d0c2dc86380485a96fdae4c81b4428733b16, `rad51_spot_sources.json`
+   b00d2730754cd4735740c5d997c60ba28073212907962a59a13d9d4d3c104aaa and `rad51_additions_decisions.json`
+   5b4673d10492a781ecfd859758b81b8d2d4401a2c390b41b1d64634b2d5f4a04. `final_params/` holds the nine files of
+   docs/FINAL_SCORING.md section 2 with the sha256 given there (item 9). Nothing was changed, tuned or re-selected
+   after the reply of (a) or the answers of (b) and (c).
+   (f) Reads for this entry, and its disclosures. The pre-flight read, as 4.1 prescribes, files of the four test
+   gonads: their truth spot tables and label images (item 10, by `scripts/check_truth_assignment.py`, which printed
+   the counts of (d)); their .ims and .nd2 (items 11 and 12, the frame check with `--no-masks`, which printed for each
+   its numbers of truth spots and surfaces, 1,300 and 93, 817 and 130, 2,364 and 84, and 10,411 and 68, and a warning
+   on the recorded ROI box); the .nd2 and golden outputs of n2rad51_noHS_male_002 (the cache build of the first
+   attempt); the golden run manifests (two keys). Other reads: the session transcript through the filters named above
+   (the first attempt also searched it for an earlier answer on the setting of (c): two runs failed, one on a pattern
+   error and one on a console encoding error, and one log of them, FL/42_facts_03b, was edited after the run to
+   replace four cp1252 dash bytes of quoted 2026-07 text with hyphens, as a note in it says); the golden run manifests
+   of the eight registered train and val gonads (git_sha, config_hash and the key names); `trials.jsonl` (parameter
+   hashes counted); the meta.json of one bench cache; the code named in (b), (d) and (e); the two documents. After a
+   read-only review of the draft, `manifest.json` was read through two filters that print, for the four test gonads
+   only, its key names and boolean values and, per pipeline output, the recorded exists flag and whether the file
+   exists now (FL/attempt2_44_review_01 and _03): it records `spot_truth_usable` true for all four ((b)) and
+   `outputs_complete` false for n2rad51_noHS_male_002, the manifest having been written (2026-10-10T02:44:21 UTC)
+   before that gonad's golden run wrote its outputs, all of which exist now; no scoring code reads that flag. The
+   record files were hashed as git stores them ((e)). The review checked the draft's facts again with filters of its
+   own, not in FL (tx_find.py, tx_range.py, tx_user_msgs.py and tx_prev_assistant.py in the session's scratchpad
+   folder, which print a record's line, type, timestamp and length, the first 60 or 160 characters of a message,
+   windows of 300 characters that withhold any naming a test gonad, and the full text of the two assistant messages
+   quoted in (a) to (c) and of the replies), among them a scan of every message of the project lead since 2026-10-11
+   for an earlier answer on the setting of (c) (it found none); it also opened `manifest.json` (the flags of (b)) and
+   recomputed the sha256, parameter hashes and counts of (d) and (e). Ruff 0.17.0 on src, tests and scripts (all
+   checks passed; FL/attempt2_44_review_04) and the unit tests (977 passed, 6 skipped and 1 deselected by `-m "not
+   model"`, with CUDA_VISIBLE_DEVICES=-1, 21:50:45 to 21:57:03 MDT; FL/attempt2_44_review_05) ran on the worktree with
+   this entry's draft; no file under tests differs from 481cb8c, so the suite's size check stats the registered
+   stacks, test gonads among them, and opens no file, as entry 19 (g) says. Outside the unit tests no detector ran, no
+   metric was computed, nothing was trained or tuned, no `--final` run was made, and `final_runs.jsonl` does not
+   exist.
+   (g) Labels (rule 3). The reading of decision 1 is the assistant's ((a)). The answers of (b) and (c) are post hoc
+   under rule 3: decided after the first pre-flight's numbers were seen, and before any test result. The methods are
+   post hoc as entries 9, 11, 12, 15 and 17 to 19 label them. The coming `--final` runs are the first of the two test
+   scorings that section 10 allows each method family; for `spotmax`, decision 3 makes SpotMAX deployed and SpotMAX
+   re-tuned those two. The test numbers seen before this entry are those that entry 16 (a) lists and the truth-side
+   counts of the pre-flight above. No result of net3d or of the tuned log exists for a test gonad. No test result has
+   been computed at this point.
+   (h) The documents. docs/FINAL_SCORING.md gains a status line under its opening paragraph and under decisions 1 and
+   2; nothing else in it changes. docs/BENCHMARK.md does not change.
+   (i) Not changed: the split record and its pins, the roles, the test set, the val gonads, every truth folder, the
+   records under tests/golden, `manifest.json` and the revised manifests, the code under src, scripts and tests,
+   `final_params/`, the models, `trials.jsonl` (1124 lines), and the order of docs/FINAL_SCORING.md section 3 (SpotMAX
+   deployed with its golden check, SpotMAX re-tuned, the tuned log, net3d, the comparison, the post-scoring entry).
