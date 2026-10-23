@@ -76,7 +76,12 @@ def test_out_of_repo_profile_inherits_base_relative_paths(tmp_path):
     assert cfg.get("io.exclude_patterns") == load_config(ROOT / "config" / "config.yaml").get("io.exclude_patterns")
     from germquant.pipeline import resolve_model_path
 
-    assert Path(str(resolve_model_path(cfg))).is_absolute()
+    anchored = Path(cfg.get("segmentation.nuclei.cellpose_model"))
+    if anchored.is_file():                    # a checkout that holds the model: the anchored file is used
+        assert Path(str(resolve_model_path(cfg))) == anchored
+    else:                                     # no models folder (CI): refused, never handed to Cellpose
+        with pytest.raises(FileNotFoundError, match="is not a file"):
+            resolve_model_path(cfg)
 
 
 def test_models_env_override_and_profile_root(tmp_path, monkeypatch):

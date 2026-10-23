@@ -151,13 +151,19 @@ def resolve_model_path(cfg):
     the steps above find nothing and today's code raises: it resolves to the verified blob of an installed
     pack's model spec, and a declared but missing blob raises FileNotFoundError naming `germquant pack
     fetch-models`. Under segmentation.nuclei.method classical such a value is returned unresolved (the
-    classical segmenter never loads a model; model_sha256 is "unused")."""
+    classical segmenter never loads a model; model_sha256 is "unused").
+
+    A path (absolute, or relative with a folder part) that is no file anywhere is refused where Cellpose would
+    load it (``_model_file_or_refusal``): Cellpose takes a missing path for an unknown model name, logs
+    "pretrained model ... not found, using default model" and segments with its stock weights, while the run
+    records model_sha256 "absent". Every value that resolves is returned as before, including a relative path
+    that is a file only from the working directory (where Cellpose itself looks)."""
     model_path = cfg.get("segmentation.nuclei.cellpose_model")
     if not model_path:
         return model_path
     p = Path(str(model_path))
     if p.is_absolute():
-        return model_path
+        return _model_file_or_refusal(cfg, model_path)
     root = os.environ.get("GERMQUANT_MODELS")
     if root:
         for cand in (Path(root) / p, Path(root) / Path(*p.parts[1:]) if len(p.parts) > 1 and p.parts[0] == "models" else None):
@@ -199,7 +205,64 @@ def resolve_model_path(cfg):
                 f"model {model_path!r} is not a file, not a model registered in {local_registry_path()} and not a "
                 f"Cellpose built-in {CELLPOSE_BUILTIN_NAMES}; give the model file's absolute path in "
                 f"segmentation.nuclei.cellpose_model, or register it in this environment")
-    return model_path
+    return _model_file_or_refusal(cfg, model_path)
+
+
+def _model_file_or_refusal(cfg, model_path):
+    """``model_path`` unchanged when it is a file (a relative value counts from the working directory, as for
+    Cellpose and provenance.file_sha256), a bare name (resolve_model_path has already refused every bare name
+    Cellpose would replace), or a value the built-in Cellpose backend will not load (method classical, or a
+    backend name that runs another segmenter: segment_nuclei's rule). Otherwise FileNotFoundError naming the
+    places resolve_model_path looked in, in its order, and the fixes."""
+    p = Path(str(model_path))
+    if p.is_file() or (len(p.parts) == 1 and not p.is_absolute()):
+        return model_path
+    if str(cfg.get("segmentation.nuclei.method", "auto")) not in ("auto", "cellpose"):
+        return model_path
+    from .segment.backends import UnknownBackendError, cellpose_backend, get_backend
+
+    try:
+        if get_backend(cfg.get("segmentation.nuclei.backend", "cellpose")) is not cellpose_backend:
+            return model_path          # classical, nuclei3d, a plugin, or a stand-in registered under the name
+    except UnknownBackendError:
+        return model_path              # the segment stage refuses the name itself
+    from .models_registry import known_models, models_dir
+
+    root = os.environ.get("GERMQUANT_MODELS")
+    # an inherited relative value that load_config made absolute against its base's folder (Config.anchors)
+    anchor = ((getattr(cfg, "anchors", None) or {}).get("paths") or {}).get("segmentation.nuclei.cellpose_model") or {}
+    inherited = anchor.get("relative") if anchor.get("absolute") == str(model_path) else None
+    rel = Path(inherited) if inherited else p
+    held = Path(*rel.parts[1:]) if len(rel.parts) > 1 and rel.parts[0] == "models" else rel  # under $GERMQUANT_MODELS
+    if p.is_absolute():
+        looked = [p]
+    else:
+        looked = ([Path(root) / p] + ([Path(root) / held] if held != p else [])) if root else []
+        looked += [cfg.base_dir / p, Path.cwd() / p]
+    msg = f"segmentation.nuclei.cellpose_model '{model_path}' is not a file; looked for "
+    msg += "; ".join(str(x) for x in looked)
+    if inherited:
+        msg += (f" (inherited as '{inherited}' from a base config in another folder and made absolute against that "
+                f"folder, so GERMQUANT_MODELS is not searched)")
+    elif not p.is_absolute() and not root:
+        msg += " (GERMQUANT_MODELS is not set)"
+    msg += (". Cellpose would not stop here: it would log 'pretrained model ... not found, using default model' "
+            "and segment with its stock weights. Fix: ")
+    store = f"set GERMQUANT_MODELS to a folder that holds {held.as_posix()}"
+    dest, n, hint = models_dir() / p.name, len(held.parts), ""    # dest: where `germquant get-model` keeps it
+    if dest.parts[-n:] == held.parts:                     # a place the lookup can be pointed at
+        if dest.is_file():
+            hint = f" ({Path(*dest.parts[:-n])} does)"
+        elif p.name in known_models():
+            hint = f" (`germquant get-model {p.name}` downloads it to {dest})"
+    if not p.is_absolute():
+        msg += f"{store}{hint}, or give the model file's absolute path"
+    elif inherited:
+        msg += f"put the model file there, or write cellpose_model: {inherited} in this config and {store}{hint}"
+    else:
+        msg += f"put the model file at that path{hint}, or correct the path"
+    raise FileNotFoundError(msg + ". To segment with Cellpose's stock weights on purpose, set "
+                                  "segmentation.nuclei.cellpose_model: cpsam.")
 
 
 def read_input_metadata(path: str | Path) -> dict:
