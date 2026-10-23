@@ -214,7 +214,10 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
     * time-lapse series (timelapse.series): the per-timepoint folders stack like any image (their ids
       carry the _t<NNN> suffix), and when any ``<stem>__series_summary.csv`` is present those are stacked
       into ``batch_series_summary.csv`` as well (counted under ``series_summary``; nothing is written
-      without one).
+      without one);
+    * sc-straighten (docs/SC_STRAIGHTEN.md): when ``<id>__sc_straighten.json`` records exist, their tables are
+      stacked into ``batch_sc_strands.csv``, ``batch_sc_strand_nuclei.csv``, ``batch_sc_strand_gaps.csv``,
+      ``batch_sc_strand_foci.csv`` and ``batch_sc_straighten_summary.csv`` (nothing is written without one).
     Idempotent; safe to rerun after any subset of images was reprocessed. Returns {table: n_rows}."""
     out_root = Path(out_root)
     counts: dict[str, int] = {}
@@ -245,6 +248,13 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
     n_series = collect_series_summaries(out_root)
     if n_series is not None:
         counts["series_summary"] = n_series
+    # sc-straighten tables (docs/SC_STRAIGHTEN.md): stacked only when the tree holds sc_straighten records, found by
+    # the record's image_id; without one nothing is written and counts is unchanged
+    from .sc.straighten.outputs import collect_tables as _collect_sc
+
+    n_sc = _collect_sc(out_root)
+    if n_sc is not None:
+        counts.update(n_sc)
     rows: dict[str, dict] = {}
     for iid, (d, marker) in folders.items():
         f = d / f"{iid}__image_summary.csv"

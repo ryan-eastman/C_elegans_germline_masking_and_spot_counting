@@ -52,6 +52,10 @@ Tracking a finished series (docs/TIMELAPSE.md, "Tracking" and "Validating the li
   germquant track-import   SERIES_DIR --from trackmate|imaris|cellacdc FILE
   germquant track-strips   SERIES_DIR --out DIR [--size-um 8]
   germquant track-validate SERIES_DIR --points hand.csv
+
+SC ribbon straightening and quantification on finished fixed-image results (docs/SC_STRAIGHTEN.md; new files only):
+  germquant sc-straighten RESULTS_ROOT [IMAGE_IDS ...] [--out DIR] [--workers N] [--set KEY=VALUE ...]
+  germquant sc-view RESULTS_DIR IMAGE_ID [--nucleus N] [--strips]
 """
 from __future__ import annotations
 
@@ -425,10 +429,11 @@ def main(argv: list[str] | None = None) -> int:
     prm.add_argument("--name", help="registry name (default: the card's name, else the file name)")
 
     _add_track_parsers(sub)
-    from . import cli_assemble, cli_packs
+    from . import cli_assemble, cli_packs, cli_sc_straighten
 
     cli_packs.add_parsers(sub)                     # germquant pack ... (docs/PACKS.md)
     cli_assemble.add_parsers(sub)                  # germquant assemble (one TIFF per channel -> one OME-TIFF)
+    cli_sc_straighten.add_parsers(sub)             # germquant sc-straighten / sc-view (docs/SC_STRAIGHTEN.md)
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
@@ -437,6 +442,8 @@ def main(argv: list[str] | None = None) -> int:
     return {
         "pack": lambda: cli_packs.dispatch(args),
         "assemble": lambda: cli_assemble.dispatch(args),
+        "sc-straighten": lambda: cli_sc_straighten.dispatch(args),
+        "sc-view": lambda: cli_sc_straighten.dispatch(args),
         "info": lambda: _info(args.nd2),
         "run": lambda: _run(args),
         "batch": lambda: _batch(args),
