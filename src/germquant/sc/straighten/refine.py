@@ -255,7 +255,9 @@ def refine_imported(points: np.ndarray, p) -> Refined | None:
     sig_loc = np.asarray(p["refine.sigma_loc_um"], float)
     w_nom = 1.0 / sig_loc ** 2
     W = np.tile(w_nom, (len(P0), 1))
-    spl = pspline(q, P0, W, float(p["refine.knot_um"]), float(p["refine.lambda"]) * float(np.mean(w_nom)))
+    # a drawn path is not noisy: a light penalty keeps the spline on the drawing (a strong second-difference
+    # penalty bends a clamped spline outward at its ends and adds length)
+    spl = pspline(q, P0, W, float(p["refine.knot_um"]), float(p["refine.lambda_imported"]) * float(np.mean(w_nom)))
     res = spl(q) - P0
     return Refined(line=Centreline(spl, float(q[0]), float(q[-1])),
                    fit_rms_um=float(np.sqrt(np.mean((res ** 2).sum(1)))))
@@ -418,7 +420,8 @@ def fit_end(line: Centreline, at_start: bool, end_type: str, sampler_bg: Sampler
     ef.sigma_um, ef.amp, ef.amp_se = sig, a, se_a
     ef.rel_rms = rms / a if a > 0 else float("inf")
     good = (a > 0 and np.isfinite(se_a) and a >= float(p["ends.fit_min_amp_se"]) * se_a
-            and rms <= float(p["ends.fit_max_rel_rms"]) * a)
+            and rms <= float(p["ends.fit_max_rel_rms"]) * a
+            and e - anchor <= float(p["ends.max_extension_um"]))     # no long straight extrapolation
     if good:
         ef.end_class = "free_fit"
         ef.e_um = e

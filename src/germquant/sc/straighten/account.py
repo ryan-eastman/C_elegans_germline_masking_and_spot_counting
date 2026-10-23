@@ -122,6 +122,42 @@ def dedupe_within(strands: list[RawStrand], p) -> list[RawStrand]:
     return kept
 
 
+def drop_axial_ghosts(strands: list[RawStrand], p) -> tuple[list[RawStrand], int]:
+    """Remove axial shadows: a short (``dedupe.ghost_max_um``), steep (mean |t_z| at least ``dedupe.ghost_tz_min``)
+    traced strand with an end inside the axial PSF reach (``dedupe.ghost_reach_um``, axial and lateral) of a longer
+    strand is the elongated PSF beyond that strand's end, or at a crossing, not a ribbon."""
+    max_len = float(p["dedupe.ghost_max_um"])
+    tz_min = float(p["dedupe.ghost_tz_min"])
+    ax, lat = (float(v) for v in p["dedupe.ghost_reach_um"])
+    if len(strands) < 2 or max_len <= 0:
+        return list(strands), 0
+    keep = []
+    dropped = 0
+    for i, st in enumerate(strands):
+        L = st.length_um
+        if st.source != "auto" or L > max_len or len(st.points) < 3:
+            keep.append(st)
+            continue
+        T = tangents_of(st.points)
+        if float(np.mean(np.abs(T[:, 0]))) < tz_min:
+            keep.append(st)
+            continue
+        ghost = False
+        mine = np.stack([st.points[0], st.points[-1]])
+        for j, ot in enumerate(strands):
+            if j == i or ot.length_um <= L:
+                continue
+            d = mine[:, None, :] - ot.points[None, :, :]
+            if np.any((d[..., 0] / ax) ** 2 + (d[..., 1] ** 2 + d[..., 2] ** 2) / lat ** 2 <= 1.0):
+                ghost = True
+                break
+        if ghost:
+            dropped += 1
+        else:
+            keep.append(st)
+    return keep, dropped
+
+
 def dedupe_between(group_a: list[RawStrand], group_b: list[RawStrand], frac_a: list[float], frac_b: list[float],
                    p) -> tuple[list[RawStrand], list[RawStrand]]:
     """Two neighbouring nuclei: priority (fraction of the strand inside its own label, then strength); a strand

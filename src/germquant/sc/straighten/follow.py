@@ -83,6 +83,7 @@ def follow_nucleus(F: Fields, terr: np.ndarray, spacing, org, p, *, z_planes: in
     min_len = float(p["follow.min_length_um"])
     max_len = float(p["follow.max_length_um"])
     edge_um = float(p["follow.stack_edge_um"])
+    cos_turn = math.cos(math.radians(float(p["follow.max_turn_deg"])))
     z_lo_um = edge_um
     z_hi_um = ((z_planes - 1) * sp[0] - edge_um) if z_planes else math.inf
     t0_clock = time.perf_counter() if t_start is None else t_start
@@ -130,11 +131,17 @@ def follow_nucleus(F: Fields, terr: np.ndarray, spacing, org, p, *, z_planes: in
                 if abs(d2[0] * t[0] + d2[1] * t[1] + d2[2] * t[2]) > contact_cos:
                     stop = "contact"
                     break
-            # inside another strand's tube (a crossing) the field belongs to that strand: pure prediction
-            if lin <= lin_max and not in_other:
-                dl = phys(D[v])
-                if dl[0] * t[0] + dl[1] * t[1] + dl[2] * t[2] < 0:
-                    dl = (-dl[0], -dl[1], -dl[2])
+            # inside another strand's tube (a crossing) the field belongs to that strand: pure prediction; the same
+            # when the local line turns away by more than max_turn_deg in one step (another ridge crossing ours:
+            # an SC bends by at most a few degrees per step)
+            dl = phys(D[v]) if lin <= lin_max and not in_other else None
+            if dl is not None:
+                cdl = dl[0] * t[0] + dl[1] * t[1] + dl[2] * t[2]
+                if cdl < 0:
+                    dl, cdl = (-dl[0], -dl[1], -dl[2]), -cdl
+                if cdl < cos_turn:
+                    dl = None
+            if dl is not None:
                 ov = off[v]
                 c0 = (v[0] + max(-0.5, min(0.5, float(ov[0]))) + o[0]) * sp[0] - a0
                 c1 = (v[1] + max(-0.5, min(0.5, float(ov[1]))) + o[1]) * sp[1] - a1

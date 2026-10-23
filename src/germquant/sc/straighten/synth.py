@@ -39,7 +39,7 @@ TRUTH_STEP_UM = 0.005
 FOCI_PEAK = 300.0
 FOCI_LOC_SIGMA = (0.06, 0.03, 0.03)          # (z, y, x) localisation noise of the synthetic spot table
 DEV_SEED_LIMIT = 7_000_000
-FAMILIES = ("iso", "dense", "gaps", "foci", "pairs", "noise", "snr", "phantom_gonad")
+FAMILIES = ("iso", "dense", "gaps", "foci", "pairs", "noise", "snr", "phantom_gonad", "custom")
 _FAMILY_CODE = {name: i for i, name in enumerate(FAMILIES, start=1)}
 PAIR_KINDS = ("x_crossing", "t_contact", "parallel_xy", "stacked_z")
 SNR_PEAKS = (200.0, 300.0, 430.0, 700.0)
@@ -417,7 +417,7 @@ def _enclosing_nucleus(ribs, pad=0.6):
     return c, R
 
 
-def _scene_around(family, seed, rng, ribs, foci=False, peak_info=None, germ_cell="oocyte"):
+def _scene_around(family, seed, rng, ribs, foci=False, peak_info=None, germ_cell="unknown"):
     c, R = _enclosing_nucleus(ribs)
     for r in ribs:
         r.points = r.points - c
@@ -577,6 +577,20 @@ def phantom_gonad(seed: int = 0, n_nuclei: int = 6, *, final: bool = False, spac
     centers = [c + shift for c in centers]
     return _finish("phantom_gonad", seed, rng, shape, centers, radii, label_r, gcs, ribs,
                    foci_channel=foci_per_nucleus > 0)
+
+
+def custom_scene(ribbons: list[dict], seed: int = 0, *, final: bool = False) -> Scene:
+    """A scene from explicit ribbons (tests): each dict has ``points`` (dense, um, centred anywhere), ``peak``
+    and optionally ``gaps`` [(s0, s1)] and ``foci_s`` [s]; one enclosing nucleus, protocol noise and PSF."""
+    seed = check_seed(seed, final)
+    rng = _rng("iso", seed)
+    ribs = []
+    for k, r in enumerate(ribbons, start=1):
+        P = _densify(np.asarray(r["points"], float))
+        ribs.append(TruthRibbon(ribbon_id=k, nucleus_id=1, points=P, gaps=list(r.get("gaps", [])),
+                                foci_s=list(r.get("foci_s", [])), peak=float(r.get("peak", SCENE_PEAK)),
+                                tilt_deg=float(r.get("tilt_deg", np.nan)), kind="custom"))
+    return _scene_around("custom", seed, rng, ribs, foci=any(r.foci_s for r in ribs))
 
 
 FAMILY_FUNCS = {"iso": iso_scene, "dense": dense_scene, "gaps": gaps_scene, "foci": foci_scene,
