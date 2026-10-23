@@ -47,8 +47,8 @@ slides inside the worm non-rigidly.
 
 Tracking a finished series (docs/TIMELAPSE.md, "Tracking" and "Validating the linking"):
   germquant track-export   SERIES_DIR --out DIR [--crop germline|all] [--stride 2]   (a Cell-ACDC position folder)
-  germquant track-link     SERIES_DIR --backend overlap|overlap_inhouse|laptrack|none [--gap 2] [--max-dist-um 3.0]
-                           [--registration rigid|piecewise]
+  germquant track-link     SERIES_DIR --backend overlap|overlap_inhouse|laptrack|none|laptrack_flow [--gap 2]
+                           [--max-dist-um 3.0] [--registration rigid|piecewise] [--flow-* settings of laptrack_flow]
   germquant track-import   SERIES_DIR --from trackmate|imaris|cellacdc FILE
   germquant track-strips   SERIES_DIR --out DIR [--size-um 8]
   germquant track-validate SERIES_DIR --points hand.csv
@@ -490,13 +490,17 @@ def _add_track_parsers(sub) -> None:
     pl = sub.add_parser("track-link", help="link the nuclei across timepoints and write <stem>__track_points.csv and "
                                            "<stem>__tracks.csv next to the timepoint folders")
     common(pl)
-    pl.add_argument("--backend", choices=["overlap", "overlap_inhouse", "laptrack", "none"], default="overlap",
+    pl.add_argument("--backend", choices=["overlap", "overlap_inhouse", "laptrack", "none", "laptrack_flow"], default="overlap",
                     help="overlap: Cell-ACDC's overlap tracker run headless (falls back to overlap_inhouse, the same rule in "
                          "NumPy, when it cannot be imported); laptrack: LAP linking of the registered centroids with gap "
-                         "closing; none: the points table only (measurements per timepoint, no tracks)")
-    pl.add_argument("--gap", type=int, default=None, help="laptrack: bridge a track end at t to a start at t + d for 1 <= d <= GAP "
-                                                          "(default 2 = one missing timepoint; 0 = off)")
-    pl.add_argument("--max-dist-um", type=float, default=None, help="laptrack: largest registered displacement linked (default 3.0)")
+                         "closing; none: the points table only (measurements per timepoint, no tracks); laptrack_flow: the "
+                         "laptrack linking with every nucleus matched at the position the motion of its neighbours "
+                         "predicts for it (a flow prior; the --flow-* options)")
+    pl.add_argument("--gap", type=int, default=None, help="laptrack, laptrack_flow: bridge a track end at t to a start at t + d for "
+                                                          "1 <= d <= GAP (default 2 = one missing timepoint; 0 = off)")
+    pl.add_argument("--max-dist-um", type=float, default=None,
+                    help="laptrack: largest registered displacement linked; laptrack_flow: largest miss of a predicted "
+                         "position linked, unless --flow-cutoff-um is given (default 3.0)")
     pl.add_argument("--min-overlap", type=float, default=None,
                     help="overlap backends: least intersection over the previous nucleus' volume (default 0.4, Cell-ACDC's)")
     pl.add_argument("--stride", type=int, default=None, help="overlap backends: xy stride of the label grid (default 2)")
@@ -506,6 +510,25 @@ def _add_track_parsers(sub) -> None:
                          "each nucleus's displacement interpolated along the gonad axis from <stem>__register_piecewise.csv "
                          "(germquant register --mode piecewise). Default: the timelapse.track.registration key, code "
                          "default rigid")
+    fl = pl.add_argument_group("laptrack_flow (the flow prior; each option defaults to its timelapse.track.flow_* key, "
+                               "then to the code default; refused with any other backend)")
+    fl.add_argument("--flow-search-um", type=float, default=None,
+                    help="local consensus: the largest displacement a nucleus's neighbours vote on, um (default 6.0; "
+                         "0 = start from the registration alone)")
+    fl.add_argument("--flow-link-radius-um", type=float, default=None,
+                    help="confident links: the largest distance between a predicted position and its mutual nearest "
+                         "neighbour, um (default 3.0)")
+    fl.add_argument("--flow-ratio", type=float, default=None,
+                    help="confident links: the nearest distance at most this times the second-nearest, both ways (default 0.5)")
+    fl.add_argument("--flow-k", type=int, default=None,
+                    help="neighbourhood: the nuclei that vote and the confident links the field takes its median over (default 8)")
+    fl.add_argument("--flow-iterations", type=int, default=None,
+                    help="rounds of confident links, field and prediction (default 2)")
+    fl.add_argument("--flow-cutoff-um", type=float, default=None,
+                    help="the LAP cutoff on the predicted positions, um (default: --max-dist-um)")
+    fl.add_argument("--flow-fb", action=argparse.BooleanOptionalAction, default=None,
+                    help="forward-backward consistency: score a link by the mean of the forward prediction's and the "
+                         "backward prediction's squared miss (default off; --no-flow-fb overrides the key)")
 
     pi = sub.add_parser("track-import", help="turn a tracker's result (TrackMate CSV / XML, an Imaris points table, a "
                                              "Cell-ACDC tracked segm.npz) into the same two tables, link_source imported:<tool>")
@@ -570,22 +593,48 @@ def _track_export(args) -> int:
     return 0
 
 
+_FLOW_OPTIONS = {"search_um": "flow_search_um", "link_radius_um": "flow_link_radius_um", "ratio": "flow_ratio",
+                 "k": "flow_k", "iterations": "flow_iterations", "cutoff_um": "flow_cutoff_um", "fb": "flow_fb"}
+
+
 def _track_link(args) -> int:
     from .timelapse.track import link_series
 
     from .timelapse.piecewise import PiecewiseRegistrationMissing
 
+    flow = {name: getattr(args, dest, None) for name, dest in _FLOW_OPTIONS.items()}
+    given = sorted("--" + _FLOW_OPTIONS[n].replace("_", "-") for n, v in flow.items() if v is not None)
+    if given and args.backend != "laptrack_flow":
+        print(f"ERROR: {', '.join(given)} apply to --backend laptrack_flow only, not to --backend {args.backend}",
+              file=sys.stderr)
+        return 1
     try:
         res = link_series(args.series_dir, backend=args.backend, gap=args.gap, max_dist_um=args.max_dist_um,
                           min_overlap=args.min_overlap, stride=args.stride, germline_only=not args.all_nuclei,
-                          stem=args.stem, cfg=_track_cfg(args), registration=args.registration)
+                          stem=args.stem, cfg=_track_cfg(args), registration=args.registration,
+                          flow=flow if args.backend == "laptrack_flow" else None)
     except PiecewiseRegistrationMissing as e:
         print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        msg = str(e)
+        if "timelapse.track.flow_" not in msg:
+            raise
+        for name, dest in _FLOW_OPTIONS.items():         # name the option as well as the key
+            key = f"timelapse.track.flow_{name}"
+            msg = msg.replace(key, f"--{dest.replace('_', '-')} ({key})")
+        print(f"ERROR: {msg}", file=sys.stderr)
         return 1
     rec = res["record"]
     print(f"{rec['series_id']}: backend {rec['backend']} ({rec['link_source']}): {rec['n_objects']} nucleus-timepoints over "
           f"{len(rec['timepoints'])} timepoint(s) -> {rec['n_tracks']} track(s), {rec['n_full_length']} full length; "
           f"{rec['registration']} registration, shifts from {rec['shift_source']}")
+    if rec["backend"] == "laptrack_flow":
+        bi = rec.get("backend_info", {})
+        res_med = bi.get("residual_median_um")
+        print(f"  flow prior: {bi.get('n_steps', 0)} step(s), {bi.get('n_steps_registration_only', 0)} on the registration "
+              f"alone; residual of the confident links {'n/a' if res_med is None else f'{res_med:.2f} um'} (median); "
+              f"cutoff {bi.get('cutoff_um', float('nan')):.2f} um on the predicted positions")
     if rec.get("note"):
         print(f"  note: {rec['note']}")
     flipped = [t for t, s in rec.get("axis_sign_by_t", {}).items() if int(s) < 0]
