@@ -476,3 +476,32 @@ Entries are appended, never edited. Each one says whether a test result had been
    tables, vertex counts, the voxel bounding boxes of its two nuclei and the statistic names (no length or
    intensity value); (e) the R scripts as code; (f) the per-gonad metadata of the inventory. Seals: none of the four
    RAD-51 test `.ims` files was opened, and no RAD-51 xlsx export, Imaris spot truth or lab aggregate was opened.
+2. 2026-10-23, the build workflow (branch feat/sc-ribbon-quant), before any result: no test result had been
+   computed, no test or reserved image was run, no test or reserved truth was read and no sealed seed was
+   generated. Nothing above the changelog was edited. Implementation notes, recorded so the scoring commit can be
+   read against this protocol:
+   (a) The method is the package `germquant.sc.straighten` (command `germquant sc-straighten`); the generator of
+   section 2.3 is `germquant.sc.straighten.synth`.
+   (b) Generator details that section 2.3 leaves open, as coded: the iso, gaps and foci ribbons are planar
+   circular arcs of curvature radius U(1.2, 4.0) um (raised so that an arc spans at most 0.9 pi), the chord tilted
+   by the stated tilt toward z, uniform azimuth, the bow in the image plane; a gap leaves at least 0.8 um of ribbon
+   on either side and two gaps occur only on ribbons of 4 um or more; foci lie at least 0.4 um from the ends and
+   0.6 um apart; the X crossing and the T contact lie in one image plane; a pairs scene has one enclosing nucleus;
+   nucleus radii and labels as in 2.3; the image is rounded to uint16.
+   (c) Motivated by development results (synthetic development seeds): in the dense and snr families a ribbon
+   that comes closer than 0.25 um in 3D to a ribbon already placed in its nucleus is drawn again (at most 60
+   draws; then the draw with the largest clearance): two chromosomes' SCs do not pass through each other. Without
+   this rule 13.5 percent of the dense truth length lay within half a PSF FWHM of another ribbon.
+   (d) Motivated by development results (synthetic development seeds, then development image
+   n2rad51_noHS_herm_000 for the multiplicity reference only; no zone truth had been compared): defaults changed
+   from DESIGN section 8, tunable keys follow.seed_min 4.0 to 2.5, link.max_skew_um 0.3 to null, refine.knot_um
+   0.3 to 0.5, refine.lambda 1.0 to 0.1, gaps.q 0.35 to 0.6; and, among keys the design fixes, follow.momentum 0.7
+   to 0.5, link.dir_window_um measured from the tip [0.3, 1.2], new keys follow.max_turn_deg 30 (pure prediction
+   when the local line turns away by more than 30 degrees in one step, or inside another strand's claim tube),
+   link.tip_um 0.3 and link.max_gap_contact_um 1.5 (end matching from anchors inside the drifting tips),
+   dedupe.ghost_max_um 1.5, dedupe.ghost_tz_min 0.7 and dedupe.ghost_reach_um [1.0, 0.35] (axial shadows of ribbon
+   ends and crossings removed), ends.max_extension_um 0.5, refine.lambda_imported 0.01, gaps.window_frac 0.9 and
+   gaps.ring_um 0.45 (a gap's length is the missing signal above a local background over the dip, divided by the
+   median), and the multiplicity reference is the nucleus's own median strand signal. The QC code low_snr has a
+   separate fail-level code low_snr_fail. docs/SC_STRAIGHTEN.md gives the reasons. These are development values;
+   the freeze entry of section 9 records the values that are scored.

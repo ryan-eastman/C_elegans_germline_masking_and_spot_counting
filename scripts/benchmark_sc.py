@@ -263,7 +263,15 @@ def cmd_filaments(a) -> int:
         raise SystemExit("the live Filament file is test truth (protocol 2.2, 3.1 rule 6): check S3 runs only with "
                          "--final --reason TEXT, by the orchestrator")
     _final_guard(a)
-    raise SystemExit("check S3 is scored by the orchestrator at the frozen commit (protocol section 10)")
+    ft = sc_split.load_split()["filament_truth"]
+    voxel = (float(ft["image_tif"]["z_um"]), float(ft["image_tif"]["xy_um"]), float(ft["image_tif"]["xy_um"]))
+    res = B.filament_check(ft["ims"]["path"], ft["image_tif"]["path"], voxel, time_index=int(ft["time_index"]),
+                           final=True)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "filaments_S3.json").write_text(json.dumps(res, indent=1, default=lambda o: None if o != o else str(o)))
+    print(json.dumps(res["nuclei"], indent=1, default=str))
+    return 0
 
 
 def cmd_report(a) -> int:

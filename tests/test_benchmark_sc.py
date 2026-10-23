@@ -3,6 +3,8 @@ the protocol's rule (section 4.2), per-gonad AUCs with ties, the pre-specified b
 threshold choice, the seal on test gonads, and the synthetic matching."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -109,3 +111,66 @@ def test_synthetic_matching_of_a_perfect_result():
     assert s.matches[0]["matched"] and s.matches[0]["matchable"] and abs(s.matches[0]["err_um"]) < 1e-6
     summ = B.summarise_scores([s])
     assert summ["complete_precision"] == 1.0
+
+
+def test_filament_check_on_a_synthetic_live_file(tmp_path):
+    """Check S3's code path on a phantom written as an Imaris file plus a TIFF (the registered live file is test
+    truth and is refused without final=True)."""
+    h5py = pytest.importorskip("h5py")
+    tifffile = pytest.importorskip("tifffile")
+    from germquant.sc.straighten import synth
+
+    sc = synth.dense_scene(5, germ_cell="spermatocyte")
+    sp = sc.spacing
+    tif = tmp_path / "t.tif"
+    tifffile.imwrite(tif, sc.channels["central_element"])
+    v_xyz = np.array([sp[2], sp[1], sp[0]])
+    ims = tmp_path / "live.ims"
+    Z, Y, X = sc.shape
+
+    def s(text):
+        return np.frombuffer(str(text).encode(), dtype="S1")
+
+    verts, edges, fils, stats = [], [], [], []
+    for k, r in enumerate(sc.ribbons):
+        P = np.vstack([r.points[::40], r.points[-1:]])
+        vb, eb = len(verts), len(edges)
+        for p in P:
+            xyz = p[::-1] + 0.5 * v_xyz              # Imaris positions are voxel centres
+            verts.append((xyz[0], xyz[1], xyz[2], 0.1))
+        edges.extend((vb + i, vb + i + 1) for i in range(len(P) - 1))
+        fils.append((0, 1000 + k, vb, vb, len(verts), eb, len(edges)))
+        stats.append((0, 1000 + k, 1, r.length_um))
+    with h5py.File(ims, "w") as f:
+        img = f.create_group("DataSetInfo/Image")
+        for i, (n, v) in enumerate(zip((X, Y, Z), v_xyz)):
+            img.attrs[f"ExtMin{i}"] = s(0)
+            img.attrs[f"ExtMax{i}"] = s(f"{n * v:.9g}")
+        img.attrs["X"], img.attrs["Y"], img.attrs["Z"] = s(X), s(Y), s(Z)
+        f.create_group("DataSet/ResolutionLevel 0/TimePoint 0/Channel 0").create_dataset(
+            "Data", data=np.zeros((2, 2, 2), np.uint16))
+        g = f.create_group("Scene8/Content/Filaments0")
+        g.create_dataset("Vertex", data=np.array(verts, dtype=[("PositionX", "<f8"), ("PositionY", "<f8"),
+                                                               ("PositionZ", "<f8"), ("Radius", "<f4")]))
+        g.create_dataset("Edge", data=np.array(edges, dtype=[("VertexA", "<i8"), ("VertexB", "<i8")]))
+        g.create_dataset("Filament", data=np.array(fils, dtype=[("ID_Time", "<i8"), ("ID", "<i8"),
+                                                                ("IndexVertexRoot", "<i8"), ("IndexVertexBegin", "<i8"),
+                                                                ("IndexVertexEnd", "<i8"), ("IndexEdgeBegin", "<i8"),
+                                                                ("IndexEdgeEnd", "<i8")]))
+        g.create_dataset("StatisticsType", data=np.array([(1, 0, 0, b"Filament Length (sum)", b"um")],
+                                                         dtype=[("ID", "<i8"), ("ID_Category", "<i8"),
+                                                                ("ID_FactorList", "<i8"), ("Name", "S64"),
+                                                                ("Unit", "S8")]))
+        g.create_dataset("StatisticsValue", data=np.array(stats, dtype=[("ID_Time", "<i8"), ("ID_Object", "<i8"),
+                                                                        ("ID_StatisticsType", "<i8"),
+                                                                        ("Value", "<f8")]))
+    out = B.filament_check(ims, tif, sp, time_index=0)
+    assert out["n_truth_paths"] == len(sc.ribbons) and out["n_nuclei"] == 1
+    for rib in out["ribbons"]:
+        assert abs(rib["drawn_um"] - rib["stored_um"]) / rib["stored_um"] < 0.02       # S3a on exact truth
+    assert out["nuclei"][0]["recall"] > 0.7
+    # the registered live file name is refused without final=True
+    reg = tmp_path / Path(sc_split.load_split()["filament_truth"]["ims"]["path"]).name
+    reg.write_bytes(ims.read_bytes())
+    with pytest.raises(sc_split.SealedError):
+        B.filament_check(reg, tif, sp, time_index=0)
