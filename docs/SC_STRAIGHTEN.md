@@ -89,7 +89,8 @@ end rule), `e0_um`, `e1_um` (net change at each end against the traced end), `le
 `as_drawn`), `snr_core_median`, `integrated_median`, `profile_cv_corr` (noise-corrected heterogeneity),
 `n_gaps`, `gap_um`, `n_pieces`, `longest_piece_um`, `fwhm_lat_um`, `fwhm_ax_um` and their PSF-deconvolved widths
 (the SC central region is below resolution: widths are QC, not biology), `multiplicity_median` (integrated
-signal over the image's complete-strand median), `frac_contaminated`, `n_foci`.
+signal over the nucleus's median strand signal; the image's complete-strand median for nuclei with under 3 um of
+SC), `frac_contaminated`, `n_foci`.
 
 Key nucleus columns: `status`, `n_strands`, `n_main` (strands of 1 um or more), `n_complete`, `expected` (6 for
 oocytes, 5 for spermatocytes), `count_status`, `complete_nucleus`, `total_length_um` (every traced nucleus),
@@ -137,7 +138,7 @@ positive and a negative case.
 | truncated_z | strand | fail | qc.stack_edge_um | an end at the stack edge, or a sample within stack_edge_um of the first or last plane |
 | costly_link | strand | review | classes.max_link_cost | a link of the end matching costs more than max_link_cost |
 | contaminated | strand | review | classes.max_contaminated | more than max_contaminated of the samples lie near another strand |
-| merged_suspect | strand | review | classes.merged_multiplicity | integrated signal at or above merged_multiplicity x the image's complete-strand median over at least merged_run_um |
+| merged_suspect | strand | review | classes.merged_multiplicity | integrated signal at or above merged_multiplicity x the nucleus's median strand signal over at least merged_run_um |
 | double_width | strand | review | qc.double_width_ratio | lateral or axial FWHM above double_width_ratio x the image's complete-strand median |
 | exits_label | strand | review | classes.min_frac_in_label | less than min_frac_in_label of the strand inside its nucleus label |
 | neighbour_nucleus | strand | fail | qc.near_other_label_fail | more than near_other_label_fail of the strand near another nucleus label |
@@ -208,6 +209,9 @@ scored once, later, by the orchestrator. Development results are kept under
   `free_unfit` (no long straight extrapolation).
 * Per-nucleus timings are in the record (`timing`), not in the nuclei table, so the tables are identical for
   every worker count.
+* The multiplicity reference is the nucleus's own median strand signal (the image's complete-strand median when
+  the nucleus holds under 3 um of SC): SC brightness changes along the gonad, and one image-wide reference called
+  most strands of the bright proximal pachytene region merged on n2rad51_noHS_herm_000.
 * Not built in v1 (DESIGN 1.3): the napari review dock and edit replay, time-lapse series, the registry stage and
   its profile, deconvolution, the per-gonad zone estimator as a production output, api.py entry points; and the
   real regression goldens of two development tags.

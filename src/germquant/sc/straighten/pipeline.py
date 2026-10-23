@@ -363,9 +363,23 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
     img_ctx = {"fwhm_lat_med": float(np.median(fl)) if fl else float("nan"),
                "fwhm_ax_med": float(np.median(fa)) if fa else float("nan")}
     mm = float(p["classes.merged_multiplicity"])
-    for _n, _k, s in all_strands:
+    # the reference of the multiplicity: the nucleus's own median integrated signal (clean in-strand samples of all
+    # its strands, at least 3 um of them); SC brightness changes along the gonad, so one image-wide reference would
+    # call every strand of the bright pachytene region merged. Nuclei with less SC use the image's complete-strand
+    # median.
+    ref_by_nid: dict[int, float] = {}
+    by_n: dict[int, list] = {}
+    for nid, _k, s in all_strands:
         smp = s["samples"]
-        mult = smp["integrated"] / m_img if np.isfinite(m_img) and m_img > 0 else np.full(len(smp["s"]), np.nan)
+        v = smp["integrated"][smp["in_strand"] & ~smp["contaminated"]]
+        by_n.setdefault(nid, []).append(v[np.isfinite(v)])
+    for nid, parts in by_n.items():
+        v = np.concatenate(parts) if parts else np.zeros(0)
+        ref_by_nid[nid] = float(np.median(v)) if len(v) * ds >= 3.0 and np.median(v) > 0 else m_img
+    for nid, _k, s in all_strands:
+        smp = s["samples"]
+        ref = ref_by_nid.get(nid, m_img)
+        mult = smp["integrated"] / ref if np.isfinite(ref) and ref > 0 else np.full(len(smp["s"]), np.nan)
         smp["multiplicity"] = mult
         ins = smp["in_strand"]
         r = s["row"]

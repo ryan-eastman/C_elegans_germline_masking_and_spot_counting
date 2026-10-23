@@ -86,7 +86,9 @@ def fit_noise_model(planes, masks=None, *, bins: int = 30, qmax: float = 0.85, v
     A = np.stack([np.ones(len(t)), t[:, 0]], 1)
     a, b = np.linalg.lstsq(A * w[:, None], t[:, 1] * w, rcond=None)[0]
     pred = a + b * t[:, 0]
-    rel = float(np.sqrt(np.mean(((t[:, 1] - pred) / np.maximum(pred, 1e-9)) ** 2)))
+    # relative RMS against the observed bin variances (bins near the camera offset have variances near zero)
+    okb = t[:, 1] > max(var_floor, 1e-3 * float(np.max(t[:, 1])))
+    rel = float(np.sqrt(np.mean(((t[okb, 1] - pred[okb]) / t[okb, 1]) ** 2))) if okb.any() else float("nan")
     fallback = False
     if not np.isfinite(a) or not np.isfinite(b):
         a, b, fallback = float(np.median(t[:, 1])), 0.0, True

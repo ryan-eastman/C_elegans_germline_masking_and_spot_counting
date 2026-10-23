@@ -20,7 +20,7 @@ CODES: tuple[tuple[str, str, str, str, str], ...] = (
     ("truncated_z", "strand", "fail", "qc.stack_edge_um", "an end at the stack edge, or a sample within stack_edge_um of the first or last plane"),
     ("costly_link", "strand", "review", "classes.max_link_cost", "a link of the end matching costs more than max_link_cost"),
     ("contaminated", "strand", "review", "classes.max_contaminated", "more than max_contaminated of the samples lie near another strand"),
-    ("merged_suspect", "strand", "review", "classes.merged_multiplicity", "integrated signal at or above merged_multiplicity x the image's complete-strand median over at least merged_run_um"),
+    ("merged_suspect", "strand", "review", "classes.merged_multiplicity", "integrated signal at or above merged_multiplicity x the nucleus's median strand signal over at least merged_run_um"),
     ("double_width", "strand", "review", "qc.double_width_ratio", "lateral or axial FWHM above double_width_ratio x the image's complete-strand median"),
     ("exits_label", "strand", "review", "classes.min_frac_in_label", "less than min_frac_in_label of the strand inside its nucleus label"),
     ("neighbour_nucleus", "strand", "fail", "qc.near_other_label_fail", "more than near_other_label_fail of the strand near another nucleus label"),
