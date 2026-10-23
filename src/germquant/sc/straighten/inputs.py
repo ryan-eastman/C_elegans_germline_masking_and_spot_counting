@@ -228,17 +228,11 @@ def select_nuclei(nuc: pd.DataFrame, mode: str, nucleus_ids=None) -> list[int]:
 
 
 # ------------------------------------------------------------------------------------ pixels
-def nd2_role_arrays(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None) -> dict:
-    """The roles' channels of an .nd2 as (Z, Y, X) arrays, read one channel at a time with the same dask
-    construction as germquant.io.read_stack (T and P loops at index 0, C and Z ensured, C Z Y X order,
-    z_range and stride applied before compute). The peak is about one channel."""
+def canonical_dask(darr, dims: list[str], *, xy_stride: int = 1, z_range=None):
+    """The dask construction of germquant.io.read_stack: T and P loops at index 0, C and Z ensured, C Z Y X order,
+    then z_range and the xy stride, all before any compute."""
     import dask.array as da
-    import nd2
 
-    with nd2.ND2File(str(path)) as f:
-        sizes = dict(f.sizes)
-        darr = f.to_dask()
-        dims = list(sizes.keys())
     sl, keep = [], []
     for d in dims:
         if d in ("T", "P"):
@@ -260,10 +254,19 @@ def nd2_role_arrays(path: str | Path, roles: dict, *, xy_stride: int = 1, z_rang
         darr = darr[:, z_range[0]: z_range[1]]
     if xy_stride > 1:
         darr = darr[:, :, ::xy_stride, ::xy_stride]
-    out = {}
-    for role, ci in roles.items():
-        out[role] = np.asarray(darr[int(ci)])
-    return out
+    return darr
+
+
+def nd2_role_arrays(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None) -> dict:
+    """The roles' channels of an .nd2 as (Z, Y, X) arrays, read one channel at a time (the peak is about one
+    channel) with the same dask construction as germquant.io.read_stack."""
+    import nd2
+
+    with nd2.ND2File(str(path)) as f:
+        sizes = dict(f.sizes)
+        darr = f.to_dask()
+    darr = canonical_dask(darr, list(sizes.keys()), xy_stride=xy_stride, z_range=z_range)
+    return {role: np.asarray(darr[int(ci)]) for role, ci in roles.items()}
 
 
 def read_roles(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None) -> dict:
