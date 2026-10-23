@@ -505,3 +505,10 @@ Entries are appended, never edited. Each one says whether a test result had been
    median), and the multiplicity reference is the nucleus's own median strand signal. The QC code low_snr has a
    separate fail-level code low_snr_fail. docs/SC_STRAIGHTEN.md gives the reasons. These are development values;
    the freeze entry of section 9 records the values that are scored.
+3. 2026-10-23, the build workflow, before any result (no test result, no test or reserved image or truth read,
+   no sealed seed). Development trial 1 (commit 8d23105, the defaults of entry 2) was scored on the eight
+   2025-11-05 development gonads (dev_trials.jsonl). Then, motivated by synthetic development results only (gap
+   recall 0.68 and ribbons broken at gaps): link.unlinked_cost 40 to 60 (tunable), tips that meet or overlap are
+   matched by their collinearity, and accounting drops strands that lie for at least dedupe.shadow_frac (0.8, a new
+   fixed-group key) of their length inside the contamination reach of a longer strand. Development trial 2 uses
+   these values.

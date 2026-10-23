@@ -12,7 +12,7 @@ import traceback
 import numpy as np
 from scipy.spatial import cKDTree
 
-from .account import dedupe_within, drop_axial_ghosts, resample
+from .account import dedupe_within, drop_axial_ghosts, drop_shadowed, resample
 from .crops import Crop, territory
 from .fields import line_fields
 from .follow import RawStrand, follow_nucleus
@@ -114,7 +114,9 @@ def trace_crop(crop: Crop, ctx: dict) -> dict:
             for st in raw_strands:
                 st.nucleus_id = nid
             kept, n_ghost = drop_axial_ghosts(dedupe_within(link_strands(raw_strands, p), p), p)
+            kept, n_shadow = drop_shadowed(kept, p)
             rec["n_axial_ghosts"] = n_ghost
+            rec["n_shadowed"] = n_shadow
             strands.extend(kept)
         for imp in ctx.get("imported", {}).get(nid, []):
             strands.append(RawStrand(points=np.asarray(imp["points"], float), end_types=["free", "free"],

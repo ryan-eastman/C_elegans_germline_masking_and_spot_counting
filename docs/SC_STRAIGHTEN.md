@@ -197,8 +197,12 @@ scored once, later, by the orchestrator. Development results are kept under
 * Synthetic dense nuclei keep their ribbons at least 0.25 um apart in 3D (two chromosomes' SCs do not pass through
   each other); without that rule 13.5 percent of the truth length lay within half a PSF FWHM of another ribbon.
 * End matching works from anchors 0.3 um inside each tip (the PSF-blurred tip drifts along the optical axis),
-  with the direction from the next 0.9 um and the gap estimated tip to tip; two `contact` ends facing each other
-  may link across up to 1.5 um (a strand that crosses between them).
+  with the direction from the next 0.9 um and the gap estimated tip to tip; tips that meet or overlap are judged
+  by their collinearity; two `contact` ends facing each other may link across up to 1.5 um (a strand that crosses
+  between them); an unlinked end costs 60 (development calibration: curved ribbons broken at sub-micron gaps
+  were left unlinked at 40).
+* Accounting also removes axial shadows (short steep strands standing on another strand inside the axial PSF)
+  and shadowed strands (at least 80 percent of the length inside the contamination reach of a longer strand).
 * The tracer follows by pure prediction while inside another strand's claim tube (crossings pass through).
 * Gap length is the missing integrated signal over the dip divided by the median (blur-independent), detected
   below 0.6 of the median; the design's 0.35 threshold missed most sub-micron gaps of tilted ribbons.

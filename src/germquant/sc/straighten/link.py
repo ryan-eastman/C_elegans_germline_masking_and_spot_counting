@@ -86,7 +86,9 @@ def link_candidates(strands: list[RawStrand], p) -> tuple[list, list]:
             limit = max_gap_cc if (ea == "contact" and eb == "contact") else max_gap
             if gap > limit:
                 continue
-            if span < 0.05:
+            if span < 0.05 or span <= ta + tb:
+                # tips that meet or overlap (PSF-blurred tips drift past each other): judge the collinearity of
+                # the two ends instead of the direction of a vanishing link
                 ang = _angle(da, -db)
                 aa = ab = 0.5 * ang
             else:

@@ -158,6 +158,34 @@ def drop_axial_ghosts(strands: list[RawStrand], p) -> tuple[list[RawStrand], int
     return keep, dropped
 
 
+def drop_shadowed(strands: list[RawStrand], p) -> tuple[list[RawStrand], int]:
+    """Remove a traced strand that lies almost entirely (``dedupe.shadow_frac`` of its length) inside the
+    contamination reach (``contamination_um``, axial and lateral) of a longer strand: two ribbons that close are
+    not resolved, so such a strand is a duplicate or a straight cut through the blur of a curved ribbon."""
+    frac = float(p["dedupe.shadow_frac"])
+    if len(strands) < 2 or frac > 1.0:
+        return list(strands), 0
+    ax, lat = (float(v) for v in p["contamination_um"])
+    dense = [resample(st.points, 0.05)[0] for st in strands]
+    order = sorted(range(len(strands)), key=lambda i: -strands[i].length_um)
+    kept_idx: list[int] = []
+    dropped = 0
+    for i in order:
+        st = strands[i]
+        if st.source != "auto" or not kept_idx:
+            kept_idx.append(i)
+            continue
+        Q = np.vstack([dense[j] for j in kept_idx])
+        tree = cKDTree(np.stack([Q[:, 0] / ax, Q[:, 1] / lat, Q[:, 2] / lat], 1))
+        P = dense[i]
+        d, _ = tree.query(np.stack([P[:, 0] / ax, P[:, 1] / lat, P[:, 2] / lat], 1), distance_upper_bound=1.0)
+        if float(np.mean(np.isfinite(d))) >= frac:
+            dropped += 1
+        else:
+            kept_idx.append(i)
+    return [strands[i] for i in sorted(kept_idx)], dropped
+
+
 def dedupe_between(group_a: list[RawStrand], group_b: list[RawStrand], frac_a: list[float], frac_b: list[float],
                    p) -> tuple[list[RawStrand], list[RawStrand]]:
     """Two neighbouring nuclei: priority (fraction of the strand inside its own label, then strength); a strand
