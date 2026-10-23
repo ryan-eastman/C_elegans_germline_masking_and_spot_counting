@@ -711,3 +711,54 @@ def filament_check(ims_path, tif_path, voxel_zyx, *, time_index: int | None = No
                            our_um=float(srow.loc[best, "length_um"]))
             out["ribbons"].append(row)
     return out
+
+
+# ------------------------------------------------------------------------------------ S1 criteria (protocol 8.1)
+def evaluate_s1(fams: dict) -> list[dict]:
+    """The synthetic criteria of protocol 8.1 on the per-family summaries (summarise_scores). Each row: id,
+    criterion, value, pass (None when the family is missing)."""
+    rows = []
+
+    def add(cid, text, value, ok):
+        rows.append({"id": cid, "criterion": text, "value": value, "pass": None if ok is None else bool(ok)})
+
+    iso = fams.get("iso", {}).get("tilt_le60")
+    if iso:
+        loa = iso.get("loa", [float("nan")] * 2)
+        add("S1a", "iso mean length error within +/-0.10 um", iso["len_err_mean"], abs(iso["len_err_mean"]) <= 0.10)
+        add("S1a", "iso 95% limits within +/-0.40 um", loa, max(abs(loa[0]), abs(loa[1])) <= 0.40)
+        add("S1a", "iso median centreline distance <= 0.05 um", iso["median_centreline_dist_um"],
+            iso["median_centreline_dist_um"] <= 0.05)
+        add("S1a", "iso one strand per ribbon >= 0.95", iso["one_strand_frac"], iso["one_strand_frac"] >= 0.95)
+    d = fams.get("dense")
+    if d:
+        add("S1b", "dense mean total relative error within +/-5%", d["total_rel_err_mean"],
+            abs(d["total_rel_err_mean"]) <= 0.05)
+        add("S1b", "dense SD of the relative error <= 7%", d["total_rel_err_sd"], d["total_rel_err_sd"] <= 0.07)
+        add("S1b", "dense CCC of totals >= 0.80", d["total_ccc"], d["total_ccc"] >= 0.80)
+        add("S1b", "dense coverage >= 0.95", d["coverage_mean"], d["coverage_mean"] >= 0.95)
+        add("S1b", "dense off-truth <= 0.10", d["off_truth_frac_mean"], d["off_truth_frac_mean"] <= 0.10)
+    g = fams.get("gaps")
+    if g:
+        add("S1c", "gap precision >= 0.80", g["gap_precision"], g["gap_precision"] >= 0.80)
+        add("S1c", "gap recall >= 0.80", g["gap_recall"], g["gap_recall"] >= 0.80)
+        add("S1c", "gap length error <= 0.15 um", g["gap_len_mae"], g["gap_len_mae"] <= 0.15)
+    f = fams.get("foci")
+    if f:
+        add("S1d", "foci 90th percentile |s error| <= 0.15 um", f["foci_abs_s_err_p90"], f["foci_abs_s_err_p90"] <= 0.15)
+        add("S1d", "foci on the correct ribbon >= 0.95", f["foci_correct_ribbon"], f["foci_correct_ribbon"] >= 0.95)
+    num = den = 0.0
+    for name, v in fams.items():
+        if isinstance(v, dict) and v.get("n_complete") and v.get("complete_precision") == v.get("complete_precision"):
+            num += v["complete_precision"] * v["n_complete"]
+            den += v["n_complete"]
+    if den:
+        add("S1e", "complete precision (pooled over families) >= 0.90", num / den, num / den >= 0.90)
+    n = fams.get("noise")
+    if n:
+        add("S1f", "noise-only nuclei with a total under 1 um >= 0.95", n["frac_total_under_1um"],
+            n["frac_total_under_1um"] >= 0.95)
+    if "snr_floor_counts" in fams:
+        add("S1g", "SNR floor (lowest scene peak with the dense mean total within +/-5%; descriptive)",
+            fams["snr_floor_counts"], None)
+    return rows

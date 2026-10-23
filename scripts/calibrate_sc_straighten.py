@@ -98,6 +98,20 @@ def main(argv=None) -> int:
                             "both_matched": float(sum(all(m["matched"] for m in s.matches) for s in sub) / max(len(sub), 1)),
                             "total_rel_err": float(sum((s.our_length - s.truth_length) / s.truth_length for s in sub)
                                                    / max(len(sub), 1))}
+                if fam == "snr":
+                    from germquant.sc.straighten.synth import SNR_PEAKS
+
+                    by_peak = {}
+                    for sc_ in scores:
+                        by_peak.setdefault(SNR_PEAKS[sc_.seed % 4], []).append(sc_)
+                    rec["families"]["snr_by_peak"] = {
+                        str(int(pk)): {"n": len(v), "total_rel_err_mean": float(sum(
+                            (x.our_length - x.truth_length) / x.truth_length for x in v) / len(v)),
+                            "coverage_mean": float(sum(x.coverage for x in v) / len(v))}
+                        for pk, v in sorted(by_peak.items())}
+                    ok = [int(pk) for pk, v in sorted(by_peak.items()) if abs(sum(
+                        (x.our_length - x.truth_length) / x.truth_length for x in v) / len(v)) <= 0.05]
+                    rec["families"]["snr_floor_counts"] = min(ok) if ok else None
                 rec["families"][fam]["elapsed_s_mean"] = float(sum(s.extra["elapsed_s"] for s in scores) / len(scores))
             fh.write(json.dumps(rec, default=lambda o: None if o != o else o) + "\n")
             d = rec["families"].get("dense", {})

@@ -275,11 +275,28 @@ def cmd_filaments(a) -> int:
 
 
 def cmd_report(a) -> int:
+    """Print the zone summary and, from a calibration.jsonl (one configuration per line), the S1 criteria of
+    protocol 8.1 for every configuration (written to s1_gates.json)."""
     out = Path(a.out)
-    for name in ("zones_summary.json",):
-        p = out / name
-        if p.is_file():
-            print(p.read_text(encoding="utf-8")[:4000])
+    p = out / "zones_summary.json"
+    if p.is_file():
+        print(p.read_text(encoding="utf-8")[:4000])
+    c = out / "calibration.jsonl"
+    if c.is_file():
+        gates = []
+        for line in c.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            rows = B.evaluate_s1(r["families"])
+            gates.append({"sets": r["sets"], "params_hash": r["params_hash"], "seeds": r["seeds"], "rows": rows})
+            print(f"== {' '.join(r['sets']) or 'defaults'} (params {r['params_hash']}, seeds {r['seeds']})")
+            for row in rows:
+                v = row["value"]
+                vt = f"[{v[0]:+.3f}, {v[1]:+.3f}]" if isinstance(v, list) else (f"{v:.3f}" if isinstance(v, float) else v)
+                st = {True: "pass", False: "FAIL", None: "-"}[row["pass"]]
+                print(f"  {row['id']} {st:4s} {vt}  {row['criterion']}")
+        (out / "s1_gates.json").write_text(json.dumps(gates, indent=1, default=lambda o: None if o != o else o))
     return 0
 
 

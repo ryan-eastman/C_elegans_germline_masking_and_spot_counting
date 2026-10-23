@@ -174,3 +174,16 @@ def test_filament_check_on_a_synthetic_live_file(tmp_path):
     reg.write_bytes(ims.read_bytes())
     with pytest.raises(sc_split.SealedError):
         B.filament_check(reg, tif, sp, time_index=0)
+
+
+def test_evaluate_s1_criteria():
+    fams = {"iso": {"tilt_le60": {"len_err_mean": 0.05, "loa": [-0.2, 0.3], "median_centreline_dist_um": 0.02,
+                                  "one_strand_frac": 1.0}, "n_complete": 10, "complete_precision": 1.0},
+            "dense": {"total_rel_err_mean": -0.06, "total_rel_err_sd": 0.05, "total_ccc": 0.9, "coverage_mean": 0.97,
+                      "off_truth_frac_mean": 0.02, "n_complete": 10, "complete_precision": 0.5},
+            "noise": {"frac_total_under_1um": 1.0}, "snr_floor_counts": 300}
+    rows = {(r["id"], r["criterion"][:12]): r for r in B.evaluate_s1(fams)}
+    assert all(r["pass"] for k, r in rows.items() if k[0] == "S1a")
+    assert rows[("S1b", "dense mean t")]["pass"] is False and rows[("S1b", "dense SD of ")]["pass"] is True
+    assert rows[("S1e", "complete pre")]["value"] == pytest.approx(0.75)
+    assert rows[("S1g", "SNR floor (l")]["pass"] is None
