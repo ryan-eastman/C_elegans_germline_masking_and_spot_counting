@@ -179,6 +179,8 @@ def overview_png(path: str | Path, ce: np.ndarray, strands: pd.DataFrame, sample
     for k, c in CLASS_COLOURS.items():
         ax.plot([], [], "-", color=c, label=k)
     ax.legend(loc="upper right", fontsize=7, framealpha=0.6)
+    ax.set_xlim(0, w * dx)
+    ax.set_ylim(h * dy, 0)
     ax.set_axis_off()
     path = Path(path)
     tmp = _tmp(path)
