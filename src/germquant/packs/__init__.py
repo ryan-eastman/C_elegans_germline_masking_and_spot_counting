@@ -10,14 +10,17 @@ yaml.safe_load and never import a backend, torch, Cellpose, SpotMAX or CuPy (gat
 pack card cheaply and the cuBLAS load order on the RTX 5090 (torch before CuPy) is never disturbed. Code that
 must stay light imports this package, not germquant.api (which imports the pipeline and with it torch). The
 torch-free command entry is ``python -m germquant.packs`` (list, show, check, fetch-models, fetch-example,
-install, verify, build-sums, lint, --version). No code from a pack folder ever runs.
+install, verify, build-sums, lint, derive, --version; ``--project DIR`` on list, show, check and fetch-models
+searches the project's packs folder first). No code from a pack folder ever runs.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ..models_registry import ModelPinError, check_model_pin, resolve_model_name
 from .blobs import blobs_dir, check_blob, fetch_models, find_model_spec, model_location, resolve_pack_model
+from .derive import PackDeriveError, derive_pack, portable_card
 from .discovery import (
     Discovery,
     discover,
@@ -65,6 +68,7 @@ __all__ = [
     "parse_ref", "recipe_profile_path", "refresh", "resolve_pack_model", "resolve_recipe", "sums_sha256",
     "tunable_problems", "use_project", "user_packs_dir", "validate_manifest", "validate_pack", "vendor",
     "verify_pack", "verify_sums", "version_info", "version_line", "write_sums",
+    "FEATURE_PROBES", "PackDeriveError", "derive_pack", "features", "portable_card",
 ]
 
 
@@ -131,8 +135,46 @@ def verify_pack(ref_or_folder) -> list[str]:
     return [f"manifest: {x}" for x in p.problems] + verify_sums(p.folder) + engine_files_problems(p)
 
 
+# The features `python -m germquant.packs --version --json` lists (docs/PACKS.md, "Versions and features"), in
+# the order of the Train B contract. The version string stays 0.2.0.dev0 through tranche 5, so a client such as
+# the napari plugin gates on these names. A feature is listed when its code is in this engine: its module file
+# exists and, where a name is given (for planar, projects and train_curve, whose module or package exists before
+# the feature does), the module defines that name at top level. projects waits for project/run.py and its
+# run_project: the package's first stubs (every call raising NotImplementedError) are not the feature. Files are
+# read, never imported (gate G6), so an engine that lacks a feature never claims it.
+FEATURE_PROBES = (
+    ("packs", "packs/__init__.py", None),
+    ("planar", "planar.py", "PLANAR_DZ"),
+    ("labels_from", "io/labels.py", None),
+    ("projects", "project/run.py", "run_project"),
+    ("sample_sheet", "io/sample_sheet.py", None),
+    ("import_labels", "import_labels.py", None),
+    ("train_curve", "segment/training.py", "train_curve"),
+    ("pack_derive", "packs/derive.py", None),
+    ("tune_spots", "tune/__init__.py", None),
+)
+
+
+def _defines(path: Path, name: str) -> bool:
+    """Whether the Python file ``path`` defines ``name`` at top level (a def, a class or an assignment)."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    n = re.escape(name)
+    return re.search(rf"^(?:def|class)\s+{n}\b|^{n}\s*(?::[^=\n]*)?=(?!=)", text, re.M) is not None
+
+
+def features(package_dir: str | Path | None = None) -> list[str]:
+    """The features of this engine (FEATURE_PROBES), or those a germquant package folder ``package_dir`` holds."""
+    root = Path(package_dir) if package_dir is not None else Path(__file__).resolve().parents[1]
+    return [name for name, rel, attr in FEATURE_PROBES
+            if (root / rel).is_file() and (attr is None or _defines(root / rel, attr))]
+
+
 def version_info() -> dict:
-    """The engine version, git sha, python and interpreter (what `--version` prints; the plugin compares it)."""
+    """The engine version, git sha, python and interpreter (what `--version` prints; the plugin compares it),
+    and the features of this engine (FEATURE_PROBES)."""
     import platform
     import sys
 
@@ -140,7 +182,7 @@ def version_info() -> dict:
     from ..provenance import git_sha
 
     return {"germquant": __version__, "git_sha": git_sha(), "python": platform.python_version(),
-            "executable": sys.executable}
+            "executable": sys.executable, "features": features()}
 
 
 def version_line() -> str:
