@@ -667,3 +667,16 @@ Entries are appended, never edited. Each one says whether a test result had been
    against 13.4 percent, and the strands per traced nucleus against the expected count. No S1 gate and no S2
    metric is computed in this entry; a rule adopted later counts as a configuration under section 9 and gets its
    own entry before its zone metrics are computed.
+9. 2026-10-24, the v2 development round (steep strands), written before the number below was computed (no test
+   result had been computed, no test or reserved image was run, no test or reserved truth was read and no sealed
+   seed was generated). The rules of entry 8 were evaluated as registered; B5 was run on phantoms only (its phantom
+   result already ruled it out, so no development image was run with it). Development diagnostics added after
+   entry 8, none of which changes the method: a family of short tilted arcs (0.6 to 1.5 um, 60 to 90 degrees,
+   seeds 6000 to 6119), dense phantoms at scene peaks of 60 to 430 counts (seeds 6100 to 6139), averaged axial
+   profiles of compact RAD-51 foci and SYP maxima, the depth dependence of their axial sigma, and the orientation of
+   elongated SYP objects fitted in the raw images (full-covariance Gaussians in an isotropic window, calibrated on
+   dense phantoms, seeds 6300 to 6359). Motivated by those development results: the image's PSF record fell back to
+   sigma_z 0.365 um on 10 of the 12 images, while the compact RAD-51 foci of each session, scaled from 595 to
+   511 nm, give 0.380 um (2025-11-05 no heat shock), 0.428 um (2025-11-05 heat shock) and 0.464 um (2026-01-05).
+   B1s, fixed now and reported like B1 (development diagnostics only, choosing nothing scored): B1 with sigma_z the
+   session value above in place of the record's, at 1.3 and 1.5 times, with length_xy_um <= 0.5 um.
