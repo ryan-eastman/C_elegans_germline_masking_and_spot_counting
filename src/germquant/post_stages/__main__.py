@@ -66,8 +66,10 @@ def _refuse(args, problems: list[str]) -> int:
 
 
 def _write(args) -> int:
+    import os
     from pathlib import Path
 
+    from ..fsutil import long_path
     from . import POST_STAGES_FILE, load_post_stages_file, post_stages_sha256, validate_post_stages
     from .config import write_post_stages_file
 
@@ -76,7 +78,7 @@ def _write(args) -> int:
     except ValueError as e:
         return _refuse(args, [f"--entries is not JSON ({e})"])
     folder = Path(args.dir)
-    if not folder.is_dir():
+    if not os.path.isdir(long_path(folder)):         # as the writer writes: past MAX_PATH on Windows too
         return _refuse(args, [f"{folder} is not a folder"])
     problems = validate_post_stages(entries)
     if problems:
@@ -96,6 +98,11 @@ def _write(args) -> int:
 
 
 def main(argv=None) -> int:
+    # a redirected stdout on Windows is in the ANSI code page (cp1252), which cannot encode every title or path a
+    # listing prints: escape such a character instead of failing (--json output is ASCII already)
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(errors="backslashreplace")
     args = _parser().parse_args(argv)
     return _list(args) if args.cmd == "list" else _write(args)
 

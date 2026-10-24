@@ -18,6 +18,8 @@ import copy
 import hashlib
 import importlib
 import json
+import os
+import shutil
 
 import pytest
 from post_helpers import HEAVY, READERS, fixture_post_stage, heavy_after, run_child  # noqa: F401
@@ -300,6 +302,44 @@ def test_write_validates_in_its_own_environment(tmp_path):
     r = run_child(["-m", "germquant.post_stages", "write", tmp_path / "missing", "--entries", "[]"],
                   pythonpath=[site])
     assert r.returncode == 2 and "not a folder" in r.stderr, r.stderr
+
+
+def test_write_takes_a_folder_past_the_windows_path_limit(tmp_path):
+    """Review N5: `write` checks DIR through fsutil.long_path, as the writer itself writes, so a project folder
+    past the 260-character limit is written on Windows without LongPathsEnabled instead of being refused as "not
+    a folder"."""
+    from germquant.fsutil import long_path
+
+    top = tmp_path / ("d" * 60)
+    deep = top.joinpath(*["d" * 60] * 4)
+    assert len(str(deep)) > 260
+    os.makedirs(long_path(deep))
+    try:
+        r = run_child(["-m", "germquant.post_stages", "write", deep, "--entries", "[]", "--json"])
+        assert r.returncode == 0, r.stderr[-2000:]
+        out = json.loads(r.stdout)
+        assert out["written"] is True and out["entries"] == [], out
+        assert os.path.isfile(long_path(deep / PS.POST_STAGES_FILE))
+    finally:
+        shutil.rmtree(long_path(top))
+
+
+def test_list_survives_a_title_outside_the_code_page(tmp_path):
+    """Review N3: a redirected stdout on Windows is in the ANSI code page, cp1252, which cannot encode every
+    title (the Greek gamma of gammaH2AX), and `list` in text form failed with UnicodeEncodeError. It now escapes
+    such a character. The child's stdout is cp1252 here on every system, as a redirect makes it on Windows."""
+    gamma = chr(0x3B3)
+    text = T.declaration_text("gamma_foci").replace('title: "Fixture:', f'title: "{gamma}H2AX foci, fixture:')
+    assert gamma in text
+    site = T.write_distribution(tmp_path / "site", name="lab-gamma", version="0.1.0",
+                                entry_points={"gamma_foci": "lab_gamma:measure"},
+                                files={"lab_gamma/__init__.py": "def measure(inputs, params):\n    return {}\n",
+                                       "lab_gamma/germquant_post_stage.yaml": text})
+    r = run_child(["-m", "germquant.post_stages", "list"], pythonpath=[site], PYTHONIOENCODING="cp1252",
+                  PYTHONUTF8="0")
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert f"gamma_foci {T.FIXTURE_VERSION}  (lab-gamma)" in r.stdout, r.stdout
+    assert "\\u03b3H2AX foci, fixture:" in r.stdout, r.stdout
 
 
 @pytest.mark.usefixtures("fixture_post_stage")
