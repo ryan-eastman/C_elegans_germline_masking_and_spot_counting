@@ -32,6 +32,11 @@ Quality: for every step, the median nearest-neighbour displacement of the nucleu
 per-timepoint nuclei tables; germline nuclei when the in_germline column says which) between the timepoint
 and its reference frame, before and after the step is subtracted. It is a sanity number, not a loss: after
 a good registration what remains is the real flow of the nuclei plus segmentation jitter.
+
+Per-gap caps and the acquisition record (opt-in; timelapse.priors, docs/TIMELAPSE.md "Per-gap caps and the
+acquisition record"). ``max_step_at`` sets the cap of single gaps and ``prior="stage"`` raises each gap's cap by
+the stage and focus moves the nd2 recorded in that gap, and flags gaps the record cannot explain. Without either
+the registration runs main's statements in main's order: the same table columns and the same report keys.
 """
 from __future__ import annotations
 
@@ -328,6 +333,9 @@ def register_series(
     disagreement_um: float = DEFAULTS["disagreement_um"],
     normalization: str = DEFAULTS["normalization"],
     taper: float = DEFAULTS["taper"],
+    max_step_at: dict | None = None,
+    prior: str | None = None,
+    nd2: str | Path | None = None,
 ) -> dict:
     """Register a finished series folder (the ``--out`` of ``germquant run SERIES.nd2 --t ...``) and write the
     register_shifts table and the registration report next to its series record (module docstring).
@@ -342,6 +350,14 @@ def register_series(
     rotation per step to the report (the table is unchanged). ``normalization`` "none" (plain
     cross-correlation, the default; module docstring) or "phase" (whitened). ``taper`` (0, off, by default)
     is the Tukey fraction `displacement` applies to both volumes, for a field whose edge cuts bright tissue.
+
+    Opt-in (module docstring): ``max_step_at`` ``{T: um}`` caps the gap into timepoint T at that length instead
+    (0: no cap there; T must be a registrable timepoint after the first). ``prior="stage"`` reads the series'
+    acquisition record (priors.load_stage_record: ``nd2``, else the series record's nd2, else
+    ``<stem>__stage_record.json``), raises each gap's cap by the recorded stage xy and stack z moves
+    (priors.gap_cap) and flags the gaps the record cannot explain (priors.gap_flags; advisory). With either, the
+    table gains ``cap_um`` and ``cap_source`` (and, with the prior, the gap prior's columns) after the declared
+    ones, each ``steps`` entry its cap and gap prior, and the report the given options and a ``prior`` block.
 
     Returns ``series_id``, ``series_dir``, ``table`` (the DataFrame, declared columns), ``table_path`` (the
     CSV; the parquet copy sits next to it), ``report`` and ``report_path``. ReferenceVolumesMissing (a
@@ -361,6 +377,8 @@ def register_series(
         raise ValueError(f"upsample must be a positive integer, got {upsample!r}")
     cap = float(max_step_um) if max_step_um is not None else 0.0
     thr = float(disagreement_um)
+    pri = _prior_option(prior, nd2)
+    per_gap = bool(max_step_at) or pri is not None
 
     found = discover_series(series_dir)
     sdir, stem, record, tps = found["series_dir"], found["stem"], found["record"], found["timepoints"]
@@ -378,6 +396,16 @@ def register_series(
         cross = main_role
     else:
         cross = None
+    if per_gap:
+        from . import priors as PR
+
+        msa = PR.check_max_step_at(max_step_at, [int(tp["t_index"]) for j, tp in enumerate(tps)
+                                                 if primary in files[j]][1:])
+        stage = (PR.load_stage_record(sdir, stem, record, nd2=nd2, t_indices=[int(tp["t_index"]) for tp in tps])
+                 if pri == "stage" else None)
+        z_range = (record or {}).get("z_range")
+        gap_rows: dict[int, dict] = {}       # t_index -> the per-gap columns of that row
+        gap_list: list[dict] = []            # the registered gaps, for the report's prior block
 
     cache: dict[tuple[int, str], np.ndarray] = {}
 
@@ -440,7 +468,11 @@ def register_series(
             rows.append(row)
             continue
         raw_step = disp_um if mode == "previous" else disp_um - est[last]
-        step, capped = cap_step(raw_step, cap)
+        cap_k = cap
+        if per_gap:              # the gap from the last registrable frame: its own cap (priors.gap_cap)
+            gp = PR.gap_prior(stage, int(tps[last]["t_index"]), k, z_range) if stage is not None else None
+            cap_k, cap_src = PR.gap_cap(k, cap, max_step_at=msa, gp=gp)
+        step, capped = cap_step(raw_step, cap_k)
         base = cum[ref_i] if mode == "previous" else cum[last]
         cum_i = base + step
         cum[i] = cum_i
@@ -479,6 +511,13 @@ def register_series(
                       "brightfield_step_um": _l(bf_step), "brightfield_cumulative_um": _l(bf_cum),
                       "disagreement_um": _f(disagreement), "disagreement_flag": flag,
                       "quality_before_um": _f(q_before), "quality_after_um": _f(q_after)})
+        if per_gap:
+            flags = PR.gap_flags(raw_step, gp, cap, rigid=True)
+            gap_rows[k] = PR.gap_row(cap_k, cap_src, gp, flags, with_prior=stage is not None)
+            steps[-1].update(cap_um=_f(gap_rows[k]["cap_um"]), cap_source=cap_src)
+            if stage is not None:
+                steps[-1]["prior"] = PR.gap_summary(gp, flags)
+                gap_list.append({**gp, "flags": flags, "cap_um": _f(gap_rows[k]["cap_um"]), "cap_source": cap_src})
         if capped:
             capped_list.append(k)
         if flag:
@@ -493,6 +532,8 @@ def register_series(
     df["t_seconds"] = pd.to_numeric(df["t_seconds"], errors="coerce")
     for c in ("capped", "disagreement_flag"):
         df[c] = df[c].astype(bool)
+    if per_gap:
+        PR.add_gap_columns(df, gap_rows, with_prior=stage is not None)
     table_path = write_series_table(df, TABLE, sdir, stem, _series_meta(sdir, stem, record))
 
     before = [s["quality_before_um"] for s in steps if s["quality_before_um"] is not None]
@@ -520,6 +561,8 @@ def register_series(
         "experimental": ["rigid"] if rigid else [],
         "pipeline_version": __version__, "git_sha": provenance.git_sha(), "run_timestamp": provenance.run_timestamp(),
     }
+    if per_gap:
+        PR.add_report_options(report, msa, pri, stage, gap_list, z_range=z_range)
     report_path = sdir / f"{stem}{REPORT_SUFFIX}"
     with open(long_path(report_path), "w", encoding="utf-8") as fh:
         json.dump(_clean(report), fh, indent=1)
@@ -530,6 +573,21 @@ def register_series(
 
 
 # ---- helpers ------------------------------------------------------------------------------------------
+
+def _prior_option(prior, nd2) -> str | None:
+    """The ``prior`` option checked: None or one of priors.PRIORS; ``nd2`` only goes with a prior."""
+    if prior is None:
+        if nd2 is not None:
+            raise ValueError("nd2 is read for its stage record only: give it with prior='stage' (--nd2 with "
+                             "--prior stage)")
+        return None
+    from .priors import PRIORS
+
+    pri = str(prior).strip().lower()
+    if pri not in PRIORS:
+        raise ValueError(f"prior must be one of {PRIORS} (or None), got {prior!r}")
+    return pri
+
 
 def _row(tp: dict, role: str, stride: int, up: int, method: str) -> dict:
     nan = float("nan")

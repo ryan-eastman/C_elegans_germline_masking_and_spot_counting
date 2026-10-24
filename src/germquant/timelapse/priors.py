@@ -271,6 +271,58 @@ def gap_record(gp: dict | None, flags: list[str]) -> dict:
             "prior_flags": ";".join(flags)}
 
 
+def gap_row(cap_um: float, cap_source: str, gp: dict | None, flags: list[str], *, with_prior: bool) -> dict:
+    """The per-gap table columns of one registered gap: ``cap_um`` (NaN = no cap), ``cap_source`` and, with the
+    prior, GAP_COLUMNS."""
+    out = {"cap_um": float(cap_um) if cap_um > 0 else float("nan"), "cap_source": cap_source}
+    if with_prior:
+        out.update(gap_record(gp, flags))
+    return out
+
+
+def gap_summary(gp: dict | None, flags: list[str]) -> dict | None:
+    """The gap prior of one ``steps`` entry of a report."""
+    if gp is None:
+        return None
+    keys = ("recorded", "stage_dx_um", "stage_dy_um", "stage_xy_um", "stage_dz_um", "stack_overlap_um",
+            "stack_depth_um", "refocus_pauses")
+    return {**{k: gp[k] for k in keys}, "flags": list(flags)}
+
+
+def add_gap_columns(df, gap_rows: dict, *, with_prior: bool, key: str = "t_index") -> None:
+    """Append the per-gap columns to a registration table in place, after its declared columns: one value per row
+    from ``gap_rows[row's t_index]`` (every segment row of a gap gets its gap's values); rows without a gap (the
+    origin, error rows) get NaN and empty text."""
+    import pandas as pd
+
+    blank = gap_row(0.0, "", None, [], with_prior=with_prior)
+    cols = ["cap_um", "cap_source"] + (list(GAP_COLUMNS) if with_prior else [])
+    vals = {c: [] for c in cols}
+    for t in df[key].tolist():
+        r = gap_rows.get(int(t), blank)
+        for c in cols:
+            vals[c].append(r[c])
+    for c in cols:
+        if c == "refocus_pauses":
+            df[c] = pd.array([None if pd.isna(v) else int(v) for v in vals[c]], dtype="Int64")
+        elif c in ("cap_source", "prior_flags"):
+            df[c] = [str(v) for v in vals[c]]
+        else:
+            df[c] = np.asarray(vals[c], dtype=float)
+
+
+def add_report_options(report: dict, max_step_at: dict, prior: str | None, rec: dict | None, gaps: list[dict], *,
+                       z_range=None) -> None:
+    """The report's record of the per-gap options: ``parameters.max_step_at`` and ``parameters.prior`` (only when
+    given) and the top-level ``prior`` block (report_block) when the record was read."""
+    if max_step_at:
+        report["parameters"]["max_step_at"] = {str(t): float(v) for t, v in sorted(max_step_at.items())}
+    if prior is not None:
+        report["parameters"]["prior"] = prior
+    if rec is not None:
+        report["prior"] = report_block(rec, gaps, z_range=z_range)
+
+
 def report_block(rec: dict, gaps: list[dict], *, z_range=None) -> dict:
     """The ``prior`` block of a registration report: the record and where it came from, the stack, the constants,
     the gaps with a stage move or a refocus pause, and the flags per gap. ``gaps``: one {gap prior, flags, cap,

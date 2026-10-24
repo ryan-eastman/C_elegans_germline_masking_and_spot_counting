@@ -18,16 +18,20 @@ from types import SimpleNamespace as NS
 
 import nd2
 import numpy as np
+import pandas as pd
 import pytest
+from test_timelapse_register import SP, STEM_SYN, make_series, write_fake_series
 
+from germquant import schema
 from germquant.io import nd2_stage as S
 from germquant.timelapse import priors as PR
+from germquant.timelapse import register as R
 
 # ---- the nd2 stage record ----------------------------------------------------------------------------------------
 
 T0_MS = 358.0
 PERIOD_MS = 300000.0
-MU = "�m"                     # the unit suffix decodes as mojibake on the lab's files
+MU = chr(0xFFFD) + "m"                     # the unit suffix decodes as mojibake on the lab's files
 
 
 class _Rdr:
@@ -256,3 +260,148 @@ def test_stage_record_file_round_trip_and_precedence(fake_nd2, tmp_path):
     (sdir / "movie__stage_record.json").write_text(json.dumps({"format": "something else"}), encoding="utf-8")
     with pytest.raises(ValueError, match="not a germquant.stage_record/1 record"):
         PR.load_stage_record(sdir, stem, moved)
+
+
+# ---- per-gap caps and flags: the rigid registration ---------------------------------------------------------------
+
+# the report keys and step keys of `germquant register` at 0c29949: with no new option the report is main's
+MAIN_REPORT_KEYS = ["series_id", "series_dir", "method", "parameters", "n_timepoints", "n_registered", "n_capped",
+                    "n_disagreement", "capped", "brightfield_disagreement", "errors", "warnings", "max_step_um",
+                    "median_disagreement_um", "quality", "cumulative_last_um", "last_t_index", "steps", "rigid",
+                    "experimental", "pipeline_version", "git_sha", "run_timestamp"]
+MAIN_STEP_KEYS = ["t_index", "reference_t_index", "step_um", "raw_step_um", "cumulative_um", "capped",
+                  "brightfield_step_um", "brightfield_cumulative_um", "disagreement_um", "disagreement_flag",
+                  "quality_before_um", "quality_after_um"]
+MAIN_PARAMETERS = ["reference", "upsample_factor", "normalization", "taper", "max_step_um", "disagreement_um",
+                   "channel_role", "cross_check_role", "stride", "spacing_um", "rigid", "origin_t_index"]
+CAP_COLUMNS = ["cap_um", "cap_source"]
+
+
+def write_record(series_dir: Path, stem: str, n_t: int, *, xy_moves=None, z_moves=None, pauses=(), n_planes=24,
+                 z_step=0.3, drop=()) -> Path:
+    """A germquant.stage_record/1 file for a synthetic series of ``n_t`` timepoints: the stage at (1000, 500) um,
+    moved by ``xy_moves[t] = (dx, dy)`` into t; the stack's base at 2000 um, moved by ``z_moves[t]`` into t;
+    ``pauses`` refocus pauses placed after the given timepoints; ``drop`` timepoints the record lacks."""
+    xy_moves, z_moves = dict(xy_moves or {}), dict(z_moves or {})
+    x, y, z = 1000.0, 500.0, 2000.0
+    tps = []
+    for t in range(n_t):
+        dx, dy = xy_moves.get(t, (0.0, 0.0))
+        x, y, z = x + dx, y + dy, z + z_moves.get(t, 0.0)
+        if t in drop:
+            continue
+        tps.append({"t_index": t, "t_start_s": 300.0 * t + 0.4, "stage_x_um": x, "stage_y_um": y, "z_first_um": z,
+                    "z_last_um": z + (n_planes - 1) * z_step, "zdrive_um": z + 100.0, "n_frames": n_planes})
+    events = [{"time_s": 300.0 * a + 150.0, "description": "Experiment Paused for Refocusing", "after_t_index": a}
+              for a in pauses]
+    rec = {"format": PR.RECORD_FORMAT, "series_id": stem, "source": {"path": "synthetic", "reader_version": "test"},
+           "stack": {"n_planes": n_planes, "z_step_um": z_step, "z_device": "test"}, "n_frames": n_t * n_planes,
+           "timepoints": tps, "events": events, "events_error": None}
+    p = PR.stage_record_path(series_dir, stem)
+    p.write_text(json.dumps(rec, indent=1), encoding="utf-8")
+    return p
+
+
+@pytest.fixture
+def jump_series(tmp_path):
+    """make_series with a 1.62 um x jump into t3 (as test_register_caps_and_flags_a_jump), and a record of a 1.6 um
+    stage move into t3 and a refocus pause in the gap t1 to t2."""
+    write_fake_series(tmp_path, make_series(jump=(3, 0.0, 0.0, 15.0)), 4)
+    write_record(tmp_path, STEM_SYN, 5, xy_moves={3: (1.6, 0.0)}, pauses=(1,))
+    return tmp_path
+
+
+def test_rigid_without_a_new_option_is_main(jump_series):
+    res = R.register_series(jump_series, max_step_um=1.0)
+    assert list(res["table"].columns) == schema.REGISTER_SHIFTS
+    assert list(pd.read_csv(res["table_path"]).columns) == schema.REGISTER_SHIFTS + schema.SERIES_META
+    rep = res["report"]
+    assert list(rep) == MAIN_REPORT_KEYS and list(rep["parameters"]) == MAIN_PARAMETERS
+    assert all(list(s) == MAIN_STEP_KEYS for s in rep["steps"])
+    assert rep["capped"] == [3]                                    # the 5 um default would not, 1.0 does
+    same = R.register_series(jump_series, max_step_um=1.0, max_step_at={}, prior=None, nd2=None)
+    pd.testing.assert_frame_equal(same["table"], res["table"])
+    assert list(same["report"]) == MAIN_REPORT_KEYS
+
+
+def test_rigid_prior_raises_the_cap_where_the_stage_moved(jump_series):
+    plain = R.register_series(jump_series, max_step_um=0)["table"]
+    res = R.register_series(jump_series, max_step_um=1.0, prior="stage")
+    t = res["table"]
+    assert list(t.columns) == schema.REGISTER_SHIFTS + CAP_COLUMNS + list(PR.GAP_COLUMNS)
+    assert not t["capped"].any() and res["report"]["capped"] == []
+    for ax in "zyx":                                                # nothing capped: every step is the uncapped one
+        assert np.array_equal(t[f"step_d{ax}_um"].to_numpy(), plain[f"step_d{ax}_um"].to_numpy())
+    assert t.loc[3, "step_dx_um"] == pytest.approx((2.7 + 15) * SP[2], abs=0.2 * 4 * SP[2])
+    assert t.loc[3, "cap_um"] == pytest.approx(1.0 + 1.6) and t.loc[3, "cap_source"] == "prior:stage"
+    assert list(t.loc[[1, 2, 4], "cap_um"]) == [1.0, 1.0, 1.0]
+    assert list(t.loc[[1, 2, 4], "cap_source"]) == ["max_step_um"] * 3
+    assert np.isnan(t.loc[0, "cap_um"]) and t.loc[0, "cap_source"] == ""          # the origin has no gap
+    assert t.loc[3, "stage_dx_um"] == pytest.approx(1.6) and t.loc[3, "stage_dy_um"] == 0.0
+    assert list(t.loc[1:, "refocus_pauses"]) == [0, 1, 0, 0] and (t.loc[1:, "stack_overlap_um"] > 6.8).all()
+    assert t["prior_flags"].fillna("").eq("").all()
+    rep = res["report"]
+    assert rep["parameters"]["prior"] == "stage" and "max_step_at" not in rep["parameters"]
+    blk = rep["prior"]
+    assert blk["loaded_from"] == "record file" and blk["record_file"].endswith(f"{STEM_SYN}__stage_record.json")
+    assert blk["constants"] == {"stage_floor_um": 1.0, "z_floor_um": 0.5, "z_excess_um": 2.5, "mismatch_no_cap_um": 5.0}
+    assert [g["gap"] for g in blk["gaps_with_a_move_or_refocus"]] == ["t1-t2", "t2-t3"]
+    assert blk["flags"] == {}
+    s3 = rep["steps"][2]
+    assert s3["t_index"] == 3 and s3["cap_um"] == pytest.approx(2.6) and s3["cap_source"] == "prior:stage"
+    assert s3["prior"]["stage_dx_um"] == pytest.approx(1.6) and s3["prior"]["flags"] == []
+    # against t0 the gap is the same (from the last registrable frame) and so is the cap
+    t0 = R.register_series(jump_series, max_step_um=1.0, prior="stage", reference="t0")["table"]
+    assert t0.loc[3, "cap_um"] == pytest.approx(2.6) and not t0["capped"].any()
+
+
+def test_rigid_max_step_at_and_its_refusals(jump_series):
+    res = R.register_series(jump_series, max_step_um=1.0, max_step_at={3: 0.0})
+    t = res["table"]
+    assert list(t.columns) == schema.REGISTER_SHIFTS + CAP_COLUMNS                   # no prior columns
+    assert not t["capped"].any() and np.isnan(t.loc[3, "cap_um"]) and t.loc[3, "cap_source"] == "max_step_at"
+    assert list(t.loc[[1, 2, 4], "cap_um"]) == [1.0, 1.0, 1.0]
+    assert res["report"]["parameters"]["max_step_at"] == {"3": 0.0} and "prior" not in res["report"]
+    t2 = R.register_series(jump_series, max_step_um=0, max_step_at={3: 1.0})["table"]
+    assert list(t2.loc[t2["capped"], "t_index"]) == [3] and t2.loc[3, "cap_um"] == 1.0
+    assert np.isnan(t2.loc[1, "cap_um"]) and t2.loc[1, "cap_source"] == "max_step_um"      # no base cap
+    for bad in ({0: 2.0}, {7: 2.0}):                                  # the origin has no gap; t7 is not in the series
+        with pytest.raises(ValueError, match="not a registrable timepoint"):
+            R.register_series(jump_series, max_step_at=bad)
+    with pytest.raises(ValueError, match="prior"):
+        R.register_series(jump_series, prior="focus")
+    with pytest.raises(ValueError, match="nd2"):
+        R.register_series(jump_series, nd2=jump_series / "x.nd2")
+    # with the record gone and no nd2 to read, --prior stage says what to give
+    PR.stage_record_path(jump_series, STEM_SYN).unlink()
+    with pytest.raises(ValueError, match="--nd2"):
+        R.register_series(jump_series, prior="stage")
+
+
+def test_rigid_flags_from_the_record(tmp_path):
+    """Three gaps the record cannot explain: a stage move of 8 um into t1 while the image moved 0.35 um
+    (stage_step_mismatch), a 3 um z jump into t2 with no recorded focus step (z_beyond_record), and a recorded focus
+    step into t4 deeper than the stack (no_shared_depth). The flags change nothing."""
+    write_fake_series(tmp_path, make_series(jump=(2, 10.0, 0.0, 0.0)), 4)
+    write_record(tmp_path, STEM_SYN, 5, xy_moves={1: (8.0, 0.0)}, z_moves={4: 8.0})
+    plain = R.register_series(tmp_path, max_step_um=0)["table"]
+    res = R.register_series(tmp_path, max_step_um=0, prior="stage")
+    t = res["table"]
+    assert plain.loc[2, "step_dz_um"] > 2.5 + 0.3                    # the planted jump, about 3 um
+    assert list(t["prior_flags"].fillna("")) == ["", "stage_step_mismatch", "z_beyond_record", "", "no_shared_depth"]
+    assert t["cap_um"].isna().all() and (t.loc[1:, "cap_source"] == "max_step_um").all()     # a base of 0: no cap
+    assert t.loc[4, "stack_overlap_um"] == pytest.approx(23 * 0.3 - 8.0)
+    for ax in "zyx":
+        assert np.array_equal(t[f"step_d{ax}_um"].to_numpy(), plain[f"step_d{ax}_um"].to_numpy())
+    assert res["report"]["prior"]["flags"] == {"t0-t1": ["stage_step_mismatch"], "t1-t2": ["z_beyond_record"],
+                                               "t3-t4": ["no_shared_depth"]}
+    # with a base cap the mismatch tolerance is the base: 8 - 0.35 is above 5 and below 9
+    t5 = R.register_series(tmp_path, max_step_um=5.0, prior="stage")["table"]
+    assert t5.loc[1, "prior_flags"] == "stage_step_mismatch" and t5.loc[1, "cap_um"] == pytest.approx(13.0)
+    t9 = R.register_series(tmp_path, max_step_um=9.0, prior="stage")["table"]
+    assert t9.loc[1, "prior_flags"] == ""
+    # a timepoint the record lacks keeps the base cap and says so
+    write_record(tmp_path, STEM_SYN, 5, xy_moves={1: (8.0, 0.0)}, drop=(3,))
+    td = R.register_series(tmp_path, max_step_um=5.0, prior="stage")["table"]
+    assert list(td.loc[[3, 4], "prior_flags"]) == ["no_record", "no_record"]
+    assert list(td.loc[[3, 4], "cap_um"]) == [5.0, 5.0]
