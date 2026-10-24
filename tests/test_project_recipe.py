@@ -69,7 +69,7 @@ def test_unmodified_project_hash_equals_pack(project_env, tmp_path):  # noqa: F8
         assert stages.stage_hashes(cfg, ROLES, FIXED) == stages.stage_hashes(ref, ROLES, FIXED)
         assert {k: v for k, v in cfg.pack_record.items() if k not in ("source", "edited")} == \
             {k: v for k, v in ref.pack_record.items() if k != "source"}
-    worm = new_project(tmp_path / "worm", "celegans_germline@0.1.0")
+    worm = new_project(tmp_path / "worm", "celegans_germline")   # its newest version (PLAN 3.1: no version written)
     assert not (worm.root / "recipe.yaml").exists()
     assert project_config(worm).hash == "84bdda5a5230" == load_config(ROOT / "config" / "config.yaml").hash
 
@@ -180,7 +180,7 @@ def test_write_recipe_validates_by_origin(project_env, tmp_path):  # noqa: F811
     assert read_manifest_file(proj.root)["recipe"]["origins"] == {"spots.log.diameter_um": "tuning",
                                                                   "spots.log.min_snr": "tuning"}
     assert h == project_config(proj).hash
-    cc = new_project(tmp_path / "cc", "cultured_cells@0.1.0")
+    cc = new_project(tmp_path / "cc", "cultured_cells")
     with pytest.raises(ProjectError, match="choices"):
         write_recipe(cc, edits={"segmentation.nuclei.project": "median"})
     assert write_recipe(cc, edits={"segmentation.nuclei.project": "mean"}) != cc.manifest["pack"]["sha256"]
