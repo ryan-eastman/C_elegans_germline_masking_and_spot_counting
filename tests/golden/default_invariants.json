@@ -30,7 +30,8 @@
  "golden_sentinels": {
   "synthetic": "84bdda5a5230",
   "synthetic_4ch": "37d49f43ac38",
-  "synthetic_projected": "82cf547386f7"
+  "synthetic_projected": "82cf547386f7",
+  "synthetic_labels": "02500074ad84"
  },
  "channel_maps_sha256_lf": {
   "config/channel_maps/ccw77_dapi_syp_pgl_lamin.yaml": "7dac727682e7fb281cda789950ac9f8f592c47ae98ce4780d135e890466b7844",
