@@ -10,7 +10,8 @@ import pytest
 from germquant.sc.straighten import params, synth, synth_dev
 from germquant.sc.straighten.pipeline import straighten_image
 
-P = params.resolve(None, ["punctum.exclude=true"])        # the tier exclusion of entry 16 (entry 18: off by default)
+ON = ["punctum.enabled=true"]                            # withdrawn by entry 19: off by default
+P = params.resolve(None, ON + ["punctum.exclude=true"])   # the class with the tier exclusion of entry 16
 
 
 def _scene(ribbons=(), puncta=(), seed=0, foci=()):
@@ -64,8 +65,8 @@ def test_a_blurred_point_is_a_punctum_left_out_of_the_tier():
     assert "punctum" in st["qc_flags"].iloc[0] and np.isfinite(st["punctum_sigma_z_um"].iloc[0])
     assert nu["n_puncta"] == 1 and nu["n_strands"] == 0 and nu["total_length_um"] == 0.0 and nu["status"] == "no_sc"
     assert nu["piece_lw_mean_um"] == 0.0 and 0.0 < nu["puncta_signal_frac"] <= 1.0
-    # punctum.exclude off (the default of entry 18): the class and flag stay, the strand counts as in v1
-    keep = _run(_scene(puncta=[{"center": [0.0, 0.3, -0.2], "peak": 900.0}], seed=1), params.resolve())
+    # punctum.exclude off (entry 18): the class and flag stay, the strand counts as in v1
+    keep = _run(_scene(puncta=[{"center": [0.0, 0.3, -0.2], "peak": 900.0}], seed=1), params.resolve(None, ON))
     assert keep.strands["strand_class"].iloc[0] == "punctum"
     assert keep.nuclei["n_strands"].iloc[0] == 1 and keep.nuclei["total_length_um"].iloc[0] > 0.5
     # punctum.enabled off: v1 (no class, no flag)
@@ -139,3 +140,4 @@ def test_the_rule_before_the_end_matching(monkeypatch):
         longest = max(cap[0], key=len)
         assert TR.traced_punctum(longest, sampler, bg, noise, synth.SPACING, P) is want
     assert params.resolve()["punctum.before_linking"] is False          # entry 18: the end matching of v1
+    assert params.resolve()["punctum.enabled"] is False                 # entry 19: withdrawn
