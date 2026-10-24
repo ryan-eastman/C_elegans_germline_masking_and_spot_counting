@@ -115,6 +115,7 @@ def test_synthetic_2d_meets_acceptance_2(golden_run):
     n_planted = len(info["puncta"])
     assert found >= 0.9 * n_planted and extras <= 0.1 * n_planted, (found, extras, n_planted)
     assert (spots["z_um"] == 0.0).all() and spots["nucleus_id"].gt(0).all()
+    assert "stage_flags" not in res["tables"]["spots"].attrs
     assert nuclei["n_spots"].sum() == len(spots)
     # flags and records of a single-plane run
     flags = res["qc_flags"]
@@ -159,6 +160,9 @@ def test_the_z_merge_a_recipe_asks_for_is_flagged(golden_run, tmp_path, monkeypa
     out = Path(res["out_dir"])
     assert "spots:z_merge_off_planar" in res["qc_flags"]
     assert "spots:z_merge_off_planar" in _json(out / f"{res['image_id']}__stages.json")["stages"]["spots"]["flags"]
+    # the flags come back through attrs, which the stage removes: no table and no parquet file carries them
+    assert "stage_flags" not in res["tables"]["spots"].attrs
+    assert "stage_flags" not in pd.read_parquet(out / f"{res['image_id']}__spots.parquet").attrs
     pd.testing.assert_frame_equal(H.read_table(out / f"{res['image_id']}__spots.csv"),
                                   H.read_table(golden_run["out"] / f"{res['image_id']}__spots.csv"), check_exact=True)
 

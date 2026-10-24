@@ -125,11 +125,18 @@ def spot_backend_provenance(cfg, role_to_idx: dict) -> dict:
     return out
 
 
-def _planar_stage_flags(table) -> list[str]:
+def _planar_stage_flags(*tables) -> list[str]:
     """The stage flags a single-plane spot detection hands back in ``attrs["stage_flags"]`` of its tables
     (spots.detect_spots(planar=True): z_merge_off_planar when the call asked for the z-split merge), for the
-    calling stage to raise under its own prefix; empty when there is none."""
-    return [str(f) for f in ((getattr(table, "attrs", None) or {}).get("stage_flags") or [])]
+    calling stage to raise under its own prefix; empty when there is none. The key is removed from every table,
+    so it never reaches a written file (to_parquet stores attrs as PANDAS_ATTRS)."""
+    found: list[str] = []
+    for table in tables:
+        attrs = getattr(table, "attrs", None)
+        got = attrs.pop("stage_flags", None) if attrs else None
+        if got and not found:
+            found = [str(f) for f in got]
+    return found
 
 
 def segment_backend_provenance(cfg) -> dict:
@@ -760,7 +767,10 @@ def process_image(
             df["n_spots"] = df["n_spots"].fillna(0).astype(int)
         flags.append(f"spots:{backend}_n={len(per_spot)}")          # the default run still writes spots:spotmax_n=
         if planar_run:
-            flags.extend(f"spots:{f}" for f in _planar_stage_flags(per_spot))   # spots:z_merge_off_planar
+            # spots:z_merge_off_planar; the channel is the built-in spotmax backend's (design 5.1 names no other)
+            stage_flags = _planar_stage_flags(per_spot, per_nuc)
+            if backend == "spotmax":
+                flags.extend(f"spots:{f}" for f in stage_flags)
         if backend != "spotmax":
             flags.append(f"spots:unvalidated_backend={backend}")  # only spotmax is cross-validated vs Imaris
         return per_spot, per_nuc, df
@@ -827,7 +837,9 @@ def process_image(
             nuclei = df
             flags.append(f"spots_{name}:{backend}_n={len(per_spot)}")
             if planar_run:
-                flags.extend(f"spots_{name}:{f}" for f in _planar_stage_flags(per_spot))
+                stage_flags = _planar_stage_flags(per_spot, per_nuc)
+                if backend == "spotmax":
+                    flags.extend(f"spots_{name}:{f}" for f in stage_flags)
             if backend != "spotmax":
                 flags.append(f"spots_{name}:unvalidated_backend={backend}")
             return per_spot, per_nuc, summ
