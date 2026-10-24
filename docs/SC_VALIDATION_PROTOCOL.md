@@ -1043,3 +1043,54 @@ Entries are appended, never edited. Each one says whether a test result had been
    crossings of the pairs family with both ribbons matched does not fall by more than 0.02. The tuning seeds run the
    dense and pairs families; the confirmation seeds run every registered family for the tolerances of entry 11 (b),
    once; the cost rule is checked on n2rad51_noHS_herm_000.
+21. 2026-10-24, the v2 development round (end matching), written before any number of this change was computed (no
+   test result had been computed, no test or reserved image was run, no test or reserved truth was read and no
+   sealed seed was generated). The contact stop of entry 20 (commit 40fe390) failed two of its targeted metrics on
+   the tuning seeds against the configuration before it
+   (C:/Users/ryane/sc_ribbon_work/v2/logs/step4_40fe390_tuning.json): breaks after the tracer fell by 18 percent
+   only (4.88 to 4.01 per nucleus; at least 30 required) and switches in the final strands rose by 13.5 percent
+   (3.34 to 3.79 per nucleus; at most 10 allowed), while the final breaks fell by 39 percent (1.99 to 1.21), the
+   dense S1b SD fell (8.59 to 8.47 percent) and the X crossings of the pairs family kept both ribbons as often
+   (0.96); the dense S1b mean and CCC, which no metric of entry 20 targets, moved from -6.92 to -1.37 percent and
+   from 0.535 to 0.699. Tracer events on the same scenes (an instrumented copy of the tracer,
+   v2/scripts/trace_events.py; logs/trace_events_s4pre_tuning.json and trace_events_s4_tuning.json) show why:
+   contact stops fell from 675 to 163, but of the 414 passes through the claim tube of a strand on another ribbon by
+   a trace whose own ribbon goes on for more than 1 um beyond it, 44 went on along their own ribbon, 246 stopped
+   within 0.9 um after the tube and 104 inside it; at the exits of the 246 the trace direction lay a median 39
+   degrees off the ribbon (20 degrees for the passes that went on), 0.21 um laterally and 0.36 um axially from it,
+   so pure prediction does not regain the ribbon behind an unresolved junction; the added switches are spurs at
+   strand ends (tracer 1.51 to 2.31 per nucleus, final 1.22 to 1.39; on a single T contact the stem now runs through
+   the bar and stops beyond it, three seeds) and switches through junctions after the end matching (2.12 to 2.40).
+   One revision was explored on the design seeds (2000 to 2049 and 3000 to 3049) with code that was never committed
+   (v2/logs/dev/): no weak run inside another strand's tube and, for a trace that stops before regaining its own
+   ridge, a cut back to the tube entry as a contact end; against v1, tracer breaks fell by 26 and 23 percent, final
+   breaks by 8 and 18 percent (entry 20 there: 32 and 57 percent), switches by 17 and 22 percent, and the dense mean
+   total error returned to that of v1 (-5.3 percent on both blocks against -4.9 and -4.8). Neither variant meets the
+   tracer target, and regaining a ribbon 39 degrees off the predicted direction needs a search inside junctions,
+   which is the question of the junction re-pairing step; entry 20 is therefore withdrawn without a revision:
+   follow.contact_test is "local" by default again (the switch and its tests stay), and the decomposition continues
+   from that of v1. Motivated by development results (the taxonomy of entry 11, made with the decomposition of v1):
+   of the 411 tracer breaks with facing ends, 37 percent were linked correctly, 30 percent were rejected by the 50
+   degree rule although the two anchors lay nearly in line (median offsets 0.11 um axial and 0.07 um lateral over
+   0.8 um: inside the junction the end direction hooks toward the neighbour), 22 percent had turned onto another
+   ribbon there and 8 percent lost the right partner to a wrong one; strands that join two ribbons end to end have a
+   median length of 10.3 um and strands that turn at a T contact 8.3 um, while no correctly decomposed strand
+   exceeds 7.5 um (truth maximum 7.0 um). Method: (a) when points of an end's last 1.0 um lie within one PSF FWHM
+   (axial and lateral) of another strand's points, the end's anchor and outward direction (link.tip_um and
+   link.dir_window_um, as in v1) are measured on the strand from the first point beyond the last of them, unless
+   less than 0.3 um of the strand lies beyond it (then as in v1); the gap is still counted from the tip (the
+   anchor's arc offset from the tip includes the shift); the FWHM is that of psf.fallback_sigma_um (0.86 um axial,
+   0.35 um lateral), because the image PSF is estimated after phase A; (b) after the matching, a chain longer than
+   link.max_chain_um is cut at its most expensive link, again until no chain is longer or no link is left; cut ends
+   are free and get the end rule. link.max_chain_um is 9.0 um, set without phantoms: the longest pachytene SC of
+   wild-type C. elegans is about 7 um (the field review of the build, section 0) and the registered iso, gaps and
+   foci ribbons reach 8 um, so no registered ribbon can reach the bound; it is held fixed in this round although
+   link.* is tunable. New keys: link.junction_dirs (true; false gives v1; fixed group) and link.max_chain_um (9.0;
+   null gives v1). Targeted metrics (the dense family, the taxonomy script, which takes each end's anchor and
+   direction as the end matching computed them and counts only the links that the chain bound keeps), against the
+   configuration before this change on the same scenes: angle rejections at breaks with facing ends fall by at least
+   a third (confirmation: a sixth); wrong-ribbon links fall by at least 30 percent (confirmation: 15 percent);
+   correct links do not fall (confirmation: the same); strands longer than 9 um that hold more than one ribbon fall
+   by at least half (confirmation: a quarter). The tuning seeds run the dense, gaps and iso families; the
+   confirmation seeds run every registered family for the tolerances of entry 11 (b), once; the cost rule is checked
+   on n2rad51_noHS_herm_000.
