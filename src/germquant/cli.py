@@ -773,7 +773,13 @@ def _run(args) -> int:
 def _run_series(args, cfg) -> int:
     """``germquant run SERIES.nd2 --t ...``: the per-timepoint loop (timelapse.series.process_series). A
     timepoint that raises is recorded in the series record and the loop goes on; the exit code is 0 when at
-    least one requested timepoint finished and 1 when none did."""
+    least one requested timepoint finished and 1 when none did. A recipe with segmentation.nuclei.labels_from
+    is refused before the loop, with exit code 2 (docs/LABELS.md)."""
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
+        from .io.labels import SERIES_REFUSAL
+
+        print(f"REFUSED: {SERIES_REFUSAL}", file=sys.stderr)
+        return 2
     from .timelapse import process_series
 
     res = process_series(args.nd2, cfg, args.out, timepoints=args.t, xy_stride=args.xy_stride,
@@ -819,8 +825,14 @@ def _batch(args) -> int:
     from .pipeline import resolve_model_path, segment_backend_provenance
     from .stages import stage_hashes as stage_hashes_fn
 
-    model_sha = (provenance.file_sha256(resolve_model_path(cfg))
-                 if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
+    labels_run = cfg.get("segmentation.nuclei.labels_from") is not None
+    if labels_run:
+        # labels from files (docs/LABELS.md): process_image's rule, no model is resolved; the segment hash is
+        # computed per image below, with that image's labels sha256
+        model_sha = "unused"
+    else:
+        model_sha = (provenance.file_sha256(resolve_model_path(cfg))
+                     if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
     # the segmentation backend's own provenance ({} on the default run), as process_image hashes it
     segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
                                    segment_backend=segment_backend_provenance(cfg))["segment"]
@@ -843,7 +855,14 @@ def _batch(args) -> int:
         out_dir = out_root / rel / f.stem
         print(f"[{i}/{len(files)}] {f.name}")
         if resume:
-            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=segment_hash)
+            seg = segment_hash
+            if labels_run:
+                # this image's segment hash, its labels file's sha256 in the payload; a file that cannot be hashed
+                # matches no marker, so the image is reprocessed and fails with process_image's message
+                seg, problem = _labels_segment_hash(cfg, f, model_sha)
+                if problem:
+                    print(f"    {problem}")
+            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=seg)
             if done:
                 print("    already done (completion marker matches); skipping")
                 continue
@@ -878,6 +897,27 @@ def _batch(args) -> int:
     n_pass = sum(s["qc_pass"] for s in summaries)
     print(f"\nDone. {n_pass}/{len(files)} passed QC. Summary -> {out_root / 'batch_summary.csv'}")
     return 0
+
+
+def _labels_segment_hash(cfg, image: Path, model_sha: str) -> tuple[str, str]:
+    """``(segment sub-hash, "")`` of one image of a labels run, as process_image computes it (the sha256 of the
+    image's labels file in the segment payload), or ``("labels-unreadable", why)`` when the file cannot be found
+    or hashed: a value no completion marker holds, so --resume reprocesses the image."""
+    from .io import labels as labels_io
+    from .pipeline import segment_backend_provenance
+    from .stages import stage_hashes as stage_hashes_fn
+
+    try:
+        path = labels_io.labels_path(cfg, image)
+        labels_io.labels_format(path)
+        sha = labels_io.labels_sha256(path)
+    except FileNotFoundError:
+        return "labels-unreadable", f"labels file not found: {path}"
+    except (OSError, ValueError) as e:
+        return "labels-unreadable", f"labels file: {e}"
+    hashes = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
+                             segment_backend=segment_backend_provenance(cfg), labels_sha256=sha)
+    return hashes["segment"], ""
 
 
 def _traces_path(cfg, args) -> Path:
