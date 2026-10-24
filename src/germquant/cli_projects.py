@@ -73,10 +73,15 @@ def add_project_commands(psub, *, light: bool = False) -> None:
     pe.add_argument("--role", action="append", default=[], metavar="ROLE=CHANNEL",
                     help="bind a role by an image's exact channel name (ROLE= drops that role's edit)")
     pe.add_argument("--revert", action="store_true", help="drop every recipe edit: back to the pack recipe")
-    pe.add_argument("--device", default=None, choices=["auto", "cuda", "mps", "cpu", "none"])
-    pe.add_argument("--xy-stride", type=int, default=None, metavar="N")
-    pe.add_argument("--z-range", nargs="+", default=None, metavar="Z0 Z1", help="two planes, or the word none")
-    pe.add_argument("--runner", default=None, choices=["subprocess", "inprocess", "none"])
+    pe.add_argument("--device", default=None, choices=["auto", "cuda", "mps", "cpu", "none"],
+                    help="the device the project's runs ask for (auto = CUDA when available; none: the engine's "
+                         "choice)")
+    pe.add_argument("--xy-stride", type=int, default=None, metavar="N",
+                    help="downsample xy by N for a quick run (1: full resolution)")
+    pe.add_argument("--z-range", nargs="+", default=None, metavar="Z0 Z1",
+                    help="two planes Z0 Z1 (0 <= Z0 < Z1), or the word none")
+    pe.add_argument("--runner", default=None, choices=["subprocess", "inprocess", "none"],
+                    help="how the plugin runs this project (none: its default)")
     pe.add_argument("--interpreter", action="append", default=[], metavar="RECIPE=PYTHON",
                     help="the engine interpreter a recipe runs with (PYTHON none removes it)")
     pe.add_argument("--samples", default=None, metavar="FILE", help="the sample sheet in the project, or none")

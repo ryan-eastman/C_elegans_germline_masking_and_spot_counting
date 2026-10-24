@@ -226,6 +226,43 @@ def test_new_vendors_the_pinned_pack_and_writes_no_recipe(project_env, tmp_path)
         new_test_project(tmp_path / "config")                 # load_config would anchor its recipe to the parent
 
 
+def test_a_failed_new_takes_away_only_what_it_made(project_env, tmp_path, monkeypatch):  # noqa: F811
+    """A new_project that fails removes the packs/ folder it made and keeps one that was there; one that finds,
+    under the lock, a project another `new` finished meanwhile is refused and leaves that project alone."""
+    import contextlib
+    import shutil
+
+    import germquant.project as P
+
+    def boom(src, dst):
+        raise OSError("disk full")
+
+    with monkeypatch.context() as mp:
+        mp.setattr(M, "_replace", boom)
+        with pytest.raises(OSError, match="disk full"):
+            new_test_project(tmp_path / "r")
+        assert sorted(p.name for p in (tmp_path / "r").iterdir()) == []
+        (tmp_path / "s" / "packs" / "mine").mkdir(parents=True)
+        with pytest.raises(OSError, match="disk full"):
+            new_test_project(tmp_path / "s")
+        assert (tmp_path / "s" / "packs" / "mine").is_dir()
+    other = new_test_project(tmp_path / "other")
+    real = P.project_lock
+
+    @contextlib.contextmanager
+    def racing(root, command):                 # another `new` finishes between the first check and the lock
+        shutil.copytree(other.root / "packs", Path(root) / "packs")
+        shutil.copy(other.root / "germquant_project.yaml", Path(root) / "germquant_project.yaml")
+        with real(root, command) as me:
+            yield me
+
+    monkeypatch.setattr(P, "project_lock", racing)
+    with pytest.raises(ProjectError, match="already a germquant project"):
+        new_test_project(tmp_path / "t")
+    assert (tmp_path / "t" / "germquant_project.yaml").read_bytes() == (other.root / "germquant_project.yaml").read_bytes()
+    assert (tmp_path / "t" / "packs" / "test_pack" / "0.1.0" / "pack.yaml").is_file()
+
+
 def test_open_after_a_pack_version_change_warns_and_names_it(project_env, tmp_path, monkeypatch):  # noqa: F811
     proj = new_test_project(tmp_path / "p")
     saved = write_recipe(proj, edits={"spots.log.min_snr": 3.0})
@@ -524,6 +561,9 @@ def test_training_rounds_are_named_and_numbered(project_env, tmp_path):  # noqa:
             new_round(proj, bad)
     with pytest.raises(ProjectError, match="already exists"):
         new_round(proj, "r01")
+    with pytest.raises(ProjectError, match="letter case"):        # one folder on Windows and macOS
+        new_round(proj, "R01")
+    assert list_rounds(proj) == ["fine_tune-2", "r01", "r02"]
 
 
 def test_the_full_command_line_has_the_project_group(project_env, tmp_path, capsys):  # noqa: F811

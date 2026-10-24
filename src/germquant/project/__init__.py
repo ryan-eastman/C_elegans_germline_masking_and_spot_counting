@@ -48,8 +48,7 @@ __all__ = [
 
 
 def _todo(name: str, unit: str) -> str:
-    return (f"germquant.project.{name} is not built yet: unit {unit} of tranche 5 Train B builds it "
-            f"(C:/Users/ryane/germquant_golden/t5_train_b/PLAN.md, section 9.1)")
+    return f"germquant.project.{name} is not built yet: unit {unit} of tranche 5 Train B builds it"
 
 
 @dataclass
@@ -109,8 +108,11 @@ def new_project(root, pack, recipe=None, images=(), *, name=None, plugin_version
     p = pack if hasattr(pack, "recipes") else find_pack(str(pack))
     r = p.recipe(recipe)
     os.makedirs(root, exist_ok=True)
-    made_packs = not (root / "packs").exists()
     with project_lock(root, "new"):
+        if (root / MANIFEST_NAME).exists():      # again under the lock: another `new` may have finished meanwhile
+            raise ProjectError(f"{root} is already a germquant project ({MANIFEST_NAME}); open it, or choose another "
+                               f"folder")
+        made_packs = not (root / "packs").exists()
         try:
             folder = vendor(p.id, p.version, root / "packs")
             entry = {"id": p.id, "version": p.version, "recipe": r.id, "sha256": sums_sha256(folder)}
