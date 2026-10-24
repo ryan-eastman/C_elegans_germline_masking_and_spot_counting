@@ -530,9 +530,10 @@ def test_a_planar_labels_run(tmp_path, monkeypatch):
     _no_model(monkeypatch)
     cfg = H.generic_2d(**{"segmentation.nuclei.labels_from": template, "segmentation.nuclei.method": "cellpose",
                           "segmentation.nuclei.backend": "nuclei3d",
-                          "segmentation.nuclei.cellpose_model": "cpsam_v2@0f1cc3f7", "render.montage": False})
+                          "segmentation.nuclei.cellpose_model": "cpsam_v2@0f1cc3f7"})
     out = tmp_path / "plane"
-    res = pipeline.process_image(tmp_path / PLANE, cfg, out, prov=None)
+    res = pipeline.process_image(tmp_path / PLANE, cfg, out, prov=None)       # every default stage, the montage too
+    assert res["stages"]["render"]["status"] == "ran" and (out / f"{H.STEM}__montage.png").is_file()
     assert res["n_nuclei"] == 11                                     # no size gate: the two specks of debris stay
     assert res["tables"]["image_summary"]["segmentation_method"].iloc[0] == "labels_file"
     assert {"read:planar", FLAG} <= set(res["qc_flags"]) and FLAG in res["stages"]["segment"]["flags"]
