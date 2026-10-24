@@ -52,11 +52,9 @@ BASE = {
     "tests/golden/pins.json": '{"a": "' + MU + 'm"}\n',          # an old non-ASCII line, there at the base
     ".gitignore": "*.log\n",
     ".gitattributes": "*.dat binary\n",
-    "docs/BENCHMARK_PROTOCOL.md": "protocol\n",
-    "docs/FINAL_SCORING.md": "scoring\n",
-    "tests/golden/rad51_split.json": "{}\n",
-    "src/germquant/validate/benchmark_split.py": "S = 1\n",
     "src/germquant/benchmark/detector.py": "D = 1\n",
+    # the R8 files come from the scope check's list, so this module never names the split file (R8)
+    **{p: "sealed\n" for p in style.R8_FILES},
 }
 
 
