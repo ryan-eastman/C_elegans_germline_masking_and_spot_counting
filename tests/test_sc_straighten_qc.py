@@ -61,7 +61,7 @@ IMAGE_POSITIVE = {
     "sc_straighten:uncalibrated": {},
     "noise_fit_poor": {"noise_rel_rms": 0.3},
     "psf_fallback": {"psf_source": "fallback"},
-    "psf_from_foci": {"psf_source": "both"},
+    "psf_from_foci": {"psf_source": "foci"},
     "sc_channel_suspect": {"n_present_with_2um": 10},
     "foci_uncalibrated": {"spot_tables": ["spots"]},
     "geometry_from_manifest": {"geometry_source": "run_manifest"},

@@ -46,7 +46,7 @@ CODES: tuple[tuple[str, str, str, str, str], ...] = (
     ("sc_straighten:uncalibrated", "image", "info", "", "always, until the validation protocol has scored the method"),
     ("noise_fit_poor", "image", "review", "noise.poor_rel_rms", "the noise model fits its bins above the darkest decile of the sampled voxels with a relative RMS above poor_rel_rms (or fell back)"),
     ("psf_fallback", "image", "review", "psf.min_stretches", "fewer than min_stretches flat isolated bright stretches and no foci estimate: the fallback PSF was used"),
-    ("psf_from_foci", "image", "info", "psf.foci_min", "the image PSF holds the estimate from compact isolated RAD-51 foci (scaled to the central_element emission wavelength)"),
+    ("psf_from_foci", "image", "info", "psf.foci_min", "the image PSF's sigma_z is the estimate from compact isolated RAD-51 foci (scaled to the central_element emission wavelength)"),
     ("sc_channel_suspect", "image", "review", "qc.sc_channel_suspect_frac", "among nuclei with SC present, fewer than sc_channel_suspect_frac have a strand of 2 um or more"),
     ("foci_uncalibrated", "image", "info", "", "a spot table was used (spot detection is not calibrated for SC positions)"),
     ("geometry_from_manifest", "image", "info", "", "run geometry (xy_stride, z_range) from run_manifest.json: no done marker"),
@@ -202,7 +202,7 @@ def image_flags(info: dict, p) -> list[str]:
         out.append("noise_fit_poor")
     if info.get("psf_source") == "fallback":
         out.append("psf_fallback")
-    if info.get("psf_source") in ("foci", "both"):
+    if info.get("psf_source") == "foci":
         out.append("psf_from_foci")
     n_present = int(info.get("n_present", 0) or 0)
     n_long = int(info.get("n_present_with_2um", 0) or 0)

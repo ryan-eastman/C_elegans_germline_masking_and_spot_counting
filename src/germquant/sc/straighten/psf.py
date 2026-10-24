@@ -12,10 +12,12 @@ wavelength, combined by inverse variance.
   lies inside its bounds, the relative residual RMS is at most ``psf.foci_max_rel_rms`` and the amplitude is at
   least ``psf.foci_min_snr`` standard errors. With ``psf.foci_min`` kept fits and both emission wavelengths, the
   estimate is the median sigma_z and the median sqrt(sigma_y sigma_x) times lambda_central_element / lambda_foci.
-* The variance of each estimate is a bootstrap over its items (200 resamples, seed 0); with both, sigma_z is
-  their inverse-variance weighted mean. The lateral sigma stays the fallback's (protocol changelog entry 13: both
-  sources over-estimate it on the design phantoms); the lateral estimates are recorded. With ``psf.foci: off`` the
-  v1 rule (``refine.psf_from_profiles``) is used unchanged.
+* The variance of each estimate is a bootstrap over its items (200 resamples, seed 0). sigma_z is the foci
+  estimate when it exists, else the stretch estimate, else the fallback (protocol changelog entry 14: on the
+  phantoms the stretch estimate runs 2 to 5 percent wide, the foci estimate within 3 percent); both are recorded
+  with their difference. The lateral sigma stays the fallback's (entry 13: both sources over-estimate it on the
+  design phantoms); the lateral estimates are recorded. With ``psf.foci: off`` the v1 rule
+  (``refine.psf_from_profiles``) is used unchanged.
 * The foci fit has a planar background (entry 13), which absorbs the blurred edge of the nucleoplasm.
 """
 from __future__ import annotations
@@ -275,22 +277,13 @@ def stretch_estimate(stretches: list[dict], p, n_min: int | None = None, with_se
 
 
 # ------------------------------------------------------------------------------------ the image PSF
-def _ivw(a: float, sa: float, b: float, sb: float) -> float:
-    """Inverse-variance weighted mean; a standard error that is not finite carries no weight (both: the mean)."""
-    fa, fb_ = math.isfinite(sa), math.isfinite(sb)
-    if not fa and not fb_:
-        return float(0.5 * (a + b))
-    wa = 1.0 / max(sa, 1e-4) ** 2 if fa else 0.0
-    wb = 1.0 / max(sb, 1e-4) ** 2 if fb_ else 0.0
-    return float((wa * a + wb * b) / (wa + wb))
-
-
 def image_psf(stretches: list[dict], foci_fits: list[dict] | None, wavelengths: dict | None, p
               ) -> tuple[tuple[float, float], str, dict]:
     """((sigma_z, sigma_xy), source, detail) of one image. With ``psf.foci: off`` this is v1's
-    ``psf_from_profiles`` (sources estimated and fallback). Otherwise sigma_z comes from the estimates (protocol
-    changelog entries 12 and 13) and sigma_xy stays the fallback's lateral sigma (both sources over-estimate it on
-    the design phantoms; the lateral estimates are recorded and choose nothing)."""
+    ``psf_from_profiles`` (sources estimated and fallback). Otherwise sigma_z is the foci estimate when it exists,
+    else the stretch estimate (protocol changelog entries 12 to 14), and sigma_xy stays the fallback's lateral sigma
+    (both sources over-estimate it on the design phantoms; the lateral estimates are recorded and choose
+    nothing)."""
     from .params import switch_on
 
     if not switch_on(p["psf.foci"]) or p["psf.mode"] == "fixed":
@@ -302,11 +295,9 @@ def image_psf(stretches: list[dict], foci_fits: list[dict] | None, wavelengths: 
     if "sigma_lat_fit" in st:
         detail.update({"sigma_lat_fit": st["sigma_lat_fit"], "sigma_ax_fit": st["sigma_ax_fit"]})
     if st["ok"] and fo["ok"]:
-        sz = _ivw(st["sigma_z_um"], st.get("se_z_um", np.nan), fo["sigma_z_um"], fo["se_z_um"])
         detail["foci_minus_stretches_z_um"] = fo["sigma_z_um"] - st["sigma_z_um"]
-        return (sz, fb[1]), "both", detail
-    if st["ok"]:
-        return (st["sigma_z_um"], fb[1]), "stretches", detail
     if fo["ok"]:
         return (fo["sigma_z_um"], fb[1]), "foci", detail
+    if st["ok"]:
+        return (st["sigma_z_um"], fb[1]), "stretches", detail
     return fb, "fallback", detail

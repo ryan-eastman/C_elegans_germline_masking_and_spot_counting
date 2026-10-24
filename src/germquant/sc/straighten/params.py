@@ -40,8 +40,8 @@ DEFAULTS: dict[str, Any] = {
              "sigma_bounds": [0.6, 1.6], "fit_min_amp_se": 5.0, "fit_max_rel_rms": 0.25, "max_extension_um": 0.5},
     "psf": {"mode": "auto", "fallback_sigma_um": [0.365, 0.15], "min_stretches": 20, "flat_tz_max": 0.3,
             "isolation_um": 1.0, "min_snr": 10.0, "min_stretch_um": 1.0,
-            # v2 (protocol changelog entry 12): the foci estimate of the image PSF ("off" gives v1)
-            "foci": "on", "foci_min": 25, "foci_window_um": [1.2, 0.54], "foci_isolation_um": 1.0,
+            # v2 (protocol changelog entries 12 to 14): the foci estimate of the image PSF ("off" gives v1)
+            "foci": "on", "foci_min": 15, "foci_window_um": [1.2, 0.54], "foci_isolation_um": 1.0,
             "foci_max_sigma_xy_um": 0.25, "foci_max_ratio": 1.5, "foci_max_rel_rms": 0.2, "foci_min_snr": 8.0},
     "gaps": {"q": 0.6, "window_frac": 0.9, "min_um": 0.25, "z": 3.0, "smooth_um": 0.1, "ring_um": 0.45,
              "tail_sigmas": 1.0, "plateau_um": 0.4},

@@ -116,16 +116,18 @@ def test_source_order_flags_and_record():
     fits = PSF.foci_fits_crop(vol, (0, 0, 0), synth.SPACING, NOISE,
                               {"pos": pos, "isolated": np.ones(len(pos), bool)}, P)
     Pn = params.resolve(None, ["psf.min_stretches=20", "psf.foci_min=25"])
+    # the foci estimate first (protocol changelog entry 14), the stretch estimate recorded beside it
     (sz, sxy), src, d = PSF.image_psf(good_st, fits, WL, Pn)
-    assert src == "both" and min(0.43, d["foci"]["sigma_z_um"]) - 1e-9 <= sz <= max(0.43, d["foci"]["sigma_z_um"]) + 1e-9
+    assert src == "foci" and sz == pytest.approx(d["foci"]["sigma_z_um"]) and d["stretches"]["ok"]
     assert sxy == pytest.approx(0.15) and d["sigma_xy_from"] == "fallback"
-    assert "foci_minus_stretches_z_um" in d and d["stretches"]["ok"] and d["foci"]["ok"]
+    assert d["foci_minus_stretches_z_um"] == pytest.approx(d["foci"]["sigma_z_um"] - d["stretches"]["sigma_z_um"])
     assert PSF.image_psf(good_st, fits[:3], WL, Pn)[1] == "stretches"
     assert PSF.image_psf(good_st[:3], fits, WL, Pn)[1] == "foci"
+    assert PSF.image_psf(good_st, fits, None, Pn)[1] == "stretches"
     assert PSF.image_psf(good_st[:3], fits, None, Pn)[1] == "fallback"
     (fz, fxy), src, _ = PSF.image_psf([], [], WL, Pn)
     assert src == "fallback" and (fz, fxy) == (0.365, 0.15)
-    for source, want in (("foci", "psf_from_foci"), ("both", "psf_from_foci"), ("fallback", "psf_fallback")):
+    for source, want in (("foci", "psf_from_foci"), ("fallback", "psf_fallback")):
         assert want in qc.image_flags({"psf_source": source}, P)
     assert "psf_from_foci" not in qc.image_flags({"psf_source": "stretches"}, P)
 
