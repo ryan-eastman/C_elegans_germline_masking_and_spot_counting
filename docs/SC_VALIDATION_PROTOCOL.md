@@ -626,3 +626,44 @@ Entries are appended, never edited. Each one says whether a test result had been
    under the registered guard): it is checked on the six development gonads without runs once they have runs,
    before the freeze, and no candidate is added after that check. Each candidate counts as one configuration
    against the budget of section 9.
+8. 2026-10-24, the v2 development round (steep strands), written before any number of the candidate rules below
+   was computed (no test result had been computed, no test or reserved image was run, no test or reserved truth was
+   read and no sealed seed was generated). Motivated by development results: on the twelve development gonads with
+   trial-4 runs, 46 percent of the traced length runs steeper than 60 degrees, against 13.4 percent for randomly
+   oriented ribbons. Looked at before this entry (scripts and logs: C:/Users/ryane/sc_ribbon_work/v2/,
+   scripts/steep_*.py and logs/steep_*; outputs under v2/steep/): (i) from the trial-4 tables and, for the zone of
+   each nucleus, the zone truth of the development gonads through the guarded loader: the steep share of the traced
+   length per gonad (no heat shock 26 to 33 percent, heat shock 44 to 62 percent) and per zone (None 74 percent,
+   SCfrag 58, SCfull 35, LPfrag 38), its |t_z| histogram and the steep strand lengths; (ii) 3D Gaussian fits on the
+   raw counts of the development images: the RAD-51 foci of the runs' spot tables (foci channel), the brightest SYP
+   maxima of each nucleus and the object under each strand's brightest sample, and a Gaussian fitted to each
+   strand's core profile along s; (iii) development phantoms that are not registered families (seeds 5000 to 5459,
+   the v1 code of commit 5cb3cb6): nuclei with PSF-blurred point puncta and with spheres of 0.25 to 0.8 um, dense
+   nuclei with 6 point puncta at least 0.6 um from the ribbons, two flat arcs crossing at height differences of 0.2
+   to 1.0 um, and isolated arcs of 1.5 to 6 um tilted 60 to 90 degrees. v1 makes a strand of 85 percent of the
+   isolated point puncta, 99 percent of them steep (half-maximum length median 1.0 um, in-plane extent 0.07 um),
+   and the Gaussian fitted to their core profile has sigma 0.385 um (95th percentile 0.55); every tilted arc gave
+   0.83 um or more; the crossings gave no steep strand.
+   (a) Candidate rules, fixed now and evaluated as development diagnostics only (no package code changes in this
+   entry; adopting a rule needs a later entry). A strand is steep when frac_steep60 > 0.5. B1 (blob rule, after
+   measurement): a steep strand with length_xy_um <= 0.5 um whose core profile over s from -0.5 to length_um +
+   0.5 um is fitted by least squares with a Gaussian plus a constant of sigma times tz_abs_mean <= 1.5 times the
+   image's axial PSF sigma (psf.sigma_z of the record) is a blob: it leaves the strand set and the nucleus totals
+   (it would be reported as a punctum). B1 is also reported with 1.3 and 1.8 times sigma_z and with 0.3 and 0.75 um.
+   B2 (minimum in-plane extent): a steep strand with length_xy_um under 0.3 um (and, separately, 0.5 um) is
+   removed. B3 (the PSF extent law): a steep strand with length_xy_um <= 0.5 um whose traced z extent is at most
+   2 c sqrt(2 ln(S / follow.lo)) + 0.3 um, with c = sqrt(sigma_z^2 + fields.sigma_um[0]^2) and S its largest ridge
+   strength, is removed. B4 (puncta mask): a strand is removed when the 3D Gaussian fitted to the raw counts around
+   its brightest sample (window +/-1.2 um axial, +/-0.54 um lateral) is compact (lateral sigmas at most 0.25 um,
+   their ratio at most 1.5, axial sigma at most 1.5 times sigma_z, relative residual RMS at most 0.2) and 80 percent
+   of the strand lies inside that object's ellipsoid (3 axial sigmas, 0.3 um lateral). B5 (anisotropic ridge scale,
+   a tracer change; phantoms and two development images only): fields.sigma_um [0.2, 0.17, 0.17], which makes a
+   PSF-blurred point isotropic in voxel units. B6 (deconvolution before tracing; phantoms only): 20
+   Richardson-Lucy iterations with the Gaussian PSF of section 2.3 on the image before v1.
+   (b) Reported for each rule, choosing nothing that is scored: on the phantom families of (iii), at seeds 5000 to
+   5459 and on the fresh seeds 5500 to 5959, the share of punctum strands removed and the share of ribbon strands
+   and ribbon length removed (tilted arcs by tilt bin, dense nuclei, crossings); on the twelve development gonads,
+   per gonad and zone, the share of strands and of length removed, the steep share of the remaining traced length
+   against 13.4 percent, and the strands per traced nucleus against the expected count. No S1 gate and no S2
+   metric is computed in this entry; a rule adopted later counts as a configuration under section 9 and gets its
+   own entry before its zone metrics are computed.
