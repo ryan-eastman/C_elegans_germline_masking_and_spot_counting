@@ -1,0 +1,53 @@
+# Profile: single-plane (2D) images of nuclei plus optional puncta, for samples that are not a worm germline
+# (cultured cells, tissue sections, any one-plane nuclei-plus-puncta image). It overlays generic.yaml
+# (docs/GENERIC_PROFILE.md: the generic channel map, the C. elegans stages off) and switches the single-plane
+# mode on (docs/PLANAR.md). Select it with `germquant run IMAGE --profile generic_2d`.
+#
+# io.planar auto: an image whose header and read stack have one plane (no Z axis, or Z of 1) runs as a 2D
+# image, where every quantity is 2D: objects are segmented on the plane, area_um2 and equivalent_diameter_um
+# are measured (volume_um3 stays empty), voxel_dz_um is NaN, every spot sits at z_um 0.0 and the label, spot
+# and mask TIFFs are written as YX. dy and dx come from the file (the xy calibration of a one-plane OME-TIFF
+# included); an uncalibrated file is run at 1 um per pixel with the flag voxel:UNREADABLE_xy_assumed_1um, and
+# io.voxel_size_um (in a study profile) sets the pixel size of such files. Any other image (a 3D stack, or a
+# 3D file cut to one plane with --z-range) runs through the 3D path, with the settings below.
+#
+# What this file sets on top of generic.yaml, and why:
+# * io.input_glob and io.input_suffixes: the formats a single plane usually comes in. `germquant batch` reads
+#   io.input_suffixes from tranche 5 package P5 on; until then a batch with this profile finds .nd2 files only,
+#   and other formats run one at a time with `germquant run`.
+# * segmentation.nuclei.min_area_um2 20.0: the size gate of 2D objects (debris below 20 um2 is dropped).
+#   segmentation.nuclei.min_volume_um3 does not apply to 2D objects.
+# * spots.merge_z_columns false: one plane has no z columns to merge (nor are they merged in a 3D image run
+#   with this profile).
+# * granule and coloc off: the SYP / PGL-1 colocalization is 3D worm biology. generic.yaml leaves them on
+#   because they skip themselves without a central_element role, but a single-plane run refuses a 3D-only
+#   stage whose roles are bound, so a study map that adds a central_element role would be refused; here they
+#   are switched off instead.
+# * metadata.filename_regex '(?!x)x': matches nothing, so genotype, sex, treatment and replicate read the
+#   metadata.defaults (unknown / NA) instead of a guess from the worm naming convention; a study profile that
+#   extends this file sets its own regex (docs/GENERIC_PROFILE.md).
+#
+# Settings inherited from config.yaml that were calibrated on the worm and need checking on a new sample:
+# spots.spot_radius_um (0.3 um) and spots.effect_size_min (3.0). The nucleus model is generic.yaml's stock
+# Cellpose-SAM name, cpsam, which Cellpose 4.2 runs as cpsam_v2 (docs/GENERIC_PROFILE.md).
+extends: generic.yaml
+
+io:
+  planar: auto
+  input_glob: "**/*"
+  input_suffixes: [".ome.tif", ".ome.tiff", ".tif", ".tiff", ".czi", ".nd2"]
+
+metadata:
+  filename_regex: '(?!x)x'
+
+segmentation:
+  nuclei:
+    min_area_um2: 20.0
+
+spots:
+  merge_z_columns: false
+
+granule:
+  enabled: false
+coloc:
+  enabled: false

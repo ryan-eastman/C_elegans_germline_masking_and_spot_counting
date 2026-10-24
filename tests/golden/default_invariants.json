@@ -22,6 +22,7 @@
   "config/profiles/bench_spotmax_tuned.yaml": "f84fd405edb0",
   "config/profiles/ccw77_partition.yaml": "689966d14925",
   "config/profiles/generic.yaml": "d1470fecc4d5",
+  "config/profiles/generic_2d.yaml": "fcbd61243484",
   "config/profiles/live_syp2.yaml": "1ff18698d698",
   "config/profiles/n2_sc.yaml": "d3a23628a124",
   "config/profiles/rad51_foci.yaml": "77d5094e2cd2",
@@ -30,7 +31,8 @@
  "golden_sentinels": {
   "synthetic": "84bdda5a5230",
   "synthetic_4ch": "37d49f43ac38",
-  "synthetic_projected": "82cf547386f7"
+  "synthetic_projected": "82cf547386f7",
+  "single_plane_legacy": "3a1e4bedb5d6"
  },
  "channel_maps_sha256_lf": {
   "config/channel_maps/ccw77_dapi_syp_pgl_lamin.yaml": "7dac727682e7fb281cda789950ac9f8f592c47ae98ce4780d135e890466b7844",
