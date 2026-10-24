@@ -17,6 +17,11 @@ decision D26 and the plugin's interface items I1 and I4).
   other weights, a bad --id, a different pack under an id and version already there, an --out inside the
   engine's own packs folder.
 * `python -m germquant.packs --version --json` lists "features", each exactly when its code is present.
+* In a project made by `germquant project new`, which already holds the parent's copy in <project>/packs/,
+  derive takes that copy as the parent and writes nothing there, and the project opens with the same config_hash
+  and no warning (design 3.8).
+* packs/__main__.py's first docstring line names the commands of the torch-free entry, in the light parser's
+  order, then --version (review N6, decision D50).
 """
 from __future__ import annotations
 
@@ -475,6 +480,24 @@ def test_where_the_derived_pack_goes(trained, tmp_path, monkeypatch, capsys):
     assert Path(found[0]["folder"]) == lab / DERIVED / "0.1.0" and found[0]["source"] == "GERMQUANT_PACKS"
 
 
+def test_derive_uses_the_copy_project_new_made(trained, capsys):
+    """Design 3.8: `project new` and derive share <project>/packs/. derive takes the project's copy of the parent,
+    writes nothing there, and the project opens with the same config_hash and no warning."""
+    from germquant.project import new_project, open_project
+
+    t = trained
+    proj = new_project(t.proj, "test_pack@0.1.0", recipe="with_model")
+    vendored = t.packs / "test_pack" / "0.1.0"
+    sums, manifest = packs.sums_sha256(vendored), (t.proj / "germquant_project.yaml").read_bytes()
+    assert _derive(t, "--json") == 0
+    rec = json.loads(capsys.readouterr().out)
+    assert rec["where"] == "project" and rec["parent"]["copied"] is False
+    assert Path(rec["parent"]["folder"]) == vendored
+    assert packs.sums_sha256(vendored) == sums and (t.proj / "germquant_project.yaml").read_bytes() == manifest
+    opened = open_project(t.proj)
+    assert opened.warnings == [] and opened.config_hash == proj.config_hash
+
+
 # ---- the version features (I4) --------------------------------------------------------------------------------
 
 def test_version_json_carries_the_features_present(capsys, tmp_path):
@@ -515,7 +538,9 @@ def test_the_torch_free_entry_docstring_names_every_command():
     # the light parser, then --version; the file is read, never run
     text = (Path(packs.__file__).parent / "__main__.py").read_text(encoding="utf-8")
     first = ast.get_docstring(ast.parse(text)).splitlines()[0]
-    listed = re.fullmatch(r"``python -m germquant\.packs (\S+)``\.", first).group(1).split("|")
+    m = re.fullmatch(r"``python -m germquant\.packs (\S+)``\.", first)
+    assert m, f"packs/__main__.py's first docstring line has another form: {first!r}"
+    listed = m.group(1).split("|")
     sub = argparse.ArgumentParser().add_subparsers()
     cli_packs.add_pack_commands(sub, light=True)
     assert "derive" in sub.choices and "golden" not in sub.choices
