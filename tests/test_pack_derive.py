@@ -20,6 +20,8 @@ decision D26 and the plugin's interface items I1 and I4).
 """
 from __future__ import annotations
 
+import argparse
+import ast
 import hashlib
 import json
 import os
@@ -504,3 +506,17 @@ def test_version_json_carries_the_features_present(capsys, tmp_path):
             f.write_text("", encoding="ascii")
         assert packs.features(pkg)[-1] == name
     assert packs.features(pkg) == names
+
+
+# ---- the torch-free entry's docstring (review N6, decision D50) -----------------------------------------------
+
+def test_the_torch_free_entry_docstring_names_every_command():
+    # packs/__main__.py's first docstring line lists the commands of `python -m germquant.packs`, in the order of
+    # the light parser, then --version; the file is read, never run
+    text = (Path(packs.__file__).parent / "__main__.py").read_text(encoding="utf-8")
+    first = ast.get_docstring(ast.parse(text)).splitlines()[0]
+    listed = re.fullmatch(r"``python -m germquant\.packs (\S+)``\.", first).group(1).split("|")
+    sub = argparse.ArgumentParser().add_subparsers()
+    cli_packs.add_pack_commands(sub, light=True)
+    assert "derive" in sub.choices and "golden" not in sub.choices
+    assert listed == [*sub.choices, "--version"]
