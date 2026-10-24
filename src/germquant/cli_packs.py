@@ -331,7 +331,8 @@ def _derive(args) -> int:
 
     try:
         rec = P.derive_pack(args.parent, args.recipe, args.model, args.card, args.out, pack_id=args.new_id)
-    except (P.PackDeriveError, P.PackInstallError, P.PackFormatError, FileNotFoundError) as e:
+    except (P.PackDeriveError, P.PackInstallError, P.PackFormatError, OSError) as e:
+        # OSError: a missing file, or a model store or --out that cannot be written (read-only, full, too deep)
         if args.json:
             _print(json.dumps({"ok": False, "error": str(e)}, indent=1))
         print(f"REFUSED: {e}", file=sys.stderr)
@@ -354,7 +355,8 @@ def _derive(args) -> int:
         _print(f"  warning: {args.out} is not a folder this engine searches for packs: install the pack with "
                f"`germquant pack install {rec['folder']}`, or derive into a project's packs folder, a $GERMQUANT_PACKS "
                f"folder or the per-user folder")
-    _print(f"  on another computer: germquant pack fetch-models {rec['id']} --from-file {m['name']}=PATH")
+    proj = " --project PROJECT_FOLDER" if rec["where"] == "project" else ""      # a project's pack: only with it
+    _print(f"  on another computer: germquant pack fetch-models {rec['id']}{proj} --from-file {m['name']}=PATH")
     return 0
 
 

@@ -47,6 +47,7 @@ from germquant import cli, cli_packs, packs
 from germquant import models_registry as MR
 from germquant.config import load_config
 from germquant.fsutil import long_path
+from germquant.packs import blobs as PB
 from germquant.packs import install as PI
 from germquant.segment import backends as SB
 
@@ -374,6 +375,18 @@ def test_derive_again_is_a_no_op_and_refusals_write_nothing(trained, tmp_path, m
             "holds something other than a copy of test_pack@0.1.0")
     assert sorted(p.relative_to(odd).as_posix() for p in odd.rglob("*")) == [
         "test_pack", "test_pack/0.1.0", "test_pack/0.1.0/notes.txt"]
+    # a model store that cannot be written (read-only, full): a refusal, also as JSON, never a traceback
+    place = PB._place
+
+    def read_only(*a, **k):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(PB, "_place", read_only)
+    capsys.readouterr()
+    assert cli.main([*base, "--from", "test_pack@0.1.0", "--recipe", "with_model", "--json"]) == 1
+    cap = capsys.readouterr()
+    assert json.loads(cap.out) == {"ok": False, "error": "[Errno 13] Access is denied"} and "REFUSED" in cap.err
+    monkeypatch.setattr(PB, "_place", place)
     assert not t.packs.exists() and not t.env.blobs.exists()                  # nothing was written
     assert not (ROOT / "packs" / DERIVED).exists()
     capsys.readouterr()
@@ -382,6 +395,9 @@ def test_derive_again_is_a_no_op_and_refusals_write_nothing(trained, tmp_path, m
     assert answer["ok"] is False and answer["error"].startswith("--id 'bad id' does not match")
     # the first derive, then the same inputs again: nothing changes
     assert _derive(t) == 0
+    # a project's pack is found on another computer only with --project, so the hint names it
+    hint = f"on another computer: germquant pack fetch-models {DERIVED} --project PROJECT_FOLDER --from-file "
+    assert hint + f"{MODEL_NAME}=PATH" in capsys.readouterr().out
     files = {p: p.read_bytes() for p in t.packs.rglob("*") if p.is_file()}
     capsys.readouterr()
     assert _derive(t, "--json") == 0
@@ -440,6 +456,7 @@ def test_where_the_derived_pack_goes(trained, tmp_path, monkeypatch, capsys):
     assert _derive(t, out=tmp_path / "somewhere") == 0
     out = capsys.readouterr().out
     assert "warning:" in out and "is not a folder this engine searches for packs" in out
+    assert f"fetch-models {DERIVED} --from-file {MODEL_NAME}=PATH" in out           # no --project for it
     assert packs.verify_pack(tmp_path / "somewhere" / DERIVED / "0.1.0") == []
     # a $GERMQUANT_PACKS folder named packs, holding the parent as a pack under development (<root>/<id>/
     # pack.yaml, which a project's folder would not list): searched as what it is, so the parent is found there
