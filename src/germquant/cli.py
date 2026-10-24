@@ -858,8 +858,10 @@ def _batch(args) -> int:
 
     labels_run = cfg.get("segmentation.nuclei.labels_from") is not None
     if labels_run:
-        # labels from files (docs/LABELS.md): process_image's rule, no model is resolved; the segment hash is
+        # labels from files (docs/LABELS.md): process_image's rule, no model is resolved; the segment hashes are
         # computed per image below, with that image's labels sha256
+        from .io import labels as labels_io
+
         model_sha = "unused"
     else:
         model_sha = (provenance.file_sha256(resolve_model_path(cfg))
@@ -892,14 +894,16 @@ def _batch(args) -> int:
         out_dir = out_root / rel / f.stem
         print(f"[{i}/{len(files)}] {f.name}")
         if resume:
-            seg = segment_hash
+            seg, seg_kw = segment_hash, planar_kw
             if labels_run:
-                # this image's segment hash, its labels file's sha256 in the payload; a file that cannot be hashed
-                # matches no marker, so the image is reprocessed and fails with process_image's message
-                seg, problem = _labels_segment_hash(cfg, f, model_sha)
+                # this image's segment hashes, its labels file's sha256 in the payload, the single-plane one only
+                # for a recipe that sets io.planar (D44, D46); a file that cannot be hashed matches no marker, so
+                # the image is reprocessed and fails with process_image's message
+                seg, seg_planar, problem = labels_io.segment_hashes(cfg, f, model_sha=model_sha)
+                seg_kw = {} if seg_planar is None else {"segment_hash_planar": seg_planar}
                 if problem:
                     print(f"    {problem}")
-            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=seg, **planar_kw)
+            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=seg, **seg_kw)
             if done:
                 print("    already done (completion marker matches); skipping")
                 continue
@@ -934,27 +938,6 @@ def _batch(args) -> int:
     n_pass = sum(s["qc_pass"] for s in summaries)
     print(f"\nDone. {n_pass}/{len(files)} passed QC. Summary -> {out_root / 'batch_summary.csv'}")
     return 0
-
-
-def _labels_segment_hash(cfg, image: Path, model_sha: str) -> tuple[str, str]:
-    """``(segment sub-hash, "")`` of one image of a labels run, as process_image computes it (the sha256 of the
-    image's labels file in the segment payload), or ``("labels-unreadable", why)`` when the file cannot be found
-    or hashed: a value no completion marker holds, so --resume reprocesses the image."""
-    from .io import labels as labels_io
-    from .pipeline import segment_backend_provenance
-    from .stages import stage_hashes as stage_hashes_fn
-
-    try:
-        path = labels_io.labels_path(cfg, image)
-        labels_io.labels_format(path)
-        sha = labels_io.labels_sha256(path)
-    except FileNotFoundError:
-        return "labels-unreadable", f"labels file not found: {path}"
-    except (OSError, ValueError) as e:
-        return "labels-unreadable", f"labels file: {e}"
-    hashes = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
-                             segment_backend=segment_backend_provenance(cfg), labels_sha256=sha)
-    return hashes["segment"], ""
 
 
 def _traces_path(cfg, args) -> Path:

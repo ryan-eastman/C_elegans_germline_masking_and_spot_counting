@@ -27,8 +27,9 @@ How a file is read, here and only here:
 process_image calls labels_for_run once per image, before any stage: it finds the file, hashes its bytes (the
 sha256 enters run_geometry labels_from {path, sha256} and the segment sub-hash) and reads the labels from those
 same bytes. A missing file, a .npy, a damaged TIFF, a file that does not fit the image, a time series (decision
-D15) and, in a projected run, a file with more than one plane (D14) are refused there. Nothing here is reached
-when the key is unset.
+D15) and, in a projected run, a file with more than one plane (D14) are refused there. segment_hashes gives a
+resume check (cli._batch, the project runs) the segment sub-hashes process_image records for one image (D46).
+Nothing here is reached when the key is unset.
 """
 from __future__ import annotations
 
@@ -53,6 +54,7 @@ SEG_NPY_HINT = ("the run path never reads a .npy file (a Cellpose _seg.npy is a 
                 "and point segmentation.nuclei.labels_from at that file (docs/LABELS.md shows how); `germquant "
                 "import-labels SRC --format cellpose-npy --allow-pickle --image IMG --pairs DIR` converts it into "
                 "training pairs instead")
+UNREADABLE_HASH = "labels-unreadable"     # segment_hashes for a file it cannot find or hash: no marker holds it
 
 
 class LabelsError(ValueError):
@@ -118,6 +120,46 @@ def labels_sha256(path) -> str:
         for chunk in iter(lambda: fh.read(1 << 22), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def segment_hashes(cfg, image_path, *, model_sha="unused") -> tuple[str, str | None, str | None]:
+    """``(segment_hash, segment_hash_planar, problem)`` of one image of a labels run, for a resume check that
+    compares them with the image's completion marker (cli._batch; the project runs of tranche 5 package P5).
+    In a labels run the segment hash is per image (decision D46 of the Train B plan):
+
+    * segment_hash: the segment sub-hash process_image records for that image, the sha256 of its labels file in
+      the segment payload; ``UNREADABLE_HASH`` ("labels-unreadable", a value no marker holds) when the file
+      cannot be found or hashed, so the image is reprocessed and fails with process_image's message;
+    * segment_hash_planar: the same with ``planar=True`` (a single-plane run's marker, docs/PLANAR.md) when the
+      recipe sets io.planar, else None: batch.is_done takes it only then (D44);
+    * problem: None when the file was hashed, else why not (the line a caller prints).
+
+    ``model_sha`` is the model digest of the segment payload, "unused" in every labels run (D12). ValueError for a
+    recipe that is not a labels run, whose segment hash is one per run. The stage code is imported here, when
+    called, so importing this module stays light; a call loads germquant.pipeline, which imports torch first."""
+    if labels_template(cfg) is None:
+        raise ValueError(f"segment_hashes is for a labels run, and {TEMPLATE_KEY} is not set: the segment hash of "
+                         f"any other run is one per run")
+    from .. import provenance
+    from ..pipeline import segment_backend_provenance
+    from ..stages import stage_hashes
+
+    planar = cfg.get("io.planar") not in (None, False)       # cli._batch's rule for its segment_hash_planar (D44)
+    path = None
+    try:
+        path = labels_path(cfg, image_path)
+        labels_format(path)
+        sha = labels_sha256(path)
+    except FileNotFoundError:
+        return UNREADABLE_HASH, (UNREADABLE_HASH if planar else None), f"labels file not found: {path}"
+    except (OSError, ValueError) as e:
+        return UNREADABLE_HASH, (UNREADABLE_HASH if planar else None), f"labels file: {e}"
+    tools, seg_prov = provenance.tool_versions(), segment_backend_provenance(cfg)
+    flat = stage_hashes(cfg, {}, tools, model_sha, segment_backend=seg_prov, labels_sha256=sha)["segment"]
+    if not planar:
+        return flat, None, None
+    return flat, stage_hashes(cfg, {}, tools, model_sha, segment_backend=seg_prov, planar=True,
+                              labels_sha256=sha)["segment"], None
 
 
 # ---- reading -----------------------------------------------------------------------------------------

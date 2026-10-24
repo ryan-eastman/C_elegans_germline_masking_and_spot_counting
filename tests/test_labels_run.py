@@ -26,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import planar_helpers as H
 import pytest
 from labels_helpers import (
     TEMPLATE,
@@ -41,7 +42,7 @@ from test_end_to_end import _synthetic_stack
 from test_projected_run import CELL_R, CELLS, DEBRIS, DEBRIS_R, IMAGE, IMAGE_ID, NX, NY, NZ, SP, Z_FOCUS, recipe
 from test_projected_run import yeast_like_stack
 
-from germquant import api, cli, models_registry, pipeline, provenance, schema, stages
+from germquant import api, batch, cli, models_registry, pipeline, provenance, schema, stages
 from germquant.config import load_config
 from germquant.io import labels as L
 from germquant.io.nd2_reader import Stack
@@ -53,6 +54,7 @@ GOLD_TABLES = ("nuclei", "spots", "image_summary")
 ND2 = "20251105_n2_nohs_HERM_001.nd2"
 ND2_ID = "20251105_n2_nohs_HERM_001"
 FLAG = "segment:labels_from_file"
+PLANE = f"{H.STEM}.nd2"            # the calibrated single plane of tests/planar_helpers.py, through its reader seam
 
 
 def _cfg(base: Path = ROOT / "config" / "config.yaml", **overrides):
@@ -211,6 +213,9 @@ def test_batch_resume_reprocesses_only_the_edited_labels_image(tmp_path, monkeyp
         return real(nd2, *a, **k)
 
     monkeypatch.setattr(pipeline, "process_image", spy)
+    decisions: list[dict] = []
+    real_done = batch.is_done
+    monkeypatch.setattr(batch, "is_done", lambda *a, **k: decisions.append(k) or real_done(*a, **k))
     out = tmp_path / "out"
     assert cli.main(["batch", str(src), "--config", str(study), "--out", str(out)]) == 0
     assert calls == names
@@ -220,12 +225,12 @@ def test_batch_resume_reprocesses_only_the_edited_labels_image(tmp_path, monkeyp
     assert str(missing) in summ.loc["20251105_n2_nohs_HERM_003", "qc_flags"]
     assert summ.loc["20251105_n2_nohs_HERM_001", "n_nuclei"] == 15
     # cli._batch's model rule is process_image's (D12): "unused" in the batch manifest, and its per-image segment
-    # hash is the one process_image wrote into the marker
+    # hash (germquant.io.labels.segment_hashes, D46) is the one process_image wrote into the marker; a recipe
+    # without io.planar has no planar hash (D44)
     assert _json(out / "run_manifest.json")["model_sha256"] == "unused"
     first = Path(names[0]).stem
     marker = _json(out / first / f"{first}__done.json")
-    assert cli._labels_segment_hash(load_config(study), src / names[0], "unused") == \
-        (marker["stage_hashes"]["segment"], "")
+    assert L.segment_hashes(load_config(study), src / names[0]) == (marker["stage_hashes"]["segment"], None, None)
     # --resume: the per-image segment hashes cli._batch computes equal process_image's, so the two are skipped
     calls.clear()
     capsys.readouterr()
@@ -233,6 +238,11 @@ def test_batch_resume_reprocesses_only_the_edited_labels_image(tmp_path, monkeyp
     printed = capsys.readouterr().out
     assert calls == [names[2]] and printed.count("already done") == 2
     assert "labels file not found" in printed                # the missing file is named before the retry
+    # today's is_done keywords (D40, D44): no segment_hash_planar for a recipe that does not set io.planar; each
+    # image its own hash, and the unreadable one a value no marker holds
+    assert [sorted(d) for d in decisions] == [["segment_hash", "xy_stride"]] * 3
+    assert decisions[0]["segment_hash"] == marker["stage_hashes"]["segment"] != decisions[2]["segment_hash"]
+    assert decisions[2]["segment_hash"] == L.UNREADABLE_HASH
     # editing one labels file reprocesses that image only
     edited = truth.copy()
     edited[edited == 3] = 0
@@ -245,6 +255,40 @@ def test_batch_resume_reprocesses_only_the_edited_labels_image(tmp_path, monkeyp
     assert "segment stage hash differs" in printed
     summ = pd.read_csv(out / "batch_summary.csv").set_index("image_id")
     assert summ.loc["20251105_n2_nohs_HERM_002", "n_nuclei"] == 14 and summ.loc["20251105_n2_nohs_HERM_001", "n_nuclei"] == 15
+
+
+def test_segment_hashes(tmp_path):
+    """germquant.io.labels.segment_hashes (D46): one image's segment sub-hash in a labels run, its labels file's
+    sha256 in the payload; the single-plane one too only when the recipe sets io.planar (D44); "labels-unreadable",
+    a value no marker holds, with the reason, for a file that cannot be found or hashed; refused for a recipe that is
+    not a labels run, whose segment hash is one per run."""
+    image = tmp_path / ND2
+    labels_file = write_tiff(tmp_path / f"{ND2_ID}_truth_labels.tif", np.ones((4, 4), np.int32))
+    sha = hashlib.sha256(labels_file.read_bytes()).hexdigest()
+    tools = provenance.tool_versions()
+    cfg = _cfg(**{"segmentation.nuclei.labels_from": TEMPLATE})
+    assert L.segment_hashes(cfg, image) == (stages.stage_hashes(cfg, {}, tools, "unused", labels_sha256=sha)["segment"],
+                                            None, None)
+    assert L.segment_hashes(cfg, image, model_sha="m")[0] == \
+        stages.stage_hashes(cfg, {}, tools, "m", labels_sha256=sha)["segment"]
+    for value in ("auto", True, False):
+        cfg_p = _cfg(**{"segmentation.nuclei.labels_from": TEMPLATE, "io.planar": value})
+        flat = stages.stage_hashes(cfg_p, {}, tools, "unused", labels_sha256=sha)["segment"]
+        plane = stages.stage_hashes(cfg_p, {}, tools, "unused", planar=True, labels_sha256=sha)["segment"]
+        assert flat != plane
+        assert L.segment_hashes(cfg_p, image) == (flat, None if value is False else plane, None), value
+    # a file that cannot be found or hashed
+    other = tmp_path / "20251105_n2_nohs_HERM_009.nd2"
+    seg, seg_planar, problem = L.segment_hashes(cfg, other)
+    assert (seg, seg_planar) == (L.UNREADABLE_HASH, None) and problem.startswith("labels file not found")
+    assert str(tmp_path / "20251105_n2_nohs_HERM_009_truth_labels.tif") in problem
+    cfg_p = _cfg(**{"segmentation.nuclei.labels_from": TEMPLATE, "io.planar": "auto"})
+    assert L.segment_hashes(cfg_p, other)[:2] == (L.UNREADABLE_HASH, L.UNREADABLE_HASH)
+    seg, _, problem = L.segment_hashes(_cfg(**{"segmentation.nuclei.labels_from": "{image_dir}/{image_stem}.npy"}),
+                                       image)
+    assert seg == L.UNREADABLE_HASH and "import-labels" in problem
+    with pytest.raises(ValueError, match="labels_from"):
+        L.segment_hashes(_cfg(), image)
 
 
 def test_missing_labels_file_fails_that_image(tmp_path, monkeypatch):
@@ -417,3 +461,77 @@ def test_labels_plus_t_is_refused(tmp_path, monkeypatch, capsys):
                                               **{"segmentation.nuclei.labels_from": TEMPLATE, "spots.enabled": False,
                                                  "render.montage": False}), out=tmp_path / "fixed")
     assert res["n_nuclei"] == 15
+
+
+# ---- labels on single-plane images (io.planar, decision D14; after the sync on merge #1) ----------------------
+
+def _plane_labels() -> np.ndarray:
+    """int32 (Y, X) truth labels of the calibrated plane of tests/planar_helpers.py: its nine planted nuclei (the
+    planted disks, ids 1 to 9) and its two specks of debris (disks of 2 pixels, ids 10 and 11), which generic_2d's
+    area gate (min_area_um2 20.0) drops in a segmenting run."""
+    info = H.planted()
+    yy, xx = np.indices((H.SIZE, H.SIZE)).astype(np.float64)
+    lab = np.zeros((H.SIZE, H.SIZE), np.int32)
+    for i, n in enumerate(info["nuclei"], 1):
+        lab[(yy - n["y"]) ** 2 + (xx - n["x"]) ** 2 <= n["r_px"] ** 2] = i
+    for i, d in enumerate(info["debris"], len(info["nuclei"]) + 1):
+        lab[(yy - d["y"]) ** 2 + (xx - d["x"]) ** 2 <= 4.0] = i
+    return lab
+
+
+def test_batch_resume_planar_labels_folder(tmp_path, monkeypatch, capsys):
+    """PLAN 10.4's done item: `batch --resume` on a single-plane labels study computes both per-image segment hashes
+    (germquant.io.labels.segment_hashes) and passes the single-plane one to is_done because the recipe sets
+    io.planar (D44, D46). The finished images are skipped, and an edited labels file reprocesses that image only."""
+    src, masks = tmp_path / "in", tmp_path / "masks"
+    src.mkdir()
+    masks.mkdir()
+    names = ["a_001.nd2", "b_002.nd2"]
+    truth = _plane_labels()
+    for n in names:
+        (src / n).write_bytes(b"")
+        write_tiff(masks / f"{Path(n).stem}_masks.tif", truth)
+    # an absolute template into a folder of its own, so the images' folder holds images only
+    template = f"{masks.as_posix()}/{{image_stem}}_masks.tif"
+    study = tmp_path / "study_2d.yaml"
+    study.write_text(f"extends: {(ROOT / 'config' / 'profiles' / 'generic_2d.yaml').as_posix()}\n"
+                     f"segmentation:\n  nuclei:\n    method: classical\n    labels_from: '{template}'\n"
+                     "spots:\n  enabled: false\nrender:\n  montage: false\n", encoding="utf-8")
+    H.patch_reader(monkeypatch)
+    calls: list[str] = []
+    decisions: list[dict] = []
+    real_process, real_done = pipeline.process_image, batch.is_done
+
+    def process(path, *a, **k):
+        calls.append(Path(path).name)
+        return real_process(path, *a, **k)
+
+    monkeypatch.setattr(pipeline, "process_image", process)
+    monkeypatch.setattr(batch, "is_done", lambda *a, **k: decisions.append(k) or real_done(*a, **k))
+    out = tmp_path / "out"
+    assert cli.main(["batch", str(src), "--config", str(study), "--out", str(out)]) == 0
+    assert calls == names
+    cfg = load_config(study)
+    pairs = []
+    for n in names:
+        iid = Path(n).stem
+        done = _json(out / iid / f"{iid}__done.json")
+        seg, seg_planar, problem = L.segment_hashes(cfg, src / n)
+        assert done["planar"] is True and problem is None and done["stage_hashes"]["segment"] == seg_planar != seg
+        pairs.append((seg, seg_planar))
+    # --resume: both per-image hashes reach is_done, so the two finished single-plane images are skipped
+    calls.clear()
+    capsys.readouterr()
+    assert cli.main(["batch", str(src), "--config", str(study), "--out", str(out), "--resume"]) == 0
+    assert calls == [] and capsys.readouterr().out.count("already done") == 2
+    assert all(sorted(d) == ["segment_hash", "segment_hash_planar", "xy_stride"] for d in decisions)
+    assert [(d["segment_hash"], d["segment_hash_planar"]) for d in decisions] == pairs
+    # editing one labels file reprocesses that image only
+    edited = truth.copy()
+    edited[edited == 3] = 0
+    write_tiff(masks / "b_002_masks.tif", edited)
+    assert cli.main(["batch", str(src), "--config", str(study), "--out", str(out), "--resume"]) == 0
+    printed = capsys.readouterr().out
+    assert calls == ["b_002.nd2"] and printed.count("already done") == 1 and "segment stage hash differs" in printed
+    summ = pd.read_csv(out / "batch_summary.csv").set_index("image_id")
+    assert summ.loc["b_002", "n_nuclei"] == 10 and summ.loc["a_001", "n_nuclei"] == 11
