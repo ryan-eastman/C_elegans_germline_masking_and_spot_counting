@@ -100,8 +100,10 @@ does, and a recipe can name a Cellpose model that is not installed on this machi
 segmentation backend records nothing either. `germquant batch` follows the same rule. The pack check that
 `--pack` runs before a run (docs/PACKS.md) is a separate step.
 
-`germquant batch --resume` computes the segment hash per image in a labels run, with that image's labels file.
-Editing one labels file therefore reprocesses that image only; every other image is skipped as usual. The segment
+`germquant batch --resume` computes the segment hash per image in a labels run, with that image's labels file,
+and for a recipe that sets `io.planar` also the single-plane one, which the completion marker of a single-plane
+image carries. Editing one labels file therefore reprocesses that image only; every other image is skipped as
+usual. Other runners get the same pair from `germquant.io.labels.segment_hashes` (decision D46). The segment
 sub-hash also keeps the segment stage's usual tool versions (Cellpose and torch), although neither runs in a
 labels run: upgrading either one reprocesses labels-run images under `--resume` too.
 
@@ -114,10 +116,16 @@ labels run: upgrading either one reprocesses labels-run images under `--resume` 
   segmentation channel, or of the first channel when that channel is missing and `require_channel` is false (the
   plane `segment_projection` records, as in a segmenting run). A labels file with more than one plane is refused
   in a projected run (decision D14).
+* `io.planar` (a single-plane run, docs/PLANAR.md): allowed. On an image of one plane the labels file holds that
+  plane (a 2D file, or a file of one plane), and the run is a single-plane run whose objects are the file's: the
+  single-plane measure and records stay (`read:planar`, voxel_dz_um NaN, volume_um3 NA, area_um2 and
+  equivalent_diameter_um from the labels, the YX label TIFF, `planar` in the run geometry, the stage sub-hashes
+  and the completion marker), next to the labels records. A `segmentation.nuclei.project` setting is ignored
+  there with the flag `segment:project_ignored_planar`, as in a segmenting single-plane run (decision D7).
 * `segmentation.nuclei.require_channel` does not apply: nothing is segmented, so an image without the
   segmentation channel runs, and no `segment:no_<role>_channel_using_first_channel` flag is raised.
-* A segmentation backend that cannot segment a 2D image (nuclei3d) is not refused in a labels run, because it is
-  never called.
+* A segmentation backend that cannot segment a 2D image (nuclei3d) is not refused in a labels run, projected or
+  single-plane, because it is never called.
 
 ## Refused
 
@@ -130,8 +138,9 @@ Each of these fails the image with a message, before any stage runs and before a
   reading it, and any TIFF that tifffile cannot read;
 * labels that do not fit the image: another number of planes, or another size in y and x;
 * in a projected run, a labels file with more than one plane;
-* a time series: `germquant run IMAGE --t ...` with a labels recipe exits with code 2 before any timepoint, and
-  process_image and `api.run` refuse `t` in a labels run (decision D15). Run the image without `--t`.
+* a time series: `germquant run IMAGE --t ...` with a labels recipe exits with code 2 before any timepoint, with
+  a `REFUSED:` line on stderr, and process_image and `api.run` refuse `t` in a labels run (decision D15). Run the
+  image without `--t`.
 
 ## Cellpose `_seg.npy` files
 
