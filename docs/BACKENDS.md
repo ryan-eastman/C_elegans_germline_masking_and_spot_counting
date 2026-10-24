@@ -316,6 +316,8 @@ without them is called exactly as before, so `spotmax` and `log` never see a dif
   extra role, to the spots stage sub-hash and to `run_manifest.json` (`spot_backend`); on the default run
   it is empty and both are unchanged. `backend_provenance(name, cfg_section)` reads it and never raises.
 
+A third optional attribute, `planar_ok = True`, is for single-plane images (`docs/PLANAR.md`): in a single-plane run the backend gets the (1, Y, X) plane and the keyword `planar=True`. `spotmax` declares it; `log` and `net3d` do not, and a single-plane run that selects them is refused before any pixel is processed.
+
 ### Selecting a backend
 
 `spots.backend` names the backend for the RAD-51 instance (code default `spotmax`); an entry of
