@@ -297,9 +297,15 @@ def test_a_channel_map_written_by_hand_is_used_and_kept(project_env, tmp_path): 
     h2 = write_recipe(proj, edits={"spots.log.min_snr": 4.0})            # a recipe edit stages the map
     assert h2 == project_config(open_project(proj.root)).hash not in (h, BASIC_HASH)
     assert _recipe(proj.root)["io"] == {"channel_map": "channel_map.yaml"} and cm.read_bytes() == own
+    assert any("names its own channel map" in p for p in preview_roles(proj, {"foci": "Cy3 RAD-51"})["problems"])
     with pytest.raises(ProjectError, match="role editor"):
         write_recipe(proj, roles={"foci": "Cy3 RAD-51"}, origin="roles")
-    rp.write_bytes(rp.read_bytes().replace(b"channel_map: channel_map.yaml", b"channel_map: ../elsewhere.yaml"))
+    rp.write_bytes(rp.read_bytes().replace(b"channel_map: channel_map.yaml", b"channel_map: lab_map.yaml"))
+    cm.rename(proj.root / "lab_map.yaml")                # by another name: the role edit would switch maps silently
+    with pytest.raises(ProjectError, match="names its own channel map lab_map.yaml"):
+        write_recipe(proj, roles={"foci": "Cy3 RAD-51"}, origin="roles")
+    (proj.root / "lab_map.yaml").rename(cm)
+    rp.write_bytes(rp.read_bytes().replace(b"channel_map: lab_map.yaml", b"channel_map: ../elsewhere.yaml"))
     with pytest.raises(ProjectError, match="leaves the project folder"):
         write_recipe(proj, edits={"spots.log.min_snr": 3.0})
     assert revert_recipe(proj) == BASIC_HASH and not rp.exists() and cm.read_bytes() == own

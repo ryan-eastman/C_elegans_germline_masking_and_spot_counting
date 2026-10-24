@@ -548,6 +548,11 @@ def plan_change(root, manifest: dict, *, edits=None, unset=(), roles=None, origi
                 continue                                 # the pack map already says exactly this
             clean[role] = str(channel)
         cur_roles = clean
+        own_map = cur.get(CHANNEL_MAP_KEY)               # read_edits leaves out the role editor's own map
+        if cur_roles and own_map is not None:
+            problems.append(f"{RECIPE_NAME} names its own channel map {own_map} (io.channel_map, a hand edit), which "
+                            f"a role edit would replace with the role editor's {CHANNEL_MAP_NAME}: drop that line "
+                            f"first (--unset io.channel_map), or edit that map by hand")
     if model_entry is not None:
         models = [e for e in models if e.get("key") != model_entry["key"]] + [dict(model_entry)]
     models = [e for e in models if e.get("key") in cur]          # a model edit that went away takes its record
