@@ -29,9 +29,9 @@ germquant sc-view RESULTS_DIR IMAGE_ID [--nucleus N] [--strips] [--stride K]
 ```
 
 `IMAGE_IDS` are image ids or result-folder names; without them every finished image under the root runs. One
-line per image, for example `20251105_N2_nohs_HERM _: 1243 nuclei (traced 663, no_sc 580), 4542 strands
-(partial 3041, fragment 713, complete 441, merged_suspect 347), flags: foci_uncalibrated,
-label_merged_suspect=217, 1.7 min`. Exit code 0 when at least one image finished or was up to date, 1 when none
+line per image, for example `20251105_N2_nohs_HERM _: 1243 nuclei (traced 663, no_sc 580), 4528 strands
+(partial 3015, fragment 702, complete 471, merged_suspect 340), flags: foci_uncalibrated, label_merged_suspect=99,
+2.8 min`. Exit code 0 when at least one image finished or was up to date, 1 when none
 did, 2 for usage errors.
 
 Options: `--config` / `--profile` (only their `sc_straighten` section is read), `--set KEY=VALUE` (for example
@@ -412,8 +412,12 @@ almost no nucleus is a `complete_nucleus`, so `total_length_complete_um` is near
   carry a spline overshoot of about 0.03 to 0.05 um each.
 * `length_xy_um` ignores z and runs a little short at steep tilt (-0.07 um at 45 degrees to -0.14 um at 90 degrees
   over a few um).
-* Dense nuclei: the totals run about 5 to 7 percent short with a spread of 8 to 9 percent; per-ribbon
-  decomposition is rarely complete (see Strand classes).
+* Dense nuclei: the totals run about 5 percent short with a spread of 8 to 9 percent, and 14 percent short when
+  ribbons may pass through each other (the generator as registered); per-ribbon decomposition is rarely complete
+  (see Strand classes).
+* Real data: 39 to 46 percent of the traced strand length on the development gonads runs steeper than 60 degrees
+  to the image plane, against 13 percent for randomly oriented ribbons; many short steep strands are probably the
+  axial blur of SYP puncta or aggregates. The phantoms hold no puncta, so this is not measured by them.
 
 ## napari
 
@@ -430,22 +434,41 @@ TEXT`, with the frozen parameters and thresholds of the freeze entry; every --fi
 results are kept under `C:/Users/ryane/sc_ribbon_work/dev_eval/` (summary_<commit>.json); they are not test
 results and claim nothing.
 
-Development snapshot at the build, before the review fixes (commit 3e88403; synthetic development seeds 2000 to 2049, 50 scenes per
-family; the eight 2025-11-05 development gonads):
+Development snapshot after the review fixes (commit 6b7be22; synthetic development seeds 2000 to 2049 and the
+fresh seeds 3000 to 3049, 50 scenes per family; twelve development gonads, the eight of 2025-11-05 and the four
+heat-shock males of 2026-01-05; development trial 4 of dev_trials.jsonl). Values are given as seeds 2000 to 2049 /
+seeds 3000 to 3049.
 
-* Synthetic criteria of protocol 8.1 met on development seeds: S1a (isolated ribbons up to 60 degrees: mean
-  length error +0.05 um, 95 percent limits -0.17 to +0.27 um, median centreline distance 0.02 um, one strand per
-  ribbon in all), S1c (gap precision 1.00, recall 0.84, gap length error 0.08 um), S1d (foci: 90th percentile of
-  the s error 0.07 um, all on the right ribbon), S1f (no noise-only nucleus reached 1 um). Not met: S1b (dense
-  nuclei: mean total -4.7 percent, SD 7.9 percent against 7, CCC 0.57 against 0.80; coverage 0.97 and off-truth
-  0.01 pass) and S1e (complete precision 0.89 against 0.90). The dense under-count of 6 to 7 percent does not shrink
-  with brightness (scene peak 300, 430, 700), and reaches 15 percent at peak 200: no SNR floor within 5 percent.
-  Steep isolated ribbons (60 to 75 degrees) are over-measured (flag steep_z).
-* Zones (protocol S2, development gonads, three trials logged in dev_trials.jsonl): SC present against None by
-  total_length_um, mean per-gonad AUC 0.983 (bootstrap interval 0.977 to 0.989, eight gonads), level with the raw
-  SYP intensity (0.985); SCfull against fragmented by piece_lw_mean_um, mean AUC 0.77 (0.40 to 0.99) over the three
-  gonads with at least ten nuclei in each class, below the intensity comparator (0.96); SC_fullstart found within
-  one point spacing in 6 of 8 gonads, median error 21 um (trial 2, commit f7dc9a3: 7 of 8, 11 um).
+* Synthetic criteria of protocol 8.1 met: S1a (isolated ribbons up to 60 degrees: mean length error +0.078 /
+  +0.079 um, 95 percent limits -0.09 to +0.24 / -0.06 to +0.22 um, median centreline distance 0.02 um, one strand
+  per ribbon in all; by tilt +0.04 / +0.06 um within 30 degrees, +0.11 / +0.12 um at 30 to 60 degrees and +0.09 /
+  +0.13 um at 60 to 75 degrees), S1c (gap precision 1.00 / 1.00, recall 0.88 / 0.89, gap length error 0.03 /
+  0.06 um), S1d (foci: 90th percentile of the s error 0.07 / 0.07 um, all on the right ribbon) and S1f (no
+  noise-only nucleus reached 1 um). Not met: S1b (dense nuclei: the mean total of -4.9 / -4.8 percent, the
+  coverage of 0.97 / 0.96 and the off-truth length of 0.01 pass, the SD of 8.1 / 9.0 percent against 7 and the CCC
+  of 0.58 / 0.59 against 0.80 do not) and S1e (complete precision 0.90 / 0.87 pooled against 0.90; 0.71 / 0.58 in
+  dense nuclei). With the generator as registered (dense ribbons may pass through each other) the dense totals run
+  13.9 percent short (SD 10.3 percent, CCC 0.27). The dense under-count is 6 to 9 percent at scene peaks of 300 to
+  700 counts and 15 percent at 200: no SNR floor within 5 percent on seeds 2000 to 2049 (700 counts on seeds 3000
+  to 3049).
+* Zones (protocol S2 on development gonads, trial 4): SC present against None by total_length_um, mean per-gonad
+  AUC 0.987 (bootstrap interval 0.982 to 0.992, twelve gonads), level with the raw SYP intensity (0.988); SCfull
+  against fragmented by piece_lw_mean_um, mean AUC 0.83 (0.67 to 0.93) over the seven gonads with at least ten
+  nuclei in each class (per gonad 0.45 to 0.98), below the intensity comparator (0.97); SC_fullstart found in all
+  twelve gonads and within one point spacing in 11 of 12, median error 5.3 um, with thresholds chosen on the same
+  gonads (theta_full 2.0 um; theta_present 10.0 um, the top of its registered grid).
+* On the development gonads 46 percent of the traced strand length runs steeper than 60 degrees to the image plane
+  (13 percent would for randomly oriented ribbons), and strands of 1 to 2 um are mostly steep. Many are probably the
+  axial blur of SYP puncta or aggregates rather than ribbons; the steep_z flag marks half of all strands. Per-strand
+  lengths on real data are not interpretable before the hand traces of protocol S4.
+* Flag rates (twelve development images, 35,840 strands, 4,740 traced nuclei): strands steep_z 51 percent,
+  end_unfit 39, contaminated 27, exits_label 20, double_width 19, fragment 18, costly_link 16, contact_end 11,
+  merged_suspect 8, gap_long 8, neighbour_nucleus 2; strand qc_status review 89 percent, pass 8, fail 3; classes
+  partial 69 percent, fragment 18, merged_suspect 7, complete 6. Traced nuclei: count_high 49 percent, count_low 45,
+  truncated_z 4, label_merged_suspect 3. Images: psf_fallback 10 of 12, noise_fit_poor none.
+* Cost, four workers on a shared machine: 1.3 to 3.5 min per gonad. The main process peaked at 4.5 GB on the
+  2025-11-05 stacks and 7.7 GB on a 2026-01-05 stack (106 x 2720 x 2720) at commit 6b7be22; with the plane-by-plane
+  reader of commit cf43042 (the same numbers) that stack peaks at 3.9 GB.
 
 ## Differences from the design document
 

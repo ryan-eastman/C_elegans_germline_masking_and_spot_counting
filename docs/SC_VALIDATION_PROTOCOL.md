@@ -573,3 +573,11 @@ Entries are appended, never edited. Each one says whether a test result had been
    (g) The protocol file `C:/Users/ryane/sc_ribbon_work/VALIDATION_PROTOCOL.md` stays the registration snapshot
    (sha256 d56b68859b8a500f6aad964fbb3c8cb9d96437c3108fe957fb8760dd125a2a01); this repository copy is the living
    protocol, and its changelog is appended here.
+6. 2026-10-24, the review round, before any result (no test result, no test or reserved image or truth read, no
+   sealed seed). Development trial 4 (the runs of commit 6b7be22 on the twelve development gonads with germquant
+   runs) was scored; its first scoring counted the six development gonads without a run as SC_fullstart misses, so
+   it was scored again at commit cf43042 with the rates over the twelve gonads with output (both lines are in
+   dev_trials.jsonl, the second marked as the rescore). Commit cf43042 also reads the .nd2 channels plane by plane,
+   which changes memory only (identical outputs checked on two development gonads). No parameter was changed after
+   trial 4. The development S1 gates were reported on development seeds 2000 to 2049, on the fresh seeds 3000 to
+   3049 and, for S1b and S1e, on the registered generator (entry 5 (d)).
