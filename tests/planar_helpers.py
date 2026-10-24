@@ -137,7 +137,7 @@ def write_ome_yx(path) -> Path:
 
 def write_tiff(path, calibrated: bool = True) -> Path:
     """An ImageJ TIFF, axes CYX, with the xy calibration in its resolution tags (unit um); with ``calibrated``
-    False a plain tifffile TIFF that carries no calibration (resolution unit none)."""
+    False a plain tifffile TIFF of the DAPI channel (YX) that carries no calibration (resolution unit none)."""
     import tifffile
 
     path = Path(path)
@@ -146,7 +146,7 @@ def write_tiff(path, calibrated: bool = True) -> Path:
         tifffile.imwrite(path, plane_cyx(), imagej=True, resolution=(1.0 / DX, 1.0 / DY),
                          metadata={"axes": "CYX", "unit": "um"})
     else:
-        tifffile.imwrite(path, plane_cyx())
+        tifffile.imwrite(path, plane_cyx()[0])
     return path
 
 
