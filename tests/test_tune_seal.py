@@ -133,8 +133,10 @@ _PROBE = ("import sys, atexit\n"
 
 
 def _child(code: str, heavy=HEAVY, args=()) -> tuple[str, subprocess.CompletedProcess]:
+    # the child writes UTF-8 (PYTHONIOENCODING); decoding it with the parent's locale codec (cp1252 on Windows)
+    # can fail on SpotMAX's progress output, which leaves the captured stream empty
     r = subprocess.run([PYTHON, "-c", _PROBE.format(heavy=tuple(heavy)) + code, *args], capture_output=True,
-                       text=True, timeout=600, env=subprocess_env(), cwd=ROOT)
+                       encoding="utf-8", errors="replace", timeout=600, env=subprocess_env(), cwd=ROOT)
     m = re.search(r"HEAVY=(.*)", r.stderr)
     assert m, f"no probe line; rc={r.returncode} stderr={r.stderr[-3000:]}"
     return m.group(1).strip(), r
