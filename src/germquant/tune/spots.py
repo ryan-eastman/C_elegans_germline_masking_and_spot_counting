@@ -253,6 +253,7 @@ def _tune(items, grid, objective, split, *, backend, out_dir, max_runs, shortcut
         raise TuneRefused("tuning never runs on a test split: tune on the tune split, select on val "
                           "(design 6.6)")
     grid = check_grid(grid, backend if backend in ("spotmax", "log") else None)
+    _check_backend(backend)
     if not isinstance(items, (list, tuple)) or not items:
         raise TuneRefused("tuning needs at least one item (a finished run with truth points)")
     max_runs = int(max_runs)
@@ -364,7 +365,10 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
     if "spots" not in (marker.get("enabled_stages") or []) and "spots" not in (manifest.get("enabled_stages") or []):
         warnings.append(f"{image_id}: its run had the spots stage off; tuning runs it on the run's labels")
     base = copy.deepcopy(manifest["config"].get("spots") or {})
-    planar = bool(manifest.get("planar"))
+    # a single-plane run records itself in its done marker ({"planar": true}, the per-image record); its own
+    # run_manifest.json says so too, but `germquant batch` writes one manifest for the whole folder, without
+    # per-image geometry
+    planar = bool(marker.get("planar") or manifest.get("planar"))
     labels = _read_labels(result_dir, image_id)
     summary = _image_summary(result_dir, image_id)
     roles = _roles(summary, image_id)
@@ -376,6 +380,7 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
     z_range = tuple(int(v) for v in marker["z_range"]) if marker.get("z_range") else None
     if planar:
         _check_planar_support(image_id)
+        _check_planar_backend(image_id, backend)
     pts = item["points"]
     if isinstance(pts, pd.DataFrame):
         points_path = None
@@ -488,6 +493,27 @@ def _check_planar_support(image_id: str) -> None:
     if "planar" not in inspect.signature(D.detect_spots).parameters:
         raise TuneRefused(f"{image_id}: its run is single-plane (planar); tuning it needs the planar spot branch "
                           f"of package P2b, which this engine does not have yet")
+
+
+def _check_planar_backend(image_id: str, backend: str) -> None:
+    """A single-plane run detects spots on one plane, which only a backend that declares planar_ok can do (the
+    pipeline refuses the others, planar.check_planar); refused here before any detection."""
+    from germquant.planar import planar_ok
+    from germquant.spots.backends import get_backend
+
+    if not planar_ok(get_backend(backend)):
+        raise TuneRefused(f"{image_id}: its run is single-plane (planar), and the {backend} spot backend does not "
+                          f"declare planar_ok, so it cannot detect spots on one plane (docs/PLANAR.md)")
+
+
+def _check_backend(backend: str) -> None:
+    """An unknown spot backend is refused before any item is read."""
+    from germquant.spots.backends import get_backend
+
+    try:
+        get_backend(backend)
+    except (TypeError, ValueError) as e:
+        raise TuneRefused(str(e)) from None
 
 
 def _same_base(ctxs: list[dict]) -> None:

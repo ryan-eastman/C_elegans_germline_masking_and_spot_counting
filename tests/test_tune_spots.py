@@ -156,6 +156,38 @@ def _planar_case(tmp_path):
     assert (res["ranked"][0]["objective_value"], res["ranked"][0]["tie_break_value"]) == (1.0, 1.0)
 
 
+def test_a_batch_made_single_plane_run_is_tuned_as_one(tmp_path):
+    """`germquant batch` writes one run_manifest.json for its whole folder, without per-image geometry: the tuner
+    reads a single-plane run from the done marker ({"planar": true}), so it detects with planar=True, and it
+    refuses a backend without planar_ok (log) before any detection (review P5-TUNE S1). The run keeps its spots
+    stage off, so the test needs no SpotMAX."""
+    _require_p2b()
+    from germquant import pipeline, provenance
+
+    name = "flat_a"
+    cfg = H.basic_recipe(**{"io.planar": True, "spots.enabled": False})
+    pix, truth, _ = H.planted_pixels(H.FIELD_2D_A, 5, shape=H.SHAPE_2D)
+    stack = H.Stack(data=pix.astype(np.float32), spacing=H.SPACING, channel_names=H.CHANNELS,
+                    path=Path(f"{name}.nd2"), spacing_ok=True)
+    with pytest.MonkeyPatch.context() as mp:
+        H.patch_planted_reader(mp, {f"{name}.nd2": stack})
+        out_root = tmp_path / "batch"                                     # as cli._batch: one manifest at the root
+        prov = provenance.write_manifest(out_root, config_hash=cfg.hash, config=cfg.as_dict(), extra={"n_files": 1})
+        rd = out_root / name
+        pipeline.process_image(tmp_path / f"{name}.nd2", cfg, rd, prov=prov)
+        assert not (rd / "run_manifest.json").exists() and "planar" not in prov
+        pts = H.write_truth(tmp_path / f"{name}__points_ryan.csv", truth, rd, name)
+        item = {"image_id": name, "image": tmp_path / f"{name}.nd2", "result_dir": rd, "points": pts}
+        ctx = S._prepare(item, 0, "spotmax", [], None)
+        assert ctx["planar"] is True and ctx["manifest_path"] == out_root / "run_manifest.json"
+        assert ctx["spacing"][0] == planar.PLANAR_DZ
+        with pytest.MonkeyPatch.context() as spy:
+            calls = H.counting_backend(spy, "log")
+            with pytest.raises(TuneRefused, match="log spot backend does not declare planar_ok"):
+                S.tune_grid([item], {"spots.log.min_snr": [2.0]}, backend="log", out_dir=tmp_path / "t")
+        assert calls == [] and not (tmp_path / "t").exists()
+
+
 def test_run_once_then_filter_equals_direct_runs(planted, planted_spotmax):
     sm = planted_spotmax
     # one SpotMAX run per image, with the effect-size filter at 0 (design 6.8)
@@ -264,6 +296,8 @@ def test_refusals_before_any_detection(planted, tmp_path):
             S.tune_grid(items, LOG_GRID, objective=("object_ccc", "bias"), backend="log", out_dir=tmp_path / "a")
         with pytest.raises(TuneRefused, match="not a key the log backend reads"):
             S.tune_grid(items, {ES_KEY: [1.0]}, backend="log", out_dir=tmp_path / "a")
+        with pytest.raises(TuneRefused, match="unknown spot backend 'nosuch'"):
+            S.tune_grid(items, {"spots.nosuch.knob": [1.0]}, backend="nosuch", out_dir=tmp_path / "a")
         with pytest.raises(TuneRefused, match="no finished run"):
             S.tune_grid([{**items[0], "result_dir": tmp_path}], LOG_GRID, backend="log", out_dir=tmp_path / "a")
         (tmp_path / "busy").mkdir()

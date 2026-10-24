@@ -189,7 +189,7 @@ def counting_backend(mp, name: str) -> list:
         calls.append(dict(k.get("cfg_section") or {}))
         return orig(*a, **k)
 
-    for attr in ("input_roles", "provenance"):
+    for attr in ("input_roles", "provenance", "planar_ok"):       # planar_ok: single-plane runs (package P2b)
         if hasattr(orig, attr):
             setattr(wrapper, attr, getattr(orig, attr))
     mp.setitem(B._REGISTRY, name, wrapper)
