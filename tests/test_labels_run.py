@@ -266,6 +266,10 @@ def test_missing_labels_file_fails_that_image(tmp_path, monkeypatch):
     cfg.set("segmentation.nuclei.labels_from", "{image_dir}/{image_stem}_small.tif")
     with pytest.raises(L.LabelsError, match=r"\(80, 160\).*\(20, 80, 320\)"):
         pipeline.process_image(tmp_path / ND2, cfg, out, prov=None)
+    (tmp_path / f"{ND2_ID}_folder.tif").mkdir()                              # a folder under a labels name
+    cfg.set("segmentation.nuclei.labels_from", "{image_dir}/{image_stem}_folder.tif")
+    with pytest.raises(L.LabelsError, match="labels file cannot be read"):
+        pipeline.process_image(tmp_path / ND2, cfg, out, prov=None)
     assert not list(out.iterdir())
 
 

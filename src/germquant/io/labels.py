@@ -180,6 +180,8 @@ def labels_for_run(cfg, image_path, *, nz, shape_zyx, xy_stride=1, z_range=None,
         raise FileNotFoundError(f"labels file not found: {path} (segmentation.nuclei.labels_from "
                                 f"{labels_template(cfg)!r} for image {image_stem(Path(image_path)).strip()}); the "
                                 f"image is not processed") from None
+    except OSError as e:                       # a folder, a file without read access
+        raise LabelsError(f"labels file cannot be read: {path} ({type(e).__name__}: {e})") from None
     arr = _frame(data, fmt, path.name, nz=nz, frame=labels_frame(cfg))
     if projected and arr.ndim == 3:
         raise LabelsError(f"{path.name} has {arr.shape[0]} planes: a projected run (segmentation.nuclei.project) "
@@ -256,7 +258,7 @@ def _relabel(arr: np.ndarray, name: str) -> np.ndarray:
     out, _fw, _inv = relabel_sequential(a)
     if out.size and int(out.max()) > np.iinfo(np.int32).max:
         raise LabelsError(f"{name}: holds more objects than an int32 label image can number")
-    return out.astype(np.int32)
+    return out.astype(np.int32, copy=False)
 
 
 def _npz(data: bytes, name: str) -> tuple[np.ndarray, str]:
