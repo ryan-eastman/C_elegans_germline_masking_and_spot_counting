@@ -11,6 +11,8 @@ tests/test_golden.py forces it:
   planted area; every z_um 0.0; voxel_dz_um NaN; read:planar raised; the label TIF reads back as (Y, X) with
   PhysicalSizeX and Y and no Z, and the spots TIF is YX too.
 * test_planar_tables_ignore_file_dz (G10): the same plane with a file dz of 0.2 and of 5.0 gives identical tables.
+* test_the_z_merge_a_recipe_asks_for_is_flagged: spots.merge_z_columns true raises spots:z_merge_off_planar and
+  changes no spot.
 * test_the_yx_writers: write_labels_yx, write_spots_yx and write_mask_yx write YX OME and ImageJ TIFFs with the
   run's dy and dx (non-square pixels, so a swap shows).
 * test_log_net3d_nuclei3d_refused_before_pixels: log, net3d (main spots and a spots instance) and nuclei3d stop a
@@ -116,7 +118,7 @@ def test_synthetic_2d_meets_acceptance_2(golden_run):
     assert nuclei["n_spots"].sum() == len(spots)
     # flags and records of a single-plane run
     flags = res["qc_flags"]
-    assert "read:planar" in flags and "spots:z_merge_off_planar" in flags
+    assert "read:planar" in flags and "spots:z_merge_off_planar" not in flags      # generic_2d asks for no merge
     assert not [f for f in flags if f.startswith("voxel:")]
     manifest, record = _json(out / "run_manifest.json"), _json(out / f"{iid}__stages.json")
     for rec in (manifest, record):
@@ -148,6 +150,17 @@ def test_planar_tables_ignore_file_dz(golden_run, tmp_path, monkeypatch):
             a = H.read_table(Path(res["out_dir"]) / f"{res['image_id']}__{t}.csv")
             b = H.read_table(golden_run["out"] / f"{res['image_id']}__{t}.csv")
             pd.testing.assert_frame_equal(a, b, check_exact=True, obj=f"{t} at file dz {dz}")
+
+
+def test_the_z_merge_a_recipe_asks_for_is_flagged(golden_run, tmp_path, monkeypatch):
+    """spots.merge_z_columns true (config.yaml's value) cannot run on one plane: the spots stage raises
+    spots:z_merge_off_planar, and the spots are those of the run without the merge."""
+    res = _run(monkeypatch, tmp_path / "merge", cfg=H.generic_2d(**{"spots.merge_z_columns": True}))
+    out = Path(res["out_dir"])
+    assert "spots:z_merge_off_planar" in res["qc_flags"]
+    assert "spots:z_merge_off_planar" in _json(out / f"{res['image_id']}__stages.json")["stages"]["spots"]["flags"]
+    pd.testing.assert_frame_equal(H.read_table(out / f"{res['image_id']}__spots.csv"),
+                                  H.read_table(golden_run["out"] / f"{res['image_id']}__spots.csv"), check_exact=True)
 
 
 def test_the_yx_writers(tmp_path):
@@ -211,7 +224,7 @@ def test_stage_hashes_carry_planar_only_in_planar_runs(golden_run, tmp_path, mon
     # what the planar run wrote: the planar payload, in all three records
     out, res = golden_run["out"], golden_run["res"]
     run_cfg = golden_run["cfg"]
-    roles = json.loads(res["tables"]["nuclei"]["channel_map_json"].iloc[0])
+    roles, _ = run_cfg.channel_map.resolve(list(H.CHANNELS))
     want = stages.stage_hashes(run_cfg, roles, provenance.tool_versions(), "unused", planar=True)
     for name in ("run_manifest.json", f"{res['image_id']}__stages.json", f"{res['image_id']}__done.json"):
         assert _json(out / name)["stage_hashes"] == want, name
@@ -220,7 +233,7 @@ def test_stage_hashes_carry_planar_only_in_planar_runs(golden_run, tmp_path, mon
         H.patch_reader(mp, H.stack_3d(), two_d=False)
         res3 = pipeline.process_image(ND2, H.generic_2d(**{"spots.enabled": False}), tmp_path / "3d", prov=None)
     cfg3 = H.generic_2d(**{"spots.enabled": False})
-    roles3 = json.loads(res3["tables"]["nuclei"]["channel_map_json"].iloc[0])
+    roles3, _ = cfg3.channel_map.resolve(list(H.CHANNELS))
     got = _json(tmp_path / "3d" / "run_manifest.json")
     assert got["stage_hashes"] == stages.stage_hashes(cfg3, roles3, provenance.tool_versions(), "unused")
     assert "planar" not in got and "planar" not in _json(tmp_path / "3d" / f"{res3['image_id']}__done.json")

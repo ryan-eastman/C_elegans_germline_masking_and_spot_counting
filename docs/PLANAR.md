@@ -290,7 +290,20 @@ Single-plane time series are refused in this release (decision D9; design sectio
 
 ### The z radius SpotMAX gets on one plane
 
-PLANAR_RZ_PX_TABLE
+SpotMAX's spot detection takes a radius in pixels for each axis. On one plane the z radius has no physical
+meaning, so a single-plane run gives SpotMAX 1.0 (`spots.detect.PLANAR_RZ_PX`), the value SpotMAX 1.3.1's own
+core sets when an image has one plane (design 4.7). `tests/test_planar_spots.py::test_planar_rz_px_table` runs
+one synthetic plane (24 planted puncta in 4 nuclei, dy 0.1 um, dx 0.125 um, the spots stage's default SpotMAX
+parameters) with 0.5, 1.0 and 2.0:
+
+| PLANAR_RZ_PX | spots | matched to planted puncta | F1 | tables equal to those of 1.0 |
+|---|---|---|---|---|
+| 0.5 | 24 | 24 | 1.000 | yes |
+| 1.0 | 24 | 24 | 1.000 | (the shipped value) |
+| 2.0 | 24 | 24 | 1.000 | yes |
+
+The three tables are identical, as expected from SpotMAX's peak finder, which squeezes a (1, Y, X) image and keeps
+only the yx minimum distance. 1.0 is the shipped value.
 
 ### The legacy golden
 
