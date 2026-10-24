@@ -473,39 +473,82 @@ which nuclei are joined), with `link_source` `laptrack_flow` and three extra col
 `flow_step_z_um`, `flow_step_y_um`, `flow_step_x_um`, the predicted step of the nucleus to the next timepoint on disk
 (the flow its neighbours moved with, relative to the registration; 0 where the step kept the registration alone,
 empty at the last timepoint). `backend_info` in `<stem>__track_link.json` carries the cutoff and where it came from,
-every setting and constant, one entry per step (`t_from`, `t_to`, the
-nuclei on both sides, `n_consensus`, `n_confident`, `n_used`, `iterations_run`, the residual of the confident links
-against their neighbours' median, median and 95th percentile, the median and largest predicted step, and `fallback`
-when the step kept the registration alone), and the medians over the series. The command prints the step count, the
-steps on the registration alone, the residual median and the cutoff.
+every setting and constant, one entry per step (`t_from`, `t_to`, the nuclei on both sides, `n_consensus` and
+`consensus_fraction` (the fraction of the nuclei at `t_from` that found a consensus; empty with `--flow-search-um 0`),
+`n_confident` and `confident_fraction`, `n_used`, `iterations_run`, the residual of the confident links against their
+neighbours' median, median and 95th percentile, the median and largest predicted step, and `fallback` when the step
+kept the registration alone), the medians over the series, and the consensus over the series
+(`consensus_fraction_median`, `consensus_fraction_lowest` and its step, and `consensus_low_steps`, below). The command
+prints the step count, the steps on the registration alone, the residual median and the cutoff, then the lowest and
+the median consensus fraction, and a note naming any step in `consensus_low_steps`.
+
+**When the motion is beyond the search.** If the motion the registration leaves at a step exceeds
+`--flow-search-um`, the true displacement is not among the candidates. The flow prior then makes plain `laptrack`'s
+wrong links at that step, while its confident links (mutual nearest neighbours of a wrong displacement) and their
+residual look normal, so neither the fallback count nor the residual shows it: on the faster simulated flow without
+any registration it made 130 to 212 identity switches with no step on the registration alone and a 0.52 um residual.
+What does show it is the consensus fraction of the step. On the simulator the steps that failed that way reached
+0.44 to 0.50 of the series median, while every run without motion beyond the search, the heat-shock-like ones
+included (whose lowest steps reach only 0.47 to 0.54, from the noise and the misses), stayed at 0.63 of its
+median or more at its lowest step. So a step whose consensus fraction is under 0.6 of the series median, and short of
+it by 10 nuclei or more (so that one or two nuclei of a small series do not count), is listed in
+`consensus_low_steps`, and `track-link` prints
+
+```
+  note: the local consensus is under 0.6 of its median at 1 step(s) (t21 to t22): there the motion the registration left may exceed --flow-search-um (6 um) and the links may be plain laptrack's; check those steps, or rerun with a larger --flow-search-um or a registration that follows the motion
+```
+
+The note changes nothing in the tables. On the simulator it named one step in each of the three runs of the faster
+flow without registration, the step with the most switches of the run (84, 138 and 114 of 130, 144 and 212), and
+nothing in the other 45 runs with the default settings (every scenario under every registration, the cumulative
+oracle's frame included). It is a pointer, not a full list: in two of those runs a second weak step (0.69 and 0.65 of
+the median) carried 39 and 77 switches without being named, so once the note appears look at every step's
+`consensus_fraction` in the record. A step where many nuclei lose their partner can also bring it: with `--flow-k 12`
+(not the default) it named one late step of a heat-shock-like case, 0.49 of the median, where the motion was within
+the search. A whole-field jump of 6.5 um or more in the plane (the tests plant 6.5 to 7.5 um) or a stage re-centring
+like the 20 to 37 um of Kate Walsh's heat-shock movies, which the rigid registration's 5 um step cap cannot follow, is
+where to expect it.
 
 **Evaluation on simulated series** (`C:/Users/ryane/trackers_work/sim`, README.md there; four scenarios, three seeds
 each, 25 timepoints 5 minutes apart, about 340 nuclei per timepoint, with known identities; calibrated to the
 published numbers of FIRST_LOOK.md, so absolute scores are not a prediction for the real series). Means over the seeds,
 whole field, `--gap 2 --max-dist-um 3.0`: identity switches / missing edges / fraction of visible lives tracked whole
-(`eval_flowprior/summary.md` there has the ranges, precision, recall, the sub-field and the sensitivity runs):
+(`eval_flowprior/summary.md` there has the ranges, precision, recall, the sub-field and the sensitivity runs). The last
+column is the ceiling of any flow prior: the same backend with its flow estimate replaced by the true tissue step of
+every nucleus (the simulator's flow, creep, refocus jumps and drift; not the individual jitter, which no flow prior
+can know):
 
-| scenario | `laptrack` rigid | `laptrack` piecewise | `laptrack` on the true flow | `laptrack_flow`, no registration | `laptrack_flow` rigid | `laptrack_flow` piecewise |
+| scenario | `laptrack` rigid | `laptrack` piecewise | `laptrack_flow`, no registration | `laptrack_flow` rigid | `laptrack_flow` piecewise | true per-step flow (ceiling) |
 |---|---|---|---|---|---|---|
-| like the October series | 118 / 229 / 0.54 | 15 / 165 / 0.77 | 16 / 160 / 0.76 | 8 / 159 / 0.78 | 8 / 159 / 0.78 | 8 / 159 / 0.78 |
-| a stack deep enough to keep every nucleus | 114 / 129 / 0.59 | 15 / 61 / 0.82 | 20 / 54 / 0.83 | 11 / 52 / 0.84 | 11 / 52 / 0.84 | 11 / 52 / 0.85 |
-| heat-shock-like (noisier, 26 percent missed, splits, merges) | 243 / 293 / 0.32 | 142 / 212 / 0.45 | 142 / 199 / 0.46 | 133 / 194 / 0.47 | 132 / 192 / 0.47 | 133 / 193 / 0.47 |
-| flow twice as fast (7 um slides) | 549 / 350 / 0.42 | 84 / 183 / 0.66 | 58 / 136 / 0.76 | 162 / 164 / 0.52 | 16 / 148 / 0.80 | 15 / 148 / 0.80 |
+| like the October series | 118 / 229 / 0.54 | 15 / 165 / 0.77 | 8 / 159 / 0.78 | 8 / 159 / 0.78 | 8 / 159 / 0.78 | 9 / 156 / 0.78 |
+| a stack deep enough to keep every nucleus | 114 / 129 / 0.59 | 15 / 61 / 0.82 | 11 / 52 / 0.84 | 11 / 52 / 0.84 | 11 / 52 / 0.85 | 11 / 52 / 0.85 |
+| heat-shock-like (noisier, 26 percent missed, splits, merges) | 243 / 293 / 0.32 | 142 / 212 / 0.45 | 133 / 194 / 0.47 | 132 / 192 / 0.47 | 133 / 193 / 0.47 | 126 / 190 / 0.49 |
+| flow twice as fast (7 um slides) | 549 / 350 / 0.42 | 84 / 183 / 0.66 | 162 / 164 / 0.52 | 16 / 148 / 0.80 | 15 / 148 / 0.80 | 8 / 140 / 0.82 |
 
 What that says, and where it does not help:
 
-* On motion like the October series the piecewise registration already gives `laptrack` what the true flow would;
-  `laptrack_flow` halves the few remaining switches (15 to 8) and changes little else. Its real gain there is that it
+* On motion like the October series `laptrack_flow` halves the switches left after the piecewise registration (15 to
+  8), the level the true flow reaches (9), and changes little else. Of its lives tracked whole (0.776 against 0.767)
+  nearly all of the gain, and all of the fewer missing edges, come from the gap-closing costs of step 6, which give
+  plain `laptrack` the same (16 / 158 / 0.774 with those costs alone; the flow prior with laptrack's own gap rule
+  gives 8 / 167 / 0.767); the flow prior's own effect there is on the switches. Its other gain there is that it
   hardly depends on the registration any more: rigid, piecewise or none give nearly the same tracks (8 to 11 of
   about 690 differ between rigid and piecewise, none and rigid are identical on two of the three seeds), because the
   consensus catches the 3.5 to 5.4 um refocus jumps and the slides by itself.
-* On the faster flow it does what the piecewise registration cannot (switches 84 to 15, lives tracked whole 0.66 to
-  0.80, better than `laptrack` on the true flow). Without any registration the 7 um slides plus the refocus jumps are
-  beyond the 6 um search, and it falls to 162 switches.
-* On the heat-shock-like series the gain is small (142 to 133 switches, 0.45 to 0.47): what is left there is
-  localisation noise, splits, merges and misses, not flow.
-* On top of the true flow it adds nothing (16 against 17 switches on the October-like series, 142 against 151 on the
-  heat-shock one): the field estimate only adds noise to a perfect registration.
+* On the faster flow it does what the piecewise registration cannot: switches 84 to 15, lives tracked whole 0.66 to
+  0.80, where the true per-step flow would give 8 switches and 0.82. Here the gain is the flow prior's own (15
+  switches and 0.79 with laptrack's gap rule; the gap costs alone give plain `laptrack` 86 and 0.66). Without any
+  registration the 7 um slides plus the refocus jumps are beyond the 6 um search, and it falls to 162 switches (the
+  record names those steps; "When the motion is beyond the search" above).
+* On the heat-shock-like series the gain is small (142 to 133 switches, 0.45 to 0.47; true per-step flow: 126, 0.49),
+  and about half of the lives-whole gain is the gap costs': what is left there is localisation noise, splits, merges
+  and misses, not flow.
+* The simulator's other reference, the true tissue displacement since t0 handed to `laptrack` as a registration (its
+  "cumulative oracle"), is not a ceiling: mapping every timepoint back to t0 squeezes the distal tissue that the flow
+  stretches over the movie (nearest-neighbour spacing within 30 um of the tip at t24: 2.8 um median against 3.9 um
+  raw on the October-like series, 1.7 against 4.1 um on the faster flow), while the jitter and the localisation noise
+  are not squeezed, so late in the movie neighbours come within the cutoff at the distal end, where 13 of its 16 and
+  54 of its 58 switches sit. The ceiling above is the true flow of each step instead.
 * `--flow-fb` changed nothing measurable (within two switches and 0.003 of lives whole) and costs a quarter more
   time; it stays off. The automatic gap-closing costs of laptrack in place of the cutoff-based ones (step 6) cost
   0.006 to 0.012 of lives whole in every scenario. A tighter cutoff on the predicted positions (2.5 um) removes a few
@@ -519,15 +562,32 @@ What that says, and where it does not help:
 * Time: about 10 s per 25-timepoint series of 8,500 nucleus-timepoints against 5 to 6 s for `laptrack` (the cost
   of a pair on predicted positions is a Python function laptrack calls for every candidate pair).
 
-Limits. The consensus relies on the quasi-random packing of the nuclei: in a lattice-like stretch (a single file of
-nuclei at even spacing) a displacement by one spacing can gather nearly as much support as the true one; the rival
-check then falls back to the registration, but not in every case. `--flow-search-um` must cover the motion the
-registration leaves (twice that across a missing timepoint). The hand-followed nuclei (`germquant track-validate`)
-remain the test on real data; the simulated scores only say how the two backends compare. On the October series
-(stride 4, 25 timepoints, about 8,350 germline nucleus-timepoints) it runs in about 10 s per registration, no step
-fell back to the registration alone, and the residual of the confident links was 0.45 um (median), close to the
-0.50 um of the October-like simulation (0.86 on the heat-shock-like one); its tracks there are kept out of sight
-until the hand-followed nuclei have been scored.
+Limits.
+
+* The consensus relies on the quasi-random packing of the nuclei: in a lattice-like stretch (a single file of nuclei
+  at even spacing) a displacement by one spacing can gather nearly as much support as the true one; the rival check
+  then falls back to the registration, but not in every case.
+* `--flow-search-um` must cover the motion the registration leaves (twice that across a missing timepoint); the
+  consensus note above is the only sign when it does not.
+* A step with fewer than 8 confident links keeps the registration alone even when the consensus is unanimous (a
+  5-nucleus series whose 4 um step the consensus found with full support was then linked as `laptrack` links it).
+  That does not happen at 300 or more nuclei per timepoint; on a tightly cropped or sparse series use a registration
+  that follows the motion.
+* The simulator is the flow prior's best case. Its motion is a smooth flow along the gonad axis plus an independent
+  jitter of every nucleus (SD 0.28 um per axis, about 0.17 um per step), with no shear across the tube and no nucleus
+  moving on its own, so it cannot show whether the prior does harm where neighbours do not move together. Its raw
+  per-step motion is about 15 percent smaller than the October series' (nearest-neighbour residual without
+  registration 0.86 to 1.19 against 1.01 to 1.41 um by segment), its distal flow slower (0.10 against 0.14 um/min),
+  its counts after the refocus jumps lower (0.99 and 0.98 of t0 at t12 and t24, against 1.14 and 1.04), and its
+  nuclei tables carry the true arc length as `axis_position_um`, which the piecewise registration reads. Its scorer
+  lets either fragment of a split nucleus carry the nucleus's links, where `track-validate` counts a hand point in the
+  other fragment as a switch, so the heat-shock-like switch counts are a lower bound.
+* The hand-followed nuclei (`germquant track-validate`) remain the test on real data; the simulated scores only say
+  how the backends compare. On the October series (stride 4, 25 timepoints, about 8,350 germline nucleus-timepoints)
+  it runs in about 10 s per registration, no step fell back to the registration alone, the residual of the
+  confident links was 0.45 um (median), close to the 0.50 um of the October-like simulation (0.86 on the
+  heat-shock-like one), and the consensus fraction was 0.93 to 0.95 at its lowest step against a median of 0.99, so
+  no note; its tracks there are kept out of sight until the hand-followed nuclei have been scored.
 
 Tests: tests/test_timelapse_flowlink.py checks the settings (defaults, keys, explicit values, every refused value),
 the mutual-nearest-neighbour links (radius, ratio test both ways, mutuality), the median field, the consensus (a shift
@@ -535,10 +595,14 @@ larger than the spacing is found; one beyond the search radius is not), a step w
 that compose the step fields and span a missing timepoint; on a quasi-random sheet of about 170 nuclei under a
 smooth 4 um per step shear with a random walk and 4 percent misses, plain laptrack makes hundreds of wrong links and
 `laptrack_flow` none, the predicted steps follow the planted shear, the result is deterministic and independent of
-the row order, `--flow-fb` and an explicit cutoff behave as described, and a missing timepoint is bridged; through
+the row order, `--flow-fb` and an explicit cutoff behave as described, and a missing timepoint is bridged; the record
+keeps the consensus and confident fractions of every step, the series summary names the low steps by both of its
+rules, and a whole-field jump beyond the search (7.5 um in x, 7.0 um in y, 6.5 um in z between two timepoints of the
+sheet) is named in the record and in the printed note, while the clean sheet gets no note; through
 `link_series` and the command line, on the series folders of test_timelapse_piecewise (4.6 um shear) and
 test_timelapse_tracking (drift, a dropout, off-gonad nuclei), it links the shear without any registration and with
-the piecewise one, writes the extra columns and the record, and refuses misplaced or malformed options; and every
+the piecewise one, writes the extra columns and the record, prints the consensus line (and no note on the
+18-nucleus tracking series, whose low fractions are one or two nuclei), and refuses misplaced or malformed options; and every
 existing backend gives, on those folders, the tables it gave at origin/main 8eb73de (digests of the points, the
 tracks and the assignment).
 
