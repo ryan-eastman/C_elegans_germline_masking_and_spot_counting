@@ -34,9 +34,10 @@ def _check(got: dict, want: dict, what: str) -> None:
 
 
 def test_every_v2_change_has_a_v1_switch():
-    for key in params.V1_VALUES:
+    p1 = params.resolve(None, V1)
+    for key, value in params.V1_VALUES.items():
         assert params.resolve().get(key, KeyError) is not KeyError, key
-    assert params.resolve(None, V1).hash != params.resolve().hash      # the defaults are the v2 configuration
+        assert p1[key] == value, key
 
 
 @pytest.mark.parametrize("case", sorted(GOLDEN["synthetic"]))

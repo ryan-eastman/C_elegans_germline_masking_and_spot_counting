@@ -12,7 +12,7 @@ from germquant.sc.straighten.noise import NoiseModel
 from germquant.sc.straighten.pipeline import psf_foci_inputs, straighten_image
 from germquant.sc.straighten.refine import psf_from_profiles
 
-P = params.resolve()
+P = params.resolve(None, ['psf.foci="on"'])          # the per-image PSF of entries 12 to 15 (withdrawn: off by default)
 NOISE = NoiseModel(a=synth.NOISE_INTERCEPT, b=synth.NOISE_SLOPE)
 WL = {"central_element": 511.0, "foci": 595.0}
 
@@ -115,7 +115,7 @@ def test_source_order_flags_and_record():
     vol, pos = _points_volume(n=36, sigma=(0.45 * 595 / 511, 0.15 * 595 / 511, 0.15 * 595 / 511))
     fits = PSF.foci_fits_crop(vol, (0, 0, 0), synth.SPACING, NOISE,
                               {"pos": pos, "isolated": np.ones(len(pos), bool)}, P)
-    Pn = params.resolve(None, ["psf.min_stretches=20", "psf.foci_min=25"])
+    Pn = params.resolve(None, ['psf.foci="on"', "psf.min_stretches=20", "psf.foci_min=25"])
     # the foci estimate first (protocol changelog entry 14), the stretch estimate recorded beside it
     (sz, sxy), src, d = PSF.image_psf(good_st, fits, WL, Pn)
     assert src == "foci" and sz == pytest.approx(d["foci"]["sigma_z_um"]) and d["stretches"]["ok"]
@@ -143,6 +143,8 @@ def test_foci_off_gives_the_v1_rule():
     assert psf_foci_inputs({"spots": spots}, {"foci": np.zeros((2, 2, 2))}, WL, [1], v1) is None
     assert psf_foci_inputs({"spots": spots}, {"foci": np.zeros((2, 2, 2))}, None, [1], P) is None
     assert psf_foci_inputs({"spots": spots}, {"foci": np.zeros((2, 2, 2))}, WL, [1], P)[1]["isolated"].tolist() == [True]
+    # the default (entry 16: withdrawn) is the v1 rule
+    assert psf_foci_inputs({"spots": spots}, {"foci": np.zeros((2, 2, 2))}, WL, [1], params.resolve()) is None
 
 
 def test_psf_check_scene_and_the_pipeline_record():
@@ -150,7 +152,8 @@ def test_psf_check_scene_and_the_pipeline_record():
     assert sc.info["sigma_z_level"] == 0.43 and len(sc.ribbons) == 6 * 6 - 3 + 3 or len(sc.ribbons) >= 30
     assert set(sc.nuclei["kind"]) == {"dense", "arc"} and len(sc.spots) > 20
     res = straighten_image(sc.channels["central_element"], sc.labels, sc.spacing, sc.nuclei,
-                           params=params.resolve(None, ["psf.foci_min=10"]), roles={"foci": sc.channels["foci"]},
+                           params=params.resolve(None, ['psf.foci="on"', "psf.foci_min=10"]),
+                           roles={"foci": sc.channels["foci"]},
                            spot_tables={"spots": sc.spots}, image_id="t", wavelengths=sc.info["wavelengths"])
     rec = res.record["psf"]
     assert rec["source"] in ("foci", "both") and rec["sigma_z_um"] == pytest.approx(0.43, rel=0.08)
