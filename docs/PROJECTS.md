@@ -242,3 +242,199 @@ The Python API is the same code: germquant.project offers new_project, open_proj
 project_config, preview_roles, write_recipe, revert_recipe, use_model, list_rounds, new_round and break_lock.
 Each takes the project (a Project or its folder) explicitly, so it can be called from any thread, and importing
 germquant.project loads nothing heavy either.
+
+## Running a project
+
+    germquant project run STUDY
+    germquant project run STUDY --images gonad_01 gonad_02 --no-resume
+    germquant project run STUDY --device cpu --json
+
+`project run` runs every image of the project that is not excluded, in the order of the manifest, into
+`results/<image_id>/`: the same files `germquant run --pack` writes for one image (the tables, the label images,
+the montage, run_manifest.json and the completion marker `<image_id>__done.json`), made by the same code. The
+recipe is recipe.yaml once the project was edited, else the pack recipe itself, with the project's stage
+switches; an unmodified project therefore runs with the config_hash of `germquant run IMAGE --pack ID@VER
+--recipe R`, and its numbers are those of that command.
+
+- `--images ID ...` runs only those images.
+- An image already done is skipped: its marker matches the recipe's config_hash, the stages, the xy stride and z
+  range, and the segmentation model (a retrained model or a new Cellpose makes it run again). `--no-resume` runs
+  every image again.
+- `--device auto|cuda|mps|cpu` asks for that device on this computer; without it the project's run.device
+  (`project edit --device`) is used, and without that the engine's choice (CUDA when it is available). The run
+  sets GERMQUANT_DEVICE for its images and restores it afterwards. The xy stride and z range are the project's
+  (`project edit --xy-stride`, `--z-range`).
+- An image with timepoints (a time series) runs through the time-lapse loop of `germquant run --t all`
+  (docs/TIMELAPSE.md), into `results/<image_id>/t<NNN>/`. A recipe that reads labels from files (labels_from,
+  docs/LABELS.md) or runs single-plane images (io.planar true, or auto on an image with one plane, docs/PLANAR.md)
+  cannot run a series in this release: such an image fails with that message, before anything of it is read, and
+  the other images run.
+- A recipe that reads its nuclei from labels files does not load the segmentation model, so the model is not
+  checked; the run says so.
+- An image that fails, or cannot be reached (a NAS or a VPN that is not connected: "not reachable"), is named in
+  the output and in the run's log, and the run goes on with the next image.
+
+The run is refused, before any image is read and with nothing written (exit 2, the reason after `REFUSED:`, and
+`{"error", "kind"}` with `--json`), when:
+
+- the folder is no project, a named image is not in it or is excluded, or `--run-id`, `--shard` or `--device` is
+  malformed;
+- the recipe does not load, or the pack is not usable here (what `germquant pack check` reports: a missing backend
+  or Python module, files that do not match the pack's SHA256SUMS);
+- a model the run needs is missing, or the file the engine resolves is not the one the manifest records (its
+  sha256 differs). This matters because the engine looks a relative model path up under `$GERMQUANT_MODELS`
+  first: a shared model store holding a file at the same relative path would otherwise run instead of the
+  project's own (see Project models). A pack model that is missing is fetched with `germquant pack fetch-models`;
+- an edit holds the project's lock. A lock older than 12 hours is reported instead, and the run goes on (a run
+  never removes a lock).
+
+The exit code is 0 when every image was done or skipped, 1 when an image failed, and 2 for a refusal. A run
+never writes the manifest and takes no lock. `--json` prints the run's record on stdout, `{"run_id", "log",
+"counts": {"done", "failed", "skipped"}, "exit_code", "interrupted", "warnings", "message"}`, and the progress
+lines on stderr. Ctrl-C stops the run between images, and the plugin's Cancel stops it at once: the image in
+progress has no completion marker, so the next run does it again, and the images already done are skipped.
+
+The Python API is the same code: germquant.project.run_project(project, images=None, resume=True, device=None,
+shard=None, progress=None, *, via="cli", run_id=None, should_stop=None), also in germquant.api, with
+project_status, collect_project and export_commands. `progress(event)` gets every event of the run's log as it
+is written, and `should_stop()` is asked before each image; a refusal raises ProjectError.
+
+## Shards and SLURM
+
+    germquant project run STUDY --shard 1/3
+    germquant project run STUDY --shard 2/3
+    germquant project run STUDY --shard 3/3
+
+`--shard K/N` runs the K-th of N slices of the images: every N-th image from the K-th on, in the manifest's
+order (after `--images`, when given), so the N shards together run each image exactly once. They can run one
+after the other, side by side on one computer, on several computers that share the project folder, or as the
+tasks of a SLURM array:
+
+    #SBATCH --array=1-3
+    germquant project run /path/to/STUDY --shard ${SLURM_ARRAY_TASK_ID}/3
+
+Each shard writes only its own run log and its own images' results folders, never the manifest, so shards never
+write the same file; `germquant project status` merges their logs. Collect the tables (below) once every shard
+has finished. `germquant project export-commands STUDY --shards 3` writes these lines for you.
+
+## Snakemake
+
+    snakemake -s workflow/Snakefile --config project=/path/to/STUDY --cores 1
+
+The workflow's project mode runs one job per image of the project, each `germquant project run STUDY --images
+<id> --via snakemake`, then `germquant project collect STUDY`. The jobs are named by the image ids, so
+`gonad_01.ome.tif` is `gonad_01`. A job's output is the image's completion marker (the series record
+`<id>__series.json` for an image with timepoints): an image whose marker is missing runs again, and after a
+recipe edit every job runs again (the project's config_hash is one of the jobs' params) and each skips the images
+that are still done. To make Snakemake check every image anyway, add `--forcerun project_image`.
+
+Snakemake comes with the workflow extra (`uv pip install -e ".[workflow]"` from the repository folder), or from an
+environment of its own. Its shell steps call the `germquant` command, which must be on PATH (the engine's
+environment activated, or its Scripts or bin folder added to PATH). The default mode of the workflow (`--configfile workflow/config.yaml`, one job per .nd2 of
+a folder) is unchanged.
+
+## Run logs
+
+Every run writes its own log, `runs/<run_id>.jsonl`. A run id is the run's start time in UTC and eight random hex
+digits, `20261024T181503Z_0a1b2c3d`; `--run-id` gives one (the plugin does, to follow the run as it goes), and a
+run id that is already used is refused, so no two runs ever write one file. `--via` records who started the run:
+cli (the default), gui-subprocess, gui-inprocess or snakemake.
+
+Each line of a log is one JSON object, in ASCII, written and flushed to disk at once, so a crash never leaves a
+broken line behind a complete one: `{"event", "run_id", "time", ...}`, with the time in UTC to the millisecond.
+
+| event | fields |
+|---|---|
+| run_start | via, host, os, interpreter, interpreter_source, engine {germquant, git_sha}, python, constraints, device_requested, device_selected, config_hash, config_hash_source, recipe {kind: project, pack, recipe, edited, file}, xy_stride, disabled_stages, argv, images [{path, image_id, out_dir}], plugin, log_location, project {root, name, id}, shard |
+| image_done, image_failed, image_skipped | image_id, out_dir, status (done, failed, skipped), done_sha256, config_hash, stage_hashes, failed_stages, qc_pass, segment_device_used, elapsed_s, error |
+| run_end | counts {done, failed, skipped}, interrupted |
+
+These are the events and fields the napari plugin writes for its own runs, plus project and shard, and
+interrupted (true when the run was stopped between images). done_sha256 is the sha256 of the image's
+completion marker with Windows line ends (CRLF) read as LF, so it is the same on every system. A log whose last
+line is not complete belongs to a run still writing it, or one that was stopped: readers use its complete lines.
+
+## Status
+
+    germquant project status STUDY
+    germquant project status STUDY --json
+
+`project status` computes, for every image, what a run would do with it:
+
+| status | meaning | reason_code |
+|---|---|---|
+| done | its results match the project's recipe and run settings; a run skips it | |
+| stale | its results were made with another recipe or setting; a run makes them again | config_hash (the recipe changed: an edit, or another pack version), stages (a stage was switched on or off), geometry (the xy stride, z range or timepoint), planar_flag (a single-plane result, while the recipe no longer runs single-plane images), segment_hash (the segmentation model, Cellpose or the labels file changed) |
+| failed | a stage failed last time (failed_stages), or the last run of it failed (its error) | failed_stages, or none |
+| missing | no results yet | |
+| unreachable | not done, and its file cannot be reached: is the NAS or VPN connected? | |
+| excluded | excluded from the project, with the reason | |
+
+Each image also shows its qc_pass, the run that last processed it (last_run_id), the device its nuclei were
+segmented on and the file a run reads (a relative path joined to the project folder). Then:
+
+- the config_hash computed now, the one the manifest recorded, and whether the recipe is edited and validated;
+- the pinned pack version, the versions of that pack installed on this computer, and whether the project's copy of
+  it is in packs/;
+- each model: the project's models (use-model) and the pinned models the pack recipe needs, whether it is present,
+  verified (its sha256 is the recorded one) or mismatched (the file the engine resolves, and its digest), and
+  whether this recipe needs it;
+- the lock: who holds it, since when, and whether it is older than 12 hours;
+- every run of the logs, merged by time, with its counts; a run whose log has no run_end (it was stopped without
+  one, or is still running elsewhere) is shown as interrupted, with finished false;
+- warnings: a config hash that changed since the project was saved (with the pack version change it comes from), the
+  project's copy of the pack missing or replaced, a recipe.yaml the manifest does not record, a held or stale lock,
+  a model a run would refuse, and an environment mix: runs that used more than one device, interpreter or engine
+  version (git sha), whose results can differ.
+
+`--json` prints the same as one JSON object, the record germquant.project.project_status returns: format, root,
+name, config_hash, expected_config_hash, edited, validated, pack, models, images (one object per image, with the
+fields above), warnings, lock and runs.
+
+## Collecting the tables
+
+    germquant project collect STUDY
+
+`project collect` stacks the images' tables into `results/batch_<table>.csv` and rebuilds
+`results/batch_summary.csv`, as `germquant collect` does, but for the project's own images only (an image with
+timepoints by its timepoint ids, `<id>_t<NNN>`) and with the recipe's QC settings: qc.germline_outlier_factor.
+The outside packs set it to 1.0e+9, which switches off the framing check that flags a gonad with far more
+germline nuclei than the others; on dense fields of cultured cells or yeast that check would flag nearly every
+image. The plain `germquant collect results/` has no recipe and keeps the factor 1.8. `--json` prints `{"root",
+"results", "outlier_factor", "images", "counts", "summary"}`. A project without results is refused.
+
+## Export commands
+
+    germquant project export-commands STUDY
+    germquant project export-commands STUDY --shards 4 --out run_study.sh
+    germquant project export-commands STUDY --shell ps1 --out run_study.ps1
+
+`project export-commands` prints, or writes to `--out`, the commands that run the project headless: a header
+naming the project, its pack, recipe and config_hash, then `project run` (one line per shard with `--shards N`, and
+for sh how to run the shards as a SLURM array) and `project collect`. The commands call the engine the project
+records for its recipe (`project edit --interpreter RECIPE=PYTHON`), else the interpreter that wrote them, as
+`python -m germquant`, so they run the same engine whatever comes first on PATH. `--shell sh` (the default) is for
+Linux, macOS and SLURM; `--shell ps1` for Windows PowerShell (its file gets a byte-order mark, so PowerShell 5.1
+reads a path with accents right). Everything else a run uses is in the project folder, so the lines name only the
+folder.
+
+## Portability
+
+A project folder can be moved, copied or zipped to another computer:
+
+- an image inside the project folder is recorded by its relative path and is found under the new folder; an image
+  elsewhere keeps its absolute path, a UNC path (`\\server\share\...`) as it is. An image that cannot be reached
+  there (a NAS without its VPN) is reported as unreachable by `project status`, and a run names it, "not reachable",
+  and goes on with the others;
+- the config_hash and every stage hash are the same in any folder and on any computer: recipe.yaml names the pack
+  version, the project's copy of that version travels in packs/, and the hashes take the relative names of the
+  pack's files, not where they are. So `project status` on the copy reads the finished images as done, and a run
+  skips them;
+- a run started on one computer and continued on another (or on a cluster) shows up in status as an environment
+  mix: the results are valid, but those made on another device may differ in the last digits.
+
+On Windows without long paths (the LongPathsEnabled setting), keep a project's folder path under about 170
+characters: copying the pack into a new project (`project new`, `pack derive`) and the training loop's reads use
+ordinary paths, which Windows stops at 260 characters, and the deepest files of a project lie well below its
+folder. Images and models past the limit are refused by `project add` and `project use-model`, naming their
+length.
