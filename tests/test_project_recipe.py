@@ -277,6 +277,29 @@ def test_recipe_files_the_manifest_does_not_record_are_kept(project_env, tmp_pat
     assert cm.read_bytes() == own and not mine.exists()
 
 
+def test_a_yaml_error_in_a_hand_edited_recipe_file_is_a_refusal(project_env, tmp_path, capsys):  # noqa: F811
+    """A typo in a hand edit of recipe.yaml or of channel_map.yaml: exit 2 with {"error", "kind"} naming the way
+    back, never a traceback and exit 1; nothing is written, and --revert still goes back to the pack recipe."""
+    img = write_ome_tiff(tmp_path / "in" / "a.ome.tif", names=("DAPI", "RAD-51 Cy3"))
+    proj = new_test_project(tmp_path / "p", images=[img])
+    write_recipe(proj, edits={"spots.log.min_snr": 3.0}, roles={"foci": "RAD-51 Cy3"})
+    for name, needle in (("recipe.yaml", "recipe.yaml: not readable as YAML ("),
+                         ("channel_map.yaml", "a YAML file of the project does not load (")):
+        path = proj.root / name
+        good = path.read_bytes()
+        path.write_bytes(good + b"qc: [unclosed\n")
+        before = snapshot(proj.root)
+        rc = cli_projects.main(["edit", str(proj.root), "--device", "cpu", "--json"])
+        out = last_json(capsys.readouterr().out)
+        assert rc == 2 and needle in out["error"] and " column " in out["error"], out           # where it is
+        assert "--revert" in out["error"] and set(out) == {"error", "kind"} and snapshot(proj.root) == before
+        path.write_bytes(good)
+    (proj.root / "channel_map.yaml").write_bytes(b"roles: [unclosed\n")
+    assert cli_projects.main(["edit", str(proj.root), "--revert", "--json"]) == 0
+    assert last_json(capsys.readouterr().out)["config_hash"] == BASIC_HASH
+    assert not (proj.root / "recipe.yaml").exists() and not (proj.root / "channel_map.yaml").exists()
+
+
 def _model(proj, name="m1", content=b"fine-tuned weights stand-in\n"):
     mdir = proj.root / "training" / "r01" / "models" / name
     mdir.mkdir(parents=True, exist_ok=True)

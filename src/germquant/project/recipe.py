@@ -113,9 +113,18 @@ def _set_nested(d: dict, dotted: str, value) -> None:
     node[parts[-1]] = value
 
 
+def yaml_reason(e: yaml.YAMLError) -> str:
+    """A YAML error in one line: what is wrong and where (line and column, counted from 1)."""
+    problem, mark = getattr(e, "problem", None), getattr(e, "problem_mark", None)
+    if problem and mark is not None:
+        return f"{problem}, line {mark.line + 1} column {mark.column + 1}"
+    lines = str(e).strip().splitlines()
+    return lines[0] if lines else type(e).__name__
+
+
 def read_edits(root, manifest: dict) -> dict:
     """``{dotted key: value}`` that recipe.yaml sets: the extends line left out, and io.channel_map left out when it
-    is the role editor's channel_map.yaml."""
+    is the role editor's channel_map.yaml. ProjectError when the file is missing or is not YAML (a hand edit)."""
     from ..fsutil import read_config_text
 
     if not manifest["recipe"].get("file"):
@@ -124,7 +133,11 @@ def read_edits(root, manifest: dict) -> dict:
     if not p.is_file():
         raise ProjectError(f"{p}: the manifest names it but it is missing; restore it, or go back to the pack recipe "
                            f"with `germquant project edit DIR --revert`")
-    data = yaml.safe_load(read_config_text(p)) or {}
+    try:
+        data = yaml.safe_load(read_config_text(p)) or {}
+    except yaml.YAMLError as e:
+        raise ProjectError(f"{p}: not readable as YAML ({yaml_reason(e)}); fix the file, or go back to the pack "
+                           f"recipe with `germquant project edit DIR --revert`") from None
     if not isinstance(data, dict):
         raise ProjectError(f"{p}: not a mapping")
     data.pop("extends", None)

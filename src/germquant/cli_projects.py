@@ -322,17 +322,25 @@ HANDLERS = {"new": _new, "add": _add, "edit": _edit, "use-model": _use_model, "r
 
 def dispatch(args) -> int:
     """Run the project subcommand parsed into ``args`` (``args.project_cmd``). A refusal (ProjectError, an unknown
-    pack or file, a bad value, a folder that cannot be written) is exit code 2 with the reason on stderr, and as
-    {"error": ...} on stdout with --json."""
+    pack or file, a bad value, a folder that cannot be written, a project file that is not YAML) is exit code 2
+    with the reason on stderr, and as {"error": ...} on stdout with --json."""
+    import yaml
+
     from .packs import PackInstallError
     from .project.manifest import ProjectError
+    from .project.recipe import yaml_reason
 
     try:
         return HANDLERS[args.project_cmd](args)
-    except (ProjectError, PackInstallError, ValueError, OSError) as e:
-        print(f"REFUSED: {e}", file=sys.stderr)
+    except (ProjectError, PackInstallError, ValueError, OSError, yaml.YAMLError) as e:
+        msg = str(e)
+        if isinstance(e, yaml.YAMLError):       # a hand-edited channel map, say: one line, and the way back
+            msg = (f"a YAML file of the project does not load ({yaml_reason(e)}): if recipe.yaml or channel_map.yaml "
+                   f"was edited by hand, fix it, or go back to the pack recipe with `germquant project edit DIR "
+                   f"--revert`")
+        print(f"REFUSED: {msg}", file=sys.stderr)
         if getattr(args, "json", False):
-            _print(json.dumps({"error": str(e), "kind": type(e).__name__}))
+            _print(json.dumps({"error": msg, "kind": type(e).__name__}))
         return 2
 
 

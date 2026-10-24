@@ -88,3 +88,13 @@ def test_python_m_germquant_project_stays_light(project_env, tmp_path):  # noqa:
     assert out["rounds"]["created"] == "r01" and out["unlock"]["removed"] is False
     assert out["edit"]["preview"]["bindings"]["x"]["foci"] == {"channel": "RAD-51", "how": "name"}
     assert out["edit"]["dry_run"] is True and not (root / "channel_map.yaml").exists()
+    # a real edit stays light too; a typo in a hand edit of recipe.yaml afterwards is a refusal (exit 2, JSON)
+    heavy, r = heavy_after(module_main_code("germquant.project", ["edit", str(root), "--set", "spots.log.min_snr=3",
+                                                                  "--role", "foci=RAD-51", "--json"]))
+    assert re.search(r"EXIT 0\b", r.stderr) and heavy == "", (heavy, r.stderr[-2000:])
+    assert json.loads(r.stdout)["written"] == ["channel_map.yaml", "recipe.yaml", "germquant_project.yaml"]
+    rp = root / "recipe.yaml"
+    rp.write_bytes(rp.read_bytes() + b"qc: [unclosed\n")
+    heavy, r = heavy_after(module_main_code("germquant.project", ["edit", str(root), "--device", "cpu", "--json"]))
+    assert re.search(r"EXIT 2\b", r.stderr) and heavy == "", (heavy, r.stderr[-2000:])
+    assert json.loads(r.stdout)["kind"] == "ProjectError" and "Traceback" not in r.stderr
