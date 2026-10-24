@@ -41,6 +41,14 @@ SPOTMAX_DEFAULTS = dict(
 #                      image, and the feature step gets that copy as sharp_spots_image (so the effect size is
 #                      on the sharpened scale, as in SpotMAX's own runs) while its image stays the unsharpened one
 SPOTMAX_OPTIONAL_KEYS = ("spot_radius_z_um", "remove_hot_pixels", "sharpen")
+# single-plane runs (io.planar, docs/PLANAR.md; design 4.7): the z radius in pixels of every SpotMAX call on
+# one plane, as SpotMAX 1.3.1's own core sets it when SizeZ is 1. tests/test_planar_spots.py shows the tables
+# for 0.5, 1.0 and 2.0; it is read when a call runs, never captured as a default
+PLANAR_RZ_PX = 1.0
+# the stage flag of a single-plane SpotMAX call: the z-split merge never runs on one plane. A planar call
+# returns it in attrs["stage_flags"] of both tables, and the calling stage raises each stage flag under its own
+# prefix (spots:z_merge_off_planar for the main instance)
+_Z_MERGE_OFF_PLANAR = "z_merge_off_planar"
 
 
 def detect_spots(
@@ -61,6 +69,7 @@ def detect_spots(
     backend: str = DEFAULT_BACKEND,
     cfg_section: dict | None = None,
     channels: dict | None = None,
+    planar: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (per_spot_df, per_nucleus_df) from the spot detection backend ``backend``: by default
     ``spotmax``, the validated SpotMAX chain of ``detect_spots_spotmax`` below, called with exactly
@@ -74,7 +83,15 @@ def detect_spots(
 
     ``channels`` maps further channel roles to (Z, Y, X) arrays for a backend that declares
     ``input_roles`` (net3d reads ``dna``); it reaches only such a backend, so spotmax and log are
-    called exactly as before whatever is passed."""
+    called exactly as before whatever is passed.
+
+    ``planar`` (single-plane runs, docs/PLANAR.md): the image and the labels are one plane, (1, Y, X), and
+    the backend gets the keyword ``planar=True``, which only a backend that declares ``planar_ok`` may
+    receive: spotmax does; log and net3d do not, and planar.check_planar refuses them before any pixel is
+    read, so the PlanarConfigError raised here is a second guard. The tables of a planar call may carry
+    ``attrs["stage_flags"]``, flags for the calling stage to raise under its own prefix (spotmax:
+    ``z_merge_off_planar``). planar False, the default, calls every backend exactly as before, without the
+    keyword."""
     # precedence: an explicit keyword (not None) wins; else the section's own value; else the SpotMAX default.
     # A caller that passes the shared keys only in cfg_section is therefore not silently overridden.
     section = dict(cfg_section or {})
@@ -90,10 +107,29 @@ def detect_spots(
         elif key not in section:
             section[key] = default
     fn = get_backend(backend)
+    if planar:
+        return conform_result(backend, _call_planar(fn, backend, spot_img, labels, spacing, section, marker,
+                                                    channels))
     if getattr(fn, "input_roles", None):
         return conform_result(backend, fn(spot_img, labels, spacing, cfg_section=section, marker=marker,
                                           channels=dict(channels or {})))
     return conform_result(backend, fn(spot_img, labels, spacing, cfg_section=section, marker=marker))
+
+
+def _call_planar(fn, name: str, spot_img, labels, spacing, section: dict, marker: str, channels):
+    """The call of detect_spots(planar=True): refuse a backend without planar_ok and anything but one plane,
+    then call the backend with planar=True (and its channels, when it declares input_roles)."""
+    from ..planar import PlanarConfigError, planar_ok
+
+    if not planar_ok(fn):
+        raise PlanarConfigError(f"the spot backend {name!r} does not declare planar_ok, so it cannot detect spots "
+                                f"on a single plane (spotmax can; log and net3d cannot)")
+    shape, lab_shape = tuple(np.shape(spot_img)), tuple(np.shape(labels))
+    if len(shape) != 3 or shape[0] != 1 or lab_shape != shape:
+        raise ValueError(f"planar spot detection takes one plane: an image and labels of shape (1, Y, X), got "
+                         f"{shape} and {lab_shape}")
+    kw = {"channels": dict(channels or {})} if getattr(fn, "input_roles", None) else {}
+    return fn(spot_img, labels, spacing, cfg_section=section, marker=marker, planar=True, **kw)
 
 
 def detect_spots_spotmax(
@@ -114,6 +150,7 @@ def detect_spots_spotmax(
     spot_radius_z_um: float | None = None,
     remove_hot_pixels: bool | None = None,
     sharpen: bool | None = None,
+    planar: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The SpotMAX reference implementation, registered as the ``spotmax`` backend (``detect_spots``
     dispatches here by default; the body is the one the stage always ran, so its outputs are unchanged).
@@ -122,6 +159,13 @@ def detect_spots_spotmax(
     (SPOTMAX_OPTIONAL_KEYS); None means absent, and only when one is given does the call take the branch at the
     top, to ``spotmax_options.spotmax_chain_with_options``. Without them the body below runs exactly as it
     always has.
+
+    ``planar`` (single-plane runs, docs/PLANAR.md; design 4.7) takes the first branch at the top: one (1, Y, X)
+    plane through the same options chain with radii (PLANAR_RZ_PX, r / dy, r / dx), the Gaussian sigma over
+    min(dy, dx), the features spacing (1.0, dy, dx) whatever dz is passed, and no z-split merge, which the stage
+    flag ``z_merge_off_planar`` in attrs["stage_flags"] of both tables records. remove_hot_pixels and sharpen
+    apply as in 3D; spot_radius_z_um has no meaning on one plane and is ignored, with a warning.
+
     Return (per_spot_df, per_nucleus_df). Spots are assigned to the nucleus whose mask they fall
     in; `effect_size_min` (>0) drops spots below that spot-vs-background effect size.
 
@@ -138,6 +182,18 @@ def detect_spots_spotmax(
     square of the candidate count (hours on a flooded gonad, before the candidate cap below is
     reached). The peak step therefore runs with germquant's exact replica of that filter installed
     (spots/peak_filter.py, docs/PERFORMANCE.md); the candidates and every output are unchanged."""
+    if planar:
+        from .spotmax_options import spotmax_chain_with_options
+
+        per_spot, per_nuc = spotmax_chain_with_options(
+            spot_img, labels, spacing, marker=marker, spot_radius_um=spot_radius_um, gauss_sigma_um=gauss_sigma_um,
+            thresholding_method=thresholding_method, effect_size_metric=effect_size_metric,
+            effect_size_min=effect_size_min, merge_z_columns=merge_z_columns, z_merge_gap_um=z_merge_gap_um,
+            z_merge_valley_frac=z_merge_valley_frac, max_spot_candidates=max_spot_candidates,
+            spot_radius_z_um=spot_radius_z_um, remove_hot_pixels=remove_hot_pixels, sharpen=sharpen, planar=True)
+        for table in (per_spot, per_nuc):
+            table.attrs["stage_flags"] = [_Z_MERGE_OFF_PLANAR]
+        return per_spot, per_nuc
     if spot_radius_z_um is not None or remove_hot_pixels is not None or sharpen is not None:
         from .spotmax_options import spotmax_chain_with_options
 
