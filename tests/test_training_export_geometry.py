@@ -238,6 +238,20 @@ def test_projected_run_exports_proj_pairs(tmp_path, results, readers):
     assert exp_s["xy_stride"] == 2 and exp_s["z_range"] == [1, 9]
     assert np.array_equal(tifffile.imread(tmp_path / "strided" / s["image"].iloc[0]),
                           _u16(stack.data[0][1:9, ::2, ::2][Z_FOCUS - 1]))
+    # the recorded plane is the one exported (the record, not a new pick, says what the segmenter saw)
+    import shutil
+
+    moved = tmp_path / "recorded"
+    shutil.copytree(yeast, moved)
+    for name in ("run_manifest.json", f"{YEAST_ID}__stages.json"):
+        rec_file = moved / name
+        data = json.loads(rec_file.read_text(encoding="utf-8"))
+        data["segment_projection"]["z"] = Z_FOCUS + 2
+        rec_file.write_text(json.dumps(data), encoding="utf-8")
+    m = TR.export_training_pairs(moved, tmp_path / "recorded_pairs")
+    assert int(m["slice_index"].iloc[0]) == Z_FOCUS + 2
+    assert np.array_equal(tifffile.imread(tmp_path / "recorded_pairs" / m["image"].iloc[0]),
+                          _u16(stack.data[0][Z_FOCUS + 2]))
     # the pairs load back with their orientation, with or without the manifest
     pairs = TR.load_pairs(tmp_path / "plane")
     assert [(p["image_id"], p["orientation"], p["slice_index"]) for p in pairs] == [(YEAST_ID, "proj", Z_FOCUS)]
