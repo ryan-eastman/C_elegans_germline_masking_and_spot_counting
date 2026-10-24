@@ -100,9 +100,16 @@ def test_every_status_and_reason_code(project_env, tmp_path):  # noqa: F811
 
 def test_a_planar_marker_reads_stale_with_the_planar_flag(project_env, tmp_path):  # noqa: F811
     need_p2b()
+    from germquant import pipeline, provenance, stages
+
     proj = project_with_images(tmp_path, names=("a", "pla"))
     assert P.run_project(proj, images=["a"])["exit_code"] == 0
-    _fabricate(proj, "a", "pla", planar=True)
+    # what a single-plane run of this recipe records: the marker's extra and the planar segment sub-hash
+    cfg = P.project_config(proj)
+    planar_seg = stages.stage_hashes(cfg, {}, provenance.tool_versions(), "unused",
+                                     segment_backend=pipeline.segment_backend_provenance(cfg), planar=True)["segment"]
+    marker = json.loads((proj.root / "results" / "a" / "a__done.json").read_text(encoding="utf-8"))
+    _fabricate(proj, "a", "pla", planar=True, stage_hashes={**marker["stage_hashes"], "segment": planar_seg})
     rows = {r["id"]: r for r in P.project_status(proj)["images"]}
     assert (rows["pla"]["status"], rows["pla"]["reason_code"]) == ("stale", "planar_flag")
 
