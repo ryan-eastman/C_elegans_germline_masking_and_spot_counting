@@ -1,8 +1,14 @@
 # SC ribbon straightening and quantification (`germquant sc-straighten`)
 
-Experimental, version 1.0. Every image it writes carries the flag `sc_straighten:uncalibrated` until the
+Experimental, version 2.0. Every image it writes carries the flag `sc_straighten:uncalibrated` until the
 pre-registered protocol (docs/SC_VALIDATION_PROTOCOL.md) has scored the method on its sealed test set. The design
 it implements is docs/SC_STRAIGHTEN_DESIGN.md; the differences are listed at the end of this page.
+
+Version 2.0 is the v2 development round of the protocol (changelog entries 10 to 26). Every change it tried is a
+switch, and none met its pre-registered adoption rule, so every switch is off by default and the defaults give the
+outputs of version 1.0 in every column of 1.0 (tests/test_sc_straighten_v2_compat.py); see "Version 2.0
+switches". New in 2.0: the strand column `punctum_sigma_z_um` and the nucleus columns `n_puncta`,
+`puncta_signal_frac` (both 0 with the punctum class off) and `steep_length_frac`.
 
 ## What it does
 
@@ -13,8 +19,8 @@ and resamples the ribbon along its centreline into a straight strip (Fiji's Stra
 rotation-minimising frames). Along each straightened ribbon it measures the length, the intensity profile, the
 width, gaps and pieces, and the positions of foci (RAD-51 `spots`, COSA-1 or any other `spots_<name>` table)
 along the ribbon. Each strand gets QC flags and an abstaining class (`complete`, `partial`, `merged_suspect`,
-`fragment`, `verified`); each nucleus gets a tier that does not need a perfect decomposition (total length,
-continuity, the on-strand SYP fraction).
+`fragment`, `verified`, and `punctum` when its switch is on); each nucleus gets a tier that does not need a
+perfect decomposition (total length, continuity, the on-strand SYP fraction).
 
 It writes only new files. Nothing in `process_image`, the stage registry, `schema.TABLES`, the config files or
 the existing SC tracer changes, so every existing output stays byte-identical (tests/test_sc_straighten_cli.py
@@ -309,8 +315,8 @@ the strands, gaps, foci and nuclei tables add the shared metadata block after th
 | qc_status | pass, review or fail: the worst level among qc_flags |
 | qc_flags | the nucleus's QC codes, separated by ; |
 | error_message | the exception message of a failed nucleus |
-| n_puncta | punctum strands (the axial blur of SYP puncta or aggregates); under punctum.exclude they are left out of every other count, length, continuity and intensity column of this table |
-| puncta_signal_frac | SYP above background inside the punctum tubes (outside the strand tubes) over SYP above background in the territory |
+| n_puncta | punctum strands (the axial blur of SYP puncta or aggregates; 0 unless punctum.enabled); under punctum.exclude they are left out of every other count, length, continuity and intensity column |
+| puncta_signal_frac | SYP above background inside the punctum tubes (outside the strand tubes) over SYP above background in the territory (0 unless punctum.enabled) |
 | steep_length_frac | share of total_length_um steeper than 60 degrees to the image plane |
 
 ## Method in short
@@ -348,6 +354,28 @@ are in `germquant/sc/straighten/params.py` (DEFAULTS). The keys a development sw
 Development calibration: `scripts/calibrate_sc_straighten.py` (synthetic development seeds only; `--generator
 registered` draws the dense and snr phantoms without the 0.25 um clearance of protocol changelog entry 2(c)).
 
+## Version 2.0 switches (all off by default)
+
+Each change of the v2 round has a switch whose default gives version 1.0 (`V1_VALUES` in
+`germquant/sc/straighten/params.py`; `params.v1_sets()` gives the `--set` lines). Each was designed on the
+development seeds 2000 to 2049 and 3000 to 3049, tuned on 10000 to 10099 and confirmed once on 11000 to 11099 by
+the rule of protocol changelog entry 11 (b): its targeted metric improves by the amount its entry states, and no
+criterion of protocol 8.1 gets worse beyond the tolerances of that entry. None was adopted.
+
+| switch (default) | when on | entries | why it is off |
+|---|---|---|---|
+| `psf.foci: off` | the image PSF's sigma_z from compact isolated RAD-51 foci (scaled to the central_element emission wavelength; flag `psf_from_foci`), else from flat stretches | 12 to 16 | on the confirmation seeds the median per-image error of sigma_z was +3.4 percent at sigma_z 0.33 um (within 3 required; +0.9, -0.4 and -1.8 percent at 0.38, 0.43 and 0.48 um, against +10.6 to -24.0 percent with the fallback) |
+| `punctum.enabled: false` (with `punctum.exclude`, `punctum.before_linking`, `punctum.max_xy_um`, `punctum.sigma_ratio`) | class and flag `punctum` for a steep strand at most 0.5 um long in the image plane whose axial extent fits the axial PSF (the blur of a SYP punctum or aggregate); with `exclude` such strands leave the nucleus tier | 16 to 19 | removing them from the tier cut the excess length of dense nuclei with puncta by 36 and 54 percent (60 required); as a label only, the confirmation labelled one strand of a gapped ribbon (none allowed) |
+| `follow.contact_test: local` (`claim_tangent`) | the tracer's contact stop compares the trace with the tangent of the strand that claimed the voxel instead of the local line direction | 20, 21 | on the tuning seeds breaks after the tracer fell by 18 percent (30 required) and strand switches rose by 13.5 percent (10 allowed): most traces released at a crossing do not regain their ribbon behind it (dense totals -6.9 to -1.4 percent, not a targeted metric) |
+| `link.junction_dirs: false` (with `link.junction_gap`, `link.max_chain_um`) | end directions measured beyond the points of an end's last 1 um that lie within one PSF FWHM of another strand; such pairs judged by the distance between their tips; optionally a bound on chain length | 21 to 23 | as first specified it made wrong links (gaps estimated from shifted anchors); revision 1 cut wrong links by 31 percent but lost correct ones (179 to 172) and raised the dense SD (8.6 to 8.8 percent) |
+| `classes.complete_guard: false` (with `classes.complete_guard_fwhm` 2.0, `classes.max_complete_um` 9.0) | a `complete` strand also needs a length of at most 9 um, no end within the contamination reach of another strand, and no other strand's end along it | 23 to 25 | on the confirmation seeds the pooled precision of `complete` rose from 0.88 to 0.94, but in dense nuclei only from 0.67 to 0.74 (0.80 required) |
+
+Two further changes of the plan were built and run on the design seeds only and not proposed (entries 23 and 24): a
+junction-aware end fit (it shortened ends near other strands) and the re-pairing of branches at junction zones (it
+did not reduce the turns and end-to-end joins of the final strands). The development phantom families of the
+round (`psf_check`, `puncta_pt`, `puncta_agg`, `dense_puncta`, `real_dense`; germquant.sc.straighten.synth_dev)
+are not registered.
+
 ## QC flags
 
 `qc_status` is `fail` when any fail flag is present, else `review` when any review flag is present, else `pass`.
@@ -374,7 +402,7 @@ positive and a negative case.
 | fit_residual | strand | review | qc.fit_rms_review_um | centreline fit residual RMS above fit_rms_review_um |
 | gap_long | strand | review | qc.gap_long_um | a gap of gap_long_um or more |
 | saturated | strand | review | qc.saturated_frac | more than saturated_frac of the core samples at the detector maximum |
-| punctum | strand | info | punctum.sigma_ratio | a steep strand at most punctum.max_xy_um long in the image plane whose axial extent fits the image's axial PSF: the axial blur of a SYP punctum or aggregate (class punctum, left out of the nucleus tier) |
+| punctum | strand | info | punctum.sigma_ratio | a steep strand at most punctum.max_xy_um long in the image plane whose axial extent fits the image's axial PSF: the axial blur of a SYP punctum or aggregate (class punctum; only with punctum.enabled, off by default) |
 | imported | strand | info | - | geometry imported from a file (Imaris Filaments, SWC or CSV) |
 | verified | strand | info | - | imported geometry marked verified |
 | error | strand | fail | - | an exception while measuring the strand (error:<Type>) |
@@ -401,8 +429,9 @@ positive and a negative case.
 
 `verified` (imported with verified=true), `fragment` (under 1 um), `merged_suspect`, `complete` (both ends
 `free_fit`, link cost at most 60, at most 30 percent contaminated, at least 80 percent in its label, no review or
-fail flag) and `partial` (everything else). Nucleus totals use every strand after the accounting step; nuclei
-without SC keep their weak strands and their total (a status never zeroes a column).
+fail flag) and `partial` (everything else); `punctum` only with `punctum.enabled`, and the stricter `complete`
+only with `classes.complete_guard` (both off; see Version 2.0 switches). Nucleus totals use every strand after the
+accounting step; nuclei without SC keep their weak strands and their total (a status never zeroes a column).
 
 Per-chromosome statistics are not supported yet. The `complete` class is the only candidate for them, and its
 precision is measured only on synthetic data: high for isolated ribbons, about 0.7 in dense phantom nuclei, and
@@ -418,9 +447,10 @@ almost no nucleus is a `complete_nucleus`, so `total_length_complete_um` is near
   carry a spline overshoot of about 0.03 to 0.05 um each.
 * `length_xy_um` ignores z and runs a little short at steep tilt (-0.07 um at 45 degrees to -0.14 um at 90 degrees
   over a few um).
-* Dense nuclei: the totals run about 5 percent short with a spread of 8 to 9 percent, and 14 percent short when
-  ribbons may pass through each other (the generator as registered); per-ribbon decomposition is rarely complete
-  (see Strand classes).
+* Dense nuclei: the totals run about 5 to 7 percent short with a spread of 8 to 9 percent, and 14 to 15 percent
+  short when ribbons may pass through each other (the generator as registered); per-ribbon decomposition is rarely
+  complete (see Strand classes). The v2 round traced the losses to junctions (ends inside another ribbon's blur
+  come out short, tracer breaks at crossings, links across junctions); none of its changes fixed them.
 * Real data: 39 to 46 percent of the traced strand length on the development gonads runs steeper than 60 degrees
   to the image plane, against 13 percent for randomly oriented ribbons; many short steep strands are probably the
   axial blur of SYP puncta or aggregates. The phantoms hold no puncta, so this is not measured by them.
@@ -437,8 +467,25 @@ Not validated. The pre-registered protocol (docs/SC_VALIDATION_PROTOCOL.md) fixe
 test set of images, synthetic development and sealed seeds, the metrics and the success criteria; the test set is
 scored once, later, by the orchestrator (`scripts/benchmark_sc.py zones|synthetic|filaments --final --reason
 TEXT`, with the frozen parameters and thresholds of the freeze entry; every --final run is logged). Development
-results are kept under `C:/Users/ryane/sc_ribbon_work/dev_eval/` (summary_<commit>.json); they are not test
-results and claim nothing.
+results are kept under `C:/Users/ryane/sc_ribbon_work/dev_eval/` (summary_<commit>.json); they are not test results
+and claim nothing.
+
+The intensity comparator of S2 (`central_element_mean_intensity`) measures the amount of SYP in a nucleus, not the
+continuity of its SC (protocol changelog entry 10): on development phantoms whose ribbons were cut into pieces it
+separated continuous from cut ribbons with an AUC of 0.55 to 0.61, against 0.99 to 1.00 for `piece_lw_mean_um`, so
+its lead on the zone labels does not show that intensity reads continuity.
+
+Development snapshot of version 2.0 (protocol changelog entry 26; computed once on the fresh seeds 12000 to 12099,
+`dev_eval/summary_a711fe5.json`): the configuration proposed for the freeze (every switch off) and version 1.0 give
+the same numbers. Met: S1a (isolated ribbons: mean length error +0.076 um, 95 percent limits -0.07 to +0.22 um,
+median centreline distance 0.017 um, one strand per ribbon in all), S1c (gap precision 1.00, recall 0.91, gap length
+error 0.034 um), S1d (0.064 um, all on the right ribbon) and S1f; not met: S1b (dense nuclei: mean total -6.7 percent,
+SD 8.7 percent, CCC 0.49; coverage 0.96 and off-truth 0.01 pass) and S1e (complete precision 0.890 pooled against
+0.90; 0.67 in dense nuclei). With the registered generator the dense totals run 15.3 percent short (SD 9.9 percent,
+CCC 0.22). No zone checkpoint was run in v2, since no change that reaches an S2 input was adopted. The hold-out
+check H1 (entry 26) had one gonad with a germquant run, 20251021_n2_nohs_HERM_2, so it decides nothing: S2b
+0.989; S2a not evaluable under the registered guard and 0.739 under guard_frac 0.25 (intensity comparator 0.670);
+SC_fullstart within one point spacing with the thresholds of the twelve (out of sample).
 
 Development snapshot after the review fixes (commit 6b7be22; synthetic development seeds 2000 to 2049 and the
 fresh seeds 3000 to 3049, 50 scenes per family; twelve development gonads, the eight of 2025-11-05 and the four

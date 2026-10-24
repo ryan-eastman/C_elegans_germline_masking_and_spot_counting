@@ -272,10 +272,10 @@ COLUMN_DOCS: dict[str, dict[str, str]] = {
         "qc_status": "pass, review or fail: the worst level among qc_flags",
         "qc_flags": "the nucleus's QC codes, separated by ;",
         "error_message": "the exception message of a failed nucleus",
-        "n_puncta": "punctum strands (the axial blur of SYP puncta or aggregates); under punctum.exclude they are left "
-                    "out of every other count, length, continuity and intensity column of this table",
+        "n_puncta": "punctum strands (the axial blur of SYP puncta or aggregates; 0 unless punctum.enabled); under "
+                    "punctum.exclude they are left out of every other count, length, continuity and intensity column",
         "puncta_signal_frac": "SYP above background inside the punctum tubes (outside the strand tubes) over SYP above "
-                              "background in the territory",
+                              "background in the territory (0 unless punctum.enabled)",
         "steep_length_frac": "share of total_length_um steeper than 60 degrees to the image plane",
     },
 }
