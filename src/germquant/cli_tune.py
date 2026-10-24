@@ -65,8 +65,8 @@ def dispatch(args) -> int:
         if given:
             print(f"ERROR: --apply writes a finished run's best.yaml; it takes no {', '.join(given)}", file=sys.stderr)
             return 2
-    open_project = (apply_api() if args.apply is not None else tune_api())[0]
     try:
+        open_project = (apply_api() if args.apply is not None else tune_api())[0]
         project = open_project(args.project)
     except Exception as e:  # noqa: BLE001 - any failure to open the project refuses the command
         print(f"ERROR: cannot open the project {args.project}: {type(e).__name__}: {e}", file=sys.stderr)
