@@ -253,6 +253,38 @@ def test_resume_skips_a_matching_sub_hash(tmp_path):
 
 
 @pytest.mark.usefixtures("fixture_post_stage")
+def test_an_empty_list_leaves_a_record_with_no_stages(tmp_path):
+    """Review S4: the record lists the post-stages of the list in force, also when that list is empty (every
+    post-stage switched off): a record an earlier list left is rewritten once with no stages and the digest of
+    the list or file in force, and the old tables stay on disk. A folder that never had a record still gets
+    none, so a run without post-stages writes nothing."""
+    rf = make_result_folder(tmp_path)
+    record = rf.out_dir / f"{rf.image_id}__post.json"
+    assert _run(rf, [{"name": N}])["ran"] == [N]
+    res = _run(rf, [])
+    rec = post_record(rf.out_dir, rf.image_id)
+    assert rec == {"format": 1, "image_id": rf.image_id, "post_stages_file_sha256": PS.post_stages_sha256([]),
+                   "stages": {}}, rec
+    assert res["post"] == rec and res["ran"] == res["skipped"] == res["failed"] == [] and "error" not in res
+    assert (rf.out_dir / _table_file(rf.image_id)).is_file(), "an old table must stay on disk"
+    stamp = record.stat().st_mtime_ns
+    assert _run(rf, [])["post"] == rec and record.stat().st_mtime_ns == stamp, "the record was written again"
+    written = tmp_path / "post_stages.yaml"
+    PS.write_post_stages_file(written, [])
+    assert _run(rf, written)["post"] == rec and record.stat().st_mtime_ns == stamp, \
+        "an empty file written by germquant digests like the empty list"
+    by_hand = tmp_path / "by_hand.yaml"
+    by_hand.write_bytes(b"# every post-stage off for now\n")
+    assert _run(rf, by_hand)["post"] == {**rec, "post_stages_file_sha256": PS.post_stages_sha256(by_hand)}
+    assert post_record(rf.out_dir, rf.image_id)["stages"] == {}
+    fresh = make_result_folder(tmp_path / "fresh")
+    before = snapshot(fresh.out_dir)
+    for empty in ([], None, by_hand):
+        assert _run(fresh, empty)["post"] is None
+    assert snapshot(fresh.out_dir) == before, "a folder without a record gained a file"
+
+
+@pytest.mark.usefixtures("fixture_post_stage")
 def test_failure_recorded_image_stays_done(tmp_path):
     """Acceptance 4: a failing post-stage is recorded in __post.json and the image stays done (the completion
     marker is byte-identical and is_done still says done). Entries that cannot run are recorded, never raised."""

@@ -376,6 +376,20 @@ def _main_problem(marker: dict | None, cfg) -> str | None:
     return None
 
 
+def _write_record(out_dir: Path, image_id: str, record: dict, old, result: dict) -> None:
+    """Write <image_id>__post.json when its content changed (so a fully resumed call leaves it byte-identical)
+    and put it in result["post"]. A write that fails sets result["error"] and never raises: the record is the
+    post-stages' own, and the image stays done."""
+    if record != old:
+        try:
+            write_text_atomic(post_record_path(out_dir, image_id),
+                              json.dumps(record, indent=1, ensure_ascii=True, default=str) + "\n")
+        except Exception as e:  # noqa: BLE001 - the record is the post-stages' own; the image stays done
+            log.warning("%s: could not write the post-stage record (%s: %s)", image_id, type(e).__name__, e)
+            result["error"] = f"the post-stage record could not be written ({type(e).__name__}: {e})"
+    result["post"] = record
+
+
 def run_post_stages(out_dir, image_id: str, entries, *, cfg, image_path, stack=None, resume: bool = True) -> dict:
     """Run the post-stages ``entries`` on the finished result folder ``out_dir`` of image ``image_id``.
 
@@ -386,8 +400,10 @@ def run_post_stages(out_dir, image_id: str, entries, *, cfg, image_path, stack=N
     with the same sub-hash and whose tables exist.
 
     Returns {"image_id", "record" (the path of __post.json), "ran", "skipped", "failed" (post-stage names),
-    "post" (the record, None when nothing was listed)}, plus "error" when the list itself cannot be read. An
-    empty list writes nothing and calls nothing. Never raises for a post-stage's failure."""
+    "post" (the record in force; None when nothing was listed and the folder holds no record)}, plus "error"
+    when the list itself cannot be read or the record cannot be written. An empty list (or None) calls nothing
+    and writes nothing, except that a record an earlier list left is rewritten with no stages (once), so the
+    record always lists the stages of the list in force. Never raises for a post-stage's failure."""
     from .. import pipeline  # noqa: F401  (D28: torch first, before any reader, CuPy or post-stage module)
 
     out_dir = Path(out_dir)
@@ -407,6 +423,13 @@ def run_post_stages(out_dir, image_id: str, entries, *, cfg, image_path, stack=N
             return result
     entries = list(entries)
     if not entries:
+        # every post-stage switched off: a record an earlier list left lists no stage from now on (the old tables
+        # stay on disk); a folder without a record gets none
+        old = read_post_record(out_dir, image_id)
+        if old is not None:
+            empty = {"format": RECORD_FORMAT, "image_id": image_id,
+                     "post_stages_file_sha256": file_sha or text_sha256(canonical_text([], {})), "stages": {}}
+            _write_record(out_dir, image_id, empty, old, result)
         return result
     shape = entries_problems(entries)
     if shape:
@@ -472,12 +495,5 @@ def run_post_stages(out_dir, image_id: str, entries, *, cfg, image_path, stack=N
         stages[name] = rec
         result["ran" if rec["done"] else "failed"].append(name)
     record = {"format": RECORD_FORMAT, "image_id": image_id, "post_stages_file_sha256": file_sha, "stages": stages}
-    if record != old:
-        try:
-            write_text_atomic(post_record_path(out_dir, image_id),
-                              json.dumps(record, indent=1, ensure_ascii=True, default=str) + "\n")
-        except Exception as e:  # noqa: BLE001 - the record is the post-stages' own; the image stays done
-            log.warning("%s: could not write the post-stage record (%s: %s)", image_id, type(e).__name__, e)
-            result["error"] = f"the post-stage record could not be written ({type(e).__name__}: {e})"
-    result["post"] = record
+    _write_record(out_dir, image_id, record, old, result)
     return result

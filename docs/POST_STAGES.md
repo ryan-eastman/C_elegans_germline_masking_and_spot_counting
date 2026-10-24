@@ -200,6 +200,8 @@ new version of the post-stage or another `post_stages.yaml` each give a new sub-
 On the next call a post-stage is skipped when its record says `done`, its `sub_hash` is the same and its tables
 are still there; anything else runs again, the post-stage only. The record lists the post-stages of the current
 file: one taken out of `post_stages.yaml` leaves the record on the next call, while its old tables stay on disk.
+An empty list (every post-stage switched off) leaves a record with no stages, and a folder that never had a
+record gets none.
 
 A failure is written into the record with `done: false` and the reason in `error`, and the other post-stages
 still run: a post-stage that is not installed, a parameter outside its range, an exception from the function, a
