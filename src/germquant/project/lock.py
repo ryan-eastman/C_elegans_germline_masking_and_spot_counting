@@ -105,8 +105,10 @@ def unlock_hint(root, holder: dict) -> str:
 def _refusal(root, holder: dict) -> str:
     msg = (f"the project {root} is locked by {describe(holder)}: another germquant command is writing it; try again "
            f"when it has finished.")
-    if holder.get("unreadable") or is_stale(root, holder):
+    if is_stale(root, holder):
         msg += f" The lock is older than {STALE_AFTER_TEXT}: {unlock_hint(root, holder)}."
+    elif holder.get("unreadable"):           # a writer between its exclusive create and its write, or one that stopped
+        msg += f" Its lock file cannot be read: {unlock_hint(root, holder)}."
     return msg
 
 

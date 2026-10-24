@@ -168,6 +168,15 @@ def test_the_lock_is_an_exclusive_create_and_a_second_writer_is_refused(project_
     assert "otherhost" in msg and "4242" in msg and "germquant project add" in msg and "older than" not in msg
     assert e.value.holder["host"] == "otherhost" and e.value.holder["pid"] == 4242
     assert (proj.root / "germquant_project.yaml").read_bytes() == before and lockf.exists()
+    lockf.write_bytes(b"")                     # a writer between its exclusive create and its write: not an old lock
+    with pytest.raises(ProjectLockedError, match="cannot be read") as e:
+        save_project(proj, device="cpu")
+    assert "older than" not in str(e.value) and "delete" in str(e.value) and lockf.read_bytes() == b""
+    lockf.unlink()
+    with L.project_lock(proj.root, "test writer"):     # the lock is removed only by its maker
+        other = {"host": "otherhost", "pid": 4242, "time": "2026-10-24T00:00:00+00:00", "command": "x"}
+        lockf.write_text(json.dumps(other), encoding="ascii")
+    assert json.loads(lockf.read_text(encoding="ascii")) == other
 
 
 def test_an_old_lock_is_reported_and_only_unlock_with_its_holder_removes_it(project_env, tmp_path,  # noqa: F811
@@ -191,6 +200,7 @@ def test_an_old_lock_is_reported_and_only_unlock_with_its_holder_removes_it(proj
     assert cli_projects.main(["unlock", str(proj.root), "--host", "otherhost", "--pid", "1", "--json"]) == 2
     out = last_json(capsys.readouterr().out)
     assert out["removed"] is False and out["lock"]["pid"] == 4242 and lockf.exists()
+    assert out["kind"] == "ProjectError" and "not by otherhost pid 1" in out["error"]   # like every refusal
     assert cli_projects.main(["unlock", str(proj.root), "--host", "otherhost", "--pid", "4242", "--json"]) == 0
     out = last_json(capsys.readouterr().out)
     assert out == {"removed": True, "lock": {"host": "otherhost", "pid": 4242, "since": out["lock"]["since"],

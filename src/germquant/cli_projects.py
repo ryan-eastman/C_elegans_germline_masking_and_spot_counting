@@ -309,7 +309,7 @@ def _unlock(args) -> int:
         removed = L.break_lock(root, host=args.host, pid=args.pid)
     except ProjectError as e:
         print(f"REFUSED: {e}", file=sys.stderr)
-        _emit(args, {"removed": False, "lock": lock, "stale": stale, "error": str(e)}, [])
+        _emit(args, {"removed": False, "lock": lock, "stale": stale, "error": str(e), "kind": type(e).__name__}, [])
         return 2
     _emit(args, {"removed": removed, "lock": lock, "stale": stale},
           ["removed the lock of " + L.describe(holder) if removed else "the project is not locked"])
