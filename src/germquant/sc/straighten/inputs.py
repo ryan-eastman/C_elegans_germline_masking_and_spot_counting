@@ -300,32 +300,44 @@ def canonical_dask(darr, dims: list[str], *, xy_stride: int = 1, z_range=None):
     return darr
 
 
+class ND2Planes:
+    """``planes(role, z)`` -> one (Y, X) plane of a role's channel of an .nd2, with the dask construction of
+    germquant.io.read_stack; ``shape`` is (C, Z, Y, X) after z_range and the xy stride. Each call computes one
+    frame, so only one frame is in memory at a time."""
+
+    def __init__(self, path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None):
+        import nd2
+
+        with nd2.ND2File(str(path)) as f:
+            sizes = dict(f.sizes)
+            darr = f.to_dask()
+        self.darr = canonical_dask(darr, list(sizes.keys()), xy_stride=xy_stride, z_range=z_range)
+        self.roles = dict(roles)
+        self.shape = tuple(int(v) for v in self.darr.shape)
+
+    def __call__(self, role: str, z: int) -> np.ndarray:
+        return np.asarray(self.darr[int(self.roles[role]), int(z)])
+
+
 def nd2_role_arrays(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None) -> dict:
-    """The roles' channels of an .nd2 as (Z, Y, X) arrays, read one channel at a time (the peak is about one
-    channel) with the same dask construction as germquant.io.read_stack."""
-    import nd2
+    """The roles' channels of an .nd2 as (Z, Y, X) arrays, filled plane by plane: computing a whole channel at
+    once keeps every frame's other channels alive until the end (the frames are the dask chunks), which on a
+    106 x 2720 x 2720 stack is three channels, 4.7 GB, for one channel of 1.6 GB."""
+    planes = ND2Planes(path, roles, xy_stride=xy_stride, z_range=z_range)
+    out = {}
+    for role in roles:
+        first = planes(role, 0)
+        arr = np.empty((planes.shape[1],) + first.shape, first.dtype)
+        arr[0] = first
+        for z in range(1, planes.shape[1]):
+            arr[z] = planes(role, z)
+        out[role] = arr
+    return out
 
-    with nd2.ND2File(str(path)) as f:
-        sizes = dict(f.sizes)
-        darr = f.to_dask()
-    darr = canonical_dask(darr, list(sizes.keys()), xy_stride=xy_stride, z_range=z_range)
-    return {role: np.asarray(darr[int(ci)]) for role, ci in roles.items()}
 
-
-def nd2_role_planes(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None):
-    """``plane(role, z)`` -> one (Y, X) plane of a role's channel of an .nd2 (the dask construction of
-    germquant.io.read_stack; each call computes one frame)."""
-    import nd2
-
-    with nd2.ND2File(str(path)) as f:
-        sizes = dict(f.sizes)
-        darr = f.to_dask()
-    darr = canonical_dask(darr, list(sizes.keys()), xy_stride=xy_stride, z_range=z_range)
-
-    def plane(role: str, z: int) -> np.ndarray:
-        return np.asarray(darr[int(roles[role]), int(z)])
-
-    return plane
+def nd2_role_planes(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None) -> ND2Planes:
+    """``plane(role, z)`` -> one (Y, X) plane of a role's channel of an .nd2 (one frame per call)."""
+    return ND2Planes(path, roles, xy_stride=xy_stride, z_range=z_range)
 
 
 def role_planes(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None):

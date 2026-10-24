@@ -63,3 +63,6 @@ def test_channel_subset_equals_read_stack_on_a_development_image():
     st = read_stack(HERM000, z_range=(30, 33))
     got = inputs.nd2_role_arrays(HERM000, {"central_element": 1, "foci": 2}, z_range=[30, 33])
     assert np.array_equal(got["central_element"], st.data[1]) and np.array_equal(got["foci"], st.data[2])
+    assert got["central_element"].dtype == st.data.dtype
+    planes = inputs.nd2_role_planes(HERM000, {"foci": 2}, z_range=[30, 33])
+    assert planes.shape[1] == 3 and np.array_equal(planes("foci", 1), st.data[2][1])

@@ -429,13 +429,16 @@ def cmd_zones(a) -> int:
                                  "SC_fragstart_hit": False, "SC_fraglate_hit": False})
             hdf = pd.DataFrame(hits)
             hdf.to_csv(out / "zones_boundaries.csv", index=False)
+            # rates over the gonads with output (protocol section 10: criteria are evaluated over the images with
+            # output and labelled with their number; the rows of the others say "no output")
             sc_rows = hdf[hdf["gonad"].isin([p_[0] for p_ in payload])]
-            summary["S2c_fullstart_hit_rate"] = float(hdf["SC_fullstart_hit"].astype(bool).mean())
+            summary["S2c_n_gonads"] = int(len(sc_rows))
+            summary["S2c_fullstart_hit_rate"] = float(sc_rows["SC_fullstart_hit"].astype(bool).mean())
             summary["S2c_fullstart_found_rate"] = float(sc_rows["SC_fullstart_found"].astype(bool).mean())
             found = sc_rows["SC_fullstart_abs_err_um"].dropna()
             summary["S2c_fullstart_median_err_um"] = float(found.median()) if len(found) else float("nan")
-            summary["fragstart_hit_rate"] = float(hdf["SC_fragstart_hit"].astype(bool).mean())
-            summary["fraglate_hit_rate"] = float(hdf["SC_fraglate_hit"].astype(bool).mean())
+            summary["fragstart_hit_rate"] = float(sc_rows["SC_fragstart_hit"].astype(bool).mean())
+            summary["fraglate_hit_rate"] = float(sc_rows["SC_fraglate_hit"].astype(bool).mean())
         (out / "zones_summary.json").write_text(json.dumps(summary, indent=1,
                                                            default=lambda o: None if o != o else o))
         if not a.final:
@@ -456,7 +459,7 @@ def cmd_zones(a) -> int:
                 "n_gonads": len(scored), "gonads": [r["gonad"] for r in scored], "guard_frac": a.guard_frac,
                 "S2a": summary.get("piece_lw_mean_um__auc_full_vs_frag"),
                 "S2b": summary.get("total_length_um__auc_sc_vs_none"),
-                "S2c_hit_rate": summary.get("S2c_fullstart_hit_rate"),
+                "S2c_hit_rate": summary.get("S2c_fullstart_hit_rate"), "S2c_n_gonads": summary.get("S2c_n_gonads"),
                 "S2c_median_err_um": summary.get("S2c_fullstart_median_err_um"),
                 "theta_full": summary.get("theta_full"), "theta_present": summary.get("theta_present"),
                 "synthetic_gates": gates, "out": str(out)})
