@@ -292,10 +292,11 @@ The run is refused, before any image is read and with nothing written (exit 2, t
 
 The exit code is 0 when every image was done or skipped, 1 when an image failed, and 2 for a refusal. A run
 never writes the manifest and takes no lock; an edit made while a run goes on applies from the next run (the
-run keeps the recipe it started with, and the images it finished then read stale). `--json` prints the run's record on stdout, `{"run_id", "log",
-"counts": {"done", "failed", "skipped"}, "exit_code", "interrupted", "warnings", "message"}`, and the progress
-lines on stderr. Ctrl-C stops the run between images, and the plugin's Cancel stops it at once: the image in
-progress has no completion marker, so the next run does it again, and the images already done are skipped.
+run keeps the recipe it started with, and the images it finished then read stale). `--json` prints the run's
+record on stdout, `{"run_id", "log", "counts": {"done", "failed", "skipped"}, "exit_code", "interrupted",
+"warnings", "message"}`, and the progress lines on stderr. Ctrl-C stops the run between images, and the
+plugin's Cancel stops it at once: the image in progress has no completion marker, so the next run does it
+again, and the images already done are skipped.
 
 The Python API is the same code: germquant.project.run_project(project, images=None, resume=True, device=None,
 shard=None, progress=None, *, via="cli", run_id=None, should_stop=None), also in germquant.api, with
@@ -333,8 +334,8 @@ that are still done. To make Snakemake check every image anyway, add `--forcerun
 
 Snakemake comes with the workflow extra (`uv pip install -e ".[workflow]"` from the repository folder), or from an
 environment of its own. Its shell steps call the `germquant` command, which must be on PATH (the engine's
-environment activated, or its Scripts or bin folder added to PATH). The default mode of the workflow (`--configfile workflow/config.yaml`, one job per .nd2 of
-a folder) is unchanged.
+environment activated, or its Scripts or bin folder added to PATH). The default mode of the workflow
+(`--configfile workflow/config.yaml`, one job per .nd2 of a folder) is unchanged.
 
 ## Run logs
 
