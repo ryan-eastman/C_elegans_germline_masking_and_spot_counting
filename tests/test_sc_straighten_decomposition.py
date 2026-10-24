@@ -1,5 +1,6 @@
 """Decomposition changes of sc_straighten v2 (protocol changelog entries 20 on): the contact stop against the
-claiming strand's tangent."""
+claiming strand's tangent (entry 20, withdrawn by entry 21: a switch, off by default) and the end matching (entry
+21)."""
 from __future__ import annotations
 
 import numpy as np
@@ -42,7 +43,7 @@ def _x_crossing(angle_deg: float, dz: float, seed: int):
 @pytest.mark.parametrize("angle", [64.0, 80.0])
 def test_trace_passes_a_crossing_against_the_claiming_tangent(monkeypatch, angle):
     sc = _x_crossing(angle, 0.3, 2111)
-    new, res = _traced(monkeypatch, sc, [])
+    new, res = _traced(monkeypatch, sc, ["follow.contact_test=claim_tangent"])
     assert sum(1 for L, _e in new if L >= 6.0) >= 1               # the second ribbon is traced whole
     old, res_v1 = _traced(monkeypatch, sc, ["follow.contact_test=local"])
     long_old = [L for L, _e in old if L >= 6.0]
@@ -68,3 +69,38 @@ def test_parallel_pair_and_t_contact_are_unchanged():
     sc = synth.custom_scene([{"points": bar, "peak": 430.0}, {"points": stem, "peak": 430.0}], seed=104)
     res = _run(sc)
     assert "contact" in set(res.strands["end0_class"]) | set(res.strands["end1_class"])
+
+
+# ------------------------------------------------------------------------------------ the end matching (entry 21)
+def _poly(pts, n=30):
+    pts = np.asarray(pts, float)
+    out = [pts[0]]
+    for a, b in zip(pts[:-1], pts[1:]):
+        out.extend(a + np.linspace(0, 1, n)[1:, None] * (b - a))
+    return np.asarray(out)
+
+
+def test_ends_hooked_toward_a_crossing_ribbon_are_linked():
+    from germquant.sc.straighten import link
+    from germquant.sc.straighten.follow import RawStrand
+
+    A = RawStrand(_poly([(2, 0, 0), (2, 0, 2.5), (2, 0.8, 2.65)]), ["free", "free"])
+    Bs = RawStrand(_poly([(2, 0.8, 2.75), (2, 0, 2.9), (2, 0, 5.4)]), ["free", "free"])
+    C = RawStrand(_poly([(2, -2.5, 2.7), (2, 2.5, 2.7)]), ["free", "free"])
+    new = link.link_strands([A, C, Bs], params.resolve())
+    old = link.link_strands([A, C, Bs], params.resolve(None, ["link.junction_dirs=false"]))
+    assert sorted(len(s.links) for s in new) == [0, 1] and len(new) == 2
+    assert len(old) == 3 and all(len(s.links) == 0 for s in old)
+
+
+@pytest.mark.parametrize("pieces,n_out", [([(0, 3.4), (3.7, 7.1), (7.4, 10.5)], 2), ([(0, 2.8), (3.1, 5.9), (6.2, 8.9)], 1)])
+def test_chain_bound(pieces, n_out):
+    from germquant.sc.straighten import link
+    from germquant.sc.straighten.follow import RawStrand
+
+    strands = [RawStrand(_poly([(2, 2, a), (2, 2, b)]), ["free", "free"]) for a, b in pieces]
+    out = link.link_strands(strands, params.resolve())
+    assert len(out) == n_out and max(s.length_um for s in out) <= 9.0 + 1e-6
+    if n_out == 2:
+        assert all(e == "free" for s in out for e in s.end_types)
+    assert len(link.link_strands(strands, params.resolve(None, ["link.max_chain_um=null"]))) == 1

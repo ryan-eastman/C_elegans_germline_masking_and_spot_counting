@@ -7,6 +7,12 @@ most ``max_skew_um`` (the skew criterion; ``null`` switches it off). Cost ``gap_
 skew_cost * skew`` (degrees, um); an unlinked end costs ``unlinked_cost``; ``networkx.max_weight_matching`` with
 weight ``2 * unlinked_cost - cost`` on a graph built in sorted end order. A strand's two ends never pair with
 each other; chains become strands and a closed chain is cut at its most expensive link (``cycle_cut`` ends).
+
+v2 (protocol changelog entry 21): with ``link.junction_dirs`` an end whose last ``JUNCTION_REACH_UM`` holds points
+within one PSF FWHM (axial and lateral) of another strand takes its anchor and outward direction from the first
+point beyond them (inside a junction the traced end hooks toward the neighbour), the gap still counted from the
+tip; with ``link.max_chain_um`` a matched chain longer than the bound is cut at its most expensive link, again
+until none is longer, and the cut ends are free.
 """
 from __future__ import annotations
 
@@ -15,6 +21,9 @@ import math
 import numpy as np
 
 from .follow import LINKABLE_ENDS, RawStrand, arclen
+
+JUNCTION_REACH_UM = 1.0          # entry 21 (a): how far from the tip junction points are looked for
+FWHM = 2.0 * math.sqrt(2.0 * math.log(2.0))
 
 
 def end_direction(points: np.ndarray, side: int, window=(0.3, 1.2), tip_um: float = 0.3):
@@ -43,6 +52,44 @@ def end_direction(points: np.ndarray, side: int, window=(0.3, 1.2), tip_um: floa
     return anchor.copy(), (d / n if n > 1e-12 else np.array([0.0, 0.0, 1.0])), float(s[k])
 
 
+def junction_shift(points: np.ndarray, side: int, others: np.ndarray | None, fwhm_um) -> float:
+    """Arc length from end ``side`` to the first point beyond the points of the strand's last
+    ``JUNCTION_REACH_UM`` that lie within one PSF FWHM (``fwhm_um`` = (axial, lateral)) of ``others`` (the other
+    strands' points); 0 when there are none."""
+    if others is None or not len(others) or len(points) < 3:
+        return 0.0
+    from scipy.spatial import cKDTree
+
+    P = points if side == 0 else points[::-1]
+    s = arclen(P)
+    near_end = s <= JUNCTION_REACH_UM
+    if not near_end.any():
+        return 0.0
+    fz, fxy = (float(v) for v in fwhm_um)
+    sc = np.array([1.0 / fz, 1.0 / fxy, 1.0 / fxy])
+    tree = cKDTree(np.asarray(others, float) * sc)
+    d, _ = tree.query(P[near_end] * sc, distance_upper_bound=1.0)
+    hit = np.nonzero(np.isfinite(d))[0]
+    if not len(hit):
+        return 0.0
+    k = int(hit.max()) + 1                       # the first point beyond the junction points
+    if k >= len(P) or s[-1] - s[k] < 0.3:        # nothing usable beyond them: keep the v1 end
+        return 0.0
+    return float(s[k])
+
+
+def end_geometry(points: np.ndarray, side: int, window, tip_um: float, shift_um: float = 0.0):
+    """end_direction measured from ``shift_um`` inside the end: (anchor, direction, anchor arc from the tip)."""
+    if shift_um <= 0:
+        return end_direction(points, side, window, tip_um)
+    P = points if side == 0 else points[::-1]
+    s = arclen(P)
+    k = int(np.searchsorted(s, shift_um))
+    Q = P[k:] if side == 0 else P[k:]
+    pos, d, tip = end_direction(Q, 0, window, tip_um)
+    return pos, d, float(s[k]) + tip
+
+
 def _angle(a, b) -> float:
     return math.degrees(math.acos(max(-1.0, min(1.0, float(np.dot(a, b))))))
 
@@ -67,11 +114,18 @@ def link_candidates(strands: list[RawStrand], p) -> tuple[list, list]:
     gc = float(p["link.gap_cost_per_um"])
     sc = float(p["link.skew_cost_per_um"])
     unl = float(p["link.unlinked_cost"])
+    junction = bool(p.get("link.junction_dirs", False))
+    fwhm = tuple(FWHM * float(v) for v in p["psf.fallback_sigma_um"])
     ends = []
     for i, st in enumerate(strands):
+        others = None
+        if junction:
+            rest = [o.points for j, o in enumerate(strands) if j != i and len(o.points)]
+            others = np.vstack(rest) if rest else None
         for side in (0, 1):
             if st.end_types[side] in LINKABLE_ENDS:
-                pos, d, tip = end_direction(st.points, side, win, tip_um)
+                shift = junction_shift(st.points, side, others, fwhm) if junction else 0.0
+                pos, d, tip = end_geometry(st.points, side, win, tip_um, shift)
                 ends.append((i, side, pos, d, tip, st.end_types[side]))
     cands = []
     for a in range(len(ends)):
@@ -135,7 +189,7 @@ def link_strands(strands: list[RawStrand], p) -> list[RawStrand]:
         partner[eb] = (ea, rec)
     # components of the strand graph: paths or cycles
     seen: set[int] = set()
-    out: list[RawStrand] = []
+    paths: list[tuple[list, list, str | None]] = []
 
     def walk(start: int, enter_side: int):
         seq, recs = [], []
@@ -161,7 +215,7 @@ def link_strands(strands: list[RawStrand], p) -> list[RawStrand]:
         if not heads:
             continue
         seq, recs, _ = walk(i, heads[0])
-        out.append(_assemble(strands, seq, recs, None, tip_um))
+        paths.append((seq, recs, None))
     for i in order:
         if i in seen:
             continue
@@ -175,9 +229,25 @@ def link_strands(strands: list[RawStrand], p) -> list[RawStrand]:
             start = (k + 1) % n
             seq2 = seq[start:] + seq[:start]
             recs2 = [recs[(start + j) % n] for j in range(n - 1)]
-            out.append(_assemble(strands, seq2, recs2, "cycle_cut", tip_um))
+            paths.append((seq2, recs2, "cycle_cut"))
         else:
-            out.append(_assemble(strands, seq, recs, None, tip_um))
+            paths.append((seq, recs, None))
+    max_chain = p.get("link.max_chain_um", None)
+    if max_chain is None:
+        return [_assemble(strands, seq, recs, cut, tip_um) for seq, recs, cut in paths]
+    # the chain bound (entry 21 (b)): a chain longer than max_chain_um is cut at its most expensive link, again
+    # until none is longer or no link is left; the cut ends are free
+    out: list[RawStrand] = []
+    todo = [(seq, recs, (cut, cut) if cut else (None, None)) for seq, recs, cut in paths]
+    while todo:
+        seq, recs, (c0, c1) = todo.pop(0)
+        st = _assemble(strands, seq, recs, None, tip_um, ends_override=(c0, c1))
+        if not recs or st.length_um <= float(max_chain):
+            out.append(st)
+            continue
+        k = int(np.argmax([r["cost"] for r in recs]))
+        todo.insert(0, (seq[k + 1:], recs[k + 1:], ("free", c1)))
+        todo.insert(0, (seq[:k + 1], recs[:k], (c0, "free")))
     return out
 
 
@@ -209,7 +279,7 @@ def _past_previous(prev: np.ndarray, P: np.ndarray, n_dir: int = 6) -> int:
     return int(np.argmax(ahead)) if ahead.any() else len(P)
 
 
-def _assemble(strands, seq, recs, cut_type, tip_um: float = 0.0) -> RawStrand:
+def _assemble(strands, seq, recs, cut_type, tip_um: float = 0.0, ends_override=(None, None)) -> RawStrand:
     parts, strg, links = [], [], []
     members = 0
     n = len(seq)
@@ -240,6 +310,10 @@ def _assemble(strands, seq, recs, cut_type, tip_um: float = 0.0) -> RawStrand:
     e1 = strands[last_j].end_types[1 - last_side]
     if cut_type is not None:
         e0 = e1 = cut_type
+    if ends_override[0] is not None:
+        e0 = ends_override[0]
+    if ends_override[1] is not None:
+        e1 = ends_override[1]
     base = strands[first_j]
     return RawStrand(points=pts, end_types=[e0, e1],
                      strength=np.concatenate(strg) if all_strength and strg else None,

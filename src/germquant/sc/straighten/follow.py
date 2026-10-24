@@ -6,9 +6,10 @@ directions are followed: predict ``step_um`` along the current direction t; wher
 ``t = normalise(m t + (1 - m) d_local)``; inside junction cores the momentum carries the trace through.
 Stops and end types: weak ridge (S < ``lo``) for more than ``weak_run_um`` (trimmed to the last strong point;
 ``free``); leaving the territory (``territory_edge``); entering another strand's claim tube in parallel
-(``contact``: with ``follow.contact_test: claim_tangent`` the trace is compared with the tangent of the strand
-that claimed the voxel, kept with the claim; with ``local`` (v1) with the local line direction, which inside an
-unresolved junction is the trace's own); re-entering its own path more than ``loop_back_um`` back along the strand (``loop``);
+(``contact``: with ``follow.contact_test: local``, the default and v1, the trace is compared with the local line
+direction, which inside an unresolved junction is the trace's own; with ``claim_tangent`` (protocol changelog
+entry 20, withdrawn by entry 21) with the tangent of the strand that claimed the voxel, kept with the claim);
+re-entering its own path more than ``loop_back_um`` back along the strand (``loop``);
 ``max_length_um`` (``max_length``); within ``stack_edge_um`` of the first or last plane (``stack_edge``).
 A claim tube (``claim_vox``) is stamped around every accepted strand; a claimed voxel never seeds.
 

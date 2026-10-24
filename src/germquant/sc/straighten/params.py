@@ -28,10 +28,13 @@ DEFAULTS: dict[str, Any] = {
                "loop_back_um": 0.6, "min_length_um": 0.5, "max_length_um": 30.0, "stack_edge_um": 0.4,
                "contact_um": [0.3, 0.15], "max_turn_deg": 30.0, "contact_free_um": [0.6, 0.4],
                # v2 (protocol changelog entry 20): the contact stop against the claiming strand's tangent
-               "contact_test": "claim_tangent"},
+               # ("claim_tangent"); its tuning failed and entry 21 withdrew it, so the default is v1's "local"
+               "contact_test": "local"},
     "link": {"max_gap_um": 1.0, "max_gap_contact_um": 1.5, "max_angle_deg": 50.0, "max_skew_um": None,
              "gap_cost_per_um": 40.0, "skew_cost_per_um": 100.0, "unlinked_cost": 60.0, "tip_um": 0.3,
-             "dir_window_um": [0.3, 1.2]},
+             "dir_window_um": [0.3, 1.2],
+             # v2 (protocol changelog entry 21): end directions outside junction zones; the chain bound
+             "junction_dirs": True, "max_chain_um": 9.0},
     "dedupe": {"lateral_um": 0.15, "axial_um": 0.3, "min_run_um": 0.4, "parallel_cos": 0.9,
                "min_remainder_um": 0.5, "ghost_max_um": 1.5, "ghost_tz_min": 0.7, "ghost_reach_um": [1.0, 0.35],
                "shadow_frac": 0.8},
@@ -78,6 +81,8 @@ V1_VALUES: dict[str, Any] = {
     "psf.min_stretches": 20,
     "punctum.enabled": False,
     "follow.contact_test": "local",
+    "link.junction_dirs": False,
+    "link.max_chain_um": None,
 }
 
 
