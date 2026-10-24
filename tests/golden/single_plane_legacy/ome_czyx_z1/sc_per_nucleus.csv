@@ -1,0 +1,1 @@
+nucleus_id,marker,n_fragments,sc_total_length_um,sc_mean_fragment_um,sc_median_fragment_um,sc_longest_fragment_um,sc_mean_intensity,sc_fragmentation_index,expected_n_tracks,image_id,genotype,sex,germ_cell,treatment,replicate,acquisition_date,voxel_dz_um,voxel_dy_um,voxel_dx_um,n_channels,dapi_present,channel_map_json

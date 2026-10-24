@@ -1,0 +1,1 @@
+region,n_granules,granule_voxels,outside_voxels,region_voxels,bg,partition_coef,partition_coef_rot,partition_coef_zshift,partition_coef_specific,image_id,genotype,sex,germ_cell,treatment,replicate,acquisition_date,voxel_dz_um,voxel_dy_um,voxel_dx_um,n_channels,dapi_present,channel_map_json
