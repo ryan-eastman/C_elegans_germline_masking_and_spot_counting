@@ -288,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     ptn = sub.add_parser("train-nuclei",
                          help="train a Cellpose nucleus model on corrected slice pairs (cellpose.train.train_seg in "
                               "process), split by image or series, never by slice; writes the model file, "
-                              "training_log.json and a model card with hold-out F1 (docs/TIMELAPSE.md)")
+                              "training_log.json and a model card with hold-out F1 (docs/TRAINING.md)")
     ptn.add_argument("--pairs", required=True, help="the folder export-training wrote (image/, labels/, manifest.csv)")
     ptn.add_argument("--base", default="cpsam",
                      help="starting weights: a registered model name, a model file, a Cellpose built-in name "
@@ -307,6 +307,17 @@ def main(argv: list[str] | None = None) -> int:
     ptn.add_argument("--learning-rate", type=float, default=1e-5, help="AdamW learning rate (default 1e-5)")
     ptn.add_argument("--min-train-masks", type=int, default=5,
                      help="Cellpose drops training slices with fewer nuclei than this (default 5)")
+    from .packs.format import OBJECT_KINDS
+
+    ptn.add_argument("--system", default=None,
+                     help="the biological system the pairs show, written to the card's system (free text, for "
+                          "example 'budding yeast'; default none)")
+    ptn.add_argument("--kind", choices=list(OBJECT_KINDS), default=None,
+                     help="what one label is, written to the card's object_kind (default: the object kind of the "
+                          "pack the pairs' runs used, else nucleus)")
+    ptn.add_argument("--dataset", default=None,
+                     help="public data: the dataset id of benchmarks/ext/<id>/, written to the card with its "
+                          "licence and the sha256 of its split.json (docs/TRAINING.md)")
 
     pts = sub.add_parser("train-spots",
                          help="train the EXPERIMENTAL net3d RAD-51 foci detector (a residual 3D U-Net heatmap) on the "
@@ -1118,7 +1129,8 @@ def _train_nuclei(args) -> int:
     res = train_nuclei(args.pairs, args.out, base=args.base, name=args.name, epochs=args.epochs,
                        split_by=args.split_by, val_frac=args.val_frac, seed=args.seed, cpu=args.cpu,
                        learning_rate=args.learning_rate, batch_size=args.batch_size,
-                       min_train_masks=args.min_train_masks)
+                       min_train_masks=args.min_train_masks, system=args.system, kind=args.kind,
+                       dataset=args.dataset)
     sp = res["split"]
     print(f"\n{res['name']}: trained on {sp['n_train']} slice(s) from {len(sp['train_groups'])} {sp['by']} group(s), "
           f"{sp['n_val']} held out from {len(sp['val_groups'])}, device {res['device']}")
@@ -1133,6 +1145,11 @@ def _train_nuclei(args) -> int:
         print(f"  hold-out metrics missing: {res['metrics']['error']}")
     print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
     print(f"  card  -> {res['card_path']}")
+    card = res["card"]
+    pack = card.get("pack")
+    pack_text = f"{pack['id']}@{pack['version']}/{pack['recipe']}" if pack else "none"
+    print(f"  card says: {card.get('dims')} {card.get('object_kind')} model, pixel {card.get('pixel_um')} um, "
+          f"segmented role {card.get('segmented_role')}, pack {pack_text}")
     print(f"  register it:  germquant register-model --model \"{res['model_path']}\" --card \"{res['card_path']}\"")
     return 0
 

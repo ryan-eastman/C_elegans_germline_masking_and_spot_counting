@@ -19,9 +19,10 @@ These commands share this module:
   in process, as scripts/train_nucleus_model_combined.py ran it (AdamW, learning rate 1e-5, weight decay
   0.1, batch 8), with the pairs split by source image or by series and never by slice, so no slice of a
   validation image, and no neighbouring timepoint of the same series, is seen in training. It writes the
-  model file, ``training_log.json`` and the model card ``<name>.card.json`` with the sha256 of every pair
-  and the hold-out metrics (germquant.validate.segmentation_metrics, F1 at IoU 0.5, per orientation and
-  per zone).
+  model file, ``training_log.json`` and the model card ``<name>.card.json`` with the sha256 of every pair,
+  the hold-out metrics (germquant.validate.segmentation_metrics, F1 at IoU 0.5, per orientation and per
+  zone) and what the data was: dims, pixel size, object kind, system, the pack recipe and the segmented role
+  of the runs the pairs came from and, for public data, the dataset (docs/DESIGN_system_packs.md section 3.6).
 * ``germquant register-model`` (models_registry.register_local_model) adds the model to the registry, after
   which ``segmentation.nuclei.cellpose_model: <name>`` in a profile runs it.
 
@@ -643,29 +644,206 @@ def _versions() -> dict:
     return out
 
 
+# ---- what the card says about the data (docs/DESIGN_system_packs.md, sections 3.6 and 10 step 5) ----------
+
+CARD_DIMS = {"xy": "3d", "xz": "3d", "yz": "3d", PROJ: "2d"}    # the dims of a model trained on an orientation
+_DATASET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
+
+
+def _dataset_record(dataset: str) -> dict:
+    """The card's ``dataset`` for public data (design 3.6): ``{"id", "licence", "split_sha256"}``. The id names
+    the folder benchmarks/ext/<id>/ of the committed benchmark records, looked up under the config roots (the
+    checkout, the working directory, $GERMQUANT_CONFIG_ROOT): the licence comes from its dataset.json and the
+    split digest is the sha256 of its split.json on LF-normalised bytes. Without that folder both are None
+    (a warning says so). ValueError for an id that is not a plain folder name."""
+    from ..config import config_roots
+
+    text = "" if dataset is None else str(dataset).strip()
+    if not _DATASET_ID.fullmatch(text):
+        raise ValueError(f"dataset {dataset!r} is not a dataset id: letters, digits, '_', '.' and '-', at most 64, "
+                         f"starting with a letter or digit (the folder name under benchmarks/ext/)")
+    rec = {"id": text, "licence": None, "split_sha256": None}
+    for root in config_roots():
+        folder = Path(root) / "benchmarks" / "ext" / text
+        if not folder.is_dir():
+            continue
+        if (folder / "dataset.json").is_file():
+            try:
+                rec["licence"] = _read_json(folder / "dataset.json").get("licence")
+            except (OSError, ValueError, AttributeError) as e:
+                log.warning("%s: unreadable (%s); the card records no licence", folder / "dataset.json", e)
+        if (folder / "split.json").is_file():
+            with open(long_path(folder / "split.json"), "rb") as fh:
+                rec["split_sha256"] = hashlib.sha256(fh.read().replace(b"\r\n", b"\n")).hexdigest()
+        return rec
+    log.warning("dataset %r: no committed benchmark record benchmarks/ext/%s/ under %s; the card records the id "
+                "only", text, text, ", ".join(str(r) for r in config_roots()))
+    return rec
+
+
+def _source_runs(pairs_dir: Path) -> dict[str, dict | None]:
+    """``{image_id: {"geometry", "pack"} or None}`` for the runs the folder's export.json lists (the last export
+    into it): each run's record read again from its results folder; None when that folder or record cannot be
+    read. Empty without an export.json (pairs made by hand, or merged from elsewhere)."""
+    path = pairs_dir / "export.json"
+    if not path.is_file():
+        return {}
+    try:
+        runs = _read_json(path).get("runs") or []
+    except (OSError, ValueError, AttributeError) as e:
+        log.warning("%s: unreadable (%s); the source runs of the pairs are unknown", path, e)
+        return {}
+    out: dict[str, dict | None] = {}
+    for r in runs:
+        if not isinstance(r, dict) or not r.get("image_id"):
+            continue
+        iid = str(r["image_id"])
+        try:
+            if not r.get("folder"):
+                raise FileNotFoundError("no folder")
+            rec = _run_record(r["folder"], iid)
+        except (OSError, ValueError, TypeError):
+            out[iid] = None
+            continue
+        pack = rec.get("pack")
+        out[iid] = {"geometry": _geometry(rec)[0], "pack": dict(pack) if isinstance(pack, dict) else None}
+    return out
+
+
+def _manifest_rows(pairs_dir: Path) -> dict[str, dict]:
+    """The manifest.csv rows of a pairs folder by the image path load_pairs gives (``str(pairs_dir / image)``)."""
+    path = pairs_dir / "manifest.csv"
+    if not path.is_file():
+        return {}
+    df = pd.read_csv(long_path(path), low_memory=False)
+    if "image" not in df.columns:
+        return {}
+    return {str(pairs_dir / str(r["image"])): r for r in df.to_dict("records")}
+
+
+def _one_or_all(values: list, key: str) -> dict:
+    """``{key: the one value}``, ``{key: None, <key>s: [sorted values]}`` when they differ, ``{key: None}`` when
+    there is none (pixel_um_values and segmented_roles name several)."""
+    uniq = sorted(set(values))
+    if len(uniq) == 1:
+        return {key: uniq[0]}
+    extra = {"pixel_um": "pixel_um_values", "segmented_role": "segmented_roles"}[key]
+    return {key: None, **({extra: uniq} if uniq else {})}
+
+
+def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None = None, *, system: str | None = None,
+                kind: str | None = None, dataset: str | None = None) -> dict:
+    """What a model card says about its training data (design 3.6 and 10 step 5), in card order:
+
+    * ``kind`` "cellpose"; ``dims`` "3d" (slices of 3D runs), "2d" (proj pairs) or "2d+3d";
+    * ``pixel_um``: the pairs' manifest pixel size when they share one, else None (``pixel_um_values`` lists
+      them when they differ);
+    * ``object_kind``: ``kind`` when given (nucleus or cell), else the object kind of the pack the pairs' runs
+      used, else nucleus;
+    * ``system``: the text given, else None;
+    * ``pack``: {id, version, recipe} of the pack recipe every source run used (export.json's runs, read again
+      from their results folders); None for runs without a pack, and None with ``pack_note`` when the runs
+      differ or are unknown;
+    * ``segmented_role``: the role the runs segmented (the manifest's channel_role), like pixel_um;
+    * ``dataset`` (_dataset_record) only when ``dataset`` is given; ``source_url`` None (a local model).
+
+    ValueError for an unknown ``kind`` or a malformed ``dataset`` id, before anything is trained."""
+    from ..packs.format import OBJECT_KINDS
+
+    if kind is not None and str(kind) not in OBJECT_KINDS:
+        raise ValueError(f"kind {kind!r} is not an object kind {OBJECT_KINDS} (what one label of the model is)")
+    data = _dataset_record(dataset) if dataset is not None else None
+    pairs_dir = Path(pairs_dir)
+    sources = _source_runs(pairs_dir) if sources is None else sources
+    rows = _manifest_rows(pairs_dir)
+    dims = sorted({CARD_DIMS.get(str(p.get("orientation")), "3d") for p in pairs})
+    pixel, roles = [], []
+    for p in pairs:
+        row = rows.get(str(p["image"]), {})
+        try:
+            v = float(row.get("pixel_um"))
+        except (TypeError, ValueError):
+            v = float("nan")
+        if np.isfinite(v) and v > 0:
+            pixel.append(round(v, 9))
+        role = row.get("channel_role")
+        if isinstance(role, str) and role.strip():
+            roles.append(role.strip())
+    ids = sorted({str(p["image_id"]) for p in pairs})
+    unknown = [i for i in ids if sources.get(i) is None]
+    records = {i: sources[i]["pack"] for i in ids if sources.get(i) is not None}
+    keys = {None if rec is None else (rec.get("id"), rec.get("version"), rec.get("recipe"))
+            for rec in records.values()}
+    pack, note = None, None
+    if unknown:
+        note = (f"the source runs of {len(unknown)} of {len(ids)} image(s) are unknown (not in the pairs folder's "
+                f"export.json, or a results folder that cannot be read): {', '.join(unknown[:5])}"
+                + (" ..." if len(unknown) > 5 else ""))
+    elif len(keys) == 1 and None not in keys:
+        pack_id, version, recipe = next(iter(keys))
+        pack = {"id": pack_id, "version": version, "recipe": recipe}
+    elif len(keys) > 1:
+        note = "the pairs come from runs of different packs or recipes: " + "; ".join(
+            sorted("no pack" if k is None else f"{k[0]}@{k[1]}/{k[2]}" for k in keys))
+    if kind is None:
+        pack_kind = next(iter(records.values()), None) if pack is not None else None
+        pack_kind = (pack_kind or {}).get("object_kind")
+        kind = pack_kind if pack_kind in OBJECT_KINDS else "nucleus"
+    out = {"kind": "cellpose", "dims": dims[0] if len(dims) == 1 else ("2d+3d" if dims else None),
+           **_one_or_all(pixel, "pixel_um"), "object_kind": str(kind),
+           "system": (str(system).strip() or None) if system is not None else None, "pack": pack}
+    if note:
+        out["pack_note"] = note
+    out.update(_one_or_all(roles, "segmented_role"))
+    if data is not None:
+        out["dataset"] = data
+    out["source_url"] = None
+    return out
+
+
+def _model_name(name, out_dir: Path) -> str:
+    name = str(name or out_dir.name).strip()
+    if not name or any(ch in name for ch in "/\\"):
+        raise ValueError(f"model name {name!r} must be a bare name")
+    return name
+
+
 def train_nuclei(pairs_dir: str | Path, out_dir: str | Path, *, base: str = "cpsam", name: str | None = None,
                  epochs: int = 150, split_by: str = "series", val_frac: float = 0.2, seed: int = 0,
                  cpu: bool = False, learning_rate: float = 1e-5, weight_decay: float = 0.1, batch_size: int = 8,
-                 min_train_masks: int = 5) -> dict:
+                 min_train_masks: int = 5, system: str | None = None, kind: str | None = None,
+                 dataset: str | None = None) -> dict:
     """Train a Cellpose nucleus model on the slice pairs in ``pairs_dir`` (module docstring) into ``out_dir``:
     the model file ``out_dir/<name>`` (``name`` defaults to the folder's name), ``training_log.json`` (losses
     per epoch, the split, counts, settings) and the model card ``out_dir/<name>.card.json``. ``base`` is a
-    registered model name, a model file, a Cellpose built-in name (``cpsam``) or ``none`` for a randomly
-    initialised network (smoke tests only). ``cpu`` keeps torch off every accelerator; otherwise the device
-    is germquant.device.select_device(). Returns the paths, the split record and the hold-out metrics."""
-    import tifffile
-
+    registered model name, a model file, a Cellpose built-in name (``cpsam``), a pinned pack model
+    (``cpsam_v2@0f1cc3f7``) or ``none`` for a randomly initialised network (smoke tests only). ``cpu`` keeps
+    torch off every accelerator; otherwise the device is germquant.device.select_device(). ``system``,
+    ``kind`` (the card's object_kind) and ``dataset`` go on the card (_card_fields). Returns the paths, the
+    split record, the hold-out metrics and the card."""
     from ..device import select_device
 
     pairs_dir, out_dir = Path(pairs_dir), Path(out_dir)
     pairs = load_pairs(pairs_dir)
     if not pairs:
         raise FileNotFoundError(f"no slice pairs (image/*.tif with labels/*.tif) under {pairs_dir}")
-    name = str(name or out_dir.name).strip()
-    if not name or any(ch in name for ch in "/\\"):
-        raise ValueError(f"model name {name!r} must be a bare name")
+    name = _model_name(name, out_dir)
     train, val, split = split_pairs(pairs, by=split_by, val_frac=val_frac, seed=seed)
+    fields = _card_fields(pairs_dir, pairs, system=system, kind=kind, dataset=dataset)
     device = "cpu" if cpu else select_device()
+    return _train_model(pairs_dir, out_dir, name, pairs, train, val, split, base=base, device=device,
+                        fields=fields, epochs=epochs, learning_rate=learning_rate, weight_decay=weight_decay,
+                        batch_size=batch_size, min_train_masks=min_train_masks, val_frac=val_frac, seed=seed)
+
+
+def _train_model(pairs_dir: Path, out_dir: Path, name: str, pairs: list[dict], train: list[dict],
+                 val: list[dict], split: dict, *, base, device: str, fields: dict, epochs: int,
+                 learning_rate: float, weight_decay: float, batch_size: int, min_train_masks: int,
+                 val_frac: float, seed: int) -> dict:
+    """One training of train_nuclei (and of every train_curve model) on the given train and val pairs:
+    ``base`` is the --base text (resolved here, after the slices are read and checked) or a record that
+    _resolve_base already made. ``fields`` (_card_fields) go on the card after its ``what``."""
+    import tifffile
 
     def read(p, dtype):
         return np.asarray(tifffile.imread(long_path(p))).astype(dtype)
@@ -682,7 +860,7 @@ def train_nuclei(pairs_dir: str | Path, out_dir: str | Path, *, base: str = "cps
     if len(thin) == len(train):
         raise ValueError(f"every training slice holds fewer than min_train_masks={min_train_masks} nuclei; "
                          f"lower --min-train-masks or export richer slices")
-    base_info = _resolve_base(base)
+    base_info = base if isinstance(base, dict) else _resolve_base(base)
     os.makedirs(long_path(out_dir), exist_ok=True)
     started = datetime.now(timezone.utc).isoformat()
     t0 = time.perf_counter()
@@ -747,9 +925,11 @@ def train_nuclei(pairs_dir: str | Path, out_dir: str | Path, *, base: str = "cps
         json.dump(log_rec, fh, indent=1, default=str)
     card = {
         "name": name,
-        "what": (f"Cellpose nucleus model trained with germquant train-nuclei from {base_info['name']} on "
+        "what": (f"Cellpose {fields.get('object_kind') or 'nucleus'} model trained with germquant train-nuclei "
+                 f"from {base_info['name']} on "
                  f"{len(train)} slice pair(s) ({', '.join(sorted({p['orientation'] for p in train}))}) from "
                  f"{len(split['train_groups'])} {split['by']} group(s); {len(val)} pair(s) held out."),
+        **fields,
         "model_file": str(dest), "model_sha256": model_sha, "model_size": dest.stat().st_size,
         "base_model": base_info, "date": finished, "germquant_version": __version__,
         **{f"{k}_version": v for k, v in versions.items()},
@@ -770,4 +950,4 @@ def train_nuclei(pairs_dir: str | Path, out_dir: str | Path, *, base: str = "cps
              model_sha[:12], f"{overall['f1']:.3f}" if overall else "n/a")
     return {"name": name, "model_path": str(dest), "model_sha256": model_sha, "card_path": str(card_path),
             "log_path": str(out_dir / "training_log.json"), "split": split, "metrics": metrics,
-            "device": device, "base_model": base_info}
+            "device": device, "base_model": base_info, "card": card}
