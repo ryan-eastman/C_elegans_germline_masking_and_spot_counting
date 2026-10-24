@@ -6,9 +6,9 @@ on top of the pack's recipe (``extends: pack:<id>@<version>/<recipe>``), the con
 project reads validated: false, as after any edit (a value equal to the pack recipe's own is no edit:
 docs/PROJECTS.md). Only the keys of the run's grid are written (D19: a tuning edit sets the grid's keys,
 which may be keys the pack does not declare as tunables, such as spots.spot_radius_z_um or spots.sharpen),
-and the run must have tuned the backend the recipe uses now. When
-the recipe is no longer the config the run's images were made with (run.json), apply_tuning warns with a
-TuningWarning and still writes. Nothing heavy is imported.
+and the run must have tuned the backend the recipe uses now. When the recipe is no longer the config the
+run's images were made with (run.json), apply_tuning warns with a TuningWarning and still writes. Nothing
+heavy is imported.
 """
 from __future__ import annotations
 
