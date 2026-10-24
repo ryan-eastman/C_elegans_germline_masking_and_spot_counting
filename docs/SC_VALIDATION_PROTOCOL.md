@@ -1327,3 +1327,51 @@ Entries are appended, never edited. Each one says whether a test result had been
    whose file name or folder name is a sealed image stem or RAD-51 tag (compared without regard to case), and the
    runner refuses such an image as sealed before any of its files is read. No zone statistic is computed with these
    changes before the next checkpoint or the scoring.
+28. 2026-10-24, the v2 development round (realism probe recalibrated; diagnostics only, no method change), written
+   before any number below was computed (no test result had been computed, no test or reserved image was run, no
+   test or reserved truth was read and no sealed seed was generated). Entry 27 made no method change. Motivated by
+   the review of entry 27: with the brightness estimator of entry 19 (b) (v2/scripts/realism_measure.py) on the
+   tuning seeds 10000 to 10059 and the configuration of v1, real_dense_brightness gave 0.042 (7 strands) in phantom
+   nuclei with total_length_um >= 30 um and 0.031 (26 strands) with >= 20 um, against 0.026 and 0.019 for
+   real_dense_base and 0.1224 on the trial-4 runs (v2/review/realism_brightness_check.json). Entry 19 (b) used the
+   statistic of blurred, measured real profiles as the variance and correlation length of the modulation of the
+   unblurred ribbon, so the rendered feature is far weaker than the real statistic; the puncta means of entry 19 (d)
+   count rule B1s with the sigma_z of the trial-4 PSF records (mostly the fallback 0.365 um), and B1s labels only
+   part of the puncta of the phantoms; and the texture scale of entry 19 (c) was never checked with its estimator on
+   phantoms. Whatever this finds, no method change is made in this round (entry 11 (e): nothing is changed after
+   H1); a feature that reproduces a real symptom is carried to the next round with its numbers. Nothing here reads
+   zone truth.
+   Method, fixed now. The development family real_dense of entry 19 takes a calibration argument and can be drawn
+   without ribbons and puncta (its families and scenes of entry 19 stay identical); scripts
+   v2/scripts/realism_recal.py; the configuration of v1 (the defaults); the tuning seeds 10000 to 10099; four worker
+   processes.
+   (a) Brightness. For each latent variance v in {0.12, 0.25, 0.5, 1.0} and latent correlation length in {0.1, 0.2,
+   0.3} um, the real_dense_brightness scenes with that modulation, and the statistic of entry 19 (b)
+   (realism_measure.brightness: in-plane, isolated strands of 3 um or more without gaps; the log of the core profile
+   over its median, its variance less the mean noise variance, the median over the strands; the correlation length
+   from the slope of the log autocovariance at 0.2 to 1.0 um) over the traced phantom nuclei with total_length_um >=
+   20 um (the cut at 30 um of the real data keeps 6 or 7 strands per 60 scenes, and every phantom nucleus holds
+   full-length SC, which is what that cut selects among real nuclei); the same at >= 30 um is reported. The pair
+   kept is the one whose measured variance and correlation length lie nearest to the real 0.1224 and 0.3126 um by
+   sqrt(ln(v_m / 0.1224)^2 + ln(l_m / 0.3126)^2); a pair with fewer than 10 strands, a variance at or below 0 or no
+   correlation length is not eligible, and with no eligible pair the calibration of entry 19 stays.
+   (b) Texture. Scenes of the real_dense geometry, nucleoplasm, texture and noise without ribbons and puncta, with
+   the latent texture variance of entry 19 (c) at 0, 0.1082 and 0.2164 (relative to the squared nucleoplasm level);
+   per scene the statistic of entry 19 (c) (realism_measure.texture: the variance of the counts smoothed with the
+   PSF of the image record over the territory of the label, reach 0.4 um, eroded by two voxels, less the variance
+   that the image's fitted noise model gives after the same filter, over the squared mean count above the camera
+   offset of 100), the median over the scenes of each level. A least-squares line through the three medians gives
+   the latent value whose statistic equals the real 0.1082, clipped to [0, 0.5]; with a slope at or below 0 the
+   value of entry 19 stays.
+   (c) Puncta. The B1s counts per traced nucleus of the twelve trial-4 runs (realism_measure.b1s_counts on
+   v2/steep/psf) recomputed with each image's compact-foci sigma_z (the values of entry 19 (a)) in place of that of
+   its PSF record, their means by the terciles of SYP brightness of entry 19 (d), each divided by the B1s yield of
+   the phantoms: the punctum-class strands per rendered punctum, pooled over the real_dense_puncta scenes run with
+   punctum.enabled true and punctum.exclude false (the label of entry 18; there the image record has the scene's
+   PSF).
+   (d) The probe. Families real_dense_r2 (all four features) and real_dense_r2_base, _psf, _brightness, _texture and
+   _puncta: the scenes of entry 19 with the calibration of (a) to (c) and the PSF feature of entry 19 (a), run once
+   on the tuning seeds (v2/scripts/v2_s1_panel.py, name probe_r2) and reported with the statistics of entry 19 and
+   its rule: a feature reproduces a real symptom when switching it on alone moves the phantom statistic at least
+   half of the way from its base value to the real one; the same for all four features together, and their S1b, are
+   reported, descriptive.
