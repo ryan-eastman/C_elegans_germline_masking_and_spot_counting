@@ -9,8 +9,11 @@
 #
 # On tranche 5 branches the Linux job also runs the T5 scope check (scripts/t5_scope_check.py), which
 # fails a diff that modifies or deletes a frozen path or changes an existing fence pin
-# (docs/DESIGN_system_packs.md section 11.2). A tranche 5 branch name contains "tranche5" or a path
-# segment that starts with "t5", for example feat/t5-p1.
+# (docs/DESIGN_system_packs.md section 11.2), and then the T5 style check (scripts/t5_style_check.py,
+# gate G7), which fails an en or em dash in a line the diff adds, and a non-ASCII character in a text
+# file it adds under config/, packs/, tests/fixtures/ or tests/golden/ or in any YAML file it adds. A
+# tranche 5 branch name contains "tranche5" or a path segment that starts with "t5", for example
+# feat/t5-p1.
 #
 # Environment: Python 3.11 (the version the pinned environments target), installed with uv against
 # constraints/ci-cpu-2026-10.txt, which is the validated workstation set minus the CUDA-only packages,
@@ -120,7 +123,7 @@ jobs:
         # workstation rehearsal (tests/README.md) fits the budget with everything in.
         run: pytest -q -rs -m "not model" --strict-markers
 
-      - name: T5 scope check (frozen paths and fence pins, tranche 5 branches only)
+      - name: T5 scope and style checks (frozen paths, fence pins and G7 style, tranche 5 branches only)
         # docs/DESIGN_system_packs.md section 11.2 and gate G3: a tranche 5 diff may not modify or delete
         # a frozen path (rules R1 and R8, tests/golden/synthetic/, tests/golden/synthetic_4ch/ and
         # tests/golden/real_manifest.json), delete the fence, or change or remove an existing pin in
@@ -132,7 +135,11 @@ jobs:
         # result hides the other. It needs only git and the standard library, so one runner is enough.
         # The checkout above is shallow, so the step first fetches the history that the base needs.
         # scripts/t5_scope_check.py says how the base is chosen; a pull request is checked at its head
-        # commit, not at the merge commit.
+        # commit, not at the merge commit. The style check (gate G7, scripts/t5_style_check.py) runs next,
+        # on the same head with the same base and also standard library only: no U+2013 or U+2014 in a
+        # line the diff adds, and pure ASCII in the text files it adds under config/, packs/,
+        # tests/fixtures/ and tests/golden/ and in every YAML file it adds. Both checks always run, and
+        # the step fails when either fails.
         if: >-
           runner.os == 'Linux' && !cancelled() && (
           contains(github.ref_name, 'tranche5') || contains(github.head_ref, 'tranche5') ||
@@ -149,4 +156,9 @@ jobs:
           git fetch --no-tags --quiet origin "+refs/heads/main:refs/remotes/origin/main" || echo "no main branch on origin"
           head="${{ github.event.pull_request.head.sha || github.sha }}"
           git cat-file -e "${head}^{commit}" 2>/dev/null || git fetch --no-tags --quiet origin "${head}"
-          python scripts/t5_scope_check.py --head "${head}"
+          scope=0; python scripts/t5_scope_check.py --head "${head}" || scope=$?
+          style=0; python scripts/t5_style_check.py --head "${head}" || style=$?
+          if [ "${scope}" -ne 0 ] || [ "${style}" -ne 0 ]; then
+            echo "T5 checks failed: scope check exit ${scope}, style check exit ${style}"
+            exit 1
+          fi
