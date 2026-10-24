@@ -108,6 +108,8 @@ Each of these fails the image with a message, before any stage runs and before a
 * the labels file of the image does not exist (the message names the file, the template and the image);
 * a `.npy` file, such as a Cellpose `_seg.npy` (see below), or any format but the three above;
 * a pickled npz;
+* a damaged or incomplete TIFF (a truncated copy, or a file still being written), which tifffile reports while
+  reading it, and any TIFF that tifffile cannot read;
 * labels that do not fit the image: another number of planes, or another size in y and x;
 * in a projected run, a labels file with more than one plane;
 * a time series: `germquant run IMAGE --t ...` with a labels recipe exits with code 2 before any timepoint, and

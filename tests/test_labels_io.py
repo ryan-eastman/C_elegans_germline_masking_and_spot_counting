@@ -157,6 +157,44 @@ def test_the_file_must_match_the_images_planes(tmp_path):
         L.read_labels(write_npz(tmp_path / "five_segm.npz", np.zeros((2, 2, 2, NY, NX), np.int32)), nz=2)
 
 
+@pytest.mark.parametrize("kind", ["ome", "imagej"])
+def test_a_truncated_tiff_is_refused(tmp_path, kind):
+    """A broken page chain (a truncated copy, a file still being written): tifffile reads the pages it finds, so a
+    cut OME or ImageJ stack would be read as its first plane, copied through z."""
+    import tifffile
+
+    lab = np.zeros((6, 64, 64), np.uint16)
+    for z in range(6):
+        lab[z, 10:20, 10 + 6 * z:16 + 6 * z] = z + 1                 # one object per plane
+    full = tmp_path / "full.tif"
+    tifffile.imwrite(str(full), lab, **{kind: True}, metadata={"axes": "ZYX"})
+    np.testing.assert_array_equal(L.read_labels(full, nz=6), lab.astype(np.int32))
+    cut = tmp_path / "cut.tif"
+    cut.write_bytes(full.read_bytes()[: full.stat().st_size * 6 // 10])
+    with pytest.raises(L.LabelsError, match="damaged or incomplete"):
+        L.read_labels(cut, nz=6)
+
+
+@pytest.mark.parametrize("error", ["codec", "struct"])
+def test_a_tiff_that_does_not_decode_is_refused(tmp_path, monkeypatch, error):
+    """A cut compressed strip raises the codec's own error (imagecodecs raises RuntimeError subclasses) and a cut
+    tag list a struct.error: either one is a refusal that names the file, not a stray exception."""
+    import struct
+
+    import tifffile
+
+    path = write_ome(tmp_path / "s.ome.tif", _lab3d(), "ZYX")
+    exc = (RuntimeError("libdeflate_zlib_decompress returned LIBDEFLATE_BAD_DATA") if error == "codec" else
+           struct.error("unpack requires a buffer of 12 bytes"))
+
+    def broken(self, *a, **k):
+        raise exc
+
+    monkeypatch.setattr(tifffile.TiffPageSeries, "asarray", broken)
+    with pytest.raises(L.LabelsError, match=r"s\.ome\.tif: not a readable TIFF \((RuntimeError|error): "):
+        L.read_labels(path, nz=NZ)
+
+
 def test_labels_frame_picks_the_frame_of_a_t_axis(tmp_path):
     """D13: segmentation.nuclei.labels_frame names the frame of a T axis (0 by default)."""
     lab3 = _lab3d()

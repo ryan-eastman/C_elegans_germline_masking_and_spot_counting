@@ -24,9 +24,9 @@ How a file is read, here and only here:
 
 process_image calls labels_for_run once per image, before any stage: it finds the file, hashes its bytes (the
 sha256 enters run_geometry labels_from {path, sha256} and the segment sub-hash) and reads the labels from those
-same bytes. A missing file, a .npy, a file that does not fit the image, a time series (decision D15) and, in a
-projected run, a file with more than one plane (D14) are refused there. Nothing here is reached when the key is
-unset.
+same bytes. A missing file, a .npy, a damaged TIFF, a file that does not fit the image, a time series (decision
+D15) and, in a projected run, a file with more than one plane (D14) are refused there. Nothing here is reached
+when the key is unset.
 """
 from __future__ import annotations
 
@@ -299,9 +299,29 @@ def _npz(data: bytes, name: str) -> tuple[np.ndarray, str]:
 
 def _tiff(data: bytes, name: str) -> tuple[np.ndarray, str]:
     """The one image of a TIFF or OME-TIFF and its axes, reduced to T, Z, Q (z or time, decided by the caller), Y
-    and X."""
+    and X. A file that tifffile logs as damaged while reading it is refused: with a broken page chain (a truncated
+    copy, a file still being written) tifffile reads the pages it finds, so an OME or ImageJ stack becomes its
+    first plane. A file that tifffile cannot parse or decode at all is refused too, whatever the error (a
+    TiffFileError, a struct.error from a cut tag list, a codec's RuntimeError from a cut compressed strip)."""
+    import logging
+    import threading
+
     import tifffile
 
+    damage: list[str] = []
+    me = threading.get_ident()
+
+    class _Damage(logging.Handler):
+        def emit(self, record):
+            if record.thread == me:
+                damage.append(record.getMessage())
+
+    tlog, handler, level = logging.getLogger("tifffile"), _Damage(logging.WARNING), None
+    if not tlog.isEnabledFor(logging.WARNING):
+        level = tlog.level
+        tlog.setLevel(logging.WARNING)
+    problem = None
+    tlog.addHandler(handler)
     try:
         with tifffile.TiffFile(io.BytesIO(data)) as tf:
             series = list(tf.series)
@@ -311,10 +331,21 @@ def _tiff(data: bytes, name: str) -> tuple[np.ndarray, str]:
                 raise LabelsError(f"{name}: holds {len(series)} images; a labels file holds one label image")
             arr = np.asarray(series[0].asarray())
             axes = str(series[0].axes).upper()
-    except LabelsError:
+    except LabelsError as e:
+        problem = e
+    except MemoryError:
         raise
-    except (ValueError, OSError, EOFError, KeyError, IndexError) as e:     # TiffFileError is a ValueError
-        raise LabelsError(f"{name}: not a readable TIFF ({type(e).__name__}: {e})") from None
+    except Exception as e:  # noqa: BLE001 - any parse or decode failure of the file is a refusal of the file
+        problem = LabelsError(f"{name}: not a readable TIFF ({type(e).__name__}: {e})")
+    finally:
+        tlog.removeHandler(handler)
+        if level is not None:
+            tlog.setLevel(level)
+    if damage:                               # what tifffile reported comes first: it names the damage
+        raise LabelsError(f"{name}: a damaged or incomplete TIFF (tifffile: {damage[0][:200]}); copy or export the "
+                          f"file again")
+    if problem is not None:
+        raise problem
     if len(axes) != arr.ndim or not axes.endswith(("YX", "YXS")):
         raise LabelsError(f"{name}: axes {axes!r} for a {arr.ndim}-D image; a label image has rows and columns (YX)")
     keep, kinds = [], []
