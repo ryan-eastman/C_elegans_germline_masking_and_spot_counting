@@ -228,10 +228,11 @@ def _one(f, root, out_root, params, geometry, paths_from, refine_imported, ends,
     if geometry in ("import", "both"):
         imported, imp_recs = _imported_for(inp, labels, inp.spacing, paths_from, allow_sealed=bool(sealed))
     det_max = inputs.detector_max(inp, ce)
+    wavelengths = inputs.emission_wavelengths(inp.source_path, roles_idx) if need_source else None
     res = straighten_image(ce, labels, inp.spacing, inp.nuclei, params=params, roles=role_crops,
                            spot_tables=spots, nucleus_ids=ids, imported=imported, geometry=geometry,
                            refine_imported=refine_imported, ends_mode=ends, workers=workers, detector_max=det_max,
-                           image_id=inp.image_id, progress=progress, label_boxes=bx)
+                           image_id=inp.image_id, progress=progress, label_boxes=bx, wavelengths=wavelengths)
     # outputs
     from .qc import image_flags
 
@@ -274,7 +275,8 @@ def _one(f, root, out_root, params, geometry, paths_from, refine_imported, ends,
                    "z_range": inp.z_range, "geometry_source": inp.geometry_source, "channel_map": inp.channel_map,
                    "roles_read": sorted(roles_idx), "imported": imp_recs, "nuclei_mode": nuclei_mode,
                    "nucleus_ids": ids if nucleus_ids else None, "geometry": geometry,
-                   "refine_imported": refine_imported, "ends": ends, "detector_max": det_max},
+                   "refine_imported": refine_imported, "ends": ends, "detector_max": det_max,
+                   "emission_nm": wavelengths},
         "tool_versions": outputs.tool_versions(), "git_sha": provenance.git_sha(), "code_sha256": code,
         **{k: res.record[k] for k in ("noise_model", "null_q", "sigma_vox", "psf", "complete_median_integrated",
                                       "complete_median_fwhm", "n_cut_across_nuclei", "n_contacts_freed", "counts",

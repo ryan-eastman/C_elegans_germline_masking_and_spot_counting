@@ -174,6 +174,12 @@ def trace_crop(crop: Crop, ctx: dict) -> dict:
             })
         auto_lines = [ln for ln, d in zip(out_lines, rec["strands"]) if d["source"] == "auto"]
         rec["psf_stretches"] = psf_stretches(auto_lines, raw_sampler, bg, noise, sp, p)
+        # the foci of this nucleus for the foci estimate of the image PSF (protocol changelog entry 12)
+        pf = ctx.get("psf_foci")
+        if pf is not None and "foci" in crop.roles and len(pf.get("pos", [])):
+            from .psf import foci_fits_crop
+
+            rec["psf_foci"] = foci_fits_crop(crop.roles["foci"], crop.org, sp, noise, pf, p)
     except Exception as e:  # noqa: BLE001 - one nucleus must never stop the image
         rec["status"] = "failed"
         rec["error"] = type(e).__name__

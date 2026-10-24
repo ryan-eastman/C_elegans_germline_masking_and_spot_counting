@@ -13,7 +13,7 @@ Experimental: every image carries the flag ``sc_straighten:uncalibrated`` until 
 """
 from __future__ import annotations
 
-VERSION = "1.0"
+VERSION = "2.0"
 
 __all__ = ["VERSION", "run_results", "straighten_image"]
 

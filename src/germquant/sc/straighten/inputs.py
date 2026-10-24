@@ -459,6 +459,27 @@ def file_digest(path: str | Path, head_bytes: int | None = None) -> str:
     return h.hexdigest()
 
 
+def emission_wavelengths(path: str | Path, roles: dict) -> dict | None:
+    """{role: emission wavelength (nm)} of the given {role: channel index} from the source's metadata (.nd2 only;
+    None for other formats or when the metadata cannot be read). The foci estimate of the image PSF needs the
+    central_element and foci wavelengths (protocol changelog entry 12)."""
+    if not str(path).lower().endswith(".nd2"):
+        return None
+    try:
+        import nd2
+
+        with nd2.ND2File(str(path)) as f:
+            chans = f.metadata.channels
+            out = {}
+            for role, ci in roles.items():
+                lam = chans[int(ci)].channel.emissionLambdaNm
+                out[role] = float(lam) if lam else None
+        return out
+    except Exception as e:  # noqa: BLE001 - advisory: without wavelengths there is no foci estimate
+        log.warning("sc-straighten: no emission wavelengths for %s (%s)", path, e)
+        return None
+
+
 def detector_max(inp: ImageInputs, ce: np.ndarray) -> float:
     """The detector maximum of the central_element channel: 2^bit_depth - 1 from the acquisition record when the
     run kept one, else the array's dtype maximum."""

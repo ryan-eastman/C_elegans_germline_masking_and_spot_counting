@@ -26,8 +26,9 @@ from .crops import boxes, make_crop, pad_vox
 from .fields import calibrate_null, sigma_vox
 from .measure import measure_crop
 from .noise import fit_noise_model
-from .params import Params
-from .refine import Centreline, psf_from_profiles
+from .params import Params, switch_on
+from .psf import image_psf, isolated_spots
+from .refine import Centreline
 from .trace import trace_crop
 
 log = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ class ImageResult:
     strip_roles: list
     record: dict = field(default_factory=dict)
     flags: list = field(default_factory=list)
+    psf_items: dict = field(default_factory=dict)   # the PSF stretches and foci fits (development scripts only)
 
 
 # ------------------------------------------------------------------------------------ execution
@@ -310,7 +312,8 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
                      roles: dict | None = None, spot_tables: dict | None = None, nucleus_ids=None,
                      imported: dict | None = None, geometry: str = "auto", refine_imported: bool = True,
                      ends_mode: str = "fit", workers: int = 1, detector_max: float | None = None,
-                     image_id: str = "", progress=None, label_boxes: dict | None = None) -> ImageResult:
+                     image_id: str = "", progress=None, label_boxes: dict | None = None,
+                     wavelengths: dict | None = None) -> ImageResult:
     t_start = time.perf_counter()
     p = params
     sp = tuple(float(v) for v in spacing)
@@ -332,12 +335,18 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
     present = [i for i in ids if i in bx]
     imported = imported or {}
     pad = p["crop_pad_um"]
+    # the foci estimate of the image PSF (protocol changelog entry 12): the isolated spots of the RAD-51 table,
+    # fitted in phase A on each nucleus's foci-channel crop
+    foci_by = psf_foci_inputs(spot_tables, roles, wavelengths, present, p)
 
     def tasks_a():
         for nid in present:
-            crop = make_crop(nid, bx[nid], ce, labels, sp, pad)
+            fr = {"foci": roles["foci"]} if foci_by is not None else None
+            crop = make_crop(nid, bx[nid], ce, labels, sp, pad, roles=fr)
             ctx = dict(base_ctx)
             ctx["imported"] = {nid: imported.get(nid, [])}
+            if foci_by is not None:
+                ctx["psf_foci"] = foci_by.get(nid, {"pos": np.zeros((0, 3)), "isolated": np.zeros(0, bool)})
             yield crop, ctx
 
     with _Runner(int(workers)) as runner:
@@ -348,7 +357,8 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
         n_freed = {"within": int(sum(int(r.get("n_contacts_freed", 0)) for r in res_a)),
                    "across": free_orphan_contacts_across(recs, pairs, p)}
         stretches = [s for r in res_a for s in r.get("psf_stretches", [])]
-        psf, psf_src, psf_detail = psf_from_profiles(stretches, p)
+        foci_fits = [f for r in res_a for f in r.get("psf_foci", [])] if foci_by is not None else None
+        psf, psf_src, psf_detail = image_psf(stretches, foci_fits, wavelengths, p)
         # neighbours of each nucleus: in-strand samples of the strands of the nuclei it touches
         nbrs: dict[int, list] = {i: [] for i in present}
         for a, b in pairs:
@@ -375,8 +385,39 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
 
         res_b = runner.map(measure_crop, tasks_b(), len(present), progress, "measure")
     meas = {r["nucleus_id"]: r for r in res_b}
-    return _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, psf_src, psf_detail,
-                   n_cut, roles, spot_tables or {}, labels.shape, t_start, n_freed)
+    out = _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, psf_src, psf_detail,
+                  n_cut, roles, spot_tables or {}, labels.shape, t_start, n_freed)
+    out.psf_items = {"stretches": stretches, "foci": foci_fits}
+    if foci_by is not None:
+        out.record["psf"]["wavelengths_nm"] = dict(wavelengths or {})
+    return out
+
+
+def psf_foci_inputs(spot_tables, roles, wavelengths, present, p) -> dict | None:
+    """{nucleus_id: {"pos": (n, 3) um, "isolated": (n,) bool}} of the RAD-51 ``spots`` table for the foci estimate
+    of the PSF, or None when that estimate is off or impossible (no foci role, no spots, no wavelengths; then
+    phase A is that of v1)."""
+    if not switch_on(p["psf.foci"]) or p["psf.mode"] == "fixed":
+        return None
+    df = (spot_tables or {}).get("spots")
+    wl = wavelengths or {}
+    if df is None or not len(df) or "foci" not in (roles or {}) or not (wl.get("central_element") and wl.get("foci")):
+        return None
+    if not {"z_um", "y_um", "x_um", "nucleus_id"} <= set(df.columns):
+        return None
+    pos = df[["z_um", "y_um", "x_um"]].to_numpy(float)
+    nid = pd.to_numeric(df["nucleus_id"], errors="coerce").to_numpy()
+    ok = np.isfinite(pos).all(1)
+    iso = np.zeros(len(pos), bool)
+    iso[ok] = isolated_spots(pos[ok], float(p["psf.foci_isolation_um"]))
+    out = {}
+    pres = set(int(v) for v in present)
+    for i in sorted(set(int(v) for v in nid[ok & np.isfinite(nid)])):
+        if i not in pres:
+            continue
+        sel = ok & (nid == i)
+        out[i] = {"pos": pos[sel], "isolated": iso[sel]}
+    return out
 
 
 def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, psf_src, psf_detail, n_cut,

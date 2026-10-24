@@ -39,7 +39,10 @@ DEFAULTS: dict[str, Any] = {
     "ends": {"anchor_um": 0.6, "inside_um": 0.6, "outside_um": 1.4, "step_um": 0.05, "max_recentre_um": 0.2,
              "sigma_bounds": [0.6, 1.6], "fit_min_amp_se": 5.0, "fit_max_rel_rms": 0.25, "max_extension_um": 0.5},
     "psf": {"mode": "auto", "fallback_sigma_um": [0.365, 0.15], "min_stretches": 20, "flat_tz_max": 0.3,
-            "isolation_um": 1.0, "min_snr": 10.0, "min_stretch_um": 1.0},
+            "isolation_um": 1.0, "min_snr": 10.0, "min_stretch_um": 1.0,
+            # v2 (protocol changelog entry 12): the foci estimate of the image PSF ("off" gives v1)
+            "foci": "on", "foci_min": 25, "foci_window_um": [1.2, 0.54], "foci_isolation_um": 1.0,
+            "foci_max_sigma_xy_um": 0.25, "foci_max_ratio": 1.5, "foci_max_rel_rms": 0.2, "foci_min_snr": 8.0},
     "gaps": {"q": 0.6, "window_frac": 0.9, "min_um": 0.25, "z": 3.0, "smooth_um": 0.1, "ring_um": 0.45,
              "tail_sigmas": 1.0, "plateau_um": 0.4},
     "contamination_um": [0.7, 0.35],
@@ -60,6 +63,24 @@ DEFAULTS: dict[str, Any] = {
     "workers": 1,
     "overview": True,
 }
+
+# The value of every v2 switch that gives the behaviour of v1 (commit 5cb3cb6), one per change of the v2 round
+# (protocol changelog entries 12 on); tests/test_sc_straighten_v2_compat.py runs them all against v1's outputs.
+V1_VALUES: dict[str, Any] = {
+    "psf.foci": "off",
+    "psf.min_stretches": 20,
+}
+
+
+def v1_sets() -> list[str]:
+    """``--set`` assignments that switch every v2 change back to v1."""
+    return [f"{k}={json.dumps(v)}" for k, v in V1_VALUES.items()]
+
+
+def switch_on(value) -> bool:
+    """A v2 switch value: "on" (or YAML true) is on; "off" (YAML reads an unquoted off as false) is off."""
+    return value is True or str(value).strip().lower() in ("on", "true", "yes")
+
 
 # keys a development sweep may tune (DESIGN section 8); everything else is fixed unless the protocol changelog
 # says otherwise

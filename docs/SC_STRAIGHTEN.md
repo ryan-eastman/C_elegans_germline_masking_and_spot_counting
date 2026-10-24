@@ -381,9 +381,10 @@ positive and a negative case.
 | noise_mismatch | nucleus | review | noise.nucleus_sd_range | the transformed noise SD of the territory outside nucleus_sd_range |
 | budget_exceeded | nucleus | review | budget_s | tracing stopped at the work budget (strands so far kept) |
 | error | nucleus | fail | - | an exception in the nucleus (error:<Type>; status failed, no zero row) |
-| sc_straighten:uncalibrated | image | info | - | always in v1, until the validation protocol has scored the method |
+| sc_straighten:uncalibrated | image | info | - | always, until the validation protocol has scored the method |
 | noise_fit_poor | image | review | noise.poor_rel_rms | the noise model fits its bins above the darkest decile of the sampled voxels with a relative RMS above poor_rel_rms (or fell back) |
-| psf_fallback | image | review | psf.min_stretches | fewer than min_stretches flat isolated bright stretches: the fallback PSF was used |
+| psf_fallback | image | review | psf.min_stretches | fewer than min_stretches flat isolated bright stretches and no foci estimate: the fallback PSF was used |
+| psf_from_foci | image | info | psf.foci_min | the image PSF holds the estimate from compact isolated RAD-51 foci (scaled to the central_element emission wavelength) |
 | sc_channel_suspect | image | review | qc.sc_channel_suspect_frac | among nuclei with SC present, fewer than sc_channel_suspect_frac have a strand of 2 um or more |
 | foci_uncalibrated | image | info | - | a spot table was used (spot detection is not calibrated for SC positions) |
 | geometry_from_manifest | image | info | - | run geometry (xy_stride, z_range) from run_manifest.json: no done marker |
