@@ -11,11 +11,13 @@ columns, and records every stage in <image_id>__post.json:
      "stages": {name: {"version", "params", "sub_hash", "done", "error", "tables", "finished", "inputs"}}}
 
 The sub-hash (12 hex, like the stage sub-hashes) covers the post-stage's version and declaration, its resolved
-parameters, the post_stages.yaml digest and the digests of its inputs (D32): the main run's read sub-hash, the
-spacing and the channel roles it reads, the LF-normalised sha256 of each table it declares and of the label image
-when it declares it, and the run's stride and z range when it reads the image. The raw image is not hashed
-again. Under resume (the default) a stage whose recorded sub-hash matches, that is done and whose tables are on
-disk, is skipped; anything else runs again.
+parameters, the post_stages.yaml digest and the digests of its inputs (D32): the main run's read sub-hash and its
+run_timestamp (so every new main run restales every post-stage), the spacing and the channel roles it reads, the
+LF-normalised sha256 of each table it declares and of the label image when it declares it, and the run's stride
+and z range when it reads the image. The raw image is not hashed again. The spacing, the roles and the
+run_timestamp come from the main run's image_summary table only, so a stack handed over changes none of them.
+Under resume (the default) a stage whose recorded sub-hash matches, that is done and whose tables are on disk,
+is skipped; anything else runs again.
 
 What this never does: edit a file process_image wrote (the tables, the label images, the done marker, the stage
 record), fail the image, or raise for a post-stage's error. A failure (a post-stage that is not installed, a
@@ -32,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import time
 from pathlib import Path
@@ -57,6 +60,10 @@ RECORD_FORMAT = 1
 LABELS_FILE = "{image_id}__nuclei_labels.tif"
 SERIES_REFUSAL = ("post-stages are refused for time series in this release (design 5.6): run the series without "
                   "post-stages")
+# germquant.planar.PLANAR_DZ (1.0, frozen with P2b): the z spacing a single-plane run hands its own array code while
+# its tables record voxel_dz_um as NaN. germquant.planar reaches this branch with P2b; phase WIRE then imports the
+# constant inside _run_facts (which runs after germquant.pipeline, D28) in place of this stand-in.
+_PLANAR_DZ = 1.0
 
 
 class PostStageContractError(RuntimeError):
@@ -121,22 +128,26 @@ def _read_table(path: Path):
     return pd.read_csv(long_path(path), low_memory=False, float_precision="round_trip")
 
 
-def _run_facts(out_dir: Path, image_id: str) -> tuple[tuple[float, float, float] | None, dict]:
-    """(spacing (dz, dy, dx) in um, {role: channel index or None}) as the main run recorded them in its
-    image_summary table (the voxel_d*_um and channel_map_json columns), so every route reads the same values."""
+def _run_facts(out_dir: Path, image_id: str) -> tuple[tuple[float, float, float] | None, dict, str | None]:
+    """(spacing (dz, dy, dx) in um, {role: channel index or None}, the main run's run_timestamp) as the main run
+    recorded them in its image_summary table (the voxel_d*_um, channel_map_json and run_timestamp columns). The
+    table is the only source, so every route (a stack handed over or not) gets the same values. A single-plane
+    run records voxel_dz_um as NaN: its spacing is then (PLANAR_DZ, dy, dx), what its own array code received."""
     path = _table_path(out_dir, image_id, "image_summary")
     try:
         df = _read_table(path)
     except Exception:  # noqa: BLE001 - a missing or damaged summary leaves the facts unknown
-        return None, {}
+        return None, {}, None
     if df.empty:
-        return None, {}
+        return None, {}, None
+    import pandas as pd                            # loaded by _read_table already
+
     row = df.iloc[0]
     spacing = None
     try:
-        vals = [float(row[c]) for c in ("voxel_dz_um", "voxel_dy_um", "voxel_dx_um")]
-        if all(v == v for v in vals):              # not NaN
-            spacing = (vals[0], vals[1], vals[2])
+        dz, dy, dx = (float(row[c]) for c in ("voxel_dz_um", "voxel_dy_um", "voxel_dx_um"))
+        if not (math.isnan(dy) or math.isnan(dx)):
+            spacing = (_PLANAR_DZ if math.isnan(dz) else dz, dy, dx)
     except (KeyError, TypeError, ValueError):
         spacing = None
     roles: dict = {}
@@ -146,7 +157,9 @@ def _run_facts(out_dir: Path, image_id: str) -> tuple[tuple[float, float, float]
             roles = {str(k): (None if v is None else int(v)) for k, v in parsed.items()}
     except (KeyError, TypeError, ValueError):
         roles = {}
-    return spacing, roles
+    stamp = row.get("run_timestamp")
+    main_run = None if stamp is None or bool(pd.isna(stamp)) else str(stamp)
+    return spacing, roles, main_run
 
 
 def _read_only(arr):
@@ -158,8 +171,9 @@ def _read_only(arr):
 class PostInputs:
     """What a post-stage receives (docs/POST_STAGES.md):
 
-    * ``image_id``, ``out_dir`` (a Path), ``spacing`` ((dz, dy, dx) in um as the run recorded it, or None) and
-      ``roles`` ({role: channel index or None}, the run's resolved channel map);
+    * ``image_id``, ``out_dir`` (a Path), ``spacing`` ((dz, dy, dx) in um as the run recorded it in its
+      image_summary table, or None; dz is PLANAR_DZ, 1.0, in a single-plane run) and ``roles`` ({role: channel
+      index or None}, the run's resolved channel map);
     * ``tables(name)``: a declared table of the main run as a DataFrame (a fresh copy each call);
     * ``labels()``: the nucleus label image as a read-only int32 (Z, Y, X) array (a single plane as (1, Y, X));
     * ``image(role)``: the channel of a declared role as a read-only (Z, Y, X) array, read through the run's
@@ -241,12 +255,15 @@ def _image_loader(*, image_path, marker: dict, stack, roles: dict, cfg, cache: d
     return load
 
 
-def input_digests(out_dir: Path, image_id: str, declaration: dict, marker: dict, spacing, roles: dict) -> dict:
-    """What the sub-hash takes from the inputs (D32): the main run's read sub-hash, the spacing, the declared
-    roles' channel indices, the digest of each declared table and of the label image when declared, and the
-    stride and z range when the image is read. The raw image is not hashed."""
+def input_digests(out_dir: Path, image_id: str, declaration: dict, marker: dict, spacing, roles: dict,
+                  main_run: str | None = None) -> dict:
+    """What the sub-hash takes from the inputs (D32): the main run's read sub-hash and its run_timestamp
+    (``main_run``: the read sub-hash never covers pixels, so this is what restales a post-stage that reads no
+    table when the main run is redone), the spacing, the declared roles' channel indices, the digest of each
+    declared table and of the label image when declared, and the stride and z range when the image is read. The
+    raw image is not hashed."""
     reads = declaration["reads"]
-    out = {"read_sub_hash": (marker.get("stage_hashes") or {}).get("read"),
+    out = {"read_sub_hash": (marker.get("stage_hashes") or {}).get("read"), "main_run": main_run,
            "spacing": list(spacing) if spacing is not None else None,
            "tables": {t: _digest(_table_path(out_dir, image_id, t)) for t in reads["tables"]}}
     if reads["roles"]:
@@ -407,9 +424,7 @@ def run_post_stages(out_dir, image_id: str, entries, *, cfg, image_path, stack=N
     old_stages = old.get("stages") if old.get("format") == RECORD_FORMAT and isinstance(old.get("stages"), dict) else {}
     marker = provenance.read_done_marker(out_dir, image_id)
     refused = _main_problem(marker, cfg)
-    spacing, roles = _run_facts(out_dir, image_id)
-    if spacing is None and stack is not None and getattr(stack, "spacing", None) is not None:
-        spacing = tuple(float(s) for s in stack.spacing)
+    spacing, roles, main_run = _run_facts(out_dir, image_id)       # never from the stack: one value per route
     cache: dict = {}
     loader = _image_loader(image_path=image_path, marker=marker or {}, stack=stack, roles=roles, cfg=cfg,
                            cache=cache)
@@ -425,7 +440,7 @@ def run_post_stages(out_dir, image_id: str, entries, *, cfg, image_path, stack=N
         why = refused or ("; ".join(problems[name]) if name in problems else None)
         if why is None:
             params = resolve_params(decl, given)
-            inputs = input_digests(out_dir, image_id, decl, marker, spacing, roles)
+            inputs = input_digests(out_dir, image_id, decl, marker, spacing, roles, main_run)
             sh = sub_hash({"name": name, "version": decl["version"], "reads": decl["reads"],
                            "writes": decl["writes"], "params": params, "post_stages_file_sha256": file_sha,
                            "inputs": inputs})

@@ -4,7 +4,8 @@ D34; P5b acceptance 4).
 * The fixture post-stage writes only <image_id>__post_<name>_<table>.csv and <image_id>__post.json; every file
   that was there before is byte-identical afterwards, and no post-stage means no file at all.
 * The sub-hash follows the parameters, the post_stages.yaml digest and the input digests (the main run's read
-  sub-hash, the tables and the label image the post-stage reads, the spacing), never the raw image (D32).
+  sub-hash and run_timestamp, the tables and the label image the post-stage reads, the spacing), never the raw
+  image (D32). The spacing comes from the main run's image_summary table on every route.
 * Resume skips a stage whose sub-hash matches and whose tables are on disk; a failure is recorded in
   __post.json and the image stays done (acceptance 4). A post-stage that breaks the contract fails alone.
 * The image is read through the run's reader at the run's stride and z range, once per image (D34).
@@ -95,9 +96,9 @@ def test_the_fixture_writes_only_its_declared_table_and_the_record(tmp_path):
 
 @pytest.mark.usefixtures("fixture_post_stage")
 def test_the_sub_hash_follows_params_the_file_digest_and_the_inputs(tmp_path):
-    """D32: the parameters, the post_stages.yaml digest, the main run's read sub-hash, the digest of each table
-    and of the label image the post-stage reads, and the spacing. Tables are digested on LF-normalised bytes; a
-    table it does not read and the raw image itself never enter."""
+    """D32: the parameters, the post_stages.yaml digest, the main run's read sub-hash and run_timestamp, the
+    digest of each table and of the label image the post-stage reads, and the spacing. Tables are digested on
+    LF-normalised bytes; a table it does not read and the raw image itself never enter."""
     rf = make_result_folder(tmp_path)
     out, iid = rf.out_dir, rf.image_id
 
@@ -151,12 +152,60 @@ def test_the_sub_hash_follows_params_the_file_digest_and_the_inputs(tmp_path):
     assert changed(out / f"{iid}__image_summary.csv", edit("voxel_dz_um", 0.6)), "the spacing is an input"
     assert changed(out / f"{iid}__image_summary.csv", edit("channel_map_json", '{"dna": 1, "foci": 0}')), \
         "the roles are an input"
-    assert not changed(out / f"{iid}__image_summary.csv", edit("qc_pass", False)), "only the spacing and roles"
+    assert changed(out / f"{iid}__image_summary.csv", edit("run_timestamp", "2026-10-25T00:00:00+00:00")), \
+        "the main run is an input"
+    assert not changed(out / f"{iid}__image_summary.csv", edit("qc_pass", False)), \
+        "only the spacing, the roles and the run_timestamp"
     assert not changed(out / f"{iid}__nuclei.csv", line_endings), "a table digest is not LF-normalised"
     assert not changed(out / f"{iid}__coloc.csv", edit("overlap", 0.75)), "a table it does not read"
     assert not changed(rf.image_path, lambda p: p.write_bytes(b"other raw pixels\n")), "the raw image is hashed"
     assert not changed(out / f"{iid}__montage.png", lambda p: p.write_bytes(b"x")), "a file it does not read"
     assert sub() == base
+
+
+_RING = {"version": "0.1.0", "reads": {"roles": ["foci"], "tables": [], "labels": True, "image": True},
+         "writes": {"rings": ["nucleus_id", "inside_mean"]}}
+
+
+def _inside_mean(inputs, params):
+    lab, foci = inputs.labels(), inputs.image("foci")
+    ids = [int(i) for i in np.unique(lab) if i]
+    return {"rings": pd.DataFrame({"nucleus_id": ids, "inside_mean": [float(foci[lab == i].mean()) for i in ids]})}
+
+
+def test_a_new_main_run_restales_a_stage_that_reads_no_table(tmp_path):
+    """Review S3: the read sub-hash never covers pixels, so a post-stage that reads no table (the shape of the
+    doc's ring_intensity: labels and image only) kept its old numbers when the main run was redone on a
+    re-exported image whose labels came out byte-identical. The main run's run_timestamp (image_summary) is an
+    input, so a new main run restales every post-stage, while a resumed call on the same main run still skips."""
+    from germquant.io.nd2_reader import Stack
+
+    rf = make_result_folder(tmp_path)
+    PS.register_post_stage("ring_intensity", _inside_mean, _RING, replace=True)
+    e = [{"name": "ring_intensity"}]
+    rings = rf.out_dir / _table_file(rf.image_id, "ring_intensity", "rings")
+    try:
+        assert _run(rf, e)["ran"] == ["ring_intensity"]
+        old = pd.read_csv(rings)["inside_mean"].to_numpy()
+        inputs = post_record(rf.out_dir, rf.image_id)["stages"]["ring_intensity"]["inputs"]
+        assert inputs["main_run"] == "2026-10-23T00:00:00+00:00" and inputs["tables"] == {}
+        # the main run redone on a re-exported image: the foci channel doubled, the DNA channel (so the labels)
+        # unchanged, and every table written again with the new run's run_timestamp
+        data = rf.stack.data.copy()
+        data[1] *= 2.0
+        redone = Stack(data=data, spacing=rf.stack.spacing, channel_names=list(rf.stack.channel_names),
+                       path=rf.stack.path, spacing_ok=True)
+        for table in ("nuclei", "spots", "image_summary", "coloc"):
+            p = rf.out_dir / f"{rf.image_id}__{table}.csv"
+            df = pd.read_csv(p)
+            df["run_timestamp"] = "2026-10-25T09:00:00+00:00"
+            df.to_csv(p, index=False)
+        res = _run(rf, e, stack=redone)
+        assert res["ran"] == ["ring_intensity"] and res["skipped"] == [], res
+        assert pd.read_csv(rings)["inside_mean"].to_numpy() == pytest.approx(2.0 * old)
+        assert _run(rf, e, stack=redone)["skipped"] == ["ring_intensity"], "the same main run must still resume"
+    finally:
+        PS.unregister_post_stage("ring_intensity")
 
 
 def test_resume_skips_a_matching_sub_hash(tmp_path):
@@ -326,6 +375,46 @@ def test_the_image_is_read_through_the_run_reader_at_its_stride_and_z_range(tmp_
     foci = run_stack.data[1].astype(np.float64)
     for i in table.index:
         assert table.loc[i, "foci_value"] == pytest.approx(float(foci[run_labels == i].mean()))
+
+
+@pytest.mark.usefixtures("fixture_post_stage")
+def test_the_spacing_comes_from_the_table_on_every_route(tmp_path, monkeypatch):
+    """Review S1: the spacing a post-stage sees, so its numbers and its sub-hash, is the image_summary table's
+    with a stack handed over (a batch pass that keeps it, D34) and without one (a post-only rerun reads the image
+    again), even when the stack says otherwise. A single-plane run records voxel_dz_um as NaN, and dz is then
+    PLANAR_DZ (1.0), what that run's own array code received; a table without voxel sizes gives None on both."""
+    from germquant import pipeline
+    from germquant.io.nd2_reader import Stack
+
+    rf = make_result_folder(tmp_path)
+    other = Stack(data=rf.stack.data, spacing=(1.5, 0.4, 0.4), channel_names=list(rf.stack.channel_names),
+                  path=rf.stack.path, spacing_ok=True)
+    monkeypatch.setattr(pipeline, "read_nd2_metadata", lambda p, **kw: {"channel_names": list(other.channel_names)})
+    monkeypatch.setattr(pipeline, "read_stack", lambda p, **kw: other)
+    summary = rf.out_dir / f"{rf.image_id}__image_summary.csv"
+
+    def routes(dz, dy, dx):
+        df = pd.read_csv(summary)
+        df["voxel_dz_um"], df["voxel_dy_um"], df["voxel_dx_um"] = dz, dy, dx
+        df.to_csv(summary, index=False)
+        seen = []
+        for stack in (other, None):
+            res = _run(rf, [{"name": N}], stack=stack, resume=False)
+            assert res["ran"] == [N], res["post"]
+            seen.append((res["post"]["stages"][N], pd.read_csv(rf.out_dir / _table_file(rf.image_id))))
+        (a, table), (b, again) = seen
+        assert a["sub_hash"] == b["sub_hash"] and a["inputs"] == b["inputs"], (a, b)
+        pd.testing.assert_frame_equal(table, again)
+        return a["inputs"]["spacing"], table
+
+    spacing, _table = routes(*SPACING)
+    assert spacing == list(SPACING), "the table's spacing, never the stack's"
+    nan = float("nan")
+    spacing, table = routes(nan, SPACING[1], SPACING[2])
+    assert spacing == [1.0, SPACING[1], SPACING[2]], "a single-plane run: dz is PLANAR_DZ"
+    assert table["volume_um3"].to_numpy() == pytest.approx(table["n_voxels"].to_numpy() * SPACING[1] * SPACING[2])
+    spacing, table = routes(nan, nan, nan)
+    assert spacing is None and table["volume_um3"].isna().all(), "no recorded spacing on either route"
 
 
 @pytest.mark.usefixtures("fixture_post_stage")

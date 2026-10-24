@@ -91,7 +91,7 @@ def measure(inputs, params):
 | name | what it is |
 |---|---|
 | `inputs.image_id`, `inputs.out_dir` | the image's id and its results folder (a Path) |
-| `inputs.spacing` | (dz, dy, dx) in micrometres as the run recorded it (the `voxel_d*_um` columns), or None |
+| `inputs.spacing` | (dz, dy, dx) in micrometres as the run recorded it (the `voxel_d*_um` columns of its image_summary table, on every route), or None when it recorded none; on a single plane, whose tables record dz as NaN, dz is 1.0, the placeholder germquant's own array code uses there |
 | `inputs.roles` | the run's channel roles, `{role: channel index or None}` |
 | `inputs.tables(name)` | a declared table of the main run, as a new DataFrame each call |
 | `inputs.labels()` | the nucleus label image, int32 (Z, Y, X); a single plane is (1, Y, X) |
@@ -170,13 +170,14 @@ call the record `<image_id>__post.json`:
   "ring_intensity": {
    "version": "0.1.0",
    "params": {"radius_um": 0.8},
-   "sub_hash": "c53e223939a1",
+   "sub_hash": "1823ae360f3b",
    "done": true,
    "error": null,
    "tables": ["img_001__post_ring_intensity_rings.csv"],
-   "finished": "2026-10-24T02:14:36.376158+00:00",
-   "inputs": {"read_sub_hash": "0123456789ab", "spacing": [0.5, 0.2, 0.2], "tables": {},
-              "roles": {"foci": 1}, "labels": "083de45c...", "image": {"xy_stride": 1, "z_range": null}}
+   "finished": "2026-10-24T03:28:37.963264+00:00",
+   "inputs": {"read_sub_hash": "0123456789ab", "main_run": "2026-10-23T00:00:00+00:00",
+              "spacing": [0.5, 0.2, 0.2], "tables": {}, "roles": {"foci": 1}, "labels": "083de45c...",
+              "image": {"xy_stride": 1, "z_range": null}}
   }
  }
 }
@@ -186,13 +187,14 @@ The `sub_hash` (12 hex digits, like the stage sub-hashes of `run_manifest.json`)
 - the post-stage's version, its declared reads and writes, and its parameters (defaults filled in);
 - the digest of `post_stages.yaml` (`post_stages_file_sha256`: the sha256 of the file's bytes with CRLF turned
   into LF, or, for a list given from Python, of the text germquant would write from it);
-- the digests of its inputs (`inputs`): the main run's read sub-hash, the spacing, the channel index of each
-  role it reads, the sha256 of each table it declares (CRLF turned into LF) and of the label image when it
-  declares it, and the run's `xy_stride` and `z_range` when it reads the image.
+- the digests of its inputs (`inputs`): the main run's read sub-hash and its `run_timestamp` (`main_run`, from
+  the image_summary table), the spacing, the channel index of each role it reads, the sha256 of each table it
+  declares (CRLF turned into LF) and of the label image when it declares it, and the run's `xy_stride` and
+  `z_range` when it reads the image.
 
-The raw image is not hashed again: the read sub-hash and the tables already change when it does. So a new main
-run (whose tables carry a new `run_timestamp`), a changed parameter, a new version of the post-stage or another
-`post_stages.yaml` each give a new sub-hash.
+The raw image is not hashed again, and the read sub-hash does not cover pixels: a new main run restales every
+post-stage through its `run_timestamp`, also one that reads no table. So a new main run, a changed parameter, a
+new version of the post-stage or another `post_stages.yaml` each give a new sub-hash.
 
 On the next call a post-stage is skipped when its record says `done`, its `sub_hash` is the same and its tables
 are still there; anything else runs again, the post-stage only. The record lists the post-stages of the current
@@ -282,7 +284,9 @@ def measure(inputs, params):
 
     labels = inputs.labels()                          # (Z, Y, X) int32, read-only
     foci = inputs.image("foci").astype(np.float64)    # the foci channel at the run's stride and z range
-    spacing = inputs.spacing or (1.0, 1.0, 1.0)       # (dz, dy, dx) in um, as the run recorded it
+    if inputs.spacing is None:                        # a shell in um needs the run's voxel size
+        raise ValueError("the run recorded no voxel size")
+    spacing = inputs.spacing                          # (dz, dy, dx) in um, as the run recorded it
     radius = params["radius_um"]
     pad = [int(np.ceil(radius / s)) + 1 for s in spacing]
     rows = []
