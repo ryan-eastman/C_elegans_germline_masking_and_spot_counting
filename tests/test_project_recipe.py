@@ -218,6 +218,17 @@ def test_a_run_setting_never_rewrites_the_recipe_files(project_env, tmp_path):  
     save_project(proj, device="cpu", xy_stride=2)
     assert rp.read_bytes() == hand and project_config(open_project(proj.root)).hash == h
     assert read_manifest_file(proj.root)["recipe"]["expected_config_hash"] == h
+    crlf = hand.replace(b"\n", b"\r\n")                                 # saved by a Windows editor
+    rp.write_bytes(crlf)
+    import io
+    from contextlib import redirect_stdout
+
+    for argv, changed in ((["--json"], False), (["--device", "auto", "--json"], True)):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            assert cli_projects.main(["edit", str(proj.root), *argv]) == 0
+        assert json.loads(buf.getvalue())["changed"] is changed, argv
+        assert rp.read_bytes() == crlf and project_config(open_project(proj.root)).hash == h
     write_recipe(proj, edits={"segmentation.nuclei.min_volume_um3": 3.0})
     data = _recipe(proj.root)
     assert data["qc"] == {"min_nuclei": 2} and b"# a note" not in rp.read_bytes()
