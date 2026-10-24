@@ -65,8 +65,8 @@ DEFAULTS: dict[str, Any] = {
     "classes": {"min_complete_um": 1.0, "max_link_cost": 60.0, "max_contaminated": 0.3,
                 "merged_multiplicity": 1.7, "merged_run_um": 0.5, "min_frac_in_label": 0.8,
                 # v2 (protocol changelog entry 23): the complete guard; complete_guard_fwhm chosen on the tuning
-                # seeds from {1.0, 1.5, 2.0} by the rule of entry 23
-                "complete_guard": True, "complete_guard_fwhm": 1.5, "max_complete_um": 9.0},
+                # seeds from {1.0, 1.5, 2.0} by the rule of entry 23 (2.0: entry 24)
+                "complete_guard": True, "complete_guard_fwhm": 2.0, "max_complete_um": 9.0},
     "qc": {"low_snr_review": 4.0, "low_snr_fail": 2.5, "steep_frac_review": 0.5, "long_um": 10.0,
            "kink_deg": 60.0, "kink_um": 0.3, "fit_rms_review_um": 0.12, "gap_long_um": 0.6,
            "stack_edge_um": 0.4, "merged_label_ratio": 1.6, "double_width_ratio": 1.6,
