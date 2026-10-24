@@ -3,14 +3,18 @@
 * germquant.project exports every name of section 9.1 with exactly the frozen parameters, so the units and
   the plugin that code against it (P5-RUN, P5-TUNE, P6, the P7 draft) can rely on them.
 * In a fresh interpreter, ``import germquant.project`` loads none of torch, cupy, spotmax, cellpose, bioio
-  and dask.array.
+  and dask.array, and neither does ``python -m germquant.project`` new, add (an OME-TIFF), rounds, edit --role
+  --dry-run (on a project holding that OME-TIFF) or unlock, each in its own fresh interpreter.
 """
 from __future__ import annotations
 
 import inspect
+import json
+import re
 from pathlib import Path
 
-from project_helpers import heavy_after
+from packs_helpers import pack_env  # noqa: F401
+from project_helpers import heavy_after, module_main_code, project_env, write_ome_tiff  # noqa: F401
 
 import germquant.project as P
 from germquant.project import headers
@@ -64,3 +68,23 @@ def test_import_germquant_project_is_light():
     heavy, r = heavy_after("import germquant.project\nimport germquant.project.headers\n")
     assert r.returncode == 0, r.stderr[-2000:]
     assert heavy == "", f"import germquant.project loaded {heavy}"
+
+
+def test_python_m_germquant_project_stays_light(project_env, tmp_path):  # noqa: F811
+    root = tmp_path / "light project"
+    img = write_ome_tiff(tmp_path / "in" / "x.ome.tif", names=("DAPI", "RAD-51"))
+    runs = {"new": ["new", str(root), "--pack", "test_pack@0.1.0", "--json"],
+            "add": ["add", str(root), str(img), "--json"],
+            "rounds": ["rounds", str(root), "--new", "--json"],
+            "edit": ["edit", str(root), "--role", "foci=RAD-51", "--dry-run", "--json"],
+            "unlock": ["unlock", str(root), "--host", "nohost", "--pid", "1", "--json"]}
+    out = {}
+    for name, argv in runs.items():
+        heavy, r = heavy_after(module_main_code("germquant.project", argv))
+        assert re.search(r"EXIT 0\b", r.stderr), (name, r.stderr[-2000:])
+        assert heavy == "", f"python -m germquant.project {name} loaded {heavy}"
+        out[name] = json.loads(r.stdout)
+    assert out["new"]["config_hash"] == "02bb83cf74f9" and out["add"]["added"] == ["x"]
+    assert out["rounds"]["created"] == "r01" and out["unlock"]["removed"] is False
+    assert out["edit"]["preview"]["bindings"]["x"]["foci"] == {"channel": "RAD-51", "how": "name"}
+    assert out["edit"]["dry_run"] is True and not (root / "channel_map.yaml").exists()
