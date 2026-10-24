@@ -194,6 +194,11 @@ now. The project's config hash changes, `validated` turns false and every image 
 config_hash. In Python: `germquant.tune.apply_tuning(project, "tuning/<run_id>")`, which returns the new
 config hash.
 
+When the recipe is no longer the config the tuning run's images were run with (an edit or another Apply
+since, as `run.json` records their config hashes), Apply still writes the best keys and warns: they were
+searched on those runs' spot settings and now sit on top of the recipe as it is. In Python the warning is a
+`germquant.tune.TuningWarning`; `--json` prints `config_hash`, `run_dir` and `warnings`.
+
 ## Python
 
 ```python

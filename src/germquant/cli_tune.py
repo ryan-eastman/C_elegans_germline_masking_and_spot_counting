@@ -92,17 +92,30 @@ def dispatch(args) -> int:
         return 2
 
     if args.apply is not None:
-        from .tune import apply_tuning
+        import warnings
+
+        from .tune import TuningWarning, apply_tuning
 
         try:
-            config_hash = apply_tuning(project, args.apply, plugin_version=args.plugin_version)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", TuningWarning)
+                config_hash = apply_tuning(project, args.apply, plugin_version=args.plugin_version)
         except (TuneRefused, FileNotFoundError, ValueError) as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return 2
         except Exception as e:  # noqa: BLE001 - a failed write: exit 1, the traceback through logging
             return _failed("tune-spots --apply", e)
+        notes = []
+        for w in caught:
+            if issubclass(w.category, TuningWarning):
+                notes.append(str(w.message))
+            else:                                  # anything else is shown as it would have been
+                warnings.showwarning(w.message, w.category, w.filename, w.lineno)
+        for note in notes:
+            print(f"WARNING: {note}", file=sys.stderr)
         if args.json:
-            print(json.dumps({"config_hash": config_hash, "run_dir": args.apply}, indent=1))
+            print(json.dumps({"config_hash": config_hash, "run_dir": args.apply, "warnings": notes}, indent=1,
+                             ensure_ascii=True))
         else:
             print(f"applied {args.apply}: recipe.yaml written, config_hash {config_hash} (validated: false)")
         return 0

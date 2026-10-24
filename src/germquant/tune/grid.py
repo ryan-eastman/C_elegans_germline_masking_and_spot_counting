@@ -51,6 +51,11 @@ class GridError(TuneRefused):
     """A grid that cannot be searched: an unknown or reserved key, an empty list, a value of the wrong type."""
 
 
+class TuningWarning(UserWarning):
+    """Something to check before a tuning result is used, such as a recipe that changed after the tuning run
+    (apply_tuning warns with it; ``germquant tune-spots --apply`` prints it as a WARNING line)."""
+
+
 def _key_types(backend: str) -> dict[str, type | tuple] | None:
     """The tunable keys of a built-in backend with the type of their code default, or None for a backend
     whose keys are not known here (an entry point)."""

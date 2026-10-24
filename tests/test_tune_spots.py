@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,7 +35,7 @@ from germquant import cli, planar
 from germquant.tune import apply as A
 from germquant.tune import grid as G
 from germquant.tune import spots as S
-from germquant.tune.grid import TuneRefused
+from germquant.tune.grid import TuneRefused, TuningWarning
 
 ROOT = Path(__file__).resolve().parents[1]
 GOLD = ROOT / "tests" / "golden" / "synthetic_tune"
@@ -602,7 +603,7 @@ def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
         assert cli.main(["tune-spots", "--project", str(root), "--grid", "g.yaml", "--max-runs", "1"]) == 2
         assert "above --max-runs 1" in capsys.readouterr().err
     assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"config_hash": "c0ffee000000", "run_dir": rel}
+    assert json.loads(capsys.readouterr().out) == {"config_hash": "c0ffee000000", "run_dir": rel, "warnings": []}
     assert edits == [{"edits": {"spots.log.min_snr": 3.0}, "origin": "tuning", "plugin_version": None}]
     # the plugin's Apply records its version in the saved stamp (D39, D42; review P5-TUNE S3)
     assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, "--plugin-version", "0.2.0.dev1"]) == 0
@@ -616,6 +617,13 @@ def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
         assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, *extra]) == 2, extra
         assert f"it takes no {extra[0]}" in capsys.readouterr().err
     assert len(edits) == 2
+    # a recipe edited since the tuning run's images were run: applied, with a warning (review P5-TUNE N9)
+    project.cfg = H.basic_recipe(**{"spots.log.diameter_um": 0.5})
+    assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, "--json"]) == 0
+    captured = capsys.readouterr()
+    notes = json.loads(captured.out)["warnings"]
+    assert len(notes) == 1 and "the recipe is now" in notes[0] and f"WARNING: {notes[0]}" in captured.err
+    project.cfg = H.basic_recipe()
     assert cli.main(["tune-spots", "--project", str(tmp_path / "nowhere"), "--json"]) == 2
     assert "cannot open the project" in capsys.readouterr().err
 
@@ -652,8 +660,16 @@ def test_apply_tuning_checks_the_run(planted, tmp_path, monkeypatch):
     monkeypatch.setattr(A, "_project_api", lambda: H.fake_project_api(project, edits))
     run = root / "tuning" / "r1"
     shutil.copytree(planted.log["run_dir"], run)
-    assert A.apply_tuning(project, "tuning/r1", plugin_version="0.2.0.dev1") == "c0ffee000000"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", TuningWarning)                    # the recipe is the runs' config: no warning
+        assert A.apply_tuning(project, "tuning/r1", plugin_version="0.2.0.dev1") == "c0ffee000000"
     assert edits == [{"edits": {"spots.log.min_snr": 3.0}, "origin": "tuning", "plugin_version": "0.2.0.dev1"}]
+    # a recipe edited after the tuning run's images were run: written, with a warning (review P5-TUNE N9)
+    project.cfg = H.basic_recipe(**{"spots.log.diameter_um": 0.5})
+    with pytest.warns(TuningWarning, match="r1: its images were run with config 02bb83cf74f9, and the recipe is now"):
+        A.apply_tuning(project, run)
+    assert len(edits) == 2
+    project.cfg = H.basic_recipe()
     best = yaml.safe_load((run / "best.yaml").read_text(encoding="ascii"))
     (run / "best.yaml").write_text(yaml.safe_dump({**best, "keys": {**best["keys"], "spots.log.diameter_um": 0.4}}),
                                    encoding="ascii")
@@ -666,7 +682,7 @@ def test_apply_tuning_checks_the_run(planted, tmp_path, monkeypatch):
     (run / "best.yaml").unlink()
     with pytest.raises(TuneRefused, match="no best.yaml"):
         A.apply_tuning(project, run)
-    assert len(edits) == 1
+    assert len(edits) == 2
 
 
 # ------------------------------------------------------------------------------ with germquant.project (P5-PRJ)

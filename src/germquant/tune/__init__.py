@@ -19,7 +19,7 @@ germquant.validate.compare (the seal of design 6.7, enforced by tests/test_tune_
 """
 from .apply import apply_tuning
 from .effect_filter import filter_effect_size
-from .grid import GridError, TuneRefused, default_grid, load_grid, n_runs
+from .grid import GridError, TuneRefused, TuningWarning, default_grid, load_grid, n_runs
 from .points import read_points, write_points
 from .spots import OBJECTIVE, OBJECTIVE_TEXT, tune_grid, tune_spotmax, tune_spots
 
@@ -28,6 +28,7 @@ __all__ = [
     "OBJECTIVE_TEXT",
     "GridError",
     "TuneRefused",
+    "TuningWarning",
     "apply_tuning",
     "default_grid",
     "filter_effect_size",
