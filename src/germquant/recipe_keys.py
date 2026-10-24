@@ -109,14 +109,17 @@ def planar_problem(value) -> str | None:
 
 def voxel_size_problem(value) -> str | None:
     """None when io.voxel_size_um is null, a positive number, or a list of two or three positive numbers (each a
-    whole number or a decimal, not a boolean); otherwise the message naming the key."""
+    whole number or a decimal, not a boolean, not null); otherwise the message naming the key."""
     if value is None:
         return None
-    items = list(value) if isinstance(value, (list, tuple)) else [value]
-    if (isinstance(value, (list, tuple)) and len(items) not in (2, 3)) or any(
-            positive_length_problem("io.voxel_size_um", v) for v in items):
+    is_list = isinstance(value, (list, tuple))
+    items = list(value) if is_list else [value]
+    if (is_list and len(items) not in (2, 3)) or any(
+            v is None or positive_length_problem("io.voxel_size_um", v) for v in items):
+        hint = (" (a list item cannot be null: [dy, dx] keeps the file's own dz)"
+                if is_list and any(v is None for v in items) else _quoted(value))
         return (f"io.voxel_size_um must be a positive number of micrometres, or a list of two ([dy, dx]) or three "
-                f"([dz, dy, dx]) positive numbers (or null); got {value!r}{_quoted(value)}")
+                f"([dz, dy, dx]) positive numbers (or null); got {value!r}{hint}")
     return None
 
 

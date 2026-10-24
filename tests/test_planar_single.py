@@ -200,7 +200,7 @@ def test_io_keys_accept(key, value):
     ("voxel_size_um", 0), ("voxel_size_um", -0.5), ("voxel_size_um", "0.5"), ("voxel_size_um", True),
     ("voxel_size_um", [0.5]), ("voxel_size_um", [0.5, 0.5, 0.5, 0.5]), ("voxel_size_um", [0.5, -1]),
     ("voxel_size_um", [True, 0.5]), ("voxel_size_um", {"dy": 0.5}), ("voxel_size_um", float("nan")),
-    ("voxel_size_um", [0.5, "0.5"]),
+    ("voxel_size_um", [0.5, "0.5"]), ("voxel_size_um", [None, 0.5]), ("voxel_size_um", [0.4, None, 0.5]),
 ])
 def test_io_keys_refuse(key, value):
     cfg = _Cfg({"io": {key: value}})
@@ -212,9 +212,11 @@ def test_io_keys_refuse(key, value):
 
 def test_a_malformed_io_key_stops_the_image_before_any_stage(tmp_path, monkeypatch):
     H.patch_reader(monkeypatch)
-    for key, value in (("io.planar", "yes"), ("io.voxel_size_um", [0.5])):
-        out = tmp_path / key
-        with pytest.raises(ValueError, match=re.escape(key)):
+    # [null, dy, dx] (a null to keep the file's dz) is refused by the recipe check, not met by a bare TypeError
+    cases = (("io.planar", "yes"), ("io.voxel_size_um", [0.5]), ("io.voxel_size_um", [None, 0.65, 0.65]))
+    for i, (key, value) in enumerate(cases):
+        out = tmp_path / f"case{i}"
+        with pytest.raises(ValueError, match=re.escape(f"recipe refused before any stage ran: {key} must be")):
             pipeline.process_image(ND2, H.generic_2d(**{key: value}), out, prov=None)
         assert out.is_dir() and not list(out.iterdir())
 

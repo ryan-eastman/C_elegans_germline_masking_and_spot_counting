@@ -15,7 +15,9 @@ OME-TIFF CYX (no z step) and as an OME-TIFF CZYX with Z = 1 (with a z step):
   fence pins for one plane holds as well: the CYX file keeps the 1 um guess and its flag, and every run keeps
   the fence's key sets.
 * test_the_reader_fills_spacing_yx_for_one_plane: bioio_reader fills Stack.spacing_yx and the header key
-  spacing_yx_um when Z is 1, with xy_stride applied, and leaves _spacing's (1, 1, 1) rule as it is.
+  spacing_yx_um when Z is 1, with xy_stride applied, and leaves _spacing's (1, 1, 1) rule as it is. A TIFF whose
+  resolution is not a length (a plain TIFF with resolution unit none, an ImageJ TIFF in pixels or without a unit)
+  gets None.
 
 Making the legacy golden (docs/PLANAR.md, "The legacy golden"): with a detached worktree of the base commit at
 BASE, from this checkout, ``GERMQUANT_UPDATE_GOLDEN=1 PYTHONPATH=BASE/src python -m pytest
@@ -139,3 +141,13 @@ def test_the_reader_fills_spacing_yx_for_one_plane(tmp_path):
         plain = H.write_tiff(tmp_path / "plain" / f"{H.STEM}.tif", calibrated=False)
         st, meta = read_image(plain), read_image_metadata(plain)
         assert st.spacing_yx is None and meta["spacing_yx_um"] is None and not st.spacing_ok
+        # an ImageJ TIFF in pixels: bioio-tifffile reports its resolution (here 0.65) as micrometres, which it is
+        # not; and one without a unit, for which bioio-tifffile reports no size itself
+        import tifffile
+
+        for name, md in (("pixel", {"axes": "CYX", "unit": "pixel"}), ("no_unit", {"axes": "CYX"})):
+            ij = tmp_path / f"imagej_{name}" / f"{H.STEM}.tif"
+            ij.parent.mkdir(parents=True, exist_ok=True)
+            tifffile.imwrite(ij, H.plane_cyx(), imagej=True, resolution=(1 / 0.65, 1 / 0.65), metadata=md)
+            st, meta = read_image(ij), read_image_metadata(ij)
+            assert st.spacing_yx is None and meta["spacing_yx_um"] is None and not st.spacing_ok, name
