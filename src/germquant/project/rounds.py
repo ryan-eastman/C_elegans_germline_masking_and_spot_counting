@@ -50,10 +50,11 @@ def make_round(root, name: str) -> Path:
     case (R01 next to r01 would be one folder on Windows and macOS)."""
     path = Path(root) / TRAINING_DIR / check_round_name(name)
     os.makedirs(long_path(path.parent), exist_ok=True)
-    same = [n for n in os.listdir(long_path(path.parent)) if n.lower() == name.lower()]
-    if same and same != [name]:
-        raise ProjectError(f"the training round {name} differs only in letter case from {same[0]} "
-                           f"({path.parent / same[0]}), which Windows and macOS would make one folder")
+    listing = os.listdir(long_path(path.parent))
+    other = next((n for n in listing if n.lower() == name.lower() and n != name), None)
+    if other is not None and name not in listing:
+        raise ProjectError(f"the training round {name} differs only in letter case from {other} "
+                           f"({path.parent / other}), which Windows and macOS would make one folder")
     try:
         os.mkdir(long_path(path))
     except FileExistsError:

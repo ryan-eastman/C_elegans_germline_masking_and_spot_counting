@@ -579,6 +579,13 @@ def test_training_rounds_are_named_and_numbered(project_env, tmp_path):  # noqa:
     with pytest.raises(ProjectError, match="letter case"):        # one folder on Windows and macOS
         new_round(proj, "R01")
     assert list_rounds(proj) == ["fine_tune-2", "r01", "r02"]
+    try:
+        os.mkdir(proj.root / "training" / "R02")                  # a case-sensitive file system holds both
+    except FileExistsError:
+        return                                                    # Windows and macOS: one folder
+    for name in ("r02", "R02"):                                   # an exact name that is there: it exists
+        with pytest.raises(ProjectError, match="already exists"):
+            new_round(proj, name)
 
 
 def test_the_full_command_line_has_the_project_group(project_env, tmp_path, capsys):  # noqa: F811
