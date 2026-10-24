@@ -55,20 +55,23 @@ FIELDS = {"planted_a": (FIELD_A, 1), "planted_b": (FIELD_B, 2)}
 # three nuclei of FIELD_A on a smaller field: the cheap example of the geometry and fresh-interpreter tests
 SHAPE_TINY = (12, 40, 104)
 TINY = (FIELD_A[:3], 7, SHAPE_TINY)
-# single-plane fields for the 2D case (package P2b's io.planar runs; the LoG backend is refused there)
+# single-plane fields for the 2D case (package P2b's io.planar runs; the LoG backend is refused there). On one
+# plane SpotMAX's effect sizes of the 105-count decoys reach those of the faintest true foci, so these fields
+# carry only the fainter decoys (72 to 75 counts): their effect sizes stay below 18.1, the true foci's above
+# 24.1 (measured with P2b merged in a preview)
 SHAPE_2D = (1, 64, 128)
 FIELD_2D_A = [
-    ((0, 18, 18), [(0, -4, -4, 150, T), (0, 4, 4, 140, T), (0, 4, -4, 105, D)]),
+    ((0, 18, 18), [(0, -4, -4, 150, T), (0, 4, 4, 140, T), (0, 4, -4, 72, D)]),
     ((0, 18, 52), [(0, 0, 0, 160, T)]),
     ((0, 20, 86), [(0, -4, -4, 150, T), (0, 4, 4, 155, T), (0, -4, 4, 145, T), (0, 4, -4, 270, T)]),
     ((0, 20, 116), [(0, -4, 0, 150, T), (0, 4, 0, 72, D)]),
-    ((0, 46, 30), [(0, -4, -4, 145, T), (0, 4, 4, 150, T), (0, 4, -4, 108, D)]),
+    ((0, 46, 30), [(0, -4, -4, 145, T), (0, 4, 4, 150, T), (0, 4, -4, 75, D)]),
     ((0, 46, 66), [(0, 0, -4, 150, T), (0, 0, 4, 260, T), (0, -4, 0, 160, T)]),
     ((0, 46, 104), [(0, 0, 0, 155, T), (0, 4, 4, 75, D)]),
 ]
 FIELD_2D_B = [
     ((0, 18, 20), [(0, -4, -4, 150, T), (0, 4, 4, 150, T), (0, -4, 4, 150, T)]),
-    ((0, 20, 60), [(0, 0, 0, 155, T), (0, 4, 4, 106, D)]),
+    ((0, 20, 60), [(0, 0, 0, 155, T), (0, 4, 4, 74, D)]),
     ((0, 18, 100), [(0, -4, -4, 145, T), (0, 4, 4, 150, T), (0, -4, 4, 72, D)]),
     ((0, 46, 40), [(0, 0, 0, 265, T), (0, -4, -4, 150, T)]),
     ((0, 46, 90), [(0, -4, -4, 150, T), (0, 4, 4, 150, T), (0, 4, -4, 148, T), (0, -4, 4, 152, T)]),
