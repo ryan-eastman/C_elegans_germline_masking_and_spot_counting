@@ -56,6 +56,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from germquant.fsutil import long_path
+
 from .effect_filter import filter_effect_size
 from .grid import (
     EFFECT_SIZE_KEY,
@@ -189,12 +191,13 @@ def project_items(project, points="annotations") -> tuple[list[dict], list[str]]
     root = Path(project.root)
     pdir = Path(os.fspath(points))
     pdir = pdir if pdir.is_absolute() else root / pdir
-    if not pdir.is_dir():
+    if not os.path.isdir(long_path(pdir)):
         raise TuneRefused(f"no annotations folder {pdir}: save truth points as <image_id>__points_<annotator>.csv "
                           f"there first (docs/TUNING.md)")
     warnings: list[str] = []
     by_image: dict[str, list[Path]] = {}
-    for f in sorted(p for p in pdir.iterdir() if p.is_file() and p.suffix.lower() == ".csv"):
+    names = sorted(n for n in os.listdir(long_path(pdir)) if n.lower().endswith(".csv"))
+    for f in (pdir / n for n in names if os.path.isfile(long_path(pdir / n))):
         parsed = parse_points_name(f.name)
         if parsed is None:
             warnings.append(f"{f.name}: not a truth-point file name (<image_id>__points_<annotator>.csv); skipped")
@@ -254,7 +257,8 @@ def _tune(items, grid, objective, split, *, backend, out_dir, max_runs, shortcut
         raise TuneRefused(f"the grid means {total} {backend} runs ({per} per image on {len(items)} image(s)), above "
                           f"--max-runs {max_runs}; narrow the grid or raise --max-runs")
     out_dir = Path(os.fspath(out_dir))
-    if out_dir.exists() and (not out_dir.is_dir() or any(out_dir.iterdir())):
+    if os.path.exists(long_path(out_dir)) and (not os.path.isdir(long_path(out_dir))
+                                               or os.listdir(long_path(out_dir))):
         raise TuneRefused(f"{out_dir} exists and is not empty: a tuning run never overwrites another")
     warnings = list(warnings or [])
     ctxs = [_prepare(it, k, backend, warnings, current) for k, it in enumerate(items)]
@@ -412,8 +416,6 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
 
 def _run_manifest(result_dir: Path) -> tuple[dict | None, Path | None]:
     """run_manifest.json of a results folder, or of its parent (a batch writes one for the whole folder)."""
-    from germquant.fsutil import long_path
-
     for p in (result_dir / "run_manifest.json", result_dir.parent / "run_manifest.json"):
         try:
             with open(long_path(p), encoding="utf-8") as fh:
@@ -426,10 +428,8 @@ def _run_manifest(result_dir: Path) -> tuple[dict | None, Path | None]:
 def _read_labels(result_dir: Path, image_id: str) -> np.ndarray:
     import tifffile
 
-    from germquant.fsutil import long_path
-
     p = result_dir / f"{image_id}__nuclei_labels.tif"
-    if not p.is_file():
+    if not os.path.isfile(long_path(p)):
         raise TuneRefused(f"{image_id}: no label image {p.name} in {result_dir}; tuning needs the run's labels "
                           f"(output.write_label_images must stay on)")
     lab = np.asarray(tifffile.imread(long_path(p)))
@@ -441,11 +441,9 @@ def _read_labels(result_dir: Path, image_id: str) -> np.ndarray:
 
 
 def _image_summary(result_dir: Path, image_id: str) -> pd.DataFrame:
-    from germquant.fsutil import long_path
-
     for suffix, reader in ((".csv", pd.read_csv), (".parquet", pd.read_parquet)):
         p = result_dir / f"{image_id}__image_summary{suffix}"
-        if p.is_file():
+        if os.path.isfile(long_path(p)):
             df = reader(long_path(p))
             if len(df):
                 return df
@@ -651,8 +649,6 @@ def _ranked_row(trial: dict, grid: dict) -> dict:
 def _sha256_file(path) -> str | None:
     import hashlib
 
-    from germquant.fsutil import long_path
-
     if path is None:
         return None
     h = hashlib.sha256()
@@ -701,7 +697,7 @@ def _run_record(run_id, ctxs, grid, backend, split, objective, max_runs, n_done,
 def _write_run(out_dir: Path, grid: dict, trials: list[dict], ranked: list[dict], best: dict | None, run: dict) -> None:
     import yaml
 
-    out_dir.mkdir(parents=True, exist_ok=True)
+    os.makedirs(long_path(out_dir), exist_ok=True)
     write_text_atomic(out_dir / FILES["grid"], yaml.safe_dump(grid, sort_keys=False, allow_unicode=False,
                                                                default_flow_style=None))
     lines = [json.dumps(t, sort_keys=False, ensure_ascii=True, allow_nan=False) for t in trials]
@@ -719,10 +715,8 @@ def read_best(run_dir) -> dict:
     value}}. TuneRefused for a run without one (nothing could be scored) or a malformed file."""
     import yaml
 
-    from germquant.fsutil import long_path
-
     p = Path(os.fspath(run_dir)) / FILES["best"]
-    if not p.is_file():
+    if not os.path.isfile(long_path(p)):
         raise TuneRefused(f"{p.parent}: no best.yaml (not a tuning run, or no parameter set could be scored)")
     with open(long_path(p), encoding="utf-8-sig") as fh:
         best = yaml.safe_load(fh)

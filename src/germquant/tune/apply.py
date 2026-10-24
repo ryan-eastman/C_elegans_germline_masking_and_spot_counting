@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from germquant.fsutil import long_path
+
 from .grid import TuneRefused, load_grid
 from .spots import FILES, read_best
 
@@ -31,7 +33,7 @@ def apply_tuning(project, run_dir, *, plugin_version=None) -> str:
         run = Path(project.root) / run
     best = read_best(run)
     grid_file = run / FILES["grid"]
-    if not grid_file.is_file():
+    if not os.path.isfile(long_path(grid_file)):
         raise TuneRefused(f"{run}: no grid.yaml; apply only takes a folder a tuning run wrote")
     grid = load_grid(grid_file)
     extra = sorted(set(best["keys"]) - set(grid))
