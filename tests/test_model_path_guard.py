@@ -7,12 +7,14 @@ happened on 2026-10-23 for a study config outside the checkout run from a worktr
 (live_results/kate_movies/readiness.md, gap G1). The refusal names every place looked in and the fixes.
 Cellpose's own names (cpsam, cpsam_v2) still pass through, every value that resolves is returned exactly as
 before (the same value and type), and runs that never load the model (method classical, another backend, method
-auto without Cellpose installed) are not refused. Nothing here needs model weights: the Cellpose call is replaced
-by a spy where a run is made.
+auto without Cellpose installed) are not refused. `germquant finetune --pretrained` gets the same check, because
+Cellpose's own command line falls back the same way. Nothing here needs model weights: the Cellpose call is
+replaced by a spy where a run is made, and the training command is never started.
 """
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import types
 from pathlib import Path
@@ -296,3 +298,29 @@ def test_cellpose_installed_is_read_without_importing_cellpose(monkeypatch):
     monkeypatch.delitem(sys.modules, "cellpose")
     monkeypatch.setattr(model_paths.importlib.util, "find_spec", lambda name, package=None: None)
     assert model_paths.cellpose_installed() is False
+
+
+# ---- germquant finetune: Cellpose's own command line falls back the same way --------------------------------
+
+def test_finetune_refuses_a_pretrained_value_that_is_no_model_file(tmp_path, no_models, monkeypatch, caplog):
+    from germquant.segment import finetune as F
+
+    started = []
+    monkeypatch.setattr(F.subprocess, "run", lambda cmd, **k: started.append(cmd))
+    labeled, out = tmp_path / "labeled", tmp_path / "out" / "m"
+    # a missing path, a germquant model name, names Cellpose's command line does not know, and a folder
+    for bad in (REL, "germline_nuclei_combined", "sam", "CPSAM", str(tmp_path)):
+        with pytest.raises(FileNotFoundError, match="fine-tune from its stock weights"):
+            F.finetune_cellpose(labeled, out, pretrained=bad)
+    assert started == [] and not out.parent.exists()
+    # --print-only builds the command, perhaps for another machine: a warning, not a stop
+    with caplog.at_level(logging.WARNING, logger=F.log.name):
+        cmd = F.finetune_cellpose(labeled, out, pretrained=REL, run=False)
+    assert REL in cmd and "stock weights" in caplog.text and started == []
+    # a model file and the names Cellpose's command line loads reach the command unchanged
+    weights = tmp_path / "weights.bin"
+    weights.write_bytes(b"weights")
+    for ok in ("cpsam", "cpsam_v2", "cpdino", "cpdino-vitb", str(weights)):
+        cmd = F.finetune_cellpose(labeled, out, pretrained=ok)
+        assert cmd[cmd.index("--pretrained_model") + 1] == ok
+    assert len(started) == 5
