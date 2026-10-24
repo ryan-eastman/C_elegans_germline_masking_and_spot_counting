@@ -56,6 +56,15 @@ class TuningWarning(UserWarning):
     (apply_tuning warns with it; ``germquant tune-spots --apply`` prints it as a WARNING line)."""
 
 
+def _yaml_problem(e: BaseException) -> str:
+    """A YAML parser's error, or the UnicodeDecodeError of a file that is not UTF-8 text, on one line: the
+    problem and where it is, so that a refusal is one ERROR line."""
+    mark = getattr(e, "problem_mark", None)
+    if getattr(e, "problem", None) and mark is not None:
+        return f"{e.problem} at line {mark.line + 1}, column {mark.column + 1}"
+    return " ".join(str(e).split())
+
+
 def _key_types(backend: str) -> dict[str, type | tuple] | None:
     """The tunable keys of a built-in backend with the type of their code default, or None for a backend
     whose keys are not known here (an entry point)."""
@@ -159,7 +168,7 @@ def load_grid(path) -> dict:
         try:
             data = yaml.safe_load(fh)
         except (yaml.YAMLError, UnicodeDecodeError) as e:     # UnicodeDecodeError: not UTF-8 text
-            raise GridError(f"{p}: not a YAML file ({e})") from e
+            raise GridError(f"{p}: not a YAML file ({_yaml_problem(e)})") from e
     if not isinstance(data, dict):
         raise GridError(f"{p}: a grid file is a mapping of dotted spots keys to lists of values")
     try:

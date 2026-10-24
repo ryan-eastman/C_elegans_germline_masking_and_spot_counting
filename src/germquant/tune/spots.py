@@ -64,6 +64,7 @@ from .effect_filter import filter_effect_size
 from .grid import (
     EFFECT_SIZE_KEY,
     TuneRefused,
+    _yaml_problem,
     check_grid,
     default_grid,
     group_key,
@@ -796,7 +797,7 @@ def read_best(run_dir) -> dict:
         try:
             best = yaml.safe_load(fh)
         except (yaml.YAMLError, UnicodeDecodeError) as e:     # a hand edit gone wrong, or not UTF-8 text
-            raise TuneRefused(f"{p}: not a YAML file ({e})") from None
+            raise TuneRefused(f"{p}: not a YAML file ({_yaml_problem(e)})") from None
     if not isinstance(best, dict) or set(best) != {"objective", "backend", "keys"} or not isinstance(best["keys"], dict) \
             or not best["keys"] or not isinstance(best["backend"], str):
         raise TuneRefused(f"{p}: best.yaml holds objective, backend and keys {{dotted spots key: value}}")

@@ -701,13 +701,16 @@ def test_apply_refuses_a_best_yaml_that_is_not_yaml(planted, tmp_path, monkeypat
     monkeypatch.setattr(A, "_project_api", lambda: H.fake_project_api(project, edits))
     run = root / "tuning" / "r1"
     shutil.copytree(planted.log["run_dir"], run)
-    for text in (b"keys: {spots.log.min_snr: [3.0\n", b"keys:\n\tspots.log.min_snr: 3.0\n",
-                 b"objective: object_ccc\nbackend: log\nkeys: {spots.log.min_snr: 3.0}  # 0.5 \xb5m\n"):
+    for text, why in ((b"keys: {spots.log.min_snr: [3.0\n", "but got '<stream end>' at line 2, column 1"),
+                      (b"keys:\n\tspots.log.min_snr: 3.0\n", "cannot start any token at line 2, column 1"),
+                      (b"objective: object_ccc\nbackend: log\nkeys: {spots.log.min_snr: 3.0}  # 0.5 \xb5m\n",
+                       "can't decode byte 0xb5")):
         (run / "best.yaml").write_bytes(text)
         with pytest.raises(TuneRefused, match="best.yaml: not a YAML file"):
             A.apply_tuning(project, run)
         assert cli.main(["tune-spots", "--project", str(root), "--apply", "tuning/r1"]) == 2, text
-        assert "best.yaml: not a YAML file" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "best.yaml: not a YAML file" in err and why in err and err.count("\n") == 1    # one ERROR line
     assert edits == []
 
 
