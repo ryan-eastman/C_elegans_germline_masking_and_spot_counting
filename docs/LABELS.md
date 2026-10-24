@@ -110,9 +110,10 @@ labels run: upgrading either one reprocesses labels-run images under `--resume` 
 * `segmentation.nuclei.project` (a projected run, docs/PLANAR.md): allowed. The labels file replaces the 2D
   segmentation: a file with one plane is copied through z, and the projected measure and records stay
   (volume_um3 NA, area_um2 and equivalent_diameter_um from the 2D labels, the flag `segment:projected_<mode>`, the
-  `segment_projection` record). The projection is computed only for the montage's outline panel, when the
-  segmentation channel exists. A labels file with more than one plane is refused in a projected run (decision
-  D14).
+  `segment_projection` record). The projection is computed only for the montage's outline panel: of the
+  segmentation channel, or of the first channel when that channel is missing and `require_channel` is false (the
+  plane `segment_projection` records, as in a segmenting run). A labels file with more than one plane is refused
+  in a projected run (decision D14).
 * `segmentation.nuclei.require_channel` does not apply: nothing is segmented, so an image without the
   segmentation channel runs, and no `segment:no_<role>_channel_using_first_channel` flag is raised.
 * A segmentation backend that cannot segment a 2D image (nuclei3d) is not refused in a labels run, because it is

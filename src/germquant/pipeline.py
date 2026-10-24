@@ -330,8 +330,9 @@ def process_image(
     # are refused and the plane to segment is resolved here, before any stage runs; None on every other run
     projection = planar.prepare_projection(cfg, stack, role_to_idx)
     # labels from files (segmentation.nuclei.labels_from, docs/LABELS.md): the image's labels file is read and
-    # hashed here, before any stage runs (a missing file, a .npy, labels that do not fit the image, a time series
-    # and, in a projected run, a file with more than one plane are refused); None on every other run
+    # hashed here, before any stage runs (a missing file, a .npy, a damaged TIFF, labels that do not fit the image,
+    # a time series and, in a projected run, a file with more than one plane are refused); None on every other run,
+    # which neither imports germquant.io.labels nor calls it
     given = None
     if cfg.get("segmentation.nuclei.labels_from") is not None:
         from .io import labels as labels_io
@@ -459,7 +460,7 @@ def process_image(
         if given is not None:
             # labels from files (docs/LABELS.md): nothing is segmented and require_channel does not apply; the
             # labels read before any stage are the objects. A projected run keeps its projected measure and records;
-            # its projection is computed only for the montage, when the segmentation channel exists
+            # its projection is computed only for the montage, of the channel prepare_projection resolved the plane on
             flags.append("segment:labels_from_file")
             if projection is not None:
                 seg_img = stack.channel(role_to_idx.get(seg_role))
