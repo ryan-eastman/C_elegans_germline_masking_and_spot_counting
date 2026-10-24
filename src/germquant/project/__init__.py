@@ -23,6 +23,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..fsutil import long_path
 from .lock import ProjectLockedError, describe, lock_report, project_lock, read_lock, unlock_hint
 from .manifest import (
     MANIFEST_NAME,
@@ -193,6 +194,10 @@ def open_project(root) -> Project:
         saved = m["recipe"].get("expected_config_hash")
         if proj.config_hash is not None and saved and proj.config_hash != saved:
             proj.warnings.append(_hash_change(root, m, proj.config_hash, saved, pack, recipe, sha_changed))
+    if not m["recipe"].get("file") and os.path.isfile(long_path(root / RECIPE_NAME)):
+        proj.warnings.append(f"{RECIPE_NAME} is in the project folder, but the manifest records no recipe edit, so runs "
+                             f"do not use it, and a recipe edit is refused while it is there: move it out of the "
+                             f"folder, then make its settings with `germquant project edit DIR --set KEY=VALUE`")
     holder = read_lock(root)
     if holder is not None:
         rep = lock_report(root)
@@ -228,12 +233,30 @@ def project_config(project):
 
 # ---- writes -----------------------------------------------------------------------------------------------------
 
+def _unrecorded(root, name: str) -> str:
+    """Why a change may not replace ``name``, a recipe file in the project folder that the manifest does not
+    record (put there by hand, or copied from another project)."""
+    from .manifest import CHANNEL_MAP_NAME
+
+    if name == CHANNEL_MAP_NAME:
+        return (f"{Path(root) / name} was not written by the role editor (the manifest records no role choice), and "
+                f"this role edit would replace it: move it out of the project folder first (and if recipe.yaml names "
+                f"it in io.channel_map, drop that with --unset io.channel_map)")
+    return (f"{Path(root) / name} is not recorded in the manifest, so runs do not use it, and this edit would replace "
+            f"it: move it out of the project folder first; its settings can then be made with `germquant project "
+            f"edit DIR --set KEY=VALUE`")
+
+
 def _apply(project, *, command: str, plugin_version=None, dry_run: bool = False, **change) -> dict:
     """Plan a change (project/recipe.py plan_change) and, unless ``dry_run``, write it under the lock: the recipe
-    files, then the manifest with a new saved stamp. Returns the plan plus ``written`` and ``removed``.
+    files, then the manifest with a new saved stamp. Returns the plan plus ``to_write`` and ``to_remove`` (the
+    recipe files the change writes and removes), ``written`` and ``removed``.
 
-    A write is refused (ProjectError) while a role edit has problems. A dry run is not: it returns the plan with
-    the problems in its preview, so the preview shows what a write refuses."""
+    Only the recipe files the manifest records are ever removed: recipe.yaml when it records a recipe edit,
+    channel_map.yaml when it records role choices. A write is refused (ProjectError) while a role edit has
+    problems, and when it would replace a recipe file the manifest does not record. A dry run refuses neither: it
+    returns the plan with the role problems in its preview and the replacement in its warnings, so the preview
+    shows what a write refuses."""
     from .manifest import CHANNEL_MAP_NAME
     from .recipe import _file_bytes, plan_change
 
@@ -244,6 +267,18 @@ def _apply(project, *, command: str, plugin_version=None, dry_run: bool = False,
         plan = plan_change(root, m, **change)
         if refuse and plan["problems"] and change.get("roles") is not None:
             raise ProjectError("the role edit is refused: " + "; ".join(plan["problems"]))
+        recorded = {RECIPE_NAME: bool(m["recipe"].get("file")), CHANNEL_MAP_NAME: bool(m["recipe"].get("roles"))}
+        files = ((CHANNEL_MAP_NAME, plan["channel_map_bytes"]), (RECIPE_NAME, plan["recipe_bytes"]))
+        on_disk = {name: _file_bytes(root, name) for name, _ in files}
+        # the map is written first, so recipe.yaml never names a missing map; recipe.yaml is removed first, so it
+        # never names a removed map
+        plan["to_write"] = [n for n, data in files if data is not None and on_disk[n] != data]
+        plan["to_remove"] = [n for n, data in reversed(files) if data is None and recorded[n] and on_disk[n] is not None]
+        for name in plan["to_write"]:
+            if on_disk[name] is not None and not recorded[name]:
+                if refuse:
+                    raise ProjectError(_unrecorded(root, name))
+                plan["warnings"].append(_unrecorded(root, name))
         return plan
 
     if dry_run:
@@ -255,15 +290,12 @@ def _apply(project, *, command: str, plugin_version=None, dry_run: bool = False,
         plan = plan_for(read_manifest(root), refuse=True)
         new = plan["manifest"]
         new["saved"] = stamp(plugin_version)
-        files = ((CHANNEL_MAP_NAME, plan["channel_map_bytes"]), (RECIPE_NAME, plan["recipe_bytes"]))
-        for name, data in files:                     # the map first, so recipe.yaml never names a missing map
-            if data is None:
-                continue
-            if _file_bytes(root, name) != data:
-                atomic_write(root / name, data)
-                written.append(name)
-        for name, data in reversed(files):           # recipe.yaml first, so it never names a removed map
-            if data is None and remove_file(root / name):
+        data = {CHANNEL_MAP_NAME: plan["channel_map_bytes"], RECIPE_NAME: plan["recipe_bytes"]}
+        for name in plan["to_write"]:
+            atomic_write(root / name, data[name])
+            written.append(name)
+        for name in plan["to_remove"]:
+            if remove_file(root / name):
                 removed.append(name)
         write_manifest(root, new)
         written.append(MANIFEST_NAME)

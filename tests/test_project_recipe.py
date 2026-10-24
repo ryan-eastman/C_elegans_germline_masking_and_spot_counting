@@ -235,6 +235,48 @@ def test_a_run_setting_never_rewrites_the_recipe_files(project_env, tmp_path):  
     assert read_manifest_file(proj.root)["recipe"]["origins"]["qc.min_nuclei"] == "manual"
 
 
+def test_recipe_files_the_manifest_does_not_record_are_kept(project_env, tmp_path, capsys):  # noqa: F811
+    """A recipe.yaml the manifest does not record (copied from another project) is not used by runs, and open says
+    so; a run setting or a revert never removes it, and an edit that would replace it is refused (a dry run warns),
+    unless it holds exactly the bytes the edit writes. An unrecorded channel_map.yaml is kept from a role edit."""
+    from germquant.project import save_project
+
+    donor = new_test_project(tmp_path / "donor")
+    write_recipe(donor, edits={"spots.log.min_snr": 3.0})
+    copied = (donor.root / "recipe.yaml").read_bytes()
+    proj = new_test_project(tmp_path / "p")
+    mine = proj.root / "recipe.yaml"
+    hand = copied.replace(b"min_snr: 3.0", b"min_snr: 4.0")
+    mine.write_bytes(hand)
+    opened = open_project(proj.root)
+    assert opened.config_hash == BASIC_HASH and project_config(opened).get("spots.log.min_snr") == 2.0
+    assert [w for w in opened.warnings if "recipe.yaml" in w and "do not use it" in w], opened.warnings
+    save_project(opened, device="cpu")                                          # a run setting keeps it
+    assert mine.read_bytes() == hand
+    assert revert_recipe(opened) == BASIC_HASH and mine.read_bytes() == hand    # so does a revert
+    with pytest.raises(ProjectError, match="not recorded in the manifest"):
+        write_recipe(opened, edits={"spots.log.min_snr": 3.0})
+    assert mine.read_bytes() == hand and read_manifest_file(proj.root)["recipe"]["file"] is None
+    rc = cli_projects.main(["edit", str(proj.root), "--set", "spots.log.min_snr=3", "--dry-run", "--json"])
+    out = last_json(capsys.readouterr().out)
+    assert rc == 0 and any("not recorded in the manifest" in w for w in out["warnings"]), out
+    rc = cli_projects.main(["edit", str(proj.root), "--device", "auto", "--json"])
+    out = last_json(capsys.readouterr().out)
+    assert rc == 0 and out["changed"] is True and out["removed"] == [] and mine.read_bytes() == hand
+    assert cli_projects.main(["edit", str(proj.root), "--json"]) == 0
+    assert last_json(capsys.readouterr().out)["changed"] is False                # the file is no change either
+    mine.write_bytes(copied)              # the bytes the edit writes (what a write stopped before its manifest leaves)
+    assert write_recipe(opened, edits={"spots.log.min_snr": 3.0}) == project_config(donor).hash
+    assert read_manifest_file(proj.root)["recipe"]["file"] == "recipe.yaml"
+    write_recipe(opened, unset=["spots.log.min_snr"])
+    cm, own = proj.root / "channel_map.yaml", b"match_by: name\nroles: {}\n"
+    cm.write_bytes(own)
+    with pytest.raises(ProjectError, match="role editor"):
+        write_recipe(opened, roles={"foci": "Cy3 RAD-51"}, origin="roles")
+    revert_recipe(opened)
+    assert cm.read_bytes() == own and not mine.exists()
+
+
 def _model(proj, name="m1", content=b"fine-tuned weights stand-in\n"):
     mdir = proj.root / "training" / "r01" / "models" / name
     mdir.mkdir(parents=True, exist_ok=True)

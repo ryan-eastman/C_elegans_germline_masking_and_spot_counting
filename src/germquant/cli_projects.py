@@ -177,8 +177,7 @@ def _edit(args) -> int:
     import yaml
 
     from . import project as P
-    from .project.manifest import CHANNEL_MAP_NAME, RECIPE_NAME, ProjectError, read_manifest
-    from .project.recipe import _file_bytes
+    from .project.manifest import ProjectError, read_manifest
     from .stages import cli_switches
 
     root = Path(args.dir)
@@ -238,13 +237,13 @@ def _edit(args) -> int:
     if over_changed:
         save["overrides"] = overrides
     before = {k: v for k, v in m.items() if k != "saved"}
-    files_before = (_file_bytes(root, RECIPE_NAME), _file_bytes(root, CHANNEL_MAP_NAME))   # bytes, as written
     plan = P._apply(root, command="edit", plugin_version=args.plugin_version, dry_run=args.dry_run,
                     edits=edits or None, unset=tuple(unset), roles=roles, origin="form", revert=args.revert,
                     save=save or None)
     new = plan["manifest"]
-    changed = ({k: v for k, v in new.items() if k != "saved"} != before
-               or files_before != (plan["recipe_bytes"], plan["channel_map_bytes"]))
+    # what the change writes: the manifest, and the recipe files whose bytes it replaces or removes
+    changed = ({k: v for k, v in new.items() if k != "saved"} != before or bool(plan["to_write"])
+               or bool(plan["to_remove"]))
     cfg = plan["config"]
     out = {"dry_run": bool(args.dry_run), "changed": bool(changed), "config_hash": cfg.hash,
            "previous_config_hash": m["recipe"].get("expected_config_hash"), "edited": plan["recipe_text"] is not None,
