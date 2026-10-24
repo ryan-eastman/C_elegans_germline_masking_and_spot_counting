@@ -1222,3 +1222,35 @@ Entries are appended, never edited. Each one says whether a test result had been
    and H1 on the hold-out gonad that has a germquant run (20251021_n2_nohs_HERM_2; theta_full 2.0 um and
    theta_present 10.0 um, those of development trial 4 on the twelve, since the S2 inputs of this configuration are
    those of trial 4), which with one gonad is reported and decides nothing; then the results entry.
+26. 2026-10-24, the v2 development round (results), written after the snapshot, the flag rates and H1 of entry 25
+   were computed (no test result had been computed, no test or reserved image was run, no test or reserved truth was
+   read and no sealed seed was generated). Snapshot (once, seeds 12000 to 12099, commit a711fe5;
+   C:/Users/ryane/sc_ribbon_work/dev_eval/summary_a711fe5.json and v2/logs/snapshot_a711fe5.json): the configuration
+   proposed for the freeze and v1 gave the same results in every family. Criteria of 8.1: S1a met (isolated ribbons
+   up to 60 degrees: mean length error +0.076 um, 95 percent limits -0.069 to +0.221 um, median centreline distance
+   0.017 um, one strand per ribbon in all); S1b not met (dense nuclei: mean total error -6.68 percent, SD 8.69
+   percent, CCC 0.493; coverage 0.962 and off-truth 0.010 met); S1c met (gap precision 1.00, recall 0.91, gap length
+   error 0.034 um); S1d met (90th percentile of the s error 0.064 um, all on the right ribbon); S1e not met
+   (complete precision 0.890 pooled; 0.672 in dense nuclei); S1f met (all noise-only nuclei under 1 um). With the
+   registered generator the dense totals were -15.3 percent (SD 9.9 percent, CCC 0.221) and the dense complete
+   precision 0.775. Development families, descriptive: psf_check complete precision 0.79; of the isolated point
+   puncta 83 percent and of the aggregates 78 percent left a strand (the punctum class being off), and the puncta of
+   dense nuclei 49.5 percent; real_dense complete precision 0.36. Zone checkpoints: none was run (entries 18 and
+   24), because no change that reaches an input of S2 was adopted; the development S2 of the proposed configuration
+   is therefore that of trial 4 (S2b 0.987 over twelve gonads, S2a 0.83 over seven, S2c within one point spacing in
+   11 of 12), in-sample as PLAN_V2.md 2.5 states (S2c with thresholds chosen on the same gonads). Real data,
+   truth-free: the twelve development gonads run at a711fe5 (C:/Users/ryane/sc_ribbon_work/runs/a711fe5) have the
+   flag, status and class rates of trial 4 to the fourth decimal (dev_eval/flag_rates_a711fe5.json: 35,840 strands,
+   4,740 traced nuclei) and nucleus columns identical to those of runs/6b7be22 (status, n_strands, n_main,
+   total_length_um, piece_lw_mean_um, n_pieces, longest_piece_um, gaps_per_10um and on_strand_frac of every
+   nucleus); four workers took 0.8 to 2.4 min per gonad, and the main process peaked at 2.5 to 3.0 GB on the
+   2025-11-05 stacks and 3.8 to 3.9 GB on the 2026-01-05 stacks (106 x 2720 x 2720). H1 (one line of
+   dev_trials.jsonl; runs/h1_a711fe5 and runs/h1_a711fe5_v1; v2/zones/H1_h1_a711fe5/checkpoint.json): only
+   20251021_n2_nohs_HERM_2 has a germquant run (entry 16), so H1 decides nothing; with theta_full 2.0 um and
+   theta_present 10.0 um of trial 4 on the twelve, S2b was 0.989 under the registered guard and 0.985 under
+   guard_frac 0.25 (intensity comparator 0.991 and 0.989); S2a was not evaluable under the registered guard and was
+   0.739 under guard_frac 0.25 (intensity comparator 0.670); SC_fullstart fell within one point spacing, 0.98 um
+   from the boundary (out of sample); the two configurations gave identical S2 (paired differences 0); the
+   sc-straighten process peaked at 3.5 GB. Nothing is changed after H1. The robustness report of section 9, the
+   thresholds on all eighteen development gonads and the freeze entry wait for Ryan's decisions (PLAN_V2.md section
+   6).
