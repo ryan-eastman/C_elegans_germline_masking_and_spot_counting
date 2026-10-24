@@ -1015,3 +1015,31 @@ Entries are appended, never edited. Each one says whether a test result had been
    total_length_um >= 30 um (the steep share also by octile of SYP brightness). A feature reproduces a real symptom
    when switching it on alone moves the phantom statistic at least half of the way from its base value to the real
    one. From here on the synthetic panels of this round also report real_dense with all four features (descriptive).
+20. 2026-10-24, the v2 development round (contact stop), written before any number of this change was computed (no
+   test result had been computed, no test or reserved image was run, no test or reserved truth was read and no
+   sealed seed was generated). The realism probe of entry 19 (commit ee4d056, tuning seeds, the configuration of v1;
+   C:/Users/ryane/sc_ribbon_work/v2/logs/realism_probe_ee4d056_tuning.json) found that no feature switched on alone
+   reproduces a real symptom: the texture moved the phantom statistics 17 to 29 percent of the way to the real ones
+   (steep share of the traced length 0.17 to 0.21 against 0.40 real; median in-plane strand 5.36 to 4.52 um against
+   2.49; median piece_lw_mean_um 5.03 to 4.33 um against 2.63; main strands over the expected count 0.93 to 1.23
+   against 2.19), the brightness modulation 30 percent for piece_lw_mean_um and at most 10 percent otherwise, the
+   PSF and the puncta at most 12 percent; all four together moved piece_lw_mean_um 61 percent of the way (3.58 um),
+   the steep share 43 percent (0.27) and the in-plane strand length 37 percent (4.29 um), and the dense S1b of that
+   variant was much worse (SD 18.3 percent, CCC 0.13, against 10.4 percent and 0.32 without the features). So no
+   realism-driven change is made in this round (step 9 of the plan is skipped) and Z3 is not run; real_dense with
+   all four features is reported beside the panels. Motivated by development results (the taxonomy of entry 11): 91
+   percent of the 662 contact stops of the tracer on the dense phantoms hit a strand lying at more than 32 degrees
+   to the trace (median 64), because the stop compares the trace with the local Hessian direction, which inside an
+   unresolved junction is the trace's own; such stops are involved in 378 of the 470 tracer breaks and in 132 of the
+   193 final breaks. Method: every claimed voxel keeps the unit tangent of the strand that claimed it, taken at the
+   claiming point (central differences of the traced polyline); a trace that enters another strand's claim tube
+   stops as contact only when |t . t_claim| > follow.contact_cos (0.85, unchanged), whatever the local lineness, and
+   otherwise continues by pure prediction, as inside any claim tube in v1. New key (fixed group):
+   follow.contact_test ("claim_tangent"; "local" gives v1). Targeted metrics (dense phantoms with the taxonomy of
+   v2/scripts/dense_taxonomy.py, and the pairs family), against the configuration before this change on the same
+   scenes: breaks per nucleus after the tracer and in the final strands fall by at least 30 percent (confirmation:
+   15 percent); switches (a strand leaving one ribbon for another, the final strands) per nucleus rise by at most 10
+   percent (confirmation: the same bound); the dense S1b SD falls (confirmation: does not rise); the share of X
+   crossings of the pairs family with both ribbons matched does not fall by more than 0.02. The tuning seeds run the
+   dense and pairs families; the confirmation seeds run every registered family for the tolerances of entry 11 (b),
+   once; the cost rule is checked on n2rad51_noHS_herm_000.
