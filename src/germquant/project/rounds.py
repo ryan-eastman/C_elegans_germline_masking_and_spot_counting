@@ -25,10 +25,14 @@ def rounds_in(root) -> list[str]:
 
 
 def check_round_name(name: str) -> str:
+    from .images import windows_device_name
+
     name = str(name)
     if not ROUND_RE.fullmatch(name):
         raise ProjectError(f"round name {name!r} must match {ROUND_RE.pattern} (letters, digits, '_' and '-', at most "
                            f"40 characters)")
+    if windows_device_name(name):
+        raise ProjectError(f"round name {name!r} is a Windows device name, which no folder may have")
     return name
 
 

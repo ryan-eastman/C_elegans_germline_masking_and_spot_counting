@@ -72,7 +72,8 @@ Only the commands that edit a project write it: new, add, edit, use-model and ro
   files are still added, and the command exits with code 1 when anything was refused.
 - The image id is the file name without its format suffix (`gonad_01.ome.tif` is `gonad_01`) and names the
   results folder, so ids must be unique, and may not differ only in letter case (Windows and macOS would put
-  both into one folder).
+  both into one folder). An id that no folder can carry on every system is refused too: one ending with a dot
+  or a space, and a Windows device name such as CON or COM1.
 - An image inside the project folder is recorded by its relative path, so the project can be moved or zipped;
   any other image by its absolute path, a UNC path (`\\server\share\...`) as it is.
 

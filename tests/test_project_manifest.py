@@ -312,6 +312,13 @@ def test_add_images_refusals(project_env, tmp_path, monkeypatch):  # noqa: F811
     assert entries["single"]["timepoints"] == 4
     again = add_images(proj, [good])
     assert again["added"] == [] and "duplicate image id good" in again["refused"][0]["reason"]
+    dot = write_ome_tiff(data / "dot..ome.tif")                       # the id would be "dot.", a folder Windows trims
+    assert "ends with a dot" in add_images(proj, [dot])["refused"][0]["reason"]
+    from germquant.project.images import id_reason
+
+    for device in ("CON", "nul", "Com1", "lpt9"):                     # no such file can even exist on Windows
+        assert "Windows device name" in id_reason(device)
+    assert id_reason("console") is None and id_reason("COM10") is None and id_reason("gonad 01") is None
 
 
 def test_add_folder_finds_ome_tif_without_input_suffixes(project_env, tmp_path):  # noqa: F811
@@ -458,7 +465,7 @@ def test_training_rounds_are_named_and_numbered(project_env, tmp_path):  # noqa:
     (proj.root / "training" / "not a round").mkdir()
     assert new_round(proj) == proj.root / "training" / "r02"
     assert list_rounds(proj) == ["fine_tune-2", "r01", "r02"]
-    for bad in ("", "a/b", "x" * 41, "..", "r 1"):
+    for bad in ("", "a/b", "x" * 41, "..", "r 1", "CON", "aux"):
         with pytest.raises(ProjectError, match="round name"):
             new_round(proj, bad)
     with pytest.raises(ProjectError, match="already exists"):

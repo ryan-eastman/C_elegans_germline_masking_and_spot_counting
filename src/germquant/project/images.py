@@ -193,8 +193,33 @@ def image_entry(root, path: Path, header: dict) -> dict:
     return entry
 
 
+_DEVICE_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                           *(f"LPT{i}" for i in range(1, 10))})
+
+
+def windows_device_name(name: str) -> bool:
+    """Whether ``name`` (before any dot) is a name Windows reserves for a device, such as CON or COM1."""
+    return str(name).split(".")[0].strip().upper() in _DEVICE_NAMES
+
+
+def id_reason(image_id: str) -> str | None:
+    """Why ``image_id`` cannot name a results folder on every system, or None."""
+    if not image_id.strip():
+        return "the file name leaves an empty image id"
+    if image_id != image_id.rstrip(". "):
+        return (f"the image id {image_id!r} ends with a dot or a space, which Windows drops from folder names, so its "
+                f"results folder would not carry its id: rename the file")
+    if windows_device_name(image_id):
+        return f"the image id {image_id!r} is a Windows device name, which no results folder may have: rename the file"
+    return None
+
+
 def duplicate_reason(image_id: str, entries: list[dict]) -> str | None:
-    """Why ``image_id`` cannot join ``entries`` (an equal id, or one that differs only in letter case), or None."""
+    """Why ``image_id`` cannot join ``entries`` (an id that cannot name a folder, an equal id, or one that differs
+    only in letter case), or None."""
+    bad = id_reason(image_id)
+    if bad is not None:
+        return bad
     for e in entries:
         if e["id"] == image_id:
             return f"duplicate image id {image_id}: the project already holds {e['path']}"
