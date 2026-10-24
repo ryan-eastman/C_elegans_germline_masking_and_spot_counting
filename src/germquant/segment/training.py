@@ -1019,9 +1019,10 @@ def _write_curve(out_dir: Path, record: dict) -> None:
         json.dump(record, fh, indent=1, default=str)
 
 
-def _set_card_curve(card_path: Path, curve: dict) -> None:
+def _set_card_curve(card_path: Path, curve: dict | None = None, **changes) -> None:
+    """Write the card's ``curve`` record: ``curve`` itself, or the card's own record with ``changes``."""
     card = _read_json(card_path)
-    card["curve"] = curve
+    card["curve"] = dict(curve) if curve is not None else {**card["curve"], **changes}
     with open(long_path(card_path), "w", encoding="utf-8") as fh:
         json.dump(card, fh, indent=1, default=str)
 
@@ -1151,8 +1152,7 @@ def train_curve(pairs: str | Path, out: str | Path, *, sizes, repeats: int, seed
             if keep_this and best is not None and best["weights_kept"]:
                 _drop_weights(out_dir / best["model"])
                 best["weights_kept"] = False
-                card = _read_json(out_dir / best["card"])
-                _set_card_curve(out_dir / best["card"], {**card["curve"], "weights_kept": False})
+                _set_card_curve(out_dir / best["card"], weights_kept=False)
             if not keep_this:
                 _drop_weights(Path(res["model_path"]))
             row.update(score=score, f1=_finite(overall.get("f1")), precision=_finite(overall.get("precision")),
