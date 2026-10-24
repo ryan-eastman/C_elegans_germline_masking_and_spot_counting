@@ -29,6 +29,15 @@ than a float64, which a config could only hold through cfg.set and which the run
 project_plane, min_area_um2) are checked by germquant.planar.prepare_projection in projected runs, where they
 are read.
 
+The two keys of single-plane images (package P2b, docs/PLANAR.md) are checked the same way, in IO_KEYS:
+
+    io.planar           null, false, true or auto (code default false)
+    io.voxel_size_um    null, a positive number, or a list of two ([dy, dx]) or three ([dz, dy, dx]) positive
+                        numbers, in micrometres
+
+They are listed apart from CHECKED_KEYS because one shipped profile sets one of them:
+config/profiles/generic_2d.yaml sets io.planar auto. No shipped config sets a key of CHECKED_KEYS.
+
 The module imports only the standard library (no numpy, backend, torch, Cellpose or SpotMAX), so a recipe
 linter can use it.
 """
@@ -48,6 +57,8 @@ CHECKED_KEYS = (
     "qc.min_nuclei",
     *(f"spots.{k}" for k in SPOT_LENGTH_KEYS + SPOT_FLAG_KEYS),
 )
+# the single-plane keys (P2b): checked like the keys above, listed apart because generic_2d.yaml sets io.planar
+IO_KEYS = ("io.planar", "io.voxel_size_um")
 
 
 def _is_int(value) -> bool:
@@ -88,6 +99,27 @@ def count_problem(key: str, value) -> str | None:
     return f"{key} must be a whole number, 0 or more (or null for the code default); got {value!r}{_quoted(value)}"
 
 
+def planar_problem(value) -> str | None:
+    """None when io.planar is null, true, false or the text auto; otherwise the message naming the key."""
+    if value is None or isinstance(value, bool) or (isinstance(value, str) and value == "auto"):
+        return None
+    hint = " (true and false are written without quotes)" if isinstance(value, str) else ""
+    return f"io.planar must be false, auto or true (or null for false); got {value!r}{hint}"
+
+
+def voxel_size_problem(value) -> str | None:
+    """None when io.voxel_size_um is null, a positive number, or a list of two or three positive numbers (each a
+    whole number or a decimal, not a boolean); otherwise the message naming the key."""
+    if value is None:
+        return None
+    items = list(value) if isinstance(value, (list, tuple)) else [value]
+    if (isinstance(value, (list, tuple)) and len(items) not in (2, 3)) or any(
+            positive_length_problem("io.voxel_size_um", v) for v in items):
+        return (f"io.voxel_size_um must be a positive number of micrometres, or a list of two ([dy, dx]) or three "
+                f"([dz, dy, dx]) positive numbers (or null); got {value!r}{_quoted(value)}")
+    return None
+
+
 def object_diameter_problem(cfg_section) -> str | None:
     """The problem with segmentation.nuclei.cellpose.object_diameter_um in a segmentation.nuclei section, or
     None (unset or valid)."""
@@ -114,6 +146,8 @@ def problems(cfg) -> list[str]:
     """Every malformed opt-in key of a config (``cfg.get(dotted, default)``), one message per key; empty when
     none is set or every set key is valid."""
     found: list[str] = []
+    found.append(planar_problem(cfg.get("io.planar")))
+    found.append(voxel_size_problem(cfg.get("io.voxel_size_um")))
     seg = cfg.get("segmentation.nuclei", {}) or {}
     if isinstance(seg, dict):
         found.append(object_diameter_problem(seg))
