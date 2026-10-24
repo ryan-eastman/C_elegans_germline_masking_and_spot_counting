@@ -108,11 +108,18 @@ def enabled_stage_names(cfg) -> list[str]:
 
 
 def is_done(out_dir: str | Path, image_id: str, cfg, *, xy_stride: int = 1, z_range=None,
-            segment_hash: str | None = None, retry_failed: bool = True, t: int | None = None) -> tuple[bool, str]:
+            segment_hash: str | None = None, retry_failed: bool = True, t: int | None = None,
+            segment_hash_planar: str | None = None) -> tuple[bool, str]:
     """True when ``<image_id>__done.json`` exists in out_dir with the same config_hash, the same set of
     enabled stages, the same run geometry (xy_stride, z_range), no failed stage (unless
     retry_failed=False) and, when given, the same segment sub-hash (model file or Cellpose version).
-    ``t`` (a time-lapse timepoint, timelapse.series) additionally requires the marker's t_index to be it."""
+    ``t`` (a time-lapse timepoint, timelapse.series) additionally requires the marker's t_index to be it.
+
+    A single-plane run's marker (extra ``"planar": true``, docs/PLANAR.md) carries the segment sub-hash of the
+    planar payload, so it is compared with ``segment_hash_planar`` (None by default). A caller that gives only
+    ``segment_hash`` (the time-lapse loop, an outside caller) has it compared with that hash, which a planar
+    marker never matches: the image is reprocessed with the reason "planar flag", never skipped on a hash that
+    was not checked. Without any segment hash the check is skipped, as before."""
     m = provenance.read_done_marker(out_dir, image_id)
     if not m:
         return False, "no completion marker"
@@ -129,6 +136,14 @@ def is_done(out_dir: str | Path, image_id: str, cfg, *, xy_stride: int = 1, z_ra
         return False, f"t_index {m.get('t_index', 'absent')} != {int(t)}"
     if retry_failed and m.get("failed_stages"):
         return False, f"stage(s) failed last run: {', '.join(m['failed_stages'])}"
+    if m.get("planar") is True and (segment_hash is not None or segment_hash_planar is not None):
+        # a single-plane marker: its segment sub-hash is the planar one (the safe default of D8 without it)
+        want = segment_hash_planar if segment_hash_planar is not None else segment_hash
+        if m.get("stage_hashes", {}).get("segment") != want:
+            if segment_hash_planar is None:
+                return False, "planar flag: a single-plane marker, and no planar segment hash was given to compare"
+            return False, "segment stage hash differs (model file or Cellpose version changed)"
+        return True, "done"
     if segment_hash is not None and m.get("stage_hashes", {}).get("segment") != segment_hash:
         return False, "segment stage hash differs (model file or Cellpose version changed)"
     return True, "done"
