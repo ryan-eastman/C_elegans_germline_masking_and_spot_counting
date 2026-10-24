@@ -1375,3 +1375,45 @@ Entries are appended, never edited. Each one says whether a test result had been
    its rule: a feature reproduces a real symptom when switching it on alone moves the phantom statistic at least
    half of the way from its base value to the real one; the same for all four features together, and their S1b, are
    reported, descriptive.
+29. 2026-10-24, the v2 development round (results of entry 28; diagnostics only, no method change), written after
+   the numbers below were computed (no test result had been computed, no test or reserved image was run, no test or
+   reserved truth was read and no sealed seed was generated). Computed as entry 28 fixed it on the tuning seeds
+   10000 to 10099 with the configuration of v1 (commit 9726612 for (a) to (c), e53c814 for (d);
+   C:/Users/ryane/sc_ribbon_work/v2/logs/realism_recal_a_9726612_tuning.json, realism_recal_b_9726612_tuning.json,
+   realism_recal_c_9726612_tuning.json, realism_probe_r2_e53c814_tuning.json and realism_probe_r2_mechanism.json).
+   (a) Brightness. The statistic on the phantoms was noisy and not monotonic in the latent values (8 to 43 strands
+   per pair at total_length_um >= 20 um, 0 to 10 at >= 30 um; measured variances 0.034 to 0.131); at the latent
+   variance of entry 19 (0.12) the phantoms measured 0.034 to 0.042, as the review found. The nearest pair was
+   latent variance 0.5 and latent correlation length 0.1 um (measured 0.102 and 0.315 um from 18 strands; log
+   distance 0.18; the next was 1.0 and 0.1 um, 0.31).
+   (b) Texture. Without texture the phantom statistic was already 0.141 (median over 100 scenes), above the real
+   0.108, and 0.266 and 0.377 at latent 0.108 and 0.216 (slope 1.09), so the latent texture is 0: by this estimator
+   the texture of entry 19 made the phantoms about 2.5 times as textured as the real nuclei, and the real excess
+   variance does not exceed what the phantoms' geometry alone gives (the blurred edge of the nucleoplasm inside the
+   territory).
+   (c) Puncta. With each image's compact-foci sigma_z, the B1s counts per traced nucleus rose from 1.069, 0.869 and
+   0.634 (entry 19 (d), reproduced exactly with the records' sigma_z) to 1.478, 1.223 and 0.896 by tercile of SYP
+   brightness; on real_dense_puncta B1s labelled 38 strands for 89 rendered puncta (yield 0.43, far below the 72 to
+   86 percent of isolated puncta of entry 16), so the recalibrated means are 3.46, 2.86 and 2.10 puncta per nucleus.
+   (d) The probe (real_dense_r2 families, 100 scenes each; real values 0.403 for the steep share, 2.49 um for the
+   median in-plane strand, 2.63 um for the median piece_lw_mean_um and 2.19 for main strands over the expected
+   count, all in traced nuclei with 30 um of SC or more). The recalibrated brightness modulation alone moved the
+   median piece_lw_mean_um from 5.03 to 3.65 um, 58 percent of the way to the real value, so by the rule of entry 19
+   it reproduces that real symptom; it moved the median in-plane strand 17 percent of the way (5.36 to 4.86 um), the
+   steep share 7 percent and main strands over the expected count 4 percent. Its mechanism is detected gaps in
+   continuous ribbons, not broken strands: gaps per traced nucleus rose from 1.76 to 4.29 (median gaps_per_10um 0.47
+   to 1.46) and pieces from 7.0 to 9.9, while strands per nucleus went from 5.26 to 5.60 and the median total from
+   28.8 to 27.8 um (the dense ribbons hold no true gap). The recalibrated puncta moved the steep share 28 percent of
+   the way (0.174 to 0.239), main strands over the expected count 16 percent and piece_lw_mean_um 16 percent; the
+   texture (latent 0) left the scenes those of the base; the PSF feature was that of entry 19 (at most 12 percent).
+   All four features together moved the steep share 68 percent of the way (0.330) and piece_lw_mean_um 73 percent
+   (3.27 um), the in-plane strand 35 percent (4.37 um) and main strands over the expected count 31 percent (1.32);
+   their dense S1b was mean -5.4 percent, SD 16.0 percent and CCC 0.184 (entry 19: -3.2 percent, 18.3 percent and
+   0.133). So the skip of PLAN_V2.md step 9 in entry 20 was not supported: with the probe calibrated as entry 28
+   fixed, the brightness feature reproduces the low continuity of real full SC, through false gaps at dim stretches,
+   and the likely form of step 9 named by the plan (a weak-run and gap rule that keeps a ribbon through dim
+   stretches) would have been the change to make. As entry 28 fixed, no method change is made in this round (entry
+   11 (e)); the finding is carried to the next round, where such a rule is designed on these phantoms and judged by
+   the rules of a new entry, and it qualifies S2a in the meantime: on development data part of the low
+   piece_lw_mean_um of full SC may be dim stretches read as gaps. The robustness report of section 9, the thresholds
+   on all development gonads and the freeze entry wait for the project lead's decisions.
