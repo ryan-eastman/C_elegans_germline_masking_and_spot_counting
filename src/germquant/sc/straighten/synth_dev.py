@@ -7,6 +7,12 @@ and every registered scene stay identical for every seed. Each family has its ow
   the SYP channel rendered with the scene's PSF (sigma_z 0.33, 0.38, 0.43 or 0.48 um by seed modulo 4, sigma_xy
   U(0.135, 0.165) um), a foci channel of RAD-51-like point spots in the dense nuclei rendered with that PSF times
   595/511, the spot table with the localisation noise of protocol 4.4, and the wavelengths 511 and 595 nm.
+* ``puncta_pt``, ``puncta_agg``, ``dense_puncta`` (the puncta entry; as in entry 8 (iii)): one nucleus of 2.3 with
+  8 PSF-blurred point puncta, or 8 uniformly filled spheres of diameter U(0.25, 0.8) um, and no ribbon; or the
+  dense nucleus of 2.3 plus 6 point puncta at least 0.6 um from every ribbon. Puncta peaks are log-uniform in
+  [100, 1500] counts above the nucleoplasm after the PSF; puncta lie at least 1.2 um apart. ``dense_puncta_clean``
+  is the same scene as ``dense_puncta`` (the same draws and the same noise) without the puncta. The puncta are in
+  ``info["puncta"]`` (centre, diameter, peak).
 """
 from __future__ import annotations
 
@@ -16,7 +22,7 @@ from scipy import ndimage as ndi
 
 from . import synth as S
 
-FAMILY_CODE = {"psf_check": 107}
+FAMILY_CODE = {"puncta_pt": 101, "puncta_agg": 102, "dense_puncta": 103, "psf_check": 107}
 PSF_LEVELS = (0.33, 0.38, 0.43, 0.48)
 WAVELENGTHS = {"central_element": 511.0, "foci": 595.0}
 FOCI_DENSITY = 0.15                     # per um3 of a dense nucleus
@@ -124,7 +130,87 @@ def psf_check_scene(seed: int, *, final: bool = False) -> S.Scene:
                                                                  "y_um", "x_um"]), info=info)
 
 
-FAMILY_FUNCS = {"psf_check": psf_check_scene}
+def _sphere_points(diam: float, step: float = 0.025) -> np.ndarray:
+    r = diam / 2.0
+    g = np.arange(-r, r + 1e-9, step)
+    zz, yy, xx = np.meshgrid(g, g, g, indexing="ij")
+    P = np.stack([zz.ravel(), yy.ravel(), xx.ravel()], 1)
+    return P[np.linalg.norm(P, axis=1) <= r]
+
+
+def puncta_scene(seed: int, *, final: bool = False, family: str = "puncta_pt", with_puncta: bool = True) -> S.Scene:
+    """The puncta families (the generator of the entry-8 diagnostics, v2/scripts/steep_phantoms.py, with the same
+    family codes): one nucleus with puncta and, for dense_puncta, the dense ribbons of 2.3."""
+    seed = S.check_seed(seed, final)
+    rng = _rng(family, seed)
+    R = float(rng.uniform(2.2, 2.6))
+    label_r = R + float(rng.uniform(-0.2, 0.4))
+    c0 = np.zeros(3)
+    ribs = []
+    if family == "dense_puncta":
+        gc = "oocyte" if seed % 2 == 0 else "spermatocyte"
+        ribs = S._shell_nucleus(rng, gc, c0, R, S.SCENE_PEAK, 1, 1)
+    else:
+        gc = "oocyte"
+    n_p = 6 if family == "dense_puncta" else 8
+    rib_pts = np.vstack([r.points[::10] for r in ribs]) if ribs else np.zeros((0, 3))
+    puncta = []
+    tries = 0
+    while len(puncta) < n_p and tries < 5000:
+        tries += 1
+        d = rng.normal(size=3)
+        d /= np.linalg.norm(d)
+        q = c0 + d * R * rng.uniform(0.3, 0.95) ** (1 / 3) * 0.95
+        if any(np.linalg.norm(q - x["center"]) < 1.2 for x in puncta):
+            continue
+        if len(rib_pts) and np.min(np.linalg.norm(rib_pts - q, axis=1)) < 0.6:
+            continue
+        diam = float(rng.uniform(0.25, 0.8)) if family == "puncta_agg" else 0.0
+        peak = float(np.exp(rng.uniform(np.log(100.0), np.log(1500.0))))
+        puncta.append({"center": q, "diam": diam, "peak": peak})
+    shape, shift = S._place([r.points for r in ribs] + [np.array([x["center"] for x in puncta])], [c0], [label_r])
+    for r in ribs:
+        r.points = r.points + shift
+    for x in puncta:
+        x["center"] = x["center"] + shift
+    center = c0 + shift
+    labels, _ = S._sphere_masks(shape, S.SPACING, [center], [label_r])
+    lev = float(rng.uniform(*S.NUCLEOPLASM))
+    clean = np.full(shape, S.OFFSET) + S._nucleoplasm(shape, S.SPACING, [center], [R], [lev])
+    for r in ribs:
+        S.render_ribbon(clean, r)
+    if with_puncta:
+        for x in puncta:
+            pts = x["center"][None, :] if x["diam"] <= 0 else _sphere_points(x["diam"]) + x["center"][None, :]
+            unit = float(S._value_at(x["center"][None, :], pts, S.PSF_SIGMA)[0])
+            S._render_points(clean, pts, S.SPACING, S.PSF_SIGMA, weight=x["peak"] / unit, chunk=2000)
+    ce = S.add_noise(clean, rng)
+    nuclei = pd.DataFrame([{"nucleus_id": 1, "centroid_z_um": center[0], "centroid_y_um": center[1],
+                            "centroid_x_um": center[2], "radius_um": R, "label_radius_um": label_r, "germ_cell": gc,
+                            "in_germline": True, "volume_um3": float((labels == 1).sum() * np.prod(S.SPACING))}])
+    name = family if with_puncta else family + "_clean"
+    return S.Scene(family=name, seed=seed, spacing=S.SPACING, channels={"central_element": ce}, labels=labels,
+                   nuclei=nuclei, ribbons=ribs,
+                   spots=pd.DataFrame(columns=["spot_id", "nucleus_id", "z_um", "y_um", "x_um"]),
+                   truth_foci=pd.DataFrame(columns=["spot_id", "ribbon_id", "nucleus_id", "s_um", "z_um", "y_um",
+                                                    "x_um"]),
+                   info={"family": name, "seed": seed, "R": R, "nucleoplasm": lev,
+                         "puncta": [{"center": [float(v) for v in x["center"]], "diam": x["diam"], "peak": x["peak"]}
+                                    for x in puncta] if with_puncta else []})
+
+
+def _puncta(family):
+    def f(seed, *, final=False):
+        return puncta_scene(seed, final=final, family=family)
+    return f
+
+
+def _dense_puncta_clean(seed, *, final=False):
+    return puncta_scene(seed, final=final, family="dense_puncta", with_puncta=False)
+
+
+FAMILY_FUNCS = {"psf_check": psf_check_scene, "puncta_pt": _puncta("puncta_pt"), "puncta_agg": _puncta("puncta_agg"),
+                "dense_puncta": _puncta("dense_puncta"), "dense_puncta_clean": _dense_puncta_clean}
 
 
 def make_scene(family: str, seed: int, *, final: bool = False, **kw) -> S.Scene:

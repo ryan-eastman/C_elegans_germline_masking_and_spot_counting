@@ -297,6 +297,8 @@ def _longest_run(mask: np.ndarray, ds: float) -> float:
 def classify(row: dict, flags: list, p) -> str:
     if row.get("verified"):
         return "verified"
+    if row.get("punctum"):
+        return "punctum"
     if row["length_um"] < float(p["classes.min_complete_um"]):
         return "fragment"
     if "merged_suspect" in flags:
@@ -430,9 +432,12 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
             continue
         for k, s in enumerate(m["strands"]):
             all_strands.append((nid, k, s))
-    # image-level normalisers: complete candidates' median integrated signal and widths
-    cand = [s for _n, _k, s in all_strands if _complete_candidate(s["row"], p)]
-    pool = cand if cand else [s for _n, _k, s in all_strands
+    # image-level normalisers: complete candidates' median integrated signal and widths (punctum strands left out
+    # under punctum.exclude, protocol changelog entry 16)
+    excl = _punctum_excluded(p)
+    tier = [(n_, k_, s) for n_, k_, s in all_strands if not (excl and s["row"].get("punctum"))]
+    cand = [s for _n, _k, s in tier if _complete_candidate(s["row"], p)]
+    pool = cand if cand else [s for _n, _k, s in tier
                               if np.nan_to_num(s["row"]["snr_core_median"]) >= float(p["qc.low_snr_review"])]
     vals = [s["samples"]["integrated"][s["samples"]["in_strand"] & ~s["samples"]["contaminated"]] for s in pool]
     vals = np.concatenate(vals) if vals else np.zeros(0)
@@ -449,7 +454,7 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
     # median.
     ref_by_nid: dict[int, float] = {}
     by_n: dict[int, list] = {}
-    for nid, _k, s in all_strands:
+    for nid, _k, s in tier:
         smp = s["samples"]
         v = smp["integrated"][smp["in_strand"] & ~smp["contaminated"]]
         by_n.setdefault(nid, []).append(v[np.isfinite(v)])
@@ -533,7 +538,8 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
     # nucleus tier
     nuc_rows = _nucleus_rows(p, nuc, ids, present, recs, meas, all_strands, sp)
     # tables
-    strands_df = pd.DataFrame([all_strands[i][2]["row"] for i in order])
+    # the punctum marker is internal (the class and the flag carry it)
+    strands_df = pd.DataFrame([{k: v for k, v in all_strands[i][2]["row"].items() if k != "punctum"} for i in order])
     samples_df = _samples_table(image_id, [all_strands[i] for i in order], float(p["samples.step_um"]), ds)
     gap_rows = []
     for i in order:
@@ -623,9 +629,19 @@ def _samples_table(image_id: str, items: list, step: float, ds: float) -> pd.Dat
     return pd.concat(frames, ignore_index=True)
 
 
+def _punctum_excluded(p) -> bool:
+    return switch_on(p.get("punctum.enabled", False)) and switch_on(p.get("punctum.exclude", False))
+
+
 def _nucleus_rows(p, nuc, ids, present, recs, meas, all_strands, sp) -> list[dict]:
+    excl = _punctum_excluded(p)
     by_nid: dict[int, list] = {}
+    n_pun: dict[int, int] = {}
     for nid, _k, s in all_strands:
+        if s["row"].get("punctum"):
+            n_pun[nid] = n_pun.get(nid, 0) + 1
+            if excl:
+                continue
         by_nid.setdefault(nid, []).append(s)
     info = nuc.set_index("nucleus_id")
     expected_map = dict(p["nucleus.expected"])
@@ -717,6 +733,10 @@ def _nucleus_rows(p, nuc, ids, present, recs, meas, all_strands, sp) -> list[dic
             "is_pachytene": mget("is_pachytene", pd.NA),
             "touches_z": bool(r_a.get("touches_z", False)) if r_a else False,
             "touches_xy": bool(r_a.get("touches_xy", False)) if r_a else False,
+            "n_puncta": int(n_pun.get(nid, 0)),
+            "puncta_signal_frac": r_b.get("puncta_signal_frac", 0.0) if r_b else np.nan,
+            "steep_length_frac": float(sum(np.nan_to_num(r.get("frac_steep60"), nan=0.0) * r["length_um"]
+                                           for r in rows_s) / total) if total > 0 else np.nan,
         }
         flags = qc.nucleus_flags(row, p, local_median(row["axis_position_um"]))
         complete_nucleus = bool(expected is not None and n_complete == expected and main and all(

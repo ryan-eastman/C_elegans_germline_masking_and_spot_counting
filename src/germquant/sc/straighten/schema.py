@@ -30,7 +30,7 @@ STRANDS = [
     "width_ax_decon_um", "frac_contaminated", "n_foci", "strip_offset", "strip_len",
     "e0_se_um", "e1_se_um", "end0_sigma_um", "end1_sigma_um", "n_members", "kink_max_deg", "frac_saturated",
     "near_stack_edge", "merged_run_um", "frac_multiplicity_high", "gap_max_um", "end_types_traced", "import_id",
-    "error",
+    "error", "punctum_sigma_z_um",
 ]
 
 SAMPLES = [
@@ -57,7 +57,8 @@ NUCLEI = [
     "total_length_complete_um", "n_pieces", "mean_piece_um", "longest_piece_um", "n_gaps", "gaps_per_10um",
     "gap_fraction", "piece_lw_mean_um", "on_strand_frac", "snr_core_median", "coverage_proxy", "multiplicity_frac",
     "noise_sd", "n_seeds", "budget_exceeded", "volume_um3", "in_germline", "axis_position_um", "zone",
-    "is_pachytene", "touches_z", "touches_xy", "qc_status", "qc_flags", "error_message",
+    "is_pachytene", "touches_z", "touches_xy", "qc_status", "qc_flags", "error_message", "n_puncta",
+    "puncta_signal_frac", "steep_length_frac",
 ]
 
 SUMMARY = [
@@ -90,7 +91,7 @@ COLUMN_DOCS: dict[str, dict[str, str]] = {
         "marker": "the central_element marker named by the run's channel map",
         "geometry_source": "auto (traced) or imported (--paths-from)",
         "verified": "imported geometry marked verified",
-        "strand_class": "complete, partial, merged_suspect, fragment or verified (see Strand classes)",
+        "strand_class": "complete, partial, merged_suspect, fragment, punctum or verified (see Strand classes)",
         "qc_status": "pass, review or fail: the worst level among qc_flags",
         "qc_flags": "the strand's QC codes, separated by ;",
         "length_um": "3D length between the measured ends (anchored half-maximum end rule)",
@@ -156,6 +157,9 @@ COLUMN_DOCS: dict[str, dict[str, str]] = {
                             "joined by a vertical bar)",
         "import_id": "id of the imported path (imported geometry)",
         "error": "exception type when measuring the strand failed (empty otherwise)",
+        "punctum_sigma_z_um": "axial extent of a steep strand at most punctum.max_xy_um long in the image plane: the "
+                              "sigma of a Gaussian fitted along s to its core profile times tz_abs_mean (the punctum "
+                              "rule; NaN where the rule does not apply)",
     },
     "samples": {
         **_SHARED,
@@ -232,7 +236,7 @@ COLUMN_DOCS: dict[str, dict[str, str]] = {
         "nucleus_id": "the nucleus label",
         "status": "traced, no_sc (no SC above the presence rules), skipped or failed",
         "error": "exception type of a failed nucleus",
-        "n_strands": "strands after accounting",
+        "n_strands": "strands after accounting (punctum strands not counted under punctum.exclude)",
         "n_main": "strands of 1 um or more (the male X rule may drop one)",
         "n_complete": "complete or verified strands",
         "n_fragments": "strands under 1 um",
@@ -268,6 +272,11 @@ COLUMN_DOCS: dict[str, dict[str, str]] = {
         "qc_status": "pass, review or fail: the worst level among qc_flags",
         "qc_flags": "the nucleus's QC codes, separated by ;",
         "error_message": "the exception message of a failed nucleus",
+        "n_puncta": "punctum strands (the axial blur of SYP puncta or aggregates); under punctum.exclude they are left "
+                    "out of every other count, length, continuity and intensity column of this table",
+        "puncta_signal_frac": "SYP above background inside the punctum tubes (outside the strand tubes) over SYP above "
+                              "background in the territory",
+        "steep_length_frac": "share of total_length_um steeper than 60 degrees to the image plane",
     },
 }
 

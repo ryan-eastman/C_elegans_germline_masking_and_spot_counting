@@ -38,6 +38,7 @@ STRAND_POSITIVE = {
     "fit_residual": {"fit_rms_um": 0.2},
     "gap_long": {"gap_max_um": 0.7},
     "saturated": {"frac_saturated": 0.05},
+    "punctum": {"punctum": True},
     "imported": {"geometry_source": "imported"},
     "verified": {"verified": True},
     "error": {"error": "ValueError"},

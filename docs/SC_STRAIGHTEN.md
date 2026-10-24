@@ -121,7 +121,7 @@ the strands, gaps, foci and nuclei tables add the shared metadata block after th
 | marker | the central_element marker named by the run's channel map |
 | geometry_source | auto (traced) or imported (--paths-from) |
 | verified | imported geometry marked verified |
-| strand_class | complete, partial, merged_suspect, fragment or verified (see Strand classes) |
+| strand_class | complete, partial, merged_suspect, fragment, punctum or verified (see Strand classes) |
 | qc_status | pass, review or fail: the worst level among qc_flags |
 | qc_flags | the strand's QC codes, separated by ; |
 | length_um | 3D length between the measured ends (anchored half-maximum end rule) |
@@ -184,6 +184,7 @@ the strands, gaps, foci and nuclei tables add the shared metadata block after th
 | end_types_traced | end types after tracing, end matching and accounting (end 0 and end 1, joined by a vertical bar) |
 | import_id | id of the imported path (imported geometry) |
 | error | exception type when measuring the strand failed (empty otherwise) |
+| punctum_sigma_z_um | axial extent of a steep strand at most punctum.max_xy_um long in the image plane: the sigma of a Gaussian fitted along s to its core profile times tz_abs_mean (the punctum rule; NaN where the rule does not apply) |
 
 ### `<id>__sc_strand_samples.csv`
 
@@ -273,7 +274,7 @@ the strands, gaps, foci and nuclei tables add the shared metadata block after th
 | nucleus_id | the nucleus label |
 | status | traced, no_sc (no SC above the presence rules), skipped or failed |
 | error | exception type of a failed nucleus |
-| n_strands | strands after accounting |
+| n_strands | strands after accounting (punctum strands not counted under punctum.exclude) |
 | n_main | strands of 1 um or more (the male X rule may drop one) |
 | n_complete | complete or verified strands |
 | n_fragments | strands under 1 um |
@@ -308,6 +309,9 @@ the strands, gaps, foci and nuclei tables add the shared metadata block after th
 | qc_status | pass, review or fail: the worst level among qc_flags |
 | qc_flags | the nucleus's QC codes, separated by ; |
 | error_message | the exception message of a failed nucleus |
+| n_puncta | punctum strands (the axial blur of SYP puncta or aggregates); under punctum.exclude they are left out of every other count, length, continuity and intensity column of this table |
+| puncta_signal_frac | SYP above background inside the punctum tubes (outside the strand tubes) over SYP above background in the territory |
+| steep_length_frac | share of total_length_um steeper than 60 degrees to the image plane |
 
 ## Method in short
 
@@ -370,6 +374,7 @@ positive and a negative case.
 | fit_residual | strand | review | qc.fit_rms_review_um | centreline fit residual RMS above fit_rms_review_um |
 | gap_long | strand | review | qc.gap_long_um | a gap of gap_long_um or more |
 | saturated | strand | review | qc.saturated_frac | more than saturated_frac of the core samples at the detector maximum |
+| punctum | strand | info | punctum.sigma_ratio | a steep strand at most punctum.max_xy_um long in the image plane whose axial extent fits the image's axial PSF: the axial blur of a SYP punctum or aggregate (class punctum, left out of the nucleus tier) |
 | imported | strand | info | - | geometry imported from a file (Imaris Filaments, SWC or CSV) |
 | verified | strand | info | - | imported geometry marked verified |
 | error | strand | fail | - | an exception while measuring the strand (error:<Type>) |

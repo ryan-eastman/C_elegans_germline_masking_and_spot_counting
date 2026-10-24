@@ -21,7 +21,7 @@ from .fields import line_fields
 from .foci import assign_foci
 from .frames import StrandFrame
 from .noise import NoiseModel, gat
-from .params import Params
+from .params import Params, switch_on
 from .refine import Centreline, EndFit, ellipse_mask, finalize_line, fit_end, gauss_fit, n_eff, sigma_t
 from .sampling import LabelLookup, Sampler, grid, plane_points
 from .trace import background
@@ -173,6 +173,32 @@ def pieces_of(L: float, gaps: list) -> list[float]:
     return [max(edges[i + 1] - edges[i], 0.0) for i in range(0, len(edges), 2)]
 
 
+def along_profile_sigma(s: np.ndarray, core: np.ndarray) -> float:
+    """The sigma of a Gaussian plus a constant fitted by least squares to a strand's core profile along s (the
+    punctum rule of protocol changelog entries 8, 9 and 16; the fit of the entry-8 diagnostics)."""
+    from scipy.optimize import least_squares
+
+    ok = np.isfinite(core)
+    s, core = np.asarray(s, float)[ok], np.asarray(core, float)[ok]
+    if len(s) < 8:
+        return float("nan")
+    b0 = float(np.percentile(core, 10))
+    A0 = float(core.max() - b0)
+    lo = np.array([0.0, s.min() - 0.5, 0.05, -1e4])
+    hi = np.array([1e6, s.max() + 0.5, 5.0, 1e5])
+    x0 = np.clip(np.array([max(A0, 1.0), float(s[np.argmax(core)]), 0.4, b0]), lo, hi)
+
+    def res(q):
+        A, mu, sg, b = q
+        return b + A * np.exp(-0.5 * ((s - mu) / sg) ** 2) - core
+
+    try:
+        r = least_squares(res, x0, bounds=(lo, hi))
+    except Exception:  # noqa: BLE001 - no fit, no punctum
+        return float("nan")
+    return float(r.x[2])
+
+
 def _role_bg(arr, terr, pct):
     v = arr[terr]
     return float(np.percentile(v, pct)) if v.size else float("nan")
@@ -210,6 +236,11 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
         ends_mode = ctx.get("ends_mode", "fit")
         z_hi = (crop.image_shape[0] - 1) * sp[0]
         edge_um = float(p["qc.stack_edge_um"])
+        # the punctum class (protocol changelog entry 16)
+        pun_on = switch_on(p["punctum.enabled"])
+        pun_excl = pun_on and switch_on(p["punctum.exclude"])
+        pun_xy = float(p["punctum.max_xy_um"])
+        pun_ratio = float(p["punctum.sigma_ratio"])
         det_max = float(ctx.get("detector_max") or 65535.0)
         # 1. measured centrelines (end rule), oriented so s = 0 is the end with the smaller rounded (z, y, x)
         lines, fits_all, es, ets = [], [], [], []
@@ -406,6 +437,16 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
                 "kink_max_deg": kink, "frac_saturated": frac_sat, "near_stack_edge": near_edge,
                 "end_types_traced": "|".join(ets[i]), "error": "",
             }
+            # punctum: a steep strand, short in the image plane, whose core profile along s is no wider in z than
+            # the axial PSF allows a point (or a small aggregate) to be
+            row["punctum_sigma_z_um"] = float("nan")
+            row["punctum"] = False
+            steep = np.isfinite(row["frac_steep60"]) and row["frac_steep60"] > 0.5
+            if pun_on and st["source"] == "auto" and steep and row["length_xy_um"] <= pun_xy + 1e-12:
+                sg = along_profile_sigma(fr.s, core)
+                if np.isfinite(sg) and np.isfinite(row["tz_abs_mean"]):
+                    row["punctum_sigma_z_um"] = float(sg * row["tz_abs_mean"])
+                    row["punctum"] = bool(row["punctum_sigma_z_um"] <= pun_ratio * psf[0] + 1e-12)
             samples = {"s": fr.s, "in_strand": ins, "C": fr.C, "T": fr.T, "n_lat": fr.n_lat, "n_ax": fr.n_ax,
                        "core": core, "core_se": core_se, "integrated": integ, "integ_se": integ_se,
                        "contaminated": contaminated, "in_gap": in_gap, "in_label": in_label, "strength": strength,
@@ -417,13 +458,30 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
                                    "strip_axial": np.stack(axial).astype(np.float32),
                                    "strip_roles": list(strip_roles), "uid": strand_uid(fr.C[ins][::2]),
                                    "line": line.to_state()})
+        # strands that count in the nucleus tier: under punctum.exclude the punctum strands are left out of the
+        # foci assignment and of the strand tubes of on_strand_frac and coverage_proxy (their voxels count as
+        # territory)
+        keep = [k for k, s in enumerate(rec["strands"]) if not (pun_excl and s["row"].get("punctum"))]
+        pun = [k for k, s in enumerate(rec["strands"]) if s["row"].get("punctum")]
         # 3. foci on the straightened strands of this nucleus
         if spots:
-            rec["foci"] = assign_foci(spots, frames, lines, [s["gaps"] for s in rec["strands"]], psf, p, nid)
+            if len(keep) == len(rec["strands"]):
+                rec["foci"] = assign_foci(spots, frames, lines, [s["gaps"] for s in rec["strands"]], psf, p, nid)
+            else:
+                rows_f = assign_foci(spots, [frames[k] for k in keep], [lines[k] for k in keep],
+                                     [rec["strands"][k]["gaps"] for k in keep], psf, p, nid)
+                for r in rows_f:
+                    for key in ("strand_key", "second_strand_key"):
+                        if r[key] >= 0:
+                            r[key] = keep[r[key]]
+                rec["foci"] = rows_f
         # 4. nucleus diagnostics: on-strand SYP fraction, coverage proxy, SNR
         idx = np.argwhere(terr)
-        if len(idx) and insides and any(len(x) for x in insides):
-            Q = np.vstack([x for x in insides if len(x)])
+        ins_keep = [insides[k] for k in keep]
+        rec["puncta_signal_frac"] = 0.0
+        d = None
+        if len(idx) and ins_keep and any(len(x) for x in ins_keep):
+            Q = np.vstack([x for x in ins_keep if len(x)])
             tree = cKDTree(np.stack([Q[:, 0] / int_ax, Q[:, 1] / int_lat, Q[:, 2] / int_lat], 1))
             pts_um = (idx + np.asarray(crop.org)) * np.asarray(sp)
             d, _ = tree.query(np.stack([pts_um[:, 0] / int_ax, pts_um[:, 1] / int_lat, pts_um[:, 2] / int_lat], 1),
@@ -439,6 +497,19 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
                 rec["coverage_proxy"] = float(np.mean(np.isfinite(dd)))
         elif len(idx):
             rec["on_strand_frac"] = 0.0
+        if pun and len(idx) and any(len(insides[k]) for k in pun):
+            # the punctum tubes, outside the strand tubes counted above, so the two fractions partition the SYP
+            Qp = np.vstack([insides[k] for k in pun if len(insides[k])])
+            pts_um = (idx + np.asarray(crop.org)) * np.asarray(sp)
+            scaled = np.stack([pts_um[:, 0] / int_ax, pts_um[:, 1] / int_lat, pts_um[:, 2] / int_lat], 1)
+            dp, _ = cKDTree(np.stack([Qp[:, 0] / int_ax, Qp[:, 1] / int_lat, Qp[:, 2] / int_lat], 1)).query(
+                scaled, distance_upper_bound=1.0)
+            inp = np.isfinite(dp)
+            if pun_excl and d is not None:
+                inp &= ~np.isfinite(d)
+            vals_p = np.clip(raw[terr] - bg, 0, None)
+            tot_p = float(vals_p.sum())
+            rec["puncta_signal_frac"] = float(vals_p[inp].sum() / tot_p) if tot_p > 0 else float("nan")
         snr_all = np.concatenate(all_core_snr) if all_core_snr else np.zeros(0)
         rec["snr_core_median"] = float(np.median(snr_all)) if len(snr_all) else float("nan")
     except Exception as e:  # noqa: BLE001 - one nucleus must never stop the image

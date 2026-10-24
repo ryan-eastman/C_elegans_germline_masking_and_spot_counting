@@ -30,6 +30,7 @@ CODES: tuple[tuple[str, str, str, str, str], ...] = (
     ("fit_residual", "strand", "review", "qc.fit_rms_review_um", "centreline fit residual RMS above fit_rms_review_um"),
     ("gap_long", "strand", "review", "qc.gap_long_um", "a gap of gap_long_um or more"),
     ("saturated", "strand", "review", "qc.saturated_frac", "more than saturated_frac of the core samples at the detector maximum"),
+    ("punctum", "strand", "info", "punctum.sigma_ratio", "a steep strand at most punctum.max_xy_um long in the image plane whose axial extent fits the image's axial PSF: the axial blur of a SYP punctum or aggregate (class punctum, left out of the nucleus tier)"),
     ("imported", "strand", "info", "", "geometry imported from a file (Imaris Filaments, SWC or CSV)"),
     ("verified", "strand", "info", "", "imported geometry marked verified"),
     ("error", "strand", "fail", "", "an exception while measuring the strand (error:<Type>)"),
@@ -138,6 +139,8 @@ def strand_flags(m: dict, p, image_ctx: dict | None = None) -> list[str]:
         out.append("gap_long")
     if _gt(m.get("frac_saturated"), p["qc.saturated_frac"]):
         out.append("saturated")
+    if bool(m.get("punctum", False)):
+        out.append("punctum")
     if m.get("geometry_source") == "imported":
         out.append("imported")
     if bool(m.get("verified", False)):

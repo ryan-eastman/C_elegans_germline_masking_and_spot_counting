@@ -143,7 +143,7 @@ def paths_for(out_dir: str | Path, image_id: str) -> dict[str, Path]:
 
 # ------------------------------------------------------------------------------------ overview
 CLASS_COLOURS = {"complete": "#2ca02c", "partial": "#1f77b4", "merged_suspect": "#d62728", "fragment": "#aaaaaa",
-                 "verified": "#9467bd"}
+                 "verified": "#9467bd", "punctum": "#e377c2"}
 
 
 def overview_png(path: str | Path, ce: np.ndarray, strands: pd.DataFrame, samples: pd.DataFrame,

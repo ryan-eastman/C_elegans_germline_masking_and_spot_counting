@@ -47,6 +47,9 @@ DEFAULTS: dict[str, Any] = {
     "gaps": {"q": 0.6, "window_frac": 0.9, "min_um": 0.25, "z": 3.0, "smooth_um": 0.1, "ring_um": 0.45,
              "tail_sigmas": 1.0, "plateau_um": 0.4},
     "contamination_um": [0.7, 0.35],
+    # v2 (protocol changelog entry 16): the punctum class (enabled false gives v1; exclude false keeps the class
+    # and flag but counts punctum strands in every nucleus column as v1 does)
+    "punctum": {"enabled": True, "exclude": True, "max_xy_um": 0.5, "sigma_ratio": 1.3},
     "strips": {"write": True, "ds_um": 0.05, "du_um": 0.05, "dv_um": 0.1, "half_um": [1.0, 0.6],
                "extend_um": 0.5, "flat_v_um": 0.3, "axial_u_um": 0.15, "roles": ["central_element", "foci"]},
     "samples": {"step_um": 0.1},
@@ -70,6 +73,7 @@ DEFAULTS: dict[str, Any] = {
 V1_VALUES: dict[str, Any] = {
     "psf.foci": "off",
     "psf.min_stretches": 20,
+    "punctum.enabled": False,
 }
 
 

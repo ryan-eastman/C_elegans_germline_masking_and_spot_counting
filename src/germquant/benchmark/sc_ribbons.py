@@ -99,12 +99,23 @@ def strand_paths(samples: pd.DataFrame) -> dict[int, np.ndarray]:
     return out
 
 
-def score_scene(scene, result, *, min_strand_um: float = 1.0) -> SceneScore:
-    """Match ``result`` (an ImageResult, or a dict with strands/samples/gaps/foci tables) to the phantom's truth."""
+def score_scene(scene, result, *, min_strand_um: float = 1.0, exclude_classes=("punctum",)) -> SceneScore:
+    """Match ``result`` (an ImageResult, or a dict with strands/samples/gaps/foci tables) to the phantom's truth.
+
+    The strands scored are those the nucleus tier counts: strands of a class in ``exclude_classes`` (punctum,
+    which sc_straighten v2 leaves out of every nucleus column under punctum.exclude; protocol changelog entry 16)
+    are left out of the totals, the coverage, the off-truth length and the matching. Pass ``()`` when the run
+    counted them (punctum.exclude off). v1 has no such class, so its scores do not change."""
     strands = result.strands if hasattr(result, "strands") else result["strands"]
     samples = result.samples if hasattr(result, "samples") else result["samples"]
     gaps = result.gaps if hasattr(result, "gaps") else result["gaps"]
     foci = result.foci if hasattr(result, "foci") else result["foci"]
+    if exclude_classes and len(strands) and "strand_class" in strands and \
+            strands["strand_class"].isin(list(exclude_classes)).any():
+        keep = strands.loc[~strands["strand_class"].isin(list(exclude_classes)), "strand_id"]
+        strands = strands[strands["strand_id"].isin(keep)]
+        samples = samples[samples["strand_id"].isin(keep)] if len(samples) else samples
+        gaps = gaps[gaps["strand_id"].isin(keep)] if len(gaps) else gaps
     paths = {sid: resample(P)[0] for sid, P in strand_paths(samples).items()}
     srow = strands.set_index("strand_id") if len(strands) else pd.DataFrame()
     truths = [resample(r.points)[0] for r in scene.ribbons]
