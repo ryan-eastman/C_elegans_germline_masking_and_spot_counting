@@ -541,8 +541,17 @@ def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
     (root / "g.yaml").write_text("spots.log.min_snr: [2.0, 3.0]\n", encoding="ascii")
     with pytest.MonkeyPatch.context() as mp:
         H.patch_planted_reader(mp, planted.stacks)
+        orig_detect = S._detect
+
+        def chatty(*a, **k):                     # a backend that prints, as SpotMAX does (review P5-TUNE N6)
+            print("Quantifying spots...")
+            return orig_detect(*a, **k)
+
+        mp.setattr(S, "_detect", chatty)
         assert cli.main(["tune-spots", "--project", str(root), "--grid", "g.yaml", "--json"]) == 0
-        out = json.loads(capsys.readouterr().out)
+        captured = capsys.readouterr()
+        out = json.loads(captured.out)                                # stdout is one JSON document
+        assert "Quantifying spots..." in captured.err and "Quantifying" not in captured.out
         assert out["best"]["keys"] == {"spots.log.min_snr": 3.0} and len(out["ranked"]) == 2
         rel = Path(out["run_dir"]).relative_to(root).as_posix()
         assert cli.main(["tune-spots", "--project", str(root), "--grid", "g.yaml", "--max-runs", "1"]) == 2

@@ -81,7 +81,9 @@ germquant tune-spots --project DIR [--points annotations/] [--grid FILE] [--max-
   refused before anything runs.
 - `--out`: the run folder, relative to the project (default `tuning/<run_id>/`); it must be absent or empty,
   so a tuning run never overwrites another.
-- `--json`: print the result (`run_dir`, `best`, `ranked`, `warnings`) as JSON.
+- `--json`: print the result (`run_dir`, `best`, `ranked`, `warnings`) as JSON. Standard output then holds
+  only that document; the progress, the warnings and whatever a backend prints (SpotMAX's report) go to the
+  error stream.
 
 Exit codes: 0 done; 1 the search ran but no setting could be scored, or a detection failed (one `ERROR:`
 line names the error); 2 refused before any detection (the project, the grid, `--max-runs`, an image without a

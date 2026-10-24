@@ -107,11 +107,17 @@ def dispatch(args) -> int:
             print(f"applied {args.apply}: recipe.yaml written, config_hash {config_hash} (validated: false)")
         return 0
 
+    import contextlib
+
     from .tune import tune_spots
 
+    # with --json, stdout holds the one JSON document: what a backend prints during the search (SpotMAX's
+    # progress report) goes to stderr, with the progress lines and the warnings
+    quiet = contextlib.redirect_stdout(sys.stderr) if args.json else contextlib.nullcontext()
     try:
-        res = tune_spots(project, points="annotations" if args.points is None else args.points, grid=args.grid,
-                         out=args.out, max_runs=MAX_RUNS if args.max_runs is None else args.max_runs)
+        with quiet:
+            res = tune_spots(project, points="annotations" if args.points is None else args.points, grid=args.grid,
+                             out=args.out, max_runs=MAX_RUNS if args.max_runs is None else args.max_runs)
     except (TuneRefused, FileNotFoundError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
