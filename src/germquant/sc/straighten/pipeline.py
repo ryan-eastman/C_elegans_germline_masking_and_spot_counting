@@ -326,7 +326,7 @@ def complete_guard(all_strands: list, p, psf) -> dict:
     if not pts:
         return out
     P = np.vstack(pts)
-    O = np.concatenate(owner)
+    own_of = np.concatenate(owner)
     tree_c = cKDTree(P * np.array([1.0 / c_ax, 1.0 / c_lat, 1.0 / c_lat]))
     end_pts = [(i, e[0], e[1]) for i, ee in enumerate(ends) if ee is not None for e in ee]
     E = np.array([x[1] for x in end_pts]) if end_pts else np.zeros((0, 3))
@@ -341,7 +341,7 @@ def complete_guard(all_strands: list, p, psf) -> dict:
         bad = False
         for e_pt, _d in ends[idx]:
             hits = tree_c.query_ball_point(e_pt * np.array([1.0 / c_ax, 1.0 / c_lat, 1.0 / c_lat]), 1.0)
-            if any(O[h] != idx for h in hits):
+            if any(own_of[h] != idx for h in hits):
                 bad = True
                 break
         if bad:
