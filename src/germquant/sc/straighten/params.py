@@ -47,11 +47,10 @@ DEFAULTS: dict[str, Any] = {
     "gaps": {"q": 0.6, "window_frac": 0.9, "min_um": 0.25, "z": 3.0, "smooth_um": 0.1, "ring_um": 0.45,
              "tail_sigmas": 1.0, "plateau_um": 0.4},
     "contamination_um": [0.7, 0.35],
-    # v2 (protocol changelog entry 16): the punctum class (enabled false gives v1; exclude false keeps the class
-    # and flag but counts punctum strands in every nucleus column as v1 does)
-    "punctum": {"enabled": True, "exclude": True, "max_xy_um": 0.5, "sigma_ratio": 1.3,
-                # entry 17: puncta take no part in the end matching (false gives entry 16)
-                "before_linking": True},
+    # v2 (protocol changelog entries 16 to 18): the punctum class (enabled false gives v1). Entry 18 keeps it as a
+    # label: exclude false counts punctum strands in every nucleus column as v1 does, and before_linking false keeps
+    # the end matching of v1 (true: puncta take no part in it, entry 17)
+    "punctum": {"enabled": True, "exclude": False, "max_xy_um": 0.5, "sigma_ratio": 1.3, "before_linking": False},
     "strips": {"write": True, "ds_um": 0.05, "du_um": 0.05, "dv_um": 0.1, "half_um": [1.0, 0.6],
                "extend_um": 0.5, "flat_v_um": 0.3, "axial_u_um": 0.15, "roles": ["central_element", "foci"]},
     "samples": {"step_um": 0.1},

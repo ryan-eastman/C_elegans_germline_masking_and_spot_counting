@@ -1,6 +1,6 @@
-"""The punctum class of sc_straighten v2 (protocol changelog entry 16): the axial blur of a SYP punctum is classed
-and flagged punctum and left out of the nucleus tier, a tilted ribbon is not, punctum.exclude off counts it as v1
-did, and a punctum is never a foci candidate."""
+"""The punctum class of sc_straighten v2 (protocol changelog entries 16 to 18): the axial blur of a SYP punctum is
+classed and flagged punctum (by default a label, entry 18; under punctum.exclude, entry 16, it also leaves the
+nucleus tier and the foci assignment), a tilted ribbon is not, and the rule before the end matching (entry 17)."""
 from __future__ import annotations
 
 import numpy as np
@@ -10,7 +10,7 @@ import pytest
 from germquant.sc.straighten import params, synth, synth_dev
 from germquant.sc.straighten.pipeline import straighten_image
 
-P = params.resolve()
+P = params.resolve(None, ["punctum.exclude=true"])        # the tier exclusion of entry 16 (entry 18: off by default)
 
 
 def _scene(ribbons=(), puncta=(), seed=0, foci=()):
@@ -64,9 +64,8 @@ def test_a_blurred_point_is_a_punctum_left_out_of_the_tier():
     assert "punctum" in st["qc_flags"].iloc[0] and np.isfinite(st["punctum_sigma_z_um"].iloc[0])
     assert nu["n_puncta"] == 1 and nu["n_strands"] == 0 and nu["total_length_um"] == 0.0 and nu["status"] == "no_sc"
     assert nu["piece_lw_mean_um"] == 0.0 and 0.0 < nu["puncta_signal_frac"] <= 1.0
-    # punctum.exclude off: the class and flag stay, the strand counts as in v1
-    keep = _run(_scene(puncta=[{"center": [0.0, 0.3, -0.2], "peak": 900.0}], seed=1),
-                params.resolve(None, ["punctum.exclude=false"]))
+    # punctum.exclude off (the default of entry 18): the class and flag stay, the strand counts as in v1
+    keep = _run(_scene(puncta=[{"center": [0.0, 0.3, -0.2], "peak": 900.0}], seed=1), params.resolve())
     assert keep.strands["strand_class"].iloc[0] == "punctum"
     assert keep.nuclei["n_strands"].iloc[0] == 1 and keep.nuclei["total_length_um"].iloc[0] > 0.5
     # punctum.enabled off: v1 (no class, no flag)
@@ -95,7 +94,7 @@ def test_steep_ribbons_are_not_puncta(L, tilt):
     assert "punctum" not in set(res.strands["strand_class"])
 
 
-def test_a_punctum_is_never_a_foci_candidate():
+def test_under_exclusion_a_punctum_is_never_a_foci_candidate():
     c = [0.0, 0.3, -0.2]
     res = _run(_scene(puncta=[{"center": c, "peak": 900.0}], foci=[c], seed=4))
     assert (res.strands["strand_class"] == "punctum").all()
@@ -139,3 +138,4 @@ def test_the_rule_before_the_end_matching(monkeypatch):
         bg = float(np.percentile(raw[labels == 1], 15))
         longest = max(cap[0], key=len)
         assert TR.traced_punctum(longest, sampler, bg, noise, synth.SPACING, P) is want
+    assert params.resolve()["punctum.before_linking"] is False          # entry 18: the end matching of v1
