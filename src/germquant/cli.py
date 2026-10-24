@@ -725,6 +725,13 @@ def _info(nd2: str) -> int:
     dz, dy, dx = m["spacing"]
     print(f"voxel µm   : dz={dz:.4f} dy={dy:.4f} dx={dx:.4f}  (anisotropy z/xy={dz/dy:.2f})")
     print(f"channels   : {m['channel_names']}")
+    from .planar import one_plane_header
+
+    if one_plane_header(m):            # no Z axis, or a Z of 1 (D11): what io.planar auto runs as a 2D image
+        yx = m.get("spacing_yx_um") or (m["spacing"][1:] if m.get("spacing_ok") else None)
+        cal = (f"dy={yx[0]:.4f} dx={yx[1]:.4f} um from the file" if yx else
+               "no xy calibration in the file (set io.voxel_size_um)")
+        print(f"planes     : single plane, {cal}; io.planar auto or true runs it as a 2D image (docs/PLANAR.md)")
     if int(m.get("n_timepoints", 1) or 1) > 1:       # a time series: say so (fixed images print nothing here)
         period = m.get("period_s")
         every = f" every {period:g} s" if period else ""
@@ -779,9 +786,14 @@ def _run(args) -> int:
 def _run_series(args, cfg) -> int:
     """``germquant run SERIES.nd2 --t ...``: the per-timepoint loop (timelapse.series.process_series). A
     timepoint that raises is recorded in the series record and the loop goes on; the exit code is 0 when at
-    least one requested timepoint finished and 1 when none did."""
+    least one requested timepoint finished and 1 when none did, and 2 when the series is refused before any
+    timepoint (_series_refusal)."""
     from .timelapse import process_series
 
+    refused = _series_refusal(cfg, args.nd2)
+    if refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)       # one prefix for every series refusal (D45)
+        return 2
     res = process_series(args.nd2, cfg, args.out, timepoints=args.t, xy_stride=args.xy_stride,
                          z_range=args.z_range, resume=bool(getattr(args, "resume", False)))
     rec = res["record"]
@@ -794,6 +806,31 @@ def _run_series(args, cfg) -> int:
         print(f"  t{f['t_index']:03d} FAILED: {'; '.join(f['flags'])}")
     print(f"  -> {res['out_dir']}  ({Path(res['record_path']).name}, {Path(res['summary_path']).name})")
     return 0 if n_done else 1
+
+
+def _series_refusal(cfg, path) -> str | None:
+    """Why ``run --t`` cannot run this series in this release, or None; _run_series prints it as "REFUSED:
+    <message>" (D45). A labels recipe (segmentation.nuclei.labels_from, D15, docs/LABELS.md) is refused first,
+    with no header read; then a single-plane run (io.planar true, or auto on a file whose header has one plane;
+    D9, docs/PLANAR.md). process_image refuses each such timepoint as well."""
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
+        from .io.labels import SERIES_REFUSAL
+
+        return SERIES_REFUSAL
+    from . import planar
+
+    try:
+        mode = planar.planar_setting(cfg)
+    except planar.PlanarConfigError as e:          # a malformed io.planar: refused before any timepoint too
+        return str(e)
+    if mode == "true":
+        return planar.PLANAR_SERIES_REFUSED
+    if mode == "auto":
+        from .pipeline import read_input_metadata
+
+        if planar.one_plane_header(read_input_metadata(path)):
+            return planar.PLANAR_SERIES_REFUSED
+    return None
 
 
 def _batch(args) -> int:
@@ -825,11 +862,25 @@ def _batch(args) -> int:
     from .pipeline import resolve_model_path, segment_backend_provenance
     from .stages import stage_hashes as stage_hashes_fn
 
-    model_sha = (provenance.file_sha256(resolve_model_path(cfg))
-                 if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
+    labels_run = cfg.get("segmentation.nuclei.labels_from") is not None
+    if labels_run:
+        # labels from files (docs/LABELS.md): process_image's rule, no model is resolved; the segment hashes are
+        # computed per image below, with that image's labels sha256
+        from .io import labels as labels_io
+
+        model_sha = "unused"
+    else:
+        model_sha = (provenance.file_sha256(resolve_model_path(cfg))
+                     if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
     # the segmentation backend's own provenance ({} on the default run), as process_image hashes it
     segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
                                    segment_backend=segment_backend_provenance(cfg))["segment"]
+    # a recipe that sets io.planar can write single-plane markers, whose segment sub-hash carries "planar"
+    # (docs/PLANAR.md): that hash is computed once too and passed to is_done, which picks by the marker's flag
+    planar_kw = ({} if cfg.get("io.planar") in (None, False) else
+                 {"segment_hash_planar": stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
+                                                         segment_backend=segment_backend_provenance(cfg),
+                                                         planar=True)["segment"]})
     batch_extra = {"n_files": len(files), "input_root": str(root), "excluded": [str(f) for f, _ in dropped],
                    "xy_stride": int(args.xy_stride), "model_sha256": model_sha,
                    "enabled_stages": B.enabled_stage_names(cfg)}
@@ -849,7 +900,16 @@ def _batch(args) -> int:
         out_dir = out_root / rel / f.stem
         print(f"[{i}/{len(files)}] {f.name}")
         if resume:
-            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=segment_hash)
+            seg, seg_kw = segment_hash, planar_kw
+            if labels_run:
+                # this image's segment hashes, its labels file's sha256 in the payload, the single-plane one only
+                # for a recipe that sets io.planar (D44, D46); a file that cannot be hashed matches no marker, so
+                # the image is reprocessed and fails with process_image's message
+                seg, seg_planar, problem = labels_io.segment_hashes(cfg, f, model_sha=model_sha)
+                seg_kw = {} if seg_planar is None else {"segment_hash_planar": seg_planar}
+                if problem:
+                    print(f"    {problem}")
+            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=seg, **seg_kw)
             if done:
                 print("    already done (completion marker matches); skipping")
                 continue

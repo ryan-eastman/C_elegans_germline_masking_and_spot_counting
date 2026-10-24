@@ -1,0 +1,1 @@
+granule_id,excess_n,syp_excess,pgl_raw,pgl_n,vol_um3,dist_um,dmin_um,image_id,genotype,sex,germ_cell,treatment,replicate,acquisition_date,voxel_dz_um,voxel_dy_um,voxel_dx_um,n_channels,dapi_present,channel_map_json
