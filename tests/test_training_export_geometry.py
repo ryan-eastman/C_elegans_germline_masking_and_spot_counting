@@ -186,6 +186,24 @@ def test_3d_export_manifest_and_export_json_unchanged(tmp_path, results, readers
             TR.export_training_pairs(gonad, tmp_path / "bad", orientations=bad)
 
 
+def test_the_command_hands_on_a_list_as_a_tuple_and_auto_as_none(monkeypatch, tmp_path):
+    """The plugin's in-process export calls export_training_pairs(orientations=<tuple>) and compares that call
+    with the one `germquant export-training --orientations LIST` makes (napari-germquant
+    tests/test_training.py::test_settings_reproduce_the_command_line_arguments), so a list goes on as the tuple
+    of its items, as before; auto goes on as None."""
+    seen = []
+
+    def record(results_dir, out_dir, **kw):
+        seen.append(kw["orientations"])
+        return pd.DataFrame(columns=TR.MANIFEST_COLS)
+
+    monkeypatch.setattr(TR, "export_training_pairs", record)
+    for value in (None, "auto", "AUTO", "xy,yz", " xy , xz ,yz "):
+        argv = ["export-training", str(tmp_path), "--out", str(tmp_path / "p")]
+        assert cli.main(argv + ([] if value is None else ["--orientations", value])) == 0
+    assert seen == [None, None, None, ("xy", "yz"), ("xy", "xz", "yz")]
+
+
 # ---- projected runs: the 2D image the segmenter saw ----------------------------------------------------------
 
 def test_projected_run_exports_proj_pairs(tmp_path, results, readers):

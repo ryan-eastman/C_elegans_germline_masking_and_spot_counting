@@ -1112,7 +1112,10 @@ def _get_model(args) -> int:
 def _export_training(args) -> int:
     from .segment.training import export_training_pairs
 
-    manifest = export_training_pairs(args.results_dir, args.out, orientations=str(args.orientations),
+    text = str(args.orientations).strip()
+    # auto: by run geometry; a list goes on as today's tuple, the call the plugin's in-process export makes
+    orientations = None if text.lower() == "auto" else tuple(o.strip() for o in text.split(",") if o.strip())
+    manifest = export_training_pairs(args.results_dir, args.out, orientations=orientations,
                                      slices_per_image=args.slices_per_image, seed=args.seed,
                                      zone_column=args.zone_column or None, min_labels=args.min_labels,
                                      max_bytes=float(args.max_gb) * 1e9)
