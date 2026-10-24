@@ -19,10 +19,21 @@ import shlex
 from .manifest import ProjectError
 
 SHELLS = ("sh", "ps1")
+# PowerShell ends a single-quoted string at any of these: the ASCII quote and the typographic ones U+2018 to U+201B
+_PS_QUOTES = "'\u2018\u2019\u201a\u201b"
 
 
 def _ps_quote(text: str) -> str:
-    return "'" + str(text).replace("'", "''") + "'"
+    """``text`` as a PowerShell single-quoted string: each character PowerShell reads as a single quote is doubled,
+    so a folder such as "Ryan\u2019s data" stays one string."""
+    return "'" + "".join(ch * 2 if ch in _PS_QUOTES else ch for ch in str(text)) + "'"
+
+
+def _comment(text) -> str:
+    """A header line's text with every character that is not printable (a line break above all, a lone CR, which
+    PowerShell also ends a line at, or a Unicode line separator) written as its escape, so nothing the project
+    records (its name, its folder, a recorded interpreter) can end the comment and run as a command."""
+    return "".join(ch if ch.isprintable() else ascii(ch)[1:-1] for ch in str(text))
 
 
 def _engine_python(manifest: dict) -> str:
@@ -60,17 +71,17 @@ def export_commands(project, *, shell="sh", shards=None) -> str:
             f"written by germquant {__version__} (git {git_sha()}); the engine: {python}"]
     if shell == "sh":
         exe, q = f"{shlex.quote(python)} -m germquant", shlex.quote(str(root))
-        lines = ["#!/bin/sh"] + [f"# {h}" for h in head]
+        lines = ["#!/bin/sh"] + [f"# {_comment(h)}" for h in head]
     else:
         exe, q = f"& {_ps_quote(python)} -m germquant", _ps_quote(str(root))
-        lines = [f"# {h}" for h in head]
+        lines = [f"# {_comment(h)}" for h in head]
     lines.append("# a run skips the images already done; `germquant project status` shows each image afterwards")
     if n > 1:
         lines.append(f"# {n} shards: run these lines one after the other, side by side, or one per computer, then the "
                      f"collect line once all of them have finished")
         if shell == "sh":
-            lines.append(f"# as a SLURM array (sbatch --array=1-{n}) each task runs: {exe} project run {q} --shard "
-                         f"${{SLURM_ARRAY_TASK_ID}}/{n}")
+            lines.append("# " + _comment(f"as a SLURM array (sbatch --array=1-{n}) each task runs: {exe} project run "
+                                         f"{q} --shard ${{SLURM_ARRAY_TASK_ID}}/{n}"))
     lines += ([f"{exe} project run {q}"] if n == 1 else
               [f"{exe} project run {q} --shard {k}/{n}" for k in range(1, n + 1)])
     lines.append(f"{exe} project collect {q}")

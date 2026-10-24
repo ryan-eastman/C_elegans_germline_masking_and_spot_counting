@@ -716,6 +716,21 @@ def test_export_commands(project_env, tmp_path, capsys):  # noqa: F811
     assert cli.main(["project", "export-commands", root, "--shards", "2", "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == {"text": P.export_commands(proj, shards=2), "out": None,
                                                    "shell": "sh", "shards": 2}
+    # nothing the project records can end a comment line and run as a command: a name with line breaks (also a
+    # lone CR, which PowerShell reads as one) stays one comment, written with escapes
+    odd = new_test_project(tmp_path / "odd", name="study\necho INJECTED\rWrite-Host INJECTED\u2028x")
+    for shell in ("sh", "ps1"):
+        text = P.export_commands(odd, shell=shell)
+        assert all(ln.startswith("#") or " -m germquant project " in ln for ln in text.splitlines()), text
+        assert "study\\necho INJECTED\\rWrite-Host INJECTED\\u2028x" in text
+    # PowerShell also ends a single-quoted string at a typographic single quote (U+2018 to U+201B): a folder named
+    # with one, such as Ryan's study typed with a curly apostrophe, has it doubled, as the ASCII quote is
+    for q in (chr(0x2018), chr(0x2019), chr(0x201A), chr(0x201B), "'"):
+        curly = new_test_project(tmp_path / f"Ryan{q}s study {ord(q)}")
+        runs = [ln for ln in P.export_commands(curly, shell="ps1").splitlines() if not ln.startswith("#")]
+        doubled = str(curly.root).replace(q, q * 2)
+        assert runs == [f"& '{sys.executable}' -m germquant project run '{doubled}'",
+                        f"& '{sys.executable}' -m germquant project collect '{doubled}'"], runs
 
 
 # ---- the api re-exports (PLAN.md section 9.1) ----------------------------------------------------------------
