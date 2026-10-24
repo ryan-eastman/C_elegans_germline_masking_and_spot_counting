@@ -944,3 +944,30 @@ Entries are appended, never edited. Each one says whether a test result had been
    punctum.before_linking (true; false gives entry 16). Everything else of entry 16, its targeted metrics (a) to (c)
    and their confirmation levels, is unchanged; they are computed again on the tuning seeds against the
    configuration before entry 16, then once on the confirmation seeds.
+18. 2026-10-24, the v2 development round (puncta, revision 2 of entries 16 and 17), written before any confirmation
+   number of the puncta change was computed (no test result had been computed, no test or reserved image was run, no
+   test or reserved truth was read and no sealed seed was generated). Revision 1 (commit 55e7d05) on the tuning
+   seeds against the configuration before entry 16
+   (C:/Users/ryane/sc_ribbon_work/v2/logs/step2r1_55e7d05_tuning.json): (a) failed again, the dense_puncta excess
+   fell by 54 percent (6.47 to 2.96 um per nucleus: 1.69 um on strands attributed to puncta but not of class
+   punctum, mostly steep strands longer than punctum.max_xy_um in the image plane or whose profile fit ran to its
+   bound, and 1.27 um on ribbon strands that differ from the clean scenes); (b) held (90 percent of the point puncta
+   and 80 percent of the aggregates left no strand outside the class); (c) held; the criteria of 8.1 on the
+   registered families moved by at most 0.06 percentage points (dense mean total error -6.92 to -6.98 percent, SD
+   8.59 to 8.56 percent, CCC 0.535 to 0.536). The removal of puncta from the nucleus tier is therefore withdrawn:
+   the remaining excess sits on strands that the rule cannot tell from steep ribbons with the constants that the
+   plan holds fixed (PLAN_V2.md 2.5) and on ribbon strands, which no punctum rule removes. Revision 2 keeps the
+   class and the flag as a label only: punctum.exclude false (punctum strands count in every column as in v1, the
+   fallback of entry 11 (c)) and punctum.before_linking false (the end matching as in v1), with the rule of entry 16
+   on the measured strand, the columns n_puncta, puncta_signal_frac (here the share of the territory's SYP inside
+   the punctum tubes, which overlap the strand tubes) and steep_length_frac, and the S1 scoring of all strands. No
+   length, continuity or intensity column of v1 changes; the strand class changes for punctum strands only (they
+   leave partial, fragment or merged_suspect, so n_merged_suspect can fall; a steep strand is never complete in v1).
+   Targeted metrics of revision 2, once on the confirmation seeds against the configuration before entry 16: (b) at
+   least 80 percent of the point puncta and 65 percent of the aggregates are labelled with no strand outside the
+   class (their tuning values for this configuration are those of entry 16 on the tuning seeds, 83 and 78 percent,
+   seen before this entry); (c) no strand on an iso, gaps or foci ribbon and at most 0.5 percent of the dense ribbon
+   length is labelled punctum; and the tolerances of entry 11 (b). The change is adopted when they hold, else
+   withdrawn (punctum.enabled false). Z1 is not run: with the per-image PSF withdrawn and the puncta a label only,
+   no input of S2 differs from trial 4, so zone truth is not used here; the realism probe measures the trial-4 runs
+   (runs/6b7be22) instead of Z1 runs.
