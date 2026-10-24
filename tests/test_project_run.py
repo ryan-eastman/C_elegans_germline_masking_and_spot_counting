@@ -661,12 +661,18 @@ def _fake_results(results: Path, ids_counts: dict) -> None:
 
 
 def test_collect_project_uses_recipe_outlier_factor(project_env, tmp_path, capsys):  # noqa: F811
+    from germquant.project import manifest as M
+
     counts = {"a": 10, "b": 11, "c": 9, "d": 10, "e": 60}           # e: six times the median, a dense field
-    proj = project_with_images(tmp_path, names=tuple(counts))
+    proj = project_with_images(tmp_path, names=(*counts, "x"))
     _fake_results(proj.root / "results", counts)
     _fake_results(proj.root / "results", {"stray": 10})              # a folder of no image of the project
+    _fake_results(proj.root / "results", {"x": 10})                  # results of an image excluded since
+    m = M.read_manifest(proj.root)
+    next(e for e in m["images"] if e["id"] == "x").update(excluded=True, reason="out of focus")
+    M.write_manifest(proj.root, m)
     rec = P.collect_project(proj)
-    assert rec["outlier_factor"] == 1.0e9 and rec["counts"]["batch_summary"] == 5
+    assert rec["outlier_factor"] == 1.0e9 and rec["counts"]["batch_summary"] == 5 and rec["images"] == 5
     summary = pd.read_csv(proj.root / "results" / "batch_summary.csv")
     assert sorted(summary["image_id"]) == sorted(counts)
     assert not summary["qc_flags"].fillna("").str.contains("germline_count_outlier").any()

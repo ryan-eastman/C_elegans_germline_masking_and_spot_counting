@@ -98,6 +98,11 @@ def test_every_status_and_reason_code(project_env, tmp_path):  # noqa: F811
     assert S.reason_code("segment stage hash differs (model file or Cellpose version changed)") == "segment_hash"
     assert S.reason_code("planar flag: a single-plane marker, and no planar segment hash was given") == "planar_flag"
     assert S.reason_code("done") is None and S.reason_code("no completion marker") is None
+    # a run that only skips an image does not become its last run: last_run_id names the run that processed it
+    again = P.run_project(proj, images=["a", "fld"])
+    assert again["counts"] == {"done": 0, "failed": 1, "skipped": 1}
+    rows = {r["id"]: r for r in P.project_status(proj.root)["images"]}
+    assert rows["a"]["last_run_id"] == done["run_id"] and rows["fld"]["last_run_id"] == again["run_id"]
 
 
 def test_a_planar_marker_reads_stale_with_the_planar_flag(project_env, tmp_path):  # noqa: F811
