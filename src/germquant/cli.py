@@ -630,11 +630,10 @@ def _track_link(args) -> int:
           f"{len(rec['timepoints'])} timepoint(s) -> {rec['n_tracks']} track(s), {rec['n_full_length']} full length; "
           f"{rec['registration']} registration, shifts from {rec['shift_source']}")
     if rec["backend"] == "laptrack_flow":
-        bi = rec.get("backend_info", {})
-        res_med = bi.get("residual_median_um")
-        print(f"  flow prior: {bi.get('n_steps', 0)} step(s), {bi.get('n_steps_registration_only', 0)} on the registration "
-              f"alone; residual of the confident links {'n/a' if res_med is None else f'{res_med:.2f} um'} (median); "
-              f"cutoff {bi.get('cutoff_um', float('nan')):.2f} um on the predicted positions")
+        from .timelapse.flowlink import summary_lines
+
+        for line in summary_lines(rec.get("backend_info", {})):   # steps, residual, cutoff, the consensus (and a note)
+            print(f"  {line}")
     if rec.get("note"):
         print(f"  note: {rec['note']}")
     flipped = [t for t, s in rec.get("axis_sign_by_t", {}).items() if int(s) < 0]

@@ -17,7 +17,12 @@ registration (rigid or piecewise; the flow estimated here is the motion that reg
    predicted displacement, when at least VOTE_MIN_SUPPORT of the neighbourhood agrees and no rival displacement
    (more than two bandwidths away) has VOTE_AMBIGUITY of that support; otherwise it is zero (the registration).
    Quasi-random packing makes the true common displacement stand out; a wrong partner of each nucleus points in its
-   own direction.
+   own direction. The record keeps the fraction of the nuclei that found a consensus (``consensus_fraction``): where
+   the motion the registration left exceeds ``search_um`` the true displacement is not among the candidates, the
+   fraction drops, and the step can carry plain laptrack's wrong links while its confident links still look normal
+   (they are mutual nearest neighbours of the wrong displacement). consensus_summary names the steps under
+   LOW_CONSENSUS_RATIO x the series median (and short of it by LOW_CONSENSUS_MIN_NUCLEI nuclei or more), and
+   ``germquant track-link`` prints a note for them (summary_lines).
 2. Confident links. Mutual nearest neighbours between the predicted positions at t' and the nuclei at t', at most
    ``link_radius_um`` apart, that pass the ratio test both ways (nearest distance at most ``ratio`` times the
    second-nearest one).
@@ -80,6 +85,10 @@ VOTE_MIN_SUPPORT = 0.5        # consensus: at least this fraction of the neighbo
 VOTE_AMBIGUITY = 0.8          # consensus: a rival displacement with this fraction of the best support: no consensus
 OUTLIER_FACTOR = 3.0          # field: a link deviating from its neighbours' median by more than
 OUTLIER_MIN_UM = 1.0          #   max(OUTLIER_MIN_UM, OUTLIER_FACTOR x the median deviation) is not used
+LOW_CONSENSUS_RATIO = 0.6     # record / track-link note: a step whose consensus fraction is under this x the series
+                              #   median (docs/TIMELAPSE.md: on the simulator, motion beyond the search gave 0.44 to
+                              #   0.50 of the median, every run without it 0.63 or more at its lowest step)
+LOW_CONSENSUS_MIN_NUCLEI = 10  #   and that falls short of the median by at least this many nuclei (not a 1-in-18 wobble)
 ALTERNATIVE_FACTOR = 1.05     # gap closing: segment start / end cost = this x cutoff squared (step 6)
 GAP_COST_RULE = "cutoff"      # "cutoff": the line above; "laptrack": laptrack's automatic percentile rule (comparison only)
 _COORDS = ("zr_um", "yr_um", "xr_um")
@@ -306,22 +315,25 @@ def estimate_step(A, B, settings: dict, *, t_from: int = 0, t_to: int = 1) -> St
     B = np.asarray(B, dtype=float).reshape(-1, 3)
     k = int(settings["k"])
     info: dict = {"t_from": int(t_from), "t_to": int(t_to), "n_from": int(len(A)), "n_to": int(len(B)),
-                  "n_consensus": 0, "n_confident": 0, "n_used": 0, "fallback": None}
+                  "n_consensus": 0, "n_confident": 0, "n_used": 0, "consensus_fraction": None,
+                  "confident_fraction": None, "fallback": None}
     zero = StepFlow(int(t_from), int(t_to), FlowField.zero(), FlowField.zero(), info)
     fa = np.isfinite(A).all(axis=1)
     if not fa.any() or not np.isfinite(B).all(axis=1).any():
         info["fallback"] = "a frame without nuclei: the registration alone"
         return zero
+    n_fin = int(fa.sum())
     u = np.zeros_like(A)
     if settings["search_um"] > 0:
         u[fa], support = consensus_displacement(A[fa], B[np.isfinite(B).all(axis=1)], search_um=settings["search_um"], k=k)
         info["n_consensus"] = int((support > 0).sum())
+        info["consensus_fraction"] = info["n_consensus"] / n_fin
     flow = None
     for it in range(int(settings["iterations"])):
         ii, jj = mutual_links(A + u, B, radius_um=settings["link_radius_um"], ratio=settings["ratio"])
         if len(ii) < MIN_LINKS:
             if flow is None:
-                info.update(n_confident=int(len(ii)),
+                info.update(n_confident=int(len(ii)), confident_fraction=len(ii) / n_fin,
                             fallback=f"{len(ii)} confident link(s), fewer than {MIN_LINKS}: the registration alone")
                 return zero
             break                            # keep the field of the previous round
@@ -330,8 +342,9 @@ def estimate_step(A, B, settings: dict, *, t_from: int = 0, t_to: int = 1) -> St
         keep = dev <= max(OUTLIER_MIN_UM, OUTLIER_FACTOR * float(np.median(dev)))
         flow = StepFlow(int(t_from), int(t_to), FlowField(A[ii][keep], W[keep], k), FlowField(B[jj][keep], -W[keep], k), info)
         u = flow.forward(A)
-        info.update(n_confident=int(len(ii)), n_used=int(keep.sum()), iterations_run=it + 1,
-                    residual_median_um=float(np.median(dev[keep])), residual_p95_um=float(np.percentile(dev[keep], 95)))
+        info.update(n_confident=int(len(ii)), confident_fraction=len(ii) / n_fin, n_used=int(keep.sum()),
+                    iterations_run=it + 1, residual_median_um=float(np.median(dev[keep])),
+                    residual_p95_um=float(np.percentile(dev[keep], 95)))
     mag = np.linalg.norm(u[fa], axis=1)
     info.update(field_median_um=float(np.median(mag)), field_max_um=float(np.max(mag)))
     info["_residuals"] = dev[keep]
@@ -403,7 +416,7 @@ def link_flow(objects: pd.DataFrame, *, max_dist_um: float, gap_frames: int, set
                               "positions"}
     df = objects[["t_index", "nucleus_id", *_COORDS]].reset_index(drop=True)
     if df.empty:
-        info.update(n_points=0, n_steps=0, steps=[])
+        info.update(n_points=0, n_steps=0, **consensus_summary([]), steps=[])
         return {}, info, extra
     flows = estimate_flow(df, settings)
     D = max(1, int(gap_frames))
@@ -493,6 +506,57 @@ def link_flow(objects: pd.DataFrame, *, max_dist_um: float, gap_frames: int, set
         "residual_median_um": float(np.median(res)) if len(res) else None,
         "residual_p95_um": float(np.percentile(res, 95)) if len(res) else None,
         "field_median_um": float(np.nanmedian(np.linalg.norm(step_cols, axis=1))) if np.isfinite(step_cols).any() else None,
+        **consensus_summary(steps),
         "steps": steps,
     })
     return assign, info, extra
+
+
+def consensus_summary(steps: list[dict]) -> dict:
+    """Over the steps that ran the local consensus (a ``consensus_fraction`` that is not None): the median and the
+    lowest consensus fraction, the step of the lowest (the first on a tie), and the steps whose fraction is under
+    LOW_CONSENSUS_RATIO x the median and short of it by at least LOW_CONSENSUS_MIN_NUCLEI nuclei
+    (``consensus_low_steps``): there the motion the registration left may exceed the search radius. None and []
+    without any (``search_um`` 0, or no step)."""
+    vals = [(float(s["consensus_fraction"]), int(s["t_from"]), int(s["t_to"]), int(s.get("n_from") or 0)) for s in steps
+            if s.get("consensus_fraction") is not None]
+    out = {"consensus_fraction_median": None, "consensus_fraction_lowest": None, "consensus_fraction_lowest_step": None,
+           "consensus_low_ratio": LOW_CONSENSUS_RATIO, "consensus_low_min_nuclei": LOW_CONSENSUS_MIN_NUCLEI,
+           "consensus_low_steps": []}
+    if not vals:
+        return out
+    f = np.array([v[0] for v in vals])
+    med = float(np.median(f))
+    lo = int(np.argmin(f))
+    out.update(consensus_fraction_median=med, consensus_fraction_lowest=float(f[lo]),
+               consensus_fraction_lowest_step=[vals[lo][1], vals[lo][2]],
+               consensus_low_steps=[[a, b] for x, a, b, n in vals
+                                    if x < LOW_CONSENSUS_RATIO * med and (med - x) * n >= LOW_CONSENSUS_MIN_NUCLEI])
+    return out
+
+
+def summary_lines(info: dict) -> list[str]:
+    """The lines ``germquant track-link`` prints for a laptrack_flow run, from its backend record (link_flow): the
+    steps, the residual and the cutoff; the lowest and the median consensus fraction; and a note naming the steps
+    with a low consensus (consensus_summary)."""
+    res_med = info.get("residual_median_um")
+    lines = [f"flow prior: {info.get('n_steps', 0)} step(s), {info.get('n_steps_registration_only', 0)} on the "
+             f"registration alone; residual of the confident links {'n/a' if res_med is None else f'{res_med:.2f} um'} "
+             f"(median); cutoff {info.get('cutoff_um', float('nan')):.2f} um on the predicted positions"]
+    lo = info.get("consensus_fraction_lowest")
+    if lo is None:
+        return lines
+    a, b = info["consensus_fraction_lowest_step"]
+    med = info["consensus_fraction_median"]
+    lines.append(f"flow prior: local consensus for {lo:.2f} of the nuclei at its lowest (t{a} to t{b}), {med:.2f} "
+                 f"median over the steps")
+    low = info.get("consensus_low_steps") or []
+    if low:
+        search = (info.get("flow") or {}).get("search_um")
+        where = ", ".join(f"t{x} to t{y}" for x, y in low[:6]) + (", ..." if len(low) > 6 else "")
+        lines.append(f"note: the local consensus is under {info.get('consensus_low_ratio', LOW_CONSENSUS_RATIO):g} of its "
+                     f"median at {len(low)} step(s) ({where}): there the motion the registration left may exceed "
+                     f"--flow-search-um ({'?' if search is None else f'{search:g}'} um) and the links may be plain "
+                     f"laptrack's; check those steps, or rerun with a larger --flow-search-um or a registration that "
+                     f"follows the motion")
+    return lines

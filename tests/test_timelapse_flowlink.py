@@ -266,6 +266,67 @@ def test_a_missing_timepoint_is_bridged_by_gap_closing():
     assert [s["t_to"] - s["t_from"] for s in info["steps"]] == [1, 1, 2, 1, 1]
 
 
+# ---- motion beyond the search: named, not silent ----------------------------------------------------------------
+
+def test_the_record_keeps_the_consensus_fraction_and_the_low_steps():
+    rng = np.random.default_rng(11)
+    A = _sheet(rng, n_target=120, size=(30.0, 60.0))
+    B = A + np.array([0.0, 0.0, 2.0]) + rng.normal(0, 0.1, A.shape)
+    st = FL.estimate_step(A, B, FL.flow_settings(None))
+    assert st.info["consensus_fraction"] == st.info["n_consensus"] / len(A) > 0.9
+    assert st.info["confident_fraction"] == st.info["n_confident"] / len(A) > 0.8
+    off = FL.estimate_step(A, B, FL.flow_settings(None, search_um=0.0))         # no consensus: no fraction, and the
+    assert off.info["consensus_fraction"] is None                                # 2 um step loses most confident links
+    assert off.info["confident_fraction"] < 0.5 * st.info["confident_fraction"]
+    assert FL.estimate_step(A, B[:0], FL.flow_settings(None)).info["consensus_fraction"] is None
+    # the summary: the lowest step and the steps under 0.6 of the median that are also 10 nuclei or more short of it
+    steps = [{"t_from": 0, "t_to": 1, "n_from": 300, "consensus_fraction": 0.95},
+             {"t_from": 1, "t_to": 2, "n_from": 300, "consensus_fraction": 0.40},
+             {"t_from": 2, "t_to": 4, "n_from": 300, "consensus_fraction": 0.97},
+             {"t_from": 4, "t_to": 5, "n_from": 300, "consensus_fraction": 0.40},
+             {"t_from": 5, "t_to": 6, "n_from": 300, "consensus_fraction": None},
+             {"t_from": 6, "t_to": 7, "n_from": 300, "consensus_fraction": 0.96}]
+    s = FL.consensus_summary(steps)
+    assert s["consensus_fraction_lowest"] == 0.40 and s["consensus_fraction_lowest_step"] == [1, 2]
+    assert s["consensus_fraction_median"] == 0.95 and s["consensus_low_steps"] == [[1, 2], [4, 5]]
+    assert s["consensus_low_ratio"] == FL.LOW_CONSENSUS_RATIO == 0.6 and s["consensus_low_min_nuclei"] == 10
+    small = [dict(x, n_from=18) for x in steps]                                    # 0.55 x 18 = 9.9 nuclei short
+    assert FL.consensus_summary(small)["consensus_low_steps"] == []
+    assert FL.consensus_summary([dict(steps[1], consensus_fraction=0.60)] + steps[2:4])["consensus_low_steps"] == []
+    none = FL.consensus_summary([{"t_from": 0, "t_to": 1, "n_from": 9, "consensus_fraction": None}])
+    assert none["consensus_fraction_lowest"] is None and none["consensus_low_steps"] == []
+    assert FL.consensus_summary([])["consensus_fraction_median"] is None
+
+
+@pytest.mark.parametrize("jump", [(0.0, 0.0, 7.5), (0.0, 7.0, 0.0), (6.5, 0.0, 0.0)])
+def test_motion_beyond_the_search_is_named(sheared, jump):
+    """A whole-field jump between t3 and t4 beyond the 6 um search (on top of the 4 um shear): in the plane the step
+    keeps confident links (mutual nearest neighbours of a wrong displacement) and a normal residual, so only the
+    consensus fraction shows it; in z (6.5 um, nothing within reach) the step falls back to the registration. Either
+    way the record names the step and track-link prints a note."""
+    pytest.importorskip("laptrack")
+    obj = sheared["objects"]
+    _a, clean, _ = FL.link_flow(obj, max_dist_um=3.0, gap_frames=2, settings=FL.flow_settings(None))
+    assert clean["consensus_low_steps"] == [] and clean["consensus_fraction_lowest"] > 0.9
+    lines = FL.summary_lines(clean)
+    assert len(lines) == 2 and lines[1].startswith("flow prior: local consensus for 1.00 of the nuclei at its lowest")
+    j = obj.copy()
+    late = j["t_index"] >= 4
+    for c, d in zip(("zr_um", "yr_um", "xr_um"), jump):
+        j.loc[late, c] += d
+    _a, info, _ = FL.link_flow(j, max_dist_um=3.0, gap_frames=2, settings=FL.flow_settings(None))
+    assert info["consensus_low_steps"] == [[3, 4]] and info["consensus_fraction_lowest_step"] == [3, 4]
+    assert info["consensus_fraction_lowest"] < 0.3 and info["consensus_fraction_median"] > 0.9
+    jump_step = info["steps"][3]
+    if jump[0]:
+        assert jump_step["fallback"] and info["n_steps_registration_only"] == 1
+    else:
+        assert jump_step["fallback"] is None and jump_step["n_confident"] >= 8 and info["residual_median_um"] < 0.5
+    note = FL.summary_lines(info)[-1]
+    assert note.startswith("note: the local consensus is under 0.6 of its median at 1 step(s) (t3 to t4)")
+    assert "--flow-search-um (6 um)" in note
+
+
 # ---- link_series and the command line on the series folders --------------------------------------------------------
 
 @pytest.fixture(scope="module")
@@ -347,6 +408,8 @@ def test_cli_track_link_flow_options(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "backend laptrack_flow" in out and "18 track(s)" in out and "flow prior: 4 step(s)" in out
     assert "cutoff 2.80 um" in out
+    # the consensus line; no note on this small lattice-like series (its low fractions are one or two of 18 nuclei)
+    assert "flow prior: local consensus for" in out and "note: the local consensus" not in out
     rec = json.loads((s["out"] / f"{s['out'].name}__track_link.json").read_text())
     want = {"k": 6, "fb": True, "search_um": 5.0, "iterations": 3, "ratio": 0.6, "link_radius_um": 2.5, "cutoff_um": 2.8}
     assert {k: rec["backend_info"]["flow"][k] for k in want} == want
