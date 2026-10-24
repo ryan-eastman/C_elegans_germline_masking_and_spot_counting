@@ -257,3 +257,12 @@ def test_scoring_json_is_strict_and_thresholds_can_be_fixed(tmp_path):
                          lab, sc, zt)])
     with pytest.raises(SystemExit):
         bs.main(["zones", "--runs", str(tmp_path), "--out", str(tmp_path), "--theta-full", "2.0"])
+    # the pooled row keeps the mean of the residual AUC beside its count of evaluable gonads
+    per = [{"status": "scored", bs.RESIDUAL_COL: 0.6, "piece_lw_mean_um__auc_full_vs_frag": 0.8},
+           {"status": "scored", bs.RESIDUAL_COL: float("nan"), "piece_lw_mean_um__auc_full_vs_frag": 0.9},
+           {"status": "no output: x"}]
+    pooled = bs._pooled_row(per)
+    assert pooled[bs.RESIDUAL_COL] == pytest.approx(0.6)
+    assert pooled["piece_lw_mean_um__n_evaluable_residual_on_intensity"] == 1
+    assert pooled["piece_lw_mean_um__auc_full_vs_frag"] == pytest.approx(0.85)
+    assert pooled["piece_lw_mean_um__n_evaluable_full_vs_frag"] == 2

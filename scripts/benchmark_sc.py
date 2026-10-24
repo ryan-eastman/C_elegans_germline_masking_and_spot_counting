@@ -63,7 +63,8 @@ EXTENT_TOL_UM = 1.0
 # protocol changelog entry 11 (g): exploratory nucleus columns of version 2.0 and the residual AUC of entry 7 (c),
 # reported at every checkpoint and at the scoring (secondary, never gating)
 EXPLORATORY = ("n_puncta", "puncta_signal_frac", "steep_length_frac")
-RESIDUAL_COL = "piece_lw_mean_um__residual_auc_on_intensity"
+# named like the other AUC columns, so that the pooled row gives its mean and its "__n_evaluable_" count
+RESIDUAL_COL = "piece_lw_mean_um__auc_residual_on_intensity"
 
 
 def _git_sha() -> str:
@@ -276,6 +277,21 @@ def _preflight_masters(split: dict) -> None:
                              f"{m.get('sha256')}; record it in the changelog before scoring")
 
 
+def _pooled_row(per: list[dict]) -> dict:
+    """The pooled row of zones_per_gonad.csv: the mean of every AUC column over the scored gonads where it is
+    finite, and that number of gonads (``__n_evaluable_``)."""
+    scored = [r for r in per if r.get("status") == "scored"]
+    auc_cols = sorted({k for r in scored for k in r if k.endswith("__auc_full_vs_frag") or
+                       k.endswith("__auc_sc_vs_none") or k.endswith("__auc_full_vs_scfrag") or
+                       k.endswith("__auc_full_vs_lpfrag") or k == RESIDUAL_COL})
+    pooled = {"gonad": "pooled", "status": f"mean over evaluable gonads ({len(scored)} of {len(per)} scored)"}
+    for c in auc_cols:
+        v = [r[c] for r in scored if r.get(c) is not None and np.isfinite(r[c])]
+        pooled[c] = float(np.mean(v)) if v else float("nan")
+        pooled[c.replace("__auc_", "__n_evaluable_")] = len(v)
+    return pooled
+
+
 def _thresholds(a, payload) -> dict:
     """theta_full and theta_present of the boundary estimator (protocol 5.2). --final: the frozen values of the
     command line (the freeze entry). Otherwise the values of the command line when both are given (source "fixed
@@ -419,14 +435,7 @@ def cmd_zones(a) -> int:
                   f"intensity S2a {row.get('central_element_mean_intensity__auc_full_vs_frag', float('nan')):.3f}",
                   flush=True)
         scored = [r for r in per if r.get("status") == "scored"]
-        auc_cols = sorted({k for r in scored for k in r if k.endswith("__auc_full_vs_frag") or
-                           k.endswith("__auc_sc_vs_none") or k.endswith("__auc_full_vs_scfrag") or
-                           k.endswith("__auc_full_vs_lpfrag") or k == RESIDUAL_COL})
-        pooled = {"gonad": "pooled", "status": f"mean over evaluable gonads ({len(scored)} of {len(per)} scored)"}
-        for c in auc_cols:
-            v = [r[c] for r in scored if r.get(c) is not None and np.isfinite(r[c])]
-            pooled[c] = float(np.mean(v)) if v else float("nan")
-            pooled[c.replace("__auc_", "__n_evaluable_")] = len(v)
+        pooled = _pooled_row(per)
         per_df = pd.DataFrame(per + [pooled])
         per_df.to_csv(out / "zones_per_gonad.csv", index=False)
         summary = {"n_gonads": len(scored), "n_in_scope": len(per), "skipped": skipped, "guard_frac": a.guard_frac,
