@@ -79,8 +79,8 @@ germquant tune-spots --project DIR [--points annotations/] [--grid FILE] [--max-
   backend is searched.
 - `--max-runs`: the most detections the search may make over all images (default 50); a larger grid is
   refused before anything runs.
-- `--out`: the run folder (default `tuning/<run_id>/`); it must be absent or empty, so a tuning run never
-  overwrites another.
+- `--out`: the run folder, relative to the project (default `tuning/<run_id>/`); it must be absent or empty,
+  so a tuning run never overwrites another.
 - `--json`: print the result (`run_dir`, `best`, `ranked`, `warnings`) as JSON.
 
 Exit codes: 0 done; 1 the search ran but no setting could be scored, or a detection failed (one `ERROR:`
@@ -178,11 +178,12 @@ Every file is ASCII with LF line endings, written atomically.
 ## Applying a result
 
 ```
-germquant tune-spots --project DIR --apply tuning/<run_id>
+germquant tune-spots --project DIR --apply tuning/<run_id> [--plugin-version V] [--json]
 ```
 
 writes the run's `best.yaml` into the project's `recipe.yaml` through the project's recipe writer, with the
-edit origin `tuning`: `recipe.yaml` extends the pack's recipe (`extends: pack:<id>@<version>/<recipe>`) and
+edit origin `tuning` (`--plugin-version`, which the napari plugin passes, goes into the manifest's saved
+stamp; the search options `--points`, `--grid`, `--max-runs` and `--out` are refused here): `recipe.yaml` extends the pack's recipe (`extends: pack:<id>@<version>/<recipe>`) and
 adds the best keys. A tuning edit may set keys the pack does not offer in its parameter form (such as
 `spots.sharpen`), but only the keys of that run's grid, and only when the run tuned the backend the recipe uses
 now. The project's config hash changes, `validated` turns false and every image turns stale with the reason

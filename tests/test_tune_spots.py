@@ -550,7 +550,18 @@ def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
     assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == {"config_hash": "c0ffee000000", "run_dir": rel}
     assert edits == [{"edits": {"spots.log.min_snr": 3.0}, "origin": "tuning", "plugin_version": None}]
-    assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, "--grid", "g.yaml"]) == 2
+    # the plugin's Apply records its version in the saved stamp (D39, D42; review P5-TUNE S3)
+    assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, "--plugin-version", "0.2.0.dev1"]) == 0
+    assert edits[-1] == {"edits": {"spots.log.min_snr": 3.0}, "origin": "tuning", "plugin_version": "0.2.0.dev1"}
+    capsys.readouterr()
+    assert cli.main(["tune-spots", "--project", str(root), "--plugin-version", "0.2.0.dev1"]) == 2
+    assert "--plugin-version goes with --apply" in capsys.readouterr().err
+    # --apply takes none of the search's options, however they are spelled (review P5-TUNE N5)
+    for extra in (["--grid", "g.yaml"], ["--points", "annotations/"], ["--points", "annotations"],
+                  ["--max-runs", "50"], ["--out", "tuning/x"]):
+        assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, *extra]) == 2, extra
+        assert f"it takes no {extra[0]}" in capsys.readouterr().err
+    assert len(edits) == 2
     assert cli.main(["tune-spots", "--project", str(tmp_path / "nowhere"), "--json"]) == 2
     assert "cannot open the project" in capsys.readouterr().err
 

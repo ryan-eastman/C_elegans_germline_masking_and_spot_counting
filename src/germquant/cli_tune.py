@@ -2,7 +2,7 @@
 (germquant.tune; docs/TUNING.md; design 6.8 and 10 step 9).
 
   germquant tune-spots --project DIR [--points annotations/] [--grid FILE] [--max-runs N] [--out DIR] [--json]
-  germquant tune-spots --project DIR --apply tuning/<run> [--json]
+  germquant tune-spots --project DIR --apply tuning/<run> [--plugin-version V] [--json]
 
 The first form runs the search and writes tuning/<run_id>/ (grid.yaml, trials.jsonl, ranked.csv, best.yaml
 and run.json); the second writes the run's best.yaml into the project's recipe.yaml. Exit codes: 0 done,
@@ -26,20 +26,25 @@ def add_parsers(sub) -> None:
              "(docs/TUNING.md)",
         description=__doc__)
     p.add_argument("--project", required=True, metavar="DIR", help="the project folder")
-    p.add_argument("--points", default="annotations", metavar="DIR",
+    # --points and --max-runs default to None, so that --apply refuses them however they are spelled
+    p.add_argument("--points", default=None, metavar="DIR",
                    help="the folder of truth-point files <image_id>__points_<annotator>.csv, relative to the "
                         "project (default annotations/); one annotator per image")
     p.add_argument("--grid", default=None, metavar="FILE",
-                   help="a YAML grid of dotted spots keys and the values to try (default: "
-                        "spots.effect_size_min for spotmax, spots.log.min_snr for log; docs/TUNING.md)")
-    p.add_argument("--max-runs", type=int, default=50, metavar="N",
+                   help="a YAML grid file of dotted spots keys and the values to try, relative to the project "
+                        "(default: spots.effect_size_min for spotmax, spots.log.min_snr for log; "
+                        "docs/TUNING.md)")
+    p.add_argument("--max-runs", type=int, default=None, metavar="N",
                    help="refuse a grid that means more than N detections over all images (default 50)")
     p.add_argument("--out", default=None, metavar="DIR",
-                   help="the run folder to write (default tuning/<run_id>/ in the project; it must be absent "
-                        "or empty)")
+                   help="the run folder to write, relative to the project (default tuning/<run_id>/; it must "
+                        "be absent or empty)")
     p.add_argument("--apply", default=None, metavar="RUN_DIR",
                    help="instead of tuning, write the best.yaml of this tuning run (for example "
                         "tuning/<run_id>, relative to the project) into the project's recipe.yaml")
+    p.add_argument("--plugin-version", default=None, metavar="V",
+                   help="with --apply: the napari-germquant version asking for this write (recorded in the "
+                        "manifest's saved stamp)")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
 
 
@@ -66,15 +71,19 @@ def _failed(what: str, e: BaseException) -> int:
 def dispatch(args) -> int:
     from .tune.apply import _project_api as apply_api
     from .tune.grid import TuneRefused
+    from .tune.spots import MAX_RUNS
     from .tune.spots import _project_api as tune_api
 
     if args.apply is not None:
-        given = [opt for opt, used in (("--grid", args.grid is not None), ("--out", args.out is not None),
-                                       ("--points", args.points != "annotations"), ("--max-runs", args.max_runs != 50))
+        given = [opt for opt, used in (("--points", args.points is not None), ("--grid", args.grid is not None),
+                                       ("--max-runs", args.max_runs is not None), ("--out", args.out is not None))
                  if used]
         if given:
             print(f"ERROR: --apply writes a finished run's best.yaml; it takes no {', '.join(given)}", file=sys.stderr)
             return 2
+    elif args.plugin_version is not None:
+        print("ERROR: --plugin-version goes with --apply (a search writes no manifest stamp)", file=sys.stderr)
+        return 2
     try:
         open_project = (apply_api() if args.apply is not None else tune_api())[0]
         project = open_project(args.project)
@@ -86,7 +95,7 @@ def dispatch(args) -> int:
         from .tune import apply_tuning
 
         try:
-            config_hash = apply_tuning(project, args.apply)
+            config_hash = apply_tuning(project, args.apply, plugin_version=args.plugin_version)
         except (TuneRefused, FileNotFoundError, ValueError) as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return 2
@@ -101,7 +110,8 @@ def dispatch(args) -> int:
     from .tune import tune_spots
 
     try:
-        res = tune_spots(project, points=args.points, grid=args.grid, out=args.out, max_runs=args.max_runs)
+        res = tune_spots(project, points="annotations" if args.points is None else args.points, grid=args.grid,
+                         out=args.out, max_runs=MAX_RUNS if args.max_runs is None else args.max_runs)
     except (TuneRefused, FileNotFoundError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
