@@ -1094,3 +1094,38 @@ Entries are appended, never edited. Each one says whether a test result had been
    by at least half (confirmation: a quarter). The tuning seeds run the dense, gaps and iso families; the
    confirmation seeds run every registered family for the tolerances of entry 11 (b), once; the cost rule is checked
    on n2rad51_noHS_herm_000.
+22. 2026-10-24, the v2 development round (end matching, revision 1 of entry 21), written before any tuning or
+   confirmation number of this revision was computed (no test result had been computed, no test or reserved image
+   was run, no test or reserved truth was read and no sealed seed was generated). Entry 21 (commit f39cb85) on the
+   tuning seeds against the configuration before it
+   (C:/Users/ryane/sc_ribbon_work/v2/logs/step5_f39cb85_tuning.json) failed three of its four targeted metrics and
+   every S1b tolerance: angle rejections fell by 18 percent (127 to 104; a third required), wrong-ribbon links rose
+   from 107 to 181 and correct links fell from 179 to 100, while strands longer than 9 um holding more than one
+   ribbon fell from 0.64 to 0.07 per nucleus; the dense S1b mean went from -6.92 to -17.19 percent, the SD from 8.59
+   to 12.29 percent, the CCC from 0.535 to 0.210 and the coverage from 0.958 to 0.864. Two causes: with an anchor
+   measured beyond a junction, the anchor estimate of the gap (the distance between the anchors less their offsets
+   from the tips) is 0 for tips that lie microns apart, and such pairs fall under the overlap rule that judges only
+   the collinearity of the two directions (on the first 20 tuning scenes the wrong links had a median distance of
+   1.4 um between their tips, 90th percentile 3.0 um, with estimated gaps of 0); and the chain bound and the cycle
+   cuts then removed 56 of the links that the matching had made correctly at tracer breaks (1 in v1), because
+   chimeric chains grew past 9 um. Explored on the design seeds (2000 to 2049 and 3000 to 3049) with code that was
+   never committed (v2/logs/dev/), against the configuration before entry 21, with the taxonomy script applying the
+   rule of the end matching to the pairs it diagnoses: with the gap of such pairs taken between the tips and their
+   angles to the line between the anchors, wrong-ribbon links fell from 45 to 18 and from 48 to 23 with the chain
+   bound and to 25 and 35 without it; correct links went from 91 and 101 to 86 and 82 with the bound (85 and 86 when
+   it cuts at the largest turn instead) and to 93 and 101 without it; angle rejections went from 63 and 68 to 65 and
+   72 either way, so measuring the directions beyond the junction does not rescue the pairs that the 50 degree rule
+   rejects; without the bound the dense S1b mean went from -4.9 to -3.9 and from -4.8 to -3.2 percent, the SD from
+   8.1 to 7.2 and from 9.0 to 8.3 percent and the CCC from 0.579 to 0.669 and from 0.594 to 0.643. Revision 1,
+   motivated by these results: (a) of entry 21 stays, and for a pair in which at least one end was measured beyond a
+   junction the gap is the distance between the two tips and the angles are those of the two outward directions to
+   the line between the two anchors (the overlap rule of v1 is not applied to such pairs; anchors closer than 0.05
+   um are judged by the collinearity of the directions as in v1); every other pair is judged as in v1; (b) of entry
+   21 is withdrawn: link.max_chain_um is null by default (the switch and its tests stay). New key (fixed group):
+   link.junction_gap ("tips"; "anchors" gives entry 21). The angle-rejection metric of entry 21 is dropped, because
+   the design seeds show that (a) does not act on those rejections, and the long-chimera metric goes with (b); both
+   are reported. Targeted metrics of revision 1 (the dense family, the taxonomy script as above), against the
+   configuration before entry 21 on the same scenes: wrong-ribbon links fall by at least 30 percent (confirmation:
+   15 percent); correct links do not fall (confirmation: the same); the dense S1b SD falls (confirmation: does not
+   rise). The tuning seeds run the dense, gaps and iso families; the confirmation seeds run every registered family
+   for the tolerances of entry 11 (b), once; the cost rule is checked on n2rad51_noHS_herm_000.
