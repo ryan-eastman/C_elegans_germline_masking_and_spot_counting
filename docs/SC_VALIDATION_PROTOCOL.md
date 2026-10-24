@@ -1254,3 +1254,76 @@ Entries are appended, never edited. Each one says whether a test result had been
    sc-straighten process peaked at 3.5 GB. Nothing is changed after H1. The robustness report of section 9, the
    thresholds on all eighteen development gonads and the freeze entry wait for Ryan's decisions (PLAN_V2.md section
    6).
+27. 2026-10-24, the v2 development round (an independent review of entries 10 to 26: disclosures, corrections and
+   code-only changes; no method change), written before any number of the changes below was computed (no test result
+   had been computed, no test or reserved image was run, no test or reserved truth was read and no sealed seed was
+   generated). After entry 26 an independent review checked the round (its scripts and outputs are kept in
+   C:/Users/ryane/sc_ribbon_work/v2/review/). With its own code it recomputed the dense S1b of the snapshot from the
+   v1 package of commit 5cb3cb6 (mean -6.68 percent, SD 8.69 percent, CCC 0.493), S1a of the isolated ribbons
+   (+0.076 um, 95 percent limits -0.069 to +0.221 um) and H1 through the guarded loader, all as in entry 26, and
+   found every shared column of the twelve runs/6b7be22 and runs/a711fe5 tables identical. Nothing was chosen.
+   Disclosed and corrected now, from numbers already computed:
+   (a) At 2026-10-24T17:13:02Z, between entries 13 and 14, v2/scripts/v2_zones.py was checked by scoring the trial-4
+   runs (runs/6b7be22) against themselves on the twelve development gonads under guard_frac 0.5 and 0.25
+   (v2/zones/T4check_check, v2/logs/zones_T4check.log). It reproduced dev_trials.jsonl line 5 and the numbers of
+   entries 7 and 10 (S2a 0.828 and 0.802, the intensity comparator 0.965 and 0.910, the residual AUC of entry 7 (c)
+   0.616 and 0.609) and the comparators of trial 4 under the registered guard, and it gave for the first time, under
+   guard_frac 0.25: S2b 0.984 (intensity comparator 0.986), the S2a AUCs of on_strand_frac 0.857, longest_piece_um
+   0.799, n_pieces 0.773 and gaps_per_10um 0.596, and theta_full 2.0 um and theta_present 10.0 um chosen by 5.2,
+   with SC_fullstart within one point spacing in 11 of 12 gonads. It compared no configuration and chose nothing,
+   and it is neither a checkpoint nor a line of dev_trials.jsonl; but entry 11 (c) says that statistics by zone are
+   computed only at the checkpoints, and no entry recorded it.
+   (b) The S1b mean total error of v1 met its +/-5 percent band only on the design seeds (-4.9 and -4.8 percent on
+   2000 to 2049 and 3000 to 3049, 50 scenes each); on every fresh block of 100 scenes it failed (tuning -6.92,
+   confirmation -8.33 and snapshot -6.68 percent), and the pooled S1e precision there was 0.893, 0.883 and 0.890.
+   The v1 of the snapshot and the reference configuration of H1 were the code of version 2.0 with V1_VALUES, not the
+   v1 commits; tests/test_sc_straighten_v2_compat.py and the review's recompute tie them to commit 5cb3cb6. The
+   zones_summary.json files of H1 name the threshold source "chosen on these development gonads", while v2_zones.py
+   fixed theta_full 2.0 um and theta_present 10.0 um, those of trial 4, as entry 25 states.
+   (c) Order of the round: design-seed runs preceded entries 13 and 21 to 24, and the junction end fit and the
+   junction re-pairing of PLAN_V2.md steps 6 and 8 were explored on the design seeds before any entry named them,
+   with variants that the plan does not state (entries 23 and 24 record them); the contact stop (entry 20) and the
+   end matching (entries 21 and 22) failed on the tuning seeds and were never confirmed. Entries 15, 18 and 22
+   restated or dropped targeted metrics after the tuning numbers of their change were seen; the confirmation seeds
+   or the tuning seeds decided each, and none was adopted. A later round counts such a revision as a new change.
+   Entry 11 and decision 1 of the PR were not approved by the project lead before the round (PLAN_V2.md section 6),
+   so no freeze entry is written before the project lead states whether entries 10 to 26 and the later entries of
+   this round stand. PLAN_V2.md, part of the registration of entry 11, is outside git; its sha256
+   c19b155a03f2fa63d5376b2c181f92932a978a123508b070ca64ba75c7e0be32 has not changed since entry 11
+   (v2/logs/prereg_entry11.txt to prereg_entry26.txt).
+   (d) B6 of entry 8 ran 20 unregularised Richardson-Lucy iterations on counts that still carried the camera offset,
+   with zero-padded borders, and the unadapted pipeline after it; its result (isolated totals 36 times too long) is
+   inconclusive about deconvolution as such. The realism probe of entry 19 rendered the brightness modulation and
+   the puncta weaker than the real statistics they were calibrated to (the review measured the brightness statistic
+   of entry 19 (b) on the phantoms; entry 28), so the skip of PLAN_V2.md step 9 in entry 20 rests on an
+   under-calibrated probe.
+   (e) The first full test suite of the hand-off of entry 26 ran with the GPU visible, so its small torch tests ran
+   on the GPU outside C:/Users/ryane/germquant_golden/gpu_lock.py (one failure, tests/test_net3d_recipe.py, which
+   also fails on the code of main with the shared environment and passes with CUDA hidden; the counts of entry 26
+   come from a rerun with CUDA hidden); from here on every suite runs with CUDA_VISIBLE_DEVICES=-1. The germquant
+   run of 20251021_n2_nohs_HERM_2 peaked at 42.6 GB against the 8 GB per-process budget (entry 16), so the
+   2025-10-21 session channel map is checked on HERM_2 only, while protocol 4.5 (5) and entry 11 (e) want both
+   development gonads of that session checked before the test gonads 20251021_n2_nohs_HERM_3 and
+   20251021_n2_nohs_MALE_3 are run; 20251021_n2_nohs_MALE_2 and the four 2026-01-05 hold-out gonads wait for a
+   memory window that the project lead approves. Line 9 of dev_trials.jsonl (H1) holds bare NaN values, which JSON
+   does not allow; it is rewritten with null in their place and nothing else changes (the file before is kept as
+   v2/logs/dev_trials_before_entry27.jsonl).
+   (f) Code-only changes, no method change and no rule of this protocol changed (every output of sc-straighten at
+   the defaults stays that of entry 25 apart from the code digest; tests/test_sc_straighten_v2_compat.py and the
+   fence tests check it): tests/test_sc_straighten_v2_compat.py fails off the workstation as well when the number of
+   strands or the strip index of a synthetic case differs from v1 (before, every difference off the workstation was
+   a skip, so CI could not fail on a v1 regression); scripts/benchmark_sc.py zones reports what entry 11 (g)
+   registered for the scoring, the per-gonad and mean S2a AUCs of n_puncta, puncta_signal_frac and steep_length_frac
+   and the residual AUC of piece_lw_mean_um on the intensity (germquant.benchmark.sc_ribbons.residual_auc, the
+   function of v2/scripts/v2_zones.py), with their bootstrap intervals, keeps the threshold tables of 5.2 in
+   zones_summary.json when it chooses the thresholds, fixes them outside --final when --theta-full and
+   --theta-present are given (source "fixed (command line)"), and writes null for every non-finite number in its
+   JSON files and lines; v2/scripts/v2_zones.py passes the thresholds that way and uses the package's residual AUC;
+   link.junction_dirs is read as the other switches are (a string "off" is off), and params.resolve refuses a value
+   of follow.contact_test other than local or claim_tangent, of link.junction_gap other than anchors or tips, and of
+   the on/off switches psf.foci, punctum.enabled, punctum.exclude, punctum.before_linking, link.junction_dirs and
+   classes.complete_guard other than true, false, on, off, yes or no; germquant.sc.straighten.synth_dev refuses
+   final=True (its families have no sealed seeds before decision 9 of the PR); inputs.discover reads no nuclei.csv
+   whose file name or folder name is a sealed image stem or RAD-51 tag (compared without regard to case), and the
+   runner refuses such an image as sealed before any of its files is read. No zone statistic is computed with these
+   changes before the next checkpoint or the scoring.
