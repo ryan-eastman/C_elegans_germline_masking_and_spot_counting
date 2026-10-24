@@ -704,6 +704,9 @@ def test_apply_tuning_writes_recipe_yaml_with_origin_tuning(planted, tmp_path, m
     reopened = P.open_project(project.root)
     cfg = P.project_config(reopened)
     assert h == cfg.hash != before and cfg.get("spots.log.min_snr") == 3.0
+    # the manifest records the key as a tuning edit (D19) and the plugin's version in the saved stamp (D42)
+    assert reopened.manifest["recipe"]["origins"] == {"spots.log.min_snr": "tuning"}
+    assert reopened.manifest["saved"]["plugin"] == "0.2.0.dev1"
 
 
 def test_tune_spots_on_a_real_project(planted, tmp_path, monkeypatch):
