@@ -2131,6 +2131,68 @@ For the PI:
 - O20. Which outside lab pilots the tool on its own data before the packs reach 1.0.0, and which lab member who did
   not write the code does the timed session (P8, P9)?
 
+Answered 2026-10-23, for Train B (milestone M2: P2b, P2c, P5, P5b and P6). The Train B plan
+(C:/Users/ryane/germquant_golden/t5_train_b/PLAN.md, section 7) put its questions Q1 to Q6 to the project lead, and
+its PI questions A to C to him as well, under "For you or Cahoon"; each came with the recommendation yes. His reply,
+at 2026-10-23 17:36 MDT (23:36 UTC), verbatim: "Yes to all. I will have to get the spo-11 info from her on Monday
+she is gone." The second sentence concerns another task (the RAD-51 spo-11 test). So every recommended answer
+holds, and Train B proceeds on the plan as written:
+- Q1, the time-lapse code: yes. While feat/flow-prior-linking is open, Train B edits nothing in
+  src/germquant/timelapse/ or docs/TIMELAPSE.md. In this release single-plane and labels_from time series are
+  refused with a clear message, post-stages are refused for time series, a project's sample sheet does not apply to
+  time-series images, and the TIMELAPSE.md pointer to TRAINING.md comes in a follow-up (the plan's FU1).
+- Q2, the real goldens (the first question of O6): yes. G4 runs once, on the final Train B head. After each package
+  merge a 32-minute check on five real tags runs instead, and G4 reruns if anything other than Markdown changes
+  after it starts.
+- Q3, the engine CI (O4): yes to both parts. The windows-latest tests run in two jobs (the G1 note below), and every
+  CI job installs the two bioio TIFF readers from constraints/readers-2026-10.txt, so single-plane OME-TIFF reads
+  are tested on all three systems.
+- Q4, one write path for projects: yes. P5 adds `germquant project edit` and a torch-free
+  `python -m germquant.project` entry (new, add, edit, use-model, rounds, unlock), and the plugin makes every project
+  change through the engine (plan D39 and D42).
+- Q5, the order with the other workflows (the flow-prior linker, the SC ribbon work and the RAD-51 LoG recipe): yes.
+  Whatever is ready before Train B's final G4 merges to main first, and feat/t5-train-b merges main before G4;
+  whatever comes later waits for the Train B PR and then updates from main; nothing merges to main between Train
+  B's G4 and its PR; and if a PR merged before G4 changes real-golden output, Train B's G4 compares against a new
+  baseline made at that main commit.
+- Q6: yes to the six decisions below.
+- A, the post-stage contract (O18): yes. P5b is built in Train B, with no local modules folder and with parameters
+  declared like recipe tunables.
+- B, single-plane time series (O16): yes. They are refused in this release; time-lapse stays a worm claim, carried
+  by the live GFP::SYP-2 series.
+- C, the study channel map (O17): yes. One channel_map.yaml per project, with its own config hash, is acceptable to
+  outside labs in T5; per-image channel bindings outside the hash come later.
+
+The six decisions that change this design's text, signed off with Q6 (plan section 8):
+- D13 (4.11): the frame of a T axis in a labels file is chosen with a new key, segmentation.nuclei.labels_frame,
+  not in the labels_from template. It is an int of at least 0, default 0, read only in labels runs, and it is added
+  to recipe_keys and to the lint allow-list.
+- D14 (4.11): labels_from works with segmentation.nuclei.project and with io.planar. In a projected run the labels
+  file replaces segment_planar's output: a 2D file (or one plane) is copied through z, and the projected measure and
+  records stay (volume_um3 NA; area_um2 and equivalent_diameter_um from the 2D labels; the flag
+  segment:projected_<mode> and the segment_projection record), with segment:labels_from_file added. The projection
+  itself is computed only for the montage's base plane, when the segmentation channel exists, and a labels file with
+  more than one plane is refused. With io.planar a 2D labels file is used, and check_planar does not test the
+  segmentation backend in labels runs. Labels runs have no size gate: min_volume_um3 and min_area_um2 do not apply.
+- D16 (7.8 and 3.13): the project API is new_project, open_project and the rest of 7.8. create_project, which 3.13
+  lists, is not added, not even as an alias.
+- D22 (section 10, step 6): train-curve scores each model on the held-out pairs with the existing holdout_metrics and
+  records the scorer's name. A scorer= seam lets P7 plug in the end-to-end scoring through the benchmark runner.
+- D24 (6.8): tune-spots tunes the recipe's spot backend: SpotMAX through run-once-then-filter, as 6.8 says, and any
+  other backend, LoG included, with one detection per grid point. The default grids keep every other key at the
+  recipe's value: effect_size_min in {0, 0.5, 1, 1.5, 2, 3, 4, 5} for spotmax and min_snr in {1.5, 2, 2.5, 3, 4, 5}
+  for log; --max-runs defaults to 50. The objective is per-object Lin's CCC over the annotated objects, rounded to
+  3 decimals, then point F1, the order the RAD-51 harness uses.
+- D38 (8.7 and 8.8): spot tuning is a plugin dock of its own, and the Time-lapse dock is not changed (8.8's NaN-dz
+  rule matters only once planar series are allowed).
+
+G1 note: G1's budget stays 15 minutes per job (11.3). windows-latest took 15.4 minutes on main 8eb73de (its Test step
+13.9), so from Train B on its tests run in two CI jobs, shards 0 and 1, each running every other file of the sorted
+tests/test_*.py list; ubuntu-latest and macos-14 keep one job (.github/workflows/ci.yml). Each PR records the CI time
+it adds, and every Train B hand-off records the Windows test seconds it adds, against about 30 s for a small unit
+and 90 s for a P5 unit or P2b-CORE (plan D41). If a shard still passes 15 minutes, the shards are rebalanced before
+any test is trimmed.
+
 ## 15. Findings to raise (number-relevant; not fixed in T5)
 
 - a. Since Cellpose 4.2.0 (2026-06-11), the bare name cpsam runs cpsam_v2. nuclei._cellpose passes no
