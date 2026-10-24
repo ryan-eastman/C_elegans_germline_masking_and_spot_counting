@@ -217,7 +217,7 @@ def load_post_stage(name: str) -> tuple[Callable, dict]:
     row = installed[name]
     try:
         fn = row["_ep"].load()
-    except Exception as e:  # noqa: BLE001 - a broken post-stage fails its own stage only
+    except (Exception, SystemExit) as e:  # noqa: BLE001 - a broken post-stage fails its own stage only
         raise PostStageError(f"post-stage {name!r} failed to load ({row['source']}: {type(e).__name__}: {e})") from e
     if not callable(fn):
         raise PostStageError(f"post-stage {name!r} ({row['source']}) is not callable")

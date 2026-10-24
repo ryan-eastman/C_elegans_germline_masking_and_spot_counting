@@ -328,9 +328,10 @@ def _write_tables(out_dir: Path, image_id: str, name: str, frames: dict) -> list
 
 def _run_one(name: str, fn, declaration: dict, params: dict, inputs: PostInputs, out_dir: Path,
              image_id: str) -> tuple[bool, str | None, list[str]]:
-    """(done, error, tables written) of one post-stage call."""
-    before = _listing(out_dir)
+    """(done, error, tables written) of one post-stage call. A post-stage that calls sys.exit fails like one
+    that raises (it must not end the caller's image loop); KeyboardInterrupt still stops the run."""
     try:
+        before = _listing(out_dir)
         produced = fn(inputs, dict(params))
         after = _listing(out_dir)
         if after != before:
@@ -339,7 +340,7 @@ def _run_one(name: str, fn, declaration: dict, params: dict, inputs: PostInputs,
                                          f"post-stage returns its tables and the engine writes them")
         frames = _conform(name, declaration, produced)
         return True, None, _write_tables(out_dir, image_id, name, frames)
-    except Exception as e:  # noqa: BLE001 - a post-stage failure is recorded, never raised (design 5.6)
+    except (Exception, SystemExit) as e:  # noqa: BLE001 - a post-stage failure is recorded, never raised (5.6)
         log.warning("%s: post-stage %s failed (%s: %s)", image_id, name, type(e).__name__, e)
         return False, f"{type(e).__name__}: {e}", []
 

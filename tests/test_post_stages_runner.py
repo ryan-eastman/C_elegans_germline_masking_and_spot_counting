@@ -243,6 +243,10 @@ def _mutates_labels(inputs, params):
     return {T.FIXTURE_TABLE: _frame()}
 
 
+def _exits(inputs, params):
+    raise SystemExit(3)                              # a post-stage must not end the caller's image loop
+
+
 _BREACHES = {
     "reads_undeclared": (lambda i, p: i.tables("coloc"), "not declared"),
     "role_undeclared": (lambda i, p: i.image("dna"), "not declared"),
@@ -254,6 +258,7 @@ _BREACHES = {
     "not_a_frame": (lambda i, p: {T.FIXTURE_TABLE: [1, 2]}, "DataFrame"),
     "writes_itself": (_writes_itself, "changed the results folder"),
     "mutates_labels": (_mutates_labels, "read-only"),
+    "exits": (_exits, "SystemExit"),
 }
 
 
