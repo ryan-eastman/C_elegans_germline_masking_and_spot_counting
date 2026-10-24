@@ -9,7 +9,9 @@ image's truth points (``germquant.tune.points``) inside the annotated objects, t
 one truth point:
 
 * per object, the truth count (its points) against the detected count, pooled over the objects of every
-  image: Lin's CCC (``object_ccc``);
+  image: Lin's CCC (``object_ccc``). Two equal series of at least two objects count as a CCC of 1.0: the
+  formula is 0 / 0 when every annotated object holds the same count, and the set that finds exactly those
+  counts must not rank below every other set (``_ccc``);
 * per point, a one-to-one matching of the detected spots inside those objects with the truth points inside
   an anisotropic cylinder of 0.3 um in xy and 0.4 um in z (the RAD-51 harness's tolerances; points placed on
   a projection are matched in 2D): precision, recall and F1, pooled from the summed counts (``point_f1``).
@@ -568,7 +570,7 @@ def _detect(ctx: dict, stack, labels: np.ndarray, section: dict):
 def _score(ctx: dict, per_spot: pd.DataFrame) -> dict:
     """One detection scored inside the annotated objects of one image."""
     from germquant.benchmark.spots import match_spots
-    from germquant.benchmark.stats import lin_ccc, precision_recall_f1
+    from germquant.benchmark.stats import precision_recall_f1
 
     objects = ctx["objects"]
     nuc = per_spot["nucleus_id"].to_numpy(dtype=np.int64) if len(per_spot) else np.zeros(0, np.int64)
@@ -589,9 +591,22 @@ def _score(ctx: dict, per_spot: pd.DataFrame) -> dict:
     matched = match_spots(ours_xyz, truth_xyz, tol_xy_um=TOL_XY_UM, tol_z_um=TOL_Z_UM).n_matched
     det = precision_recall_f1(matched, len(ours_xyz), len(truth_xyz))
     return {"truth_n": ctx["truth_n"], "ours_n": ours_n, "n_matched": int(matched), "n_ours": int(len(ours_xyz)),
-            "n_truth": int(len(truth_xyz)), "object_ccc": lin_ccc(ctx["truth_n"], ours_n),
+            "n_truth": int(len(truth_xyz)), "object_ccc": _ccc(ctx["truth_n"], ours_n),
             "point_precision": det["precision"], "point_recall": det["recall"], "point_f1": det["f1"],
             "n_spots_all": int(len(per_spot))}
+
+
+def _ccc(truth, ours) -> float:
+    """Lin's CCC of per-object counts (germquant.benchmark.stats.lin_ccc), and 1.0 for two equal series of at
+    least two objects: lin_ccc is NaN there when every object holds the same count (0 / 0), and the set that
+    finds exactly the annotated counts must not rank below every other set. With one object it stays NaN (one
+    pair defines no concordance), and against a constant truth every other series scores 0.0."""
+    from germquant.benchmark.stats import lin_ccc
+
+    t, o = np.asarray(truth, float), np.asarray(ours, float)
+    if len(t) >= 2 and t.shape == o.shape and np.array_equal(t, o):
+        return 1.0
+    return lin_ccc(t, o)
 
 
 def _num(v):
@@ -605,7 +620,7 @@ def _num(v):
 
 def _trial(i: int, params: dict, per_item: list[dict], ctxs: list[dict], backend: str, split: str, shared,
            objective: tuple[str, str]) -> dict:
-    from germquant.benchmark.stats import lin_ccc, precision_recall_f1
+    from germquant.benchmark.stats import precision_recall_f1
 
     truth = np.concatenate([s["truth_n"] for s in per_item]) if per_item else np.zeros(0)
     ours = np.concatenate([s["ours_n"] for s in per_item]) if per_item else np.zeros(0)
@@ -613,7 +628,7 @@ def _trial(i: int, params: dict, per_item: list[dict], ctxs: list[dict], backend
     no = sum(s["n_ours"] for s in per_item)
     nt = sum(s["n_truth"] for s in per_item)
     det = precision_recall_f1(m, no, nt)
-    pooled = {"object_ccc": _num(lin_ccc(truth, ours)), "point_f1": _num(det["f1"]),
+    pooled = {"object_ccc": _num(_ccc(truth, ours)), "point_f1": _num(det["f1"]),
               "point_precision": _num(det["precision"]), "point_recall": _num(det["recall"]),
               "n_objects": int(len(truth)), "n_points": int(nt), "n_matched": int(m), "n_ours": int(no),
               "truth_count": int(truth.sum()), "ours_count": int(ours.sum())}

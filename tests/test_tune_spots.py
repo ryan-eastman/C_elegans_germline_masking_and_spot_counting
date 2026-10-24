@@ -294,6 +294,28 @@ def test_only_annotated_objects_are_scored(planted, tmp_path):
     assert (image["object_ccc"], image["point_f1"]) == (1.0, 1.0)
 
 
+def test_equal_counts_rank_the_exact_set_first(planted, tmp_path):
+    """When every annotated object holds the same number of points, Lin's CCC is 0 / 0: the set whose counts equal
+    the truth scores 1.0 and every other set 0.0, so the exact set ranks first, not last (review P5-TUNE B1)."""
+    assert S._ccc([1, 1, 1], [1, 1, 1]) == 1.0 and S._ccc([1, 1, 1], [1, 2, 1]) == 0.0
+    assert S._ccc([2, 2], [3, 3]) == 0.0 and S._ccc([1, 3, 2], [1, 3, 2]) == 1.0
+    assert np.isnan(S._ccc([2], [2])) and np.isnan(S._ccc([], []))       # one object defines no concordance
+    item = planted.items[0]
+    pts = pd.read_csv(item["points"])
+    per_object = pts["object_id"].value_counts()
+    single = per_object[per_object == 1].index                             # the nuclei with one true focus each
+    sub = pts[pts["object_id"].isin(single)].reset_index(drop=True).assign(point_id=lambda d: np.arange(len(d)))
+    assert len(sub) == 3
+    # 1.5 also finds the faint decoys of those nuclei, 2.5 exactly their foci, 4.0 none of them
+    res = S._tune([{**item, "points": sub}], {"spots.log.min_snr": [1.5, 2.5, 4.0]}, S.OBJECTIVE, "project",
+                  backend="log", out_dir=tmp_path / "t", max_runs=3, shortcut=False)
+    assert res["best"]["keys"] == {"spots.log.min_snr": 2.5}
+    rows = [(r["spots.log.min_snr"], r["objective_value"], r["tie_break_value"]) for r in res["ranked"]]
+    assert rows == [(2.5, 1.0, 1.0), (1.5, 0.0, 0.75), (4.0, 0.0, None)], rows
+    pooled = _trials(Path(res["run_dir"]))[1]["pooled"]
+    assert pooled["object_ccc"] == 1.0 and pooled["truth_count"] == pooled["ours_count"] == 3
+
+
 def test_projected_points_are_matched_in_2d(planted, tmp_path):
     """Points placed on a projection carry no depth: they are matched in 2D (design 6.7), 3D points in 3D."""
     item = planted.items[0]

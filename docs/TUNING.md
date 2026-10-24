@@ -155,6 +155,10 @@ The objective ranks the settings by the pooled object CCC rounded to 3 decimals,
 the F1 of a setting that detects nothing). Settings with the same two values keep the grid's order. This is
 the order the RAD-51 harness ranks by.
 
+When every annotated object holds the same number of points (one focus in each, say), the CCC formula is
+0 / 0. A setting whose counts equal yours then scores a CCC of 1.0, and every other setting 0.0, so the
+setting that finds exactly your counts still ranks first.
+
 ## The run folder
 
 A search writes `tuning/<run_id>/` (the run id is the UTC time and 8 hex digits, as run logs use):
