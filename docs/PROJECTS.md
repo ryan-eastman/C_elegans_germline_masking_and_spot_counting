@@ -281,10 +281,12 @@ The run is refused, before any image is read and with nothing written (exit 2, t
   malformed;
 - the recipe does not load, or the pack is not usable here (what `germquant pack check` reports: a missing backend
   or Python module, files that do not match the pack's SHA256SUMS);
-- a model the run needs is missing, or the file the engine resolves is not the one the manifest records (its
-  sha256 differs). This matters because the engine looks a relative model path up under `$GERMQUANT_MODELS`
-  first: a shared model store holding a file at the same relative path would otherwise run instead of the
-  project's own (see Project models). A pack model that is missing is fetched with `germquant pack fetch-models`;
+- a model the run needs is missing, or cannot be resolved on this computer (a registered model whose file is
+  not here, a name that is neither a file nor a Cellpose model), or the file the engine resolves is not the one
+  the manifest records (its sha256 differs). This matters because the engine looks a relative model path up
+  under `$GERMQUANT_MODELS` first: a shared model store holding a file at the same relative path would
+  otherwise run instead of the project's own (see Project models). A pack model that is missing is fetched with
+  `germquant pack fetch-models`;
 - an edit holds the project's lock. A lock older than 12 hours is reported instead, and the run goes on (a run
   never removes a lock).
 

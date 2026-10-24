@@ -400,6 +400,22 @@ def test_decoy_model_refused(project_env, tmp_path, monkeypatch, capsys):  # noq
         P.run_project(proj, resume=False)
 
 
+def test_a_model_that_cannot_be_resolved_is_refused(project_env, tmp_path, monkeypatch):  # noqa: F811
+    """A recipe whose segmentation model the engine cannot resolve here (neither a file, nor registered, nor a
+    Cellpose built-in) is refused before any image, instead of failing on each."""
+    proj = project_with_images(tmp_path, names=("a",), recipe="with_model")
+    hand_edit_recipe(proj, {"segmentation": {"nuclei": {"cellpose_model": "no_such_model"}}})
+    seen = []
+    fake_run_loaded(monkeypatch, seen)
+    with pytest.raises(P.ProjectError, match="cannot be resolved") as exc:
+        P.run_project(proj)
+    assert "no_such_model" in str(exc.value) and seen == [] and not (proj.root / "runs").exists()
+    # process_image resolves the name under the classical method too (it only skips hashing it), so the same holds
+    hand_edit_recipe(proj, {"segmentation": {"nuclei": {"method": "classical", "cellpose_model": "no_such_model"}}})
+    with pytest.raises(P.ProjectError, match="cannot be resolved"):
+        P.run_project(proj)
+
+
 def test_vendored_pack_survives_root_upgrade(project_env, tmp_path, monkeypatch):  # noqa: F811
     need_readers()
     from germquant import config as C

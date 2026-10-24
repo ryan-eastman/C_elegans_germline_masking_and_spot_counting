@@ -322,6 +322,21 @@ def model_refusal(records: list[dict], pack) -> str | None:
     return "; ".join(problems) + ". The run is refused before any pixel is read"
 
 
+def _model_resolution_refusal(cfg) -> str | None:
+    """Why the recipe's segmentation model cannot be resolved here (a registered or pinned model that is missing, a
+    pin that does not match), or None: process_image resolves it before any stage of every image that reads no
+    labels from files, so a run would fail on each such image."""
+    from .. import pipeline
+    from ..models_registry import ModelPinError
+
+    try:
+        pipeline.resolve_model_path(cfg)
+    except (FileNotFoundError, ModelPinError) as e:
+        return (f"the recipe's segmentation model ({MODEL_KEY}: {cfg.get(MODEL_KEY)!r}) cannot be resolved here: {e}. "
+                f"The run is refused before any pixel is read")
+    return None
+
+
 def _pack_refusal(pack, recipe) -> str | None:
     """The pack check's blockers for this pack recipe (pack_status, shallow), its model blockers left out."""
     from ..packs import pack_status
@@ -547,6 +562,10 @@ def run_project(project, images=None, resume=True, device=None, shard=None, prog
         why = model_refusal(records, pack)
         if why:
             raise ProjectError(why)
+        if cfg.get(LABELS_KEY) is None and any(not is_series(e) for e in entries):
+            why = _model_resolution_refusal(cfg)          # process_image resolves the model on every such image
+            if why:
+                raise ProjectError(why)
         warnings += model_warnings
         for w in warnings:
             log.warning("%s", w)
