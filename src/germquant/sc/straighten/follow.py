@@ -6,7 +6,9 @@ directions are followed: predict ``step_um`` along the current direction t; wher
 ``t = normalise(m t + (1 - m) d_local)``; inside junction cores the momentum carries the trace through.
 Stops and end types: weak ridge (S < ``lo``) for more than ``weak_run_um`` (trimmed to the last strong point;
 ``free``); leaving the territory (``territory_edge``); entering another strand's claim tube in parallel
-(``contact``); re-entering its own path more than ``loop_back_um`` back along the strand (``loop``);
+(``contact``: with ``follow.contact_test: claim_tangent`` the trace is compared with the tangent of the strand
+that claimed the voxel, kept with the claim; with ``local`` (v1) with the local line direction, which inside an
+unresolved junction is the trace's own); re-entering its own path more than ``loop_back_um`` back along the strand (``loop``);
 ``max_length_um`` (``max_length``); within ``stack_edge_um`` of the first or last plane (``stack_edge``).
 A claim tube (``claim_vox``) is stamped around every accepted strand; a claimed voxel never seeds.
 
@@ -87,11 +89,14 @@ def follow_nucleus(F: Fields, terr: np.ndarray, spacing, org, p, *, z_planes: in
     max_len = float(p["follow.max_length_um"])
     edge_um = float(p["follow.stack_edge_um"])
     cos_turn = math.cos(math.radians(float(p["follow.max_turn_deg"])))
+    # the contact stop against the claiming strand's own tangent (protocol changelog entry 20); "local" is v1
+    claim_tangent = str(p.get("follow.contact_test", "local")) == "claim_tangent"
     z_lo_um = edge_um
     z_hi_um = ((z_planes - 1) * sp[0] - edge_um) if z_planes else math.inf
     t0_clock = time.perf_counter() if t_start is None else t_start
     budget = float(budget_s) if budget_s else math.inf
     claim = np.zeros(S.shape, np.int32)
+    claim_t = np.zeros(S.shape + (3,), np.float32) if claim_tangent else None
     info = {"n_seeds": 0, "n_traced": 0, "budget_exceeded": False}
     steps_done = [0]
 
@@ -129,7 +134,12 @@ def follow_nucleus(F: Fields, terr: np.ndarray, spacing, org, p, *, z_planes: in
             lin = float(LIN[v])
             owner = int(claim[v])
             in_other = bool(owner) and owner != sid + 1
-            if in_other and lin <= lin_max:
+            if in_other and claim_t is not None:
+                tc = claim_t[v]
+                if abs(float(tc[0]) * t[0] + float(tc[1]) * t[1] + float(tc[2]) * t[2]) > contact_cos:
+                    stop = "contact"
+                    break
+            elif in_other and lin <= lin_max:
                 d2 = phys(D[v])
                 if abs(d2[0] * t[0] + d2[1] * t[1] + d2[2] * t[2]) > contact_cos:
                     stop = "contact"
@@ -198,7 +208,13 @@ def follow_nucleus(F: Fields, terr: np.ndarray, spacing, org, p, *, z_planes: in
         return pts, strg, stop
 
     def stamp(pts, sid):
-        for q in pts:
+        if claim_t is not None and len(pts) > 1:
+            P = np.asarray(pts, float)
+            tg = np.gradient(P, axis=0)
+            tg /= np.maximum(np.linalg.norm(tg, axis=1, keepdims=True), 1e-12)
+        else:
+            tg = None
+        for i, q in enumerate(pts):
             v = vox(q)
             z0, z1 = max(v[0] - cr[0], 0), min(v[0] + cr[0] + 1, Z)
             y0, y1 = max(v[1] - cr[1], 0), min(v[1] + cr[1] + 1, Y)
@@ -206,7 +222,10 @@ def follow_nucleus(F: Fields, terr: np.ndarray, spacing, org, p, *, z_planes: in
             if z0 >= z1 or y0 >= y1 or x0 >= x1:
                 continue
             sub = claim[z0:z1, y0:y1, x0:x1]
-            sub[sub == 0] = sid + 1
+            free = sub == 0
+            sub[free] = sid + 1
+            if tg is not None:
+                claim_t[z0:z1, y0:y1, x0:x1][free] = tg[i]
 
     cand = np.argwhere(F.crest & (S >= seed_min))
     if len(cand):

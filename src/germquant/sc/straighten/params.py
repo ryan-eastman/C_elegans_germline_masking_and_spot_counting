@@ -26,7 +26,9 @@ DEFAULTS: dict[str, Any] = {
     "follow": {"seed_min": 2.5, "lo": 1.5, "step_um": 0.1, "momentum": 0.5, "max_correction_um": 0.15,
                "lineness_max": 0.5, "weak_run_um": 0.6, "claim_vox": [1, 2, 2], "contact_cos": 0.85,
                "loop_back_um": 0.6, "min_length_um": 0.5, "max_length_um": 30.0, "stack_edge_um": 0.4,
-               "contact_um": [0.3, 0.15], "max_turn_deg": 30.0, "contact_free_um": [0.6, 0.4]},
+               "contact_um": [0.3, 0.15], "max_turn_deg": 30.0, "contact_free_um": [0.6, 0.4],
+               # v2 (protocol changelog entry 20): the contact stop against the claiming strand's tangent
+               "contact_test": "claim_tangent"},
     "link": {"max_gap_um": 1.0, "max_gap_contact_um": 1.5, "max_angle_deg": 50.0, "max_skew_um": None,
              "gap_cost_per_um": 40.0, "skew_cost_per_um": 100.0, "unlinked_cost": 60.0, "tip_um": 0.3,
              "dir_window_um": [0.3, 1.2]},
@@ -75,6 +77,7 @@ V1_VALUES: dict[str, Any] = {
     "psf.foci": "off",
     "psf.min_stretches": 20,
     "punctum.enabled": False,
+    "follow.contact_test": "local",
 }
 
 
