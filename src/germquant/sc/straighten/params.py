@@ -49,7 +49,9 @@ DEFAULTS: dict[str, Any] = {
     "contamination_um": [0.7, 0.35],
     # v2 (protocol changelog entry 16): the punctum class (enabled false gives v1; exclude false keeps the class
     # and flag but counts punctum strands in every nucleus column as v1 does)
-    "punctum": {"enabled": True, "exclude": True, "max_xy_um": 0.5, "sigma_ratio": 1.3},
+    "punctum": {"enabled": True, "exclude": True, "max_xy_um": 0.5, "sigma_ratio": 1.3,
+                # entry 17: puncta take no part in the end matching (false gives entry 16)
+                "before_linking": True},
     "strips": {"write": True, "ds_um": 0.05, "du_um": 0.05, "dv_um": 0.1, "half_um": [1.0, 0.6],
                "extend_um": 0.5, "flat_v_um": 0.3, "axial_u_um": 0.15, "roles": ["central_element", "foci"]},
     "samples": {"step_um": 0.1},

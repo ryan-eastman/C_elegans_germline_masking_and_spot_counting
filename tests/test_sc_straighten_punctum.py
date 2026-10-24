@@ -111,3 +111,31 @@ def test_puncta_families_are_development_families():
     for fam in ("puncta_pt", "puncta_agg", "dense_puncta", "dense_puncta_clean", "psf_check"):
         with pytest.raises(synth.SealedSeedError):
             synth_dev.make_scene(fam, 7_000_001)
+
+
+def test_the_rule_before_the_end_matching(monkeypatch):
+    """Entry 17: a traced punctum takes no part in the end matching; a tilted ribbon's trace is not held out."""
+    from germquant.sc.straighten import trace as TR
+    from germquant.sc.straighten.noise import NoiseModel
+    from germquant.sc.straighten.sampling import Sampler
+
+    cap = []
+    orig = TR.follow_nucleus
+
+    def hook(*a, **k):
+        out = orig(*a, **k)
+        cap.append([s.points.copy() for s in out[0]])
+        return out
+
+    monkeypatch.setattr(TR, "follow_nucleus", hook)
+    for scene, want in ((_scene(puncta=[{"center": [0.0, 0.3, -0.2], "peak": 900.0}], seed=1), True),
+                        (_scene(ribbons=[{"points": synth.arc(2.0, 20.0, 75.0, 0.4), "peak": 600.0}], seed=3), False)):
+        cap.clear()
+        ce, labels, nuclei, channels, spots, _ = scene
+        _run(scene)
+        raw = ce.astype(np.float32)
+        noise = NoiseModel(a=synth.NOISE_INTERCEPT, b=synth.NOISE_SLOPE)
+        sampler = Sampler(raw, (0, 0, 0), synth.SPACING, cval=np.nan)
+        bg = float(np.percentile(raw[labels == 1], 15))
+        longest = max(cap[0], key=len)
+        assert TR.traced_punctum(longest, sampler, bg, noise, synth.SPACING, P) is want

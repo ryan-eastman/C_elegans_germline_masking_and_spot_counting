@@ -18,8 +18,8 @@ from .fields import line_fields
 from .follow import RawStrand, follow_nucleus, free_orphan_contacts, resolve_contacts
 from .link import link_strands
 from .noise import NoiseModel, gat, nucleus_noise_sd
-from .params import Params
-from .refine import axial_frames, core_profile, refine_imported, refine_points
+from .params import Params, switch_on
+from .refine import along_profile_sigma, axial_frames, core_profile, refine_imported, refine_points
 from .sampling import LabelLookup, Sampler
 
 
@@ -82,6 +82,42 @@ def psf_stretches(lines: list, raw_sampler: Sampler, bg: float, noise: NoiseMode
     return out
 
 
+def _local_tangents(P: np.ndarray, k: int = 2) -> np.ndarray:
+    """Unit tangents from the points k samples on either side (clipped at the ends)."""
+    n = len(P)
+    a = np.clip(np.arange(n) + k, 0, n - 1)
+    b = np.clip(np.arange(n) - k, 0, n - 1)
+    T = P[a] - P[b]
+    return T / np.maximum(np.linalg.norm(T, axis=1, keepdims=True), 1e-12)
+
+
+def traced_punctum(points: np.ndarray, raw_sampler: Sampler, bg: float, noise: NoiseModel, spacing, p) -> bool:
+    """The punctum rule of protocol changelog entry 16 on a traced polyline (entry 17: before the end matching):
+    frac_steep60 > 0.5 (tangents over +/-0.1 um), length_xy_um <= punctum.max_xy_um, and the Gaussian fitted along
+    s to the core profile of the polyline extended straight by 0.5 um at both ends no wider in z than
+    punctum.sigma_ratio times the fallback sigma_z."""
+    P, _, _ = resample(np.asarray(points, float), 0.05)
+    if len(P) < 4:
+        return False
+    T = _local_tangents(P, 2)
+    if float(np.mean(np.abs(T[:, 0]) > 0.866)) <= 0.5:
+        return False
+    lxy = float(np.linalg.norm(np.diff(P[:, 1:], axis=0), axis=1).sum())
+    if lxy > float(p["punctum.max_xy_um"]) + 1e-12:
+        return False
+    ext = np.arange(1, 11) * 0.05
+    C = np.vstack([P[0][None] - ext[::-1, None] * T[0][None], P, P[-1][None] + ext[:, None] * T[-1][None]])
+    TT = np.vstack([np.repeat(T[:1], 10, 0), T, np.repeat(T[-1:], 10, 0)])
+    s = (np.arange(len(C)) - 10) * 0.05
+    n_lat, n_ax = axial_frames(TT)
+    core_ax, core_lat = (float(v) for v in p["profile.core_um"])
+    core, _se, _snr = core_profile(raw_sampler, C, n_lat, n_ax, bg, noise, spacing, r_lat=core_lat, r_ax=core_ax)
+    sg = along_profile_sigma(s, core)
+    tz = float(np.mean(np.abs(T[:, 0])))
+    sz = float(p["psf.fallback_sigma_um"][0])
+    return bool(np.isfinite(sg) and sg * tz <= float(p["punctum.sigma_ratio"]) * sz + 1e-12)
+
+
 def trace_crop(crop: Crop, ctx: dict) -> dict:
     t0 = time.perf_counter()
     nid = crop.nucleus_id
@@ -120,7 +156,15 @@ def trace_crop(crop: Crop, ctx: dict) -> dict:
             resolve_contacts(raw_strands, p)
             min_len = float(p["follow.min_length_um"])
             raw_strands = [s for s in raw_strands if s.length_um >= min_len]
-            kept, n_ghost = drop_axial_ghosts(dedupe_within(link_strands(raw_strands, p), p), p)
+            # puncta take no part in the end matching (protocol changelog entry 17); they rejoin after it
+            held = []
+            if switch_on(p.get("punctum.enabled", False)) and switch_on(p.get("punctum.before_linking", False)):
+                sampler_raw0 = Sampler(raw, crop.org, sp, cval=np.nan)
+                flags = [traced_punctum(s.points, sampler_raw0, bg, noise, sp, p) for s in raw_strands]
+                held = [s for s, f in zip(raw_strands, flags) if f]
+                raw_strands = [s for s, f in zip(raw_strands, flags) if not f]
+                rec["n_puncta_held"] = len(held)
+            kept, n_ghost = drop_axial_ghosts(dedupe_within(link_strands(raw_strands, p) + held, p), p)
             n_ghost += n_ghost0
             kept, n_shadow = drop_shadowed(kept, p)
             # a contact end whose partner was removed above is a free end again (the end rule applies)

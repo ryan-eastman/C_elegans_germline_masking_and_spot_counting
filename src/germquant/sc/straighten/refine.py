@@ -478,6 +478,32 @@ def finalize_line(line: Centreline, fits: tuple[EndFit, EndFit]) -> tuple[Centre
     return new, float(e0), float(e1)
 
 
+def along_profile_sigma(s: np.ndarray, core: np.ndarray) -> float:
+    """The sigma of a Gaussian plus a constant fitted by least squares to a strand's core profile along s (the
+    punctum rule of protocol changelog entries 8, 9, 16 and 17; the fit of the entry-8 diagnostics)."""
+    from scipy.optimize import least_squares
+
+    ok = np.isfinite(core)
+    s, core = np.asarray(s, float)[ok], np.asarray(core, float)[ok]
+    if len(s) < 8:
+        return float("nan")
+    b0 = float(np.percentile(core, 10))
+    A0 = float(core.max() - b0)
+    lo = np.array([0.0, s.min() - 0.5, 0.05, -1e4])
+    hi = np.array([1e6, s.max() + 0.5, 5.0, 1e5])
+    x0 = np.clip(np.array([max(A0, 1.0), float(s[np.argmax(core)]), 0.4, b0]), lo, hi)
+
+    def res(q):
+        A, mu, sg, b = q
+        return b + A * np.exp(-0.5 * ((s - mu) / sg) ** 2) - core
+
+    try:
+        r = least_squares(res, x0, bounds=(lo, hi))
+    except Exception:  # noqa: BLE001 - no fit, no punctum
+        return float("nan")
+    return float(r.x[2])
+
+
 # ------------------------------------------------------------------------------------ PSF estimate
 def gauss_fit(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float]:
     """y = b + a exp(-x^2 / 2 s^2) (centred): returns (s, a, b) by a grid over s then least squares in (a, b)."""
