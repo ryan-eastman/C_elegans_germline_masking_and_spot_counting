@@ -104,7 +104,9 @@ def load_stage_record(series_dir: str | Path, stem: str, record: dict | None, nd
                       t_indices=None) -> dict:
     """The stage record of a series, restricted to its timepoints (``t_indices``, else the series record's), found
     by the precedence of the module docstring. The returned dict carries ``loaded_from`` (how it was found) and
-    ``record_file`` (the ``<stem>__stage_record.json`` path, written when the record was read from an nd2)."""
+    ``record_file`` (the ``<stem>__stage_record.json`` path, written when the record was read from an nd2). An nd2
+    whose timepoint count differs from the series record's ``n_timepoints`` is refused (ValueError): it is not the
+    movie the series was run from."""
     from ..io.nd2_stage import read_stage_record
 
     sdir = Path(series_dir)
@@ -128,6 +130,12 @@ def load_stage_record(series_dir: str | Path, stem: str, record: dict | None, nd
             f"{sdir}: no acquisition record for --prior stage: the series record's file_path ({fp!r}) is not an "
             f"existing .nd2 and there is no {rec_file.name}; give the movie with --nd2 PATH (read for its metadata "
             f"only) or put a {RECORD_FORMAT} record next to the series record")
+    n_series = (record or {}).get("n_timepoints")
+    n_nd2 = len({int(tp["t_index"]) for tp in rec.get("timepoints", [])})
+    if n_series is not None and int(n_series) != n_nd2:
+        src = Path(str(rec.get("source", {}).get("path", ""))).name
+        raise ValueError(f"{src} has {n_nd2} timepoints and the series record {int(n_series)}: not the movie this series "
+                         f"was run from? (--nd2 names that movie; the record was not written)")
     out = restrict_record(rec, ks)
     write_stage_record(sdir, stem, out)
     out.update(loaded_from=how, record_file=str(rec_file))

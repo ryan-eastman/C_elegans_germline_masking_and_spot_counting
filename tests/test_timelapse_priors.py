@@ -219,6 +219,19 @@ def test_gap_prior_and_the_cap_rule(fake_nd2):
     assert PR.gap_flags(None, None, 5.0, rigid=True) == []
 
 
+def test_an_nd2_of_another_length_is_refused(fake_nd2, tmp_path):
+    paths = fake_nd2({"three.nd2": _FakeStageND2()})
+    sdir = tmp_path / "series"
+    sdir.mkdir()
+    record = {"series_id": "movie", "file_path": str(paths["three.nd2"]), "n_timepoints": 5,
+              "timepoints": [{"t_index": 1}, {"t_index": 2}]}
+    for nd2_arg in (paths["three.nd2"], None):          # given with --nd2, and found through the series record
+        with pytest.raises(ValueError, match="3 timepoints and the series record 5"):
+            PR.load_stage_record(sdir, "movie", record, nd2=nd2_arg)
+    assert not PR.stage_record_path(sdir, "movie").exists()
+    assert PR.load_stage_record(sdir, "movie", dict(record, n_timepoints=3))["loaded_from"].startswith("nd2")
+
+
 def test_parse_and_check_max_step_at():
     assert PR.parse_max_step_at(["6=40", " t9 = 45.5 ", "3=0"]) == {6: 40.0, 9: 45.5, 3: 0.0}
     assert PR.parse_max_step_at(None) == {}
