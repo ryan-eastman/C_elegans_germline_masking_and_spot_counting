@@ -119,24 +119,28 @@ def _is_machine_path(value: str) -> bool:
     return _machine_path(value)
 
 
+_PATH_END = r"(?=[.:]?(?:[\s\"'<>|,;()]|$))"          # a path ends at a delimiter (a final '.' or ':' allowed)
+
+
+def _shorten(text: str, subs: dict[str, str]) -> str:
+    """``text`` with the absolute paths in it shortened to their last component: first the paths that are whole
+    values somewhere in the card (``subs``, longest first, and only as whole paths, so a path with spaces goes
+    as one and a path never loses part of a longer one), then any absolute path left (_TEXT_PATH_RE)."""
+    for old in sorted(subs, key=len, reverse=True):
+        text = re.sub(r"(?<![\w.~:/\\-])" + re.escape(old) + _PATH_END, lambda m, new=subs[old]: new, text)
+    return _strip_paths(text)
+
+
 def _rewrite(obj, path: str, subs: dict[str, str], changed: list[str]):
-    """``obj`` with every absolute path leaf replaced by its bare name, and in every other text the paths that
-    are leaves elsewhere (longest first, so a path with spaces goes whole) and then any absolute path left
-    (_TEXT_PATH_RE) replaced the same way; the dotted paths of the leaves changed are appended to ``changed``."""
+    """``obj`` with every text shortened (_shorten); the dotted paths of the texts changed are appended to
+    ``changed``. A text that is a whole absolute path becomes its bare name."""
     if isinstance(obj, dict):
         return {k: _rewrite(v, f"{path}.{k}" if path else str(k), subs, changed) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_rewrite(v, f"{path}[{i}]", subs, changed) for i, v in enumerate(obj)]
     if not isinstance(obj, str):
         return obj
-    new = obj
-    if _is_machine_path(obj):
-        new = _bare_name(obj)
-    else:
-        for old in sorted(subs, key=len, reverse=True):
-            if old in new:
-                new = new.replace(old, subs[old])
-        new = _strip_paths(new)
+    new = _shorten(obj, subs)
     if new != obj:
         changed.append(path)
     return new

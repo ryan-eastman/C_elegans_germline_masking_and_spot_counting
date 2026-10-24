@@ -232,12 +232,14 @@ def test_portable_card_rewrites_the_paths_of_every_platform_and_keeps_the_rest()
     card = {"name": "m", "model_file": "/home/lab/models/m",
             "base_model": {"path": "\\\\nas\\share\\cp\\cpsam_v2", "sha256": "c" * 64},
             "notes": ["C:/Users/lab/run 1/x.tif", "~/models/m", "D:\\data\\set"],
-            "what": "from C:\\Users\\lab\\m (see https://example.org/a/b), slices xy/xz/yz, 1/2 of /srv/data/x.",
+            "what": "from C:\\Users\\lab\\m (see https://example.org/a/b), slices xy/xz/yz, 1/2 of /srv/data/x, "
+                    "D:\\data\\settings\\y and C:/Users/lab/run 1/x.tif.",
             "keep": "image/a_xy_0.tif"}
     out, changed = packs.portable_card(card, name="m", file_name="m", sha256="d" * 64, size=5)
     assert out["model_file"] == "m" and out["base_model"] == {"path": "cpsam_v2", "sha256": "c" * 64}
     assert out["notes"] == ["x.tif", "m", "set"]
-    assert out["what"] == "from m (see https://example.org/a/b), slices xy/xz/yz, 1/2 of x."
+    # a path with spaces goes whole (it is a value elsewhere in the card), a value never cuts a longer path
+    assert out["what"] == "from m (see https://example.org/a/b), slices xy/xz/yz, 1/2 of x, y and x.tif."
     assert out["keep"] == "image/a_xy_0.tif" and out["model_sha256"] == "d" * 64 and out["model_size"] == 5
     assert changed == ["base_model.path", "model_file", "model_sha256", "model_size", "notes[0]", "notes[1]",
                        "notes[2]", "what"]
