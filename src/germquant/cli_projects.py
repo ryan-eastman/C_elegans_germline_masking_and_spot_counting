@@ -427,9 +427,7 @@ def _run(args) -> int:
         return 1
     finally:
         R.RUN_ARGV.reset(token)
-    for w in res["warnings"]:
-        print(f"warning: {w}", file=sys.stderr)
-    if args.json:
+    if args.json:                                   # the warnings were logged at the start, and are in the record
         _print(json.dumps(res, indent=1))
     else:
         _print(f"log: {res['log']}")

@@ -12,7 +12,7 @@ import subprocess
 import pytest
 from packs_helpers import PYTHON, ROOT, TEST_PACK, pack_env, subprocess_env  # noqa: F401
 from project_helpers import project_env  # noqa: F401
-from test_project_run import log_events, project_with_images
+from test_project_run import log_events, need_readers, project_with_images
 
 import germquant.project as P
 from germquant.project import run as R
@@ -48,6 +48,7 @@ def test_shards_cover_each_image_once():
 
 
 def test_three_parallel_shards(project_env, tmp_path):  # noqa: F811
+    need_readers()
     ids = ("a", "b", "c", "d", "e")
     proj = project_with_images(tmp_path, names=ids)
     manifest = (proj.root / "germquant_project.yaml").read_bytes()

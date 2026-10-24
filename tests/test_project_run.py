@@ -112,6 +112,16 @@ def fake_run_loaded(monkeypatch, seen: list, *, fail=()):
     monkeypatch.setattr(api, "run_loaded", fake)
 
 
+def need_readers():
+    """Skip, with the reason, where the OME-TIFF readers are not installed (the readers extra): CI and the
+    workstation have them (PLAN.md Q3), so these tests run there."""
+    import importlib.util
+
+    missing = [m for m in ("bioio", "bioio_ome_tiff") if importlib.util.find_spec(m) is None]
+    if missing:
+        pytest.skip(f"the OME-TIFF readers are not installed here ({', '.join(missing)}: the readers extra)")
+
+
 def need_p2b():
     from germquant import planar
 
@@ -142,6 +152,7 @@ def hand_edit_recipe(proj, data: dict) -> None:
 # ---- the run log (P5 acceptance 2, second half; D17, D48) ---------------------------------------------------
 
 def test_run_log_events(project_env, tmp_path):  # noqa: F811
+    need_readers()
     proj = project_with_images(tmp_path)
     before = (proj.root / "germquant_project.yaml").read_bytes()
     seen = []
@@ -199,6 +210,7 @@ def test_run_log_events(project_env, tmp_path):  # noqa: F811
 
 
 def test_run_id_via_and_exit_codes(project_env, tmp_path, capsys):  # noqa: F811
+    need_readers()
     proj = project_with_images(tmp_path, names=("a", "b"))
     runs = proj.root / "runs"
     # 2: refused before any image, nothing written
@@ -389,6 +401,7 @@ def test_decoy_model_refused(project_env, tmp_path, monkeypatch, capsys):  # noq
 
 
 def test_vendored_pack_survives_root_upgrade(project_env, tmp_path, monkeypatch):  # noqa: F811
+    need_readers()
     from germquant import config as C
 
     root = tmp_path / "engine"
@@ -439,6 +452,7 @@ def test_labels_project_skips_the_segmentation_model(project_env, tmp_path, monk
     assert R.model_refusal(records, pack) is None
     assert any("labels_from" in w and "not checked" in w for w in warnings), warnings
     need_p2c()
+    need_readers()
     import numpy as np
     import tifffile
 
@@ -496,6 +510,7 @@ def _spy_series(monkeypatch):
 
 
 def test_an_image_with_timepoints_goes_through_process_series(project_env, tmp_path, monkeypatch):  # noqa: F811
+    need_readers()
     proj = new_test_project(tmp_path / "proj")
     P.add_images(proj, [_series_image(proj.root / "images")])
     assert proj.images[0]["timepoints"] == 2
@@ -546,6 +561,7 @@ def test_series_refused_for_labels_recipes(project_env, tmp_path, monkeypatch): 
 # ---- imports (D28, R5) -------------------------------------------------------------------------------
 
 def test_run_project_imports_the_pipeline_first(project_env, tmp_path):  # noqa: F811
+    need_readers()
     import importlib.util
 
     if importlib.util.find_spec("torch") is None:

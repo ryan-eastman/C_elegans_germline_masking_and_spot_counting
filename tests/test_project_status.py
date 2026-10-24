@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 
 from packs_helpers import pack_env  # noqa: F401
 from project_helpers import BASIC_HASH, TEST_PACK_REF, project_env  # noqa: F401
-from test_project_run import log_events, need_p2b, project_with_images
+from test_project_run import log_events, need_p2b, need_readers, project_with_images
 
 import germquant.project as P
 from germquant import api, cli, cli_projects
@@ -41,6 +41,7 @@ def _fabricate(proj, src: str, dest: str, **marker_changes) -> None:
 
 
 def test_every_status_and_reason_code(project_env, tmp_path):  # noqa: F811
+    need_readers()
     names = ("a", "cfg", "stg", "geo", "seg", "fst", "mis", "fld", "exc", "unr")
     proj = project_with_images(tmp_path, names=names)
     done = P.run_project(proj, images=["a"])
@@ -99,6 +100,7 @@ def test_every_status_and_reason_code(project_env, tmp_path):  # noqa: F811
 
 
 def test_a_planar_marker_reads_stale_with_the_planar_flag(project_env, tmp_path):  # noqa: F811
+    need_readers()
     need_p2b()
     from germquant import pipeline, provenance, stages
 
@@ -116,6 +118,7 @@ def test_a_planar_marker_reads_stale_with_the_planar_flag(project_env, tmp_path)
 
 def test_edit_marks_every_image_stale_with_reason(project_env, tmp_path):  # noqa: F811
     """P5 acceptance 3, the run half: an edit changes the hash and every finished image reads stale."""
+    need_readers()
     proj = project_with_images(tmp_path, names=("a", "b"))
     assert P.run_project(proj)["counts"]["done"] == 2
     assert {r["status"] for r in P.project_status(proj)["images"]} == {"done"}
@@ -187,6 +190,7 @@ def test_lock_report(project_env, tmp_path):  # noqa: F811
 
 
 def test_status_json_equals_the_api(project_env, tmp_path, capsys):  # noqa: F811
+    need_readers()
     proj = project_with_images(tmp_path, names=("a", "b"))
     P.run_project(proj, images=["a"])
     assert cli.main(["project", "status", str(proj.root), "--json"]) == 0

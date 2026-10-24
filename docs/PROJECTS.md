@@ -289,7 +289,8 @@ The run is refused, before any image is read and with nothing written (exit 2, t
   never removes a lock).
 
 The exit code is 0 when every image was done or skipped, 1 when an image failed, and 2 for a refusal. A run
-never writes the manifest and takes no lock. `--json` prints the run's record on stdout, `{"run_id", "log",
+never writes the manifest and takes no lock; an edit made while a run goes on applies from the next run (the
+run keeps the recipe it started with, and the images it finished then read stale). `--json` prints the run's record on stdout, `{"run_id", "log",
 "counts": {"done", "failed", "skipped"}, "exit_code", "interrupted", "warnings", "message"}`, and the progress
 lines on stderr. Ctrl-C stops the run between images, and the plugin's Cancel stops it at once: the image in
 progress has no completion marker, so the next run does it again, and the images already done are skipped.

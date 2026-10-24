@@ -22,7 +22,7 @@ import pandas as pd
 import pytest
 from packs_helpers import CELEGANS_PACK, ROOT, TEST_PACK, pack_env, subprocess_env  # noqa: F401
 from project_helpers import BASIC_HASH, TEST_PACK_REF, new_test_project, project_env  # noqa: F401
-from test_project_run import example_copy
+from test_project_run import example_copy, need_readers
 
 import germquant.project as P
 from germquant import api, cli, packs, packs_golden, stages
@@ -45,6 +45,7 @@ def _marker(out: Path) -> dict:
 
 
 def test_project_route_equals_pack_routes(project_env, tmp_path):  # noqa: F811
+    need_readers()
     proj = new_test_project(tmp_path / "proj")
     image = example_copy(proj.root / "images")
     P.add_images(proj, [image])
@@ -80,6 +81,7 @@ def test_project_route_equals_pack_routes(project_env, tmp_path):  # noqa: F811
 
 def test_project_moves_between_roots(project_env, tmp_path):  # noqa: F811
     """P5 acceptance 4: root A to root B, one image by relative path, one by an absolute path with a space."""
+    need_readers()
     a = tmp_path / "root A" / "study"
     proj = new_test_project(a)
     inside = example_copy(a / "images", "inside")
