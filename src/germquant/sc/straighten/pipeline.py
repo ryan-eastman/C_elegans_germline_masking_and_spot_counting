@@ -294,6 +294,82 @@ def _longest_run(mask: np.ndarray, ds: float) -> float:
     return best * ds
 
 
+def complete_guard(all_strands: list, p, psf) -> dict:
+    """The complete guard of protocol changelog entry 23: {(nid, k): reason} for the strands that fail it (absent
+    when they pass): (i) length_um above classes.max_complete_um; (ii) an end within contamination_um of another
+    strand; (iii) the end of another strand whose outward direction lies within 45 degrees of the strand's local
+    tangent (either sense) within classes.complete_guard_fwhm PSF FWHM (axial, lateral) of a point of the strand
+    more than 0.5 um from its own ends. Punctum strands neither fail nor count when they are left out of the tier."""
+    out: dict = {}
+    if not switch_on(p.get("classes.complete_guard", False)):
+        return out
+    max_len = p.get("classes.max_complete_um", None)
+    excl = _punctum_excluded(p)
+    items = [(nid, k, s) for nid, k, s in all_strands if not (excl and s["row"].get("punctum"))]
+    if not items:
+        return out
+    c_ax, c_lat = (float(v) for v in p["contamination_um"])
+    fw = 2.0 * np.sqrt(2.0 * np.log(2.0)) * float(p["classes.complete_guard_fwhm"])
+    g_ax, g_lat = fw * float(psf[0]), fw * float(psf[1])
+    cos45 = float(np.cos(np.radians(45.0)))
+    pts, owner, ends = [], [], []
+    for idx, (_nid, _k, s) in enumerate(items):
+        smp = s["samples"]
+        ins = np.asarray(smp["in_strand"], bool)
+        C, T = np.asarray(smp["C"])[ins], np.asarray(smp["T"])[ins]
+        if len(C) < 2:
+            ends.append(None)
+            continue
+        pts.append(C)
+        owner.append(np.full(len(C), idx))
+        ends.append(((C[0], -T[0]), (C[-1], T[-1])))
+    if not pts:
+        return out
+    P = np.vstack(pts)
+    O = np.concatenate(owner)
+    tree_c = cKDTree(P * np.array([1.0 / c_ax, 1.0 / c_lat, 1.0 / c_lat]))
+    end_pts = [(i, e[0], e[1]) for i, ee in enumerate(ends) if ee is not None for e in ee]
+    E = np.array([x[1] for x in end_pts]) if end_pts else np.zeros((0, 3))
+    tree_e = cKDTree(E * np.array([1.0 / g_ax, 1.0 / g_lat, 1.0 / g_lat])) if len(E) else None
+    for idx, (nid, k, s) in enumerate(items):
+        r = s["row"]
+        if max_len is not None and r["length_um"] > float(max_len):
+            out[(nid, k)] = "length"
+            continue
+        if ends[idx] is None:
+            continue
+        bad = False
+        for e_pt, _d in ends[idx]:
+            hits = tree_c.query_ball_point(e_pt * np.array([1.0 / c_ax, 1.0 / c_lat, 1.0 / c_lat]), 1.0)
+            if any(O[h] != idx for h in hits):
+                bad = True
+                break
+        if bad:
+            out[(nid, k)] = "end_near_strand"
+            continue
+        if tree_e is None:
+            continue
+        smp = s["samples"]
+        ins = np.asarray(smp["in_strand"], bool)
+        sv, C, T = np.asarray(smp["s"])[ins], np.asarray(smp["C"])[ins], np.asarray(smp["T"])[ins]
+        L = float(r["length_um"])
+        inner = (sv > 0.5) & (sv < L - 0.5)
+        if not inner.any():
+            continue
+        Ci, Ti = C[inner], T[inner]
+        for j, lst in enumerate(tree_e.query_ball_point(Ci * np.array([1.0 / g_ax, 1.0 / g_lat, 1.0 / g_lat]), 1.0)):
+            for h in lst:
+                oi, _ep, d = end_pts[h]
+                if oi != idx and abs(float(np.dot(d, Ti[j]))) >= cos45:
+                    bad = True
+                    break
+            if bad:
+                break
+        if bad:
+            out[(nid, k)] = "end_along_strand"
+    return out
+
+
 def classify(row: dict, flags: list, p) -> str:
     if row.get("verified"):
         return "verified"
@@ -304,7 +380,7 @@ def classify(row: dict, flags: list, p) -> str:
     if "merged_suspect" in flags:
         return "merged_suspect"
     lv = {qc.level(f, "strand") for f in flags}
-    if _complete_candidate(row, p) and "review" not in lv and "fail" not in lv:
+    if _complete_candidate(row, p) and "review" not in lv and "fail" not in lv and not row.get("guard_fail"):
         return "complete"
     return "partial"
 
@@ -448,6 +524,7 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
     img_ctx = {"fwhm_lat_med": float(np.median(fl)) if fl else float("nan"),
                "fwhm_ax_med": float(np.median(fa)) if fa else float("nan")}
     mm = float(p["classes.merged_multiplicity"])
+    guard = complete_guard(all_strands, p, psf)
     # the reference of the multiplicity: the nucleus's own median integrated signal (clean in-strand samples of all
     # its strands, at least 3 um of them); SC brightness changes along the gonad, so one image-wide reference would
     # call every strand of the bright pachytene region merged. Nuclei with less SC use the image's complete-strand
@@ -474,6 +551,7 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
         flags = qc.strand_flags(r, p, img_ctx)
         r["qc_flags"] = ";".join(flags)
         r["qc_status"] = qc.status(flags, "strand")
+        r["guard_fail"] = guard.get((nid, _k), "")
         r["strand_class"] = classify(r, flags, p)
     # stable strand ids
     order = sorted(range(len(all_strands)), key=lambda i: (
@@ -539,7 +617,8 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
     nuc_rows = _nucleus_rows(p, nuc, ids, present, recs, meas, all_strands, sp)
     # tables
     # the punctum marker is internal (the class and the flag carry it)
-    strands_df = pd.DataFrame([{k: v for k, v in all_strands[i][2]["row"].items() if k != "punctum"} for i in order])
+    strands_df = pd.DataFrame([{k: v for k, v in all_strands[i][2]["row"].items() if k not in ("punctum", "guard_fail")}
+                               for i in order])
     samples_df = _samples_table(image_id, [all_strands[i] for i in order], float(p["samples.step_um"]), ds)
     gap_rows = []
     for i in order:

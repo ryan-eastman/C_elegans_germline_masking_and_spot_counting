@@ -34,8 +34,9 @@ DEFAULTS: dict[str, Any] = {
              "gap_cost_per_um": 40.0, "skew_cost_per_um": 100.0, "unlinked_cost": 60.0, "tip_um": 0.3,
              "dir_window_um": [0.3, 1.2],
              # v2 (protocol changelog entry 21): end directions outside junction zones; the chain bound (9.0 um),
-             # withdrawn by entry 22 (null); entry 22 (revision 1 of entry 21): such pairs judged from the tips
-             "junction_dirs": True, "max_chain_um": None, "junction_gap": "tips"},
+             # withdrawn by entry 22 (null); entry 22 (revision 1 of entry 21): such pairs judged from the tips.
+             # Entry 23 withdrew the change (the tuning of entry 22 failed): junction_dirs is false by default
+             "junction_dirs": False, "max_chain_um": None, "junction_gap": "tips"},
     "dedupe": {"lateral_um": 0.15, "axial_um": 0.3, "min_run_um": 0.4, "parallel_cos": 0.9,
                "min_remainder_um": 0.5, "ghost_max_um": 1.5, "ghost_tz_min": 0.7, "ghost_reach_um": [1.0, 0.35],
                "shadow_frac": 0.8},
@@ -62,7 +63,10 @@ DEFAULTS: dict[str, Any] = {
     "samples": {"step_um": 0.1},
     "foci": {"tables": "auto", "max_um": [0.6, 0.3], "ambiguity_ratio": 1.25},
     "classes": {"min_complete_um": 1.0, "max_link_cost": 60.0, "max_contaminated": 0.3,
-                "merged_multiplicity": 1.7, "merged_run_um": 0.5, "min_frac_in_label": 0.8},
+                "merged_multiplicity": 1.7, "merged_run_um": 0.5, "min_frac_in_label": 0.8,
+                # v2 (protocol changelog entry 23): the complete guard; complete_guard_fwhm chosen on the tuning
+                # seeds from {1.0, 1.5, 2.0} by the rule of entry 23
+                "complete_guard": True, "complete_guard_fwhm": 1.5, "max_complete_um": 9.0},
     "qc": {"low_snr_review": 4.0, "low_snr_fail": 2.5, "steep_frac_review": 0.5, "long_um": 10.0,
            "kink_deg": 60.0, "kink_um": 0.3, "fit_rms_review_um": 0.12, "gap_long_um": 0.6,
            "stack_edge_um": 0.4, "merged_label_ratio": 1.6, "double_width_ratio": 1.6,
@@ -85,6 +89,8 @@ V1_VALUES: dict[str, Any] = {
     "link.junction_dirs": False,
     "link.max_chain_um": None,
     "link.junction_gap": "anchors",
+    "classes.complete_guard": False,
+    "classes.max_complete_um": None,
 }
 
 

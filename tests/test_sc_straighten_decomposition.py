@@ -87,8 +87,9 @@ def test_ends_hooked_toward_a_crossing_ribbon_are_linked():
     A = RawStrand(_poly([(2, 0, 0), (2, 0, 2.5), (2, 0.8, 2.65)]), ["free", "free"])
     Bs = RawStrand(_poly([(2, 0.8, 2.75), (2, 0, 2.9), (2, 0, 5.4)]), ["free", "free"])
     C = RawStrand(_poly([(2, -2.5, 2.7), (2, 2.5, 2.7)]), ["free", "free"])
-    new = link.link_strands([A, C, Bs], params.resolve())
-    old = link.link_strands([A, C, Bs], params.resolve(None, ["link.junction_dirs=false"]))
+    # entries 21 and 22 (withdrawn by entry 23: a switch, off by default)
+    new = link.link_strands([A, C, Bs], params.resolve(None, ["link.junction_dirs=true"]))
+    old = link.link_strands([A, C, Bs], params.resolve())
     assert sorted(len(s.links) for s in new) == [0, 1] and len(new) == 2
     assert len(old) == 3 and all(len(s.links) == 0 for s in old)
 
@@ -102,8 +103,8 @@ def test_pairs_beyond_a_junction_are_judged_from_the_tips():
     A = RawStrand(_poly([(2, 0, 0), (2, 0, 2.5), (2, 0.8, 2.65)]), ["free", "free"])
     C = RawStrand(_poly([(2, -2.5, 2.7), (2, 2.5, 2.7)]), ["free", "free"])
     D = RawStrand(_poly([(2, 2.0, 2.75), (2, 1.6, 2.95), (2, 1.6, 5.4)]), ["free", "free"])
-    new = link.link_strands([A, C, D], params.resolve())
-    old = link.link_strands([A, C, D], params.resolve(None, ["link.junction_gap=anchors"]))
+    new = link.link_strands([A, C, D], params.resolve(None, ["link.junction_dirs=true"]))
+    old = link.link_strands([A, C, D], params.resolve(None, ["link.junction_dirs=true", "link.junction_gap=anchors"]))
     assert len(new) == 3 and all(len(s.links) == 0 for s in new)
     assert len(old) == 2 and sorted(len(s.links) for s in old) == [0, 1]
 
@@ -120,3 +121,46 @@ def test_chain_bound(pieces, n_out):
         assert all(e == "free" for s in out for e in s.end_types)
     # withdrawn by entry 22: no bound by default
     assert len(link.link_strands(strands, params.resolve())) == 1
+
+
+# ------------------------------------------------------------------------------------ the complete guard (entry 23)
+def _fake(points, nid=1):
+    """A measured strand as the pipeline's phase B gives it, for the class rules only."""
+    C = np.asarray(points, float)
+    d = np.linalg.norm(np.diff(C, axis=0), axis=1)
+    s = np.concatenate([[0.0], np.cumsum(d)])
+    T = np.gradient(C, axis=0)
+    T /= np.linalg.norm(T, axis=1, keepdims=True)
+    return (nid, 0, {"row": {"length_um": float(s[-1])},
+                     "samples": {"s": s, "C": C, "T": T, "in_strand": np.ones(len(C), bool)}})
+
+
+def _line(a, b, n=None):
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    n = n or max(int(np.linalg.norm(b - a) / 0.05) + 1, 2)
+    return a + np.linspace(0, 1, n)[:, None] * (b - a)
+
+
+def test_complete_guard_rules():
+    from germquant.sc.straighten.pipeline import complete_guard
+
+    P = params.resolve()
+    psf = (0.365, 0.15)
+
+    def run(*strands):
+        items = [(i + 1, 0, s[2]) for i, s in enumerate(strands)]
+        g = complete_guard(items, P, psf)
+        return [g.get((i + 1, 0), "") for i in range(len(strands))]
+
+    iso = _fake(_line((2, 2, 0), (2, 2, 5)))
+    assert run(iso) == [""]
+    assert run(_fake(_line((2, 2, 0), (2, 2, 9.5)))) == ["length"]                  # a chimera of two ribbons
+    a, b = _fake(_line((2, 2, 0), (2, 2, 3))), _fake(_line((2, 2, 3.2), (2, 2, 6)))   # a broken ribbon's halves
+    assert run(a, b) == ["end_near_strand", "end_near_strand"]
+    bar = _fake(_line((2, 0, 0), (2, 0, 6)))
+    spur = _fake(_line((2, 0.25, 1.5), (2, 0.25, 3.0)))                                # runs along the bar
+    assert run(bar, spur)[0] == "end_along_strand"
+    stem = _fake(_line((2, 0.3, 3.0), (2, 3.0, 3.0)))                                  # a T stem: the bar stays
+    assert run(bar, stem) == ["", "end_near_strand"]
+    off = params.resolve(None, ["classes.complete_guard=false"])
+    assert complete_guard([(1, 0, a[2]), (2, 0, b[2])], off, psf) == {}
