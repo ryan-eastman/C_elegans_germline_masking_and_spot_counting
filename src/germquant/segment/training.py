@@ -1028,8 +1028,9 @@ def _set_card_curve(card_path: Path, curve: dict | None = None, **changes) -> No
 
 
 def _drop_weights(path: Path) -> None:
-    if path.exists():
-        os.remove(long_path(path))
+    lp = long_path(path)
+    if os.path.exists(lp):
+        os.remove(lp)
 
 
 def train_curve(pairs: str | Path, out: str | Path, *, sizes, repeats: int, seed: int, base: str,

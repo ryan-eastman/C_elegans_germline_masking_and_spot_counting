@@ -33,7 +33,8 @@ def add_parsers(sub) -> None:
                     help="subset sizes in training groups (source images, or series), comma-separated; all is "
                          "every training group, and a size above that is skipped (default 1,2,4,8,16,all)")
     pc.add_argument("--repeats", type=int, default=3,
-                    help="seeded subset orders per size; each order gives nested subsets (default 3)")
+                    help="seeded orders of the training groups; each gives one model per size, its subsets "
+                         "nested (default 3)")
     pc.add_argument("--seed", type=int, default=0,
                     help="seed of the held-out split (the one train-nuclei --seed makes) and of the subsets "
                          "(default 0)")

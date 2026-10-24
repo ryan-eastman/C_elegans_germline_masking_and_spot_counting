@@ -191,11 +191,10 @@ germquant project use-model PROJECT --model training/r01/models/my_nuclei/my_nuc
 ```
 
 (`--card CARD` names its card.) This writes the model's relative path into the project's recipe.yaml and its
-sha256 into the project file, so the
-project gets a new config hash and is marked not validated; a project run refuses a model file whose sha256 differs
-(docs/PROJECTS.md). Outside a project, `germquant register-model --model MODEL --card CARD` adds the model to the
-local registry, and a profile names it in `segmentation.nuclei.cellpose_model` (docs/TIMELAPSE.md, "Register and
-use").
+sha256 into the project file, so the project gets a new config hash and is marked not validated; a project run
+refuses a model file whose sha256 differs (docs/PROJECTS.md). Outside a project,
+`germquant register-model --model MODEL --card CARD` adds the model to the local registry, and a profile names it
+in `segmentation.nuclei.cellpose_model` (docs/TIMELAPSE.md, "Register and use").
 
 ## 8. Promote it into a pack
 
@@ -215,11 +214,11 @@ recipe's spot settings for the best match; applying the result writes recipe.yam
 
 ## What is tested
 
-`tests/test_training_export_geometry.py` pins the 3D export of the synthetic gonad to the files and export.json of
-the export before this change, and checks the proj pairs of projected runs (the recorded plane, the projections,
-the run's stride and z range) and a tree that mixes both. `tests/test_train_curve.py` checks the card fields
-(trained from the test pack's stand-in model `tinynet@f5055f8a` through the model store, as CI cannot hold the
-1.2 GB Cellpose-SAM weights; the same command with `cpsam_v2@0f1cc3f7` is an opt-in test,
+`tests/test_training_export_geometry.py` pins the 3D export of the synthetic gonad (manifest.csv and export.json)
+to what the export wrote before this change, and checks the proj pairs of projected runs (the recorded plane, the
+projections, the run's stride and z range) and a tree that mixes both. `tests/test_train_curve.py` checks the card
+fields (trained from the test pack's stand-in model `tinynet@f5055f8a` through the model store, as CI cannot hold
+the 1.2 GB Cellpose-SAM weights; the same command with `cpsam_v2@0f1cc3f7` is an opt-in test,
 `GERMQUANT_TRAIN_CARD_BASE`), and the learning curve: nested, seeded subsets, one held-out set, the scorer seam,
 and `--keep-models` none and best. `tests/test_training_loop.py` covers the export of time series, the split, the
 card's training record and the registry. In all of them Cellpose's training and prediction are replaced by stand-ins,
