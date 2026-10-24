@@ -132,39 +132,34 @@ spots:
       expected_from_germ_cell: false
 ```
 
-## Single-plane (2D) images: not supported yet
+## Single-plane (2D) images
 
-There is no `generic_2d.yaml` because the pipeline does not support single-plane images today.
-What was checked (2026-10-09; a synthetic two-channel plane, classical segmenter, CPU):
-`process_image` finishes without an error on a Z=1 stack, but every quantity keeps its 3D meaning.
-`volume_um3` is the pixel area times a z step that does not exist, the classical segmenter seeds
-and gates objects in 3D, the Cellpose path would be called with `do_3D=True` on one plane, and the
-spot detector receives a z radius. A 2D path needs, in order:
+`config/profiles/generic_2d.yaml` is this profile for images with one plane. It extends `generic.yaml` with
+`io.planar: auto`, so an image whose header and read stack have one plane runs as a 2D image: objects segmented
+on the plane, `area_um2` and `equivalent_diameter_um` measured with the file's own dy and dx, `volume_um3` left
+empty, every spot at `z_um` 0.0, and YX label and spot images. A 3D stack runs through the 3D path as with this
+profile, with the few settings that `generic_2d.yaml` changes: an area gate for 2D objects
+(`segmentation.nuclei.min_area_um2: 20.0`), no z-column merge of spots, the granule and coloc stages off and a
+filename regex that matches nothing. `docs/PLANAR.md` ("Single-plane runs") explains the mode, the pixel size
+it uses (`io.voxel_size_um` sets it for an uncalibrated file), what it records and what it refuses (time
+series, and the 3D-only stages and backends).
 
-1. `src/germquant/io/nd2_reader.py`: `read_nd2_metadata` already reports `is_2d` (no Z axis in the
-   file), but `read_stack` pads a Z axis of length 1 and keeps whatever z calibration the file
-   carries (the `nd2` reader returns the channel `axesCalibration` triple, a placeholder for a
-   plane). `Stack` needs a `planar` flag, and the spacing must keep the real dy / dx while marking
-   dz as not a length, instead of `pipeline.process_image` raising `voxel:UNREADABLE`.
-2. `src/germquant/segment/nuclei.py`: `_cellpose` runs `model.eval(..., do_3D=True, z_axis=0,
-   anisotropy=...)`; a plane needs `do_3D=False` on the (Y, X) image. `_classical` and
-   `_drop_small` need an area gate (`min_area_um2`) in place of `min_volume_um3`, which multiplies
-   by dz.
-3. `src/germquant/measure/regionprops3d.py`: `volume_um3 = n_voxels * dz * dy * dx`; a plane needs
-   `area_um2` and `n_pixels`, appended to `schema.NUCLEI` (append-only: `volume_um3` stays), and
-   centroids without a z.
-4. `src/germquant/spots/detect.py`: `radii_px = spot_radius_um / spacing` hands SpotMAX a z radius
-   and `_merge_z_columns` assumes stacked peaks; SpotMAX's 2D mode wants a 2D image and labels, and
-   the z merge must be skipped.
-5. `src/germquant/pipeline.py` (`_save_labels`, `_save_spots_image`, `_save_mask_image`) and
-   `src/germquant/spots/export.py`: the TIFs are tagged ZYX with `PhysicalSizeZ`; a plane should be
-   written as YX.
-6. `src/germquant/pipeline.py`: read `meta["is_2d"]` once and thread the planar flag to the stages
-   above. `src/germquant/stages.py` needs no change: the 3D-only worm stages are off in the generic
-   profile already. `src/germquant/render.py` already shows a plane as itself (`_mip`).
-7. `src/germquant/schema.py`: the appended 2D columns; `tests/test_end_to_end.py`: a Z=1 fixture;
-   `tests/test_golden.py`: a golden case for the 2D path.
-8. Then `config/profiles/generic_2d.yaml` is a one-key overlay on `generic.yaml`.
+Windows:
+```
+.venv\Scripts\germquant.exe run "C:\path\to\YOUR_IMAGE.ome.tif" --profile generic_2d --out "C:\path\to\RESULTS_FOLDER"
+```
+Mac / Linux:
+```
+.venv/bin/germquant run /path/to/YOUR_IMAGE.ome.tif --profile generic_2d --out /path/to/RESULTS_FOLDER
+```
+
+### The stock Cellpose model
+
+Both profiles name the nucleus model `cpsam`, the stock Cellpose-SAM. Since Cellpose 4.2.0 that bare name runs
+the cpsam_v2 weights (this installation has Cellpose 4.2.1.1), and `run_manifest.json` records `model_sha256`
+"absent", so a generic run does not say which weights it used. The name stays as it is, because changing it
+would change the masks of every generic run (`docs/DESIGN_system_packs.md`, section 15, finding a); a system pack
+pins its weights by name and digest instead (`docs/PACKS.md`).
 
 A thin stack (a few planes) is a 3D stack as far as the pipeline is concerned and runs today,
 with the caveat that Cellpose's 3D flows and the z-column merge are meant for a well-sampled z.

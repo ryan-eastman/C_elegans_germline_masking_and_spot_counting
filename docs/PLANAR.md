@@ -6,12 +6,12 @@ those objects should still be counted in 3D. The 2D path does exactly this, as a
 Nothing changes for a recipe that does not ask for it: every C. elegans run, every shipped config and
 every existing output stays byte for byte what it was.
 
-There are two modes. This page describes the first; the second is still to come.
+There are two modes, both described here.
 
 | mode | what it is | switched on by | status |
 |---|---|---|---|
 | projected | a 3D stack whose objects are segmented on one 2D image and copied through every plane; everything after segmentation stays 3D | `segmentation.nuclei.project` | available |
-| single plane | an image with one plane, where every quantity is 2D | `io.planar` | not yet (tranche 5 package P2b) |
+| single plane | an image with one plane, where every quantity is 2D | `io.planar` | available |
 
 The design is `docs/DESIGN_system_packs.md`, section 4. The code is `src/germquant/planar.py`.
 
@@ -148,8 +148,170 @@ packs").
   counts for that cell. For thick samples, or cells that lie on top of each other, use a 3D recipe.
 - On one plane the classical watershed does not fill holes inside an object (a single plane counts as a
   border in z). It is a baseline, as in 3D.
-- Single-plane images (Z = 1) still run through today's 3D path with the 1 um voxel guess and the
-  `voxel:UNREADABLE_assumed_isotropic_1um` flag, until package P2b adds `io.planar`.
+- A single-plane image (Z = 1) in a recipe without `io.planar` still runs through the 3D path, with the
+  1 um voxel guess and the `voxel:UNREADABLE_assumed_isotropic_1um` flag when the file has no z step, exactly
+  as before. `io.planar` (next section) makes it a single-plane run.
+
+## Single-plane runs
+
+An image with one plane (a field of cultured cells, a tissue section imaged once) is a 2D image: its objects
+have an area, not a volume, and its spots have no depth. A single-plane run treats it so, from the read to the
+written images. Every key below is read with a code default that keeps today's behaviour, so the shipped config
+files never carry them and their config hashes do not move.
+
+### Switching it on
+
+| key | values | code default | meaning |
+|---|---|---|---|
+| `io.planar` | `false`, `auto`, `true` | `false` | `auto`: a single-plane run when the image has one plane (below); `true`: a single-plane run, and an image with more than one plane is refused |
+| `io.voxel_size_um` | null, a number, `[dy, dx]` or `[dz, dy, dx]` | null | the file's own pixel size in micrometres, before `--xy-stride`, for a file that carries no calibration or a wrong one; it applies to every run kind (below) |
+
+`config/profiles/generic_2d.yaml` is the ready-made recipe. It extends `generic.yaml` (the generic channel map,
+the C. elegans stages off; `docs/GENERIC_PROFILE.md`) with `io.planar: auto`, `segmentation.nuclei.min_area_um2:
+20.0`, `spots.merge_z_columns: false`, the granule and coloc stages off and a filename regex that matches nothing
+(the design columns then read `unknown`; a study profile sets its own regex). Its `io.input_suffixes` lists the
+formats a single plane usually comes in; `germquant batch` reads that key from tranche 5 package P5 on, so until
+then a batch with this profile finds `.nd2` files only and other formats run one at a time with `germquant run`.
+
+Windows:
+```
+.venv\Scripts\germquant.exe info "C:\path\to\YOUR_IMAGE.ome.tif"
+.venv\Scripts\germquant.exe run "C:\path\to\YOUR_IMAGE.ome.tif" --profile generic_2d --out "C:\path\to\RESULTS_FOLDER"
+```
+Mac / Linux:
+```
+.venv/bin/germquant info /path/to/YOUR_IMAGE.ome.tif
+.venv/bin/germquant run /path/to/YOUR_IMAGE.ome.tif --profile generic_2d --out /path/to/RESULTS_FOLDER
+```
+
+`germquant info` prints a line `planes : single plane, ...` for an image whose header has one plane (no Z axis,
+or a Z of 1), with the xy calibration it found in the file, or says that it found none.
+
+### When a run is a single-plane run
+
+- `io.planar: false`, the default: never. A one-plane image runs through the 3D path as it always has (see
+  "The legacy golden" below).
+- `auto`: when the header has one plane (no Z axis, or a Z of 1) and the stack read has one plane. A 3D file cut
+  to one plane with `--z-range` is still a 3D file, so it stays a 3D run. Any other image runs through the 3D
+  path, so one recipe serves a folder of planes and stacks.
+- `true`: always, and the stack read must have one plane. More than one plane stops the run before any stage
+  runs and before any file is written, with a message that names `--z-range` (read one plane) and
+  `segmentation.nuclei.project` (segment a projection of the stack instead, with `io.planar` false or auto).
+
+The header test does not use the header's `is_2d`, which means "no Z axis" for an `.nd2` and "Z is 1" for the
+other formats.
+
+### The pixel size
+
+dy and dx come from the first of these that exists:
+
+1. `io.voxel_size_um`, multiplied by `--xy-stride` (`spacing_source` "override");
+2. the xy calibration a one-plane file carries itself (`spacing_source` "file_yx"). An OME-TIFF without a z step
+   reports only PhysicalSizeX and PhysicalSizeY; the 3D reader cannot use that and takes the 1 um guess, a
+   single-plane run uses it;
+3. the voxel size the reader found, when it found one (an `.nd2` plane; `spacing_source` "file");
+4. 1 um per pixel, times the stride, with the flag `voxel:UNREADABLE_xy_assumed_1um` (`spacing_source`
+   "assumed").
+
+A TIFF whose resolution unit is "none" (what tifffile writes without a calibration) or an ImageJ TIFF in pixels
+counts as uncalibrated. A TIFF from an image editor, at 72 dots per inch, carries a screen resolution rather than
+a pixel size: set `io.voxel_size_um` for such files, and check the `germquant info` line first.
+
+The file's z step plays no part in a single-plane run: its tables are identical for a file dz of 0.2 and of 5.0
+(tested, gate G10). The tables write `voxel_dz_um` as NaN. Array code receives a z spacing of 1.0
+(`planar.PLANAR_DZ`), a placeholder that reaches only code whose result does not depend on dz for one plane.
+
+`io.voxel_size_um` applies to 3D and projected runs as well (decision D6 of the Train B plan). A number or
+`[dy, dx]` sets the xy pixel size and keeps the file's dz; `[dz, dy, dx]` sets all three (a dz has no use in a
+single-plane run). Every run that sets the key raises `voxel:override`, plus `voxel:override_differs_from_file`
+when the file's own calibration of an axis the key sets is more than 1 percent away, and records
+`spacing_source` "override". When a 3D run's dz is still the 1 um guess (an override without dz, on a file
+without a voxel size), the run also keeps today's flag `voxel:UNREADABLE_assumed_isotropic_1um`.
+
+### What happens, stage by stage
+
+1. Read: the decision and the pixel size above, and the refusals below, before any stage runs.
+2. Segment: the plane is segmented by the 2D segmentation that projected runs use (`segment_planar`: Cellpose's
+   2D call, or the classical watershed), objects below `segmentation.nuclei.min_area_um2` are dropped and the
+   labels are renumbered 1, 2, 3, and so on. `segmentation.nuclei.min_volume_um3` does not apply. A
+   `segmentation.nuclei.project` setting is ignored, because one plane needs no projection, and the run raises
+   `segment:project_ignored_planar` (decision D7; an unknown mode is still refused).
+3. Measure: as in 3D, then `volume_um3` is left empty (NA), `centroid_z_um` is 0.0, and `area_um2` (the pixel
+   count times dy times dx) and `equivalent_diameter_um` (the diameter of the circle of that area) follow the
+   declared nuclei columns. `n_voxels` is the pixel count.
+4. Spots: SpotMAX runs on the plane (`docs/BACKENDS.md`): radii (`PLANAR_RZ_PX`, r / dy, r / dx), the Gaussian
+   sigma over the smaller of dy and dx, and no z-split merge. Every `z_um` is 0.0. When the recipe asks for the
+   merge (`spots.merge_z_columns: true`, as `config.yaml` sets it), the flag `spots:z_merge_off_planar` (or
+   `spots_<name>:z_merge_off_planar` for a spot instance) says that it did not run. Only `spotmax` can detect
+   spots on one plane.
+5. Write: `<image_id>__nuclei_labels.tif` is an int32 OME-TIFF with axes YX and PhysicalSizeX and Y only (no Z),
+   `<image_id>__spots.tif` a YX image with a disk at each spot, and masks are YX too. The two 2D columns appear
+   in the nuclei table only.
+6. Render: the montage as for any run, with the run's own dy for the scale bar.
+
+### What a single-plane run records
+
+Only a single-plane run records these; a run without the key records none of them.
+
+- The flag `read:planar`, and `voxel:UNREADABLE_xy_assumed_1um` or `voxel:override` (with
+  `voxel:override_differs_from_file`) as above.
+- `voxel_dz_um` NaN in every table.
+- In `run_manifest.json` and `<image_id>__stages.json`: `planar: true` and `spacing_source`.
+- `"planar": true` in the read, segment, measure and spots stage sub-hashes, and the done-marker extra
+  `{"planar": true}`. `germquant batch --resume` computes the planar segment hash once per batch and compares a
+  single-plane marker with it, so a finished image is skipped and an edited recipe reprocesses it. A caller that
+  gives only the 3D segment hash (the time-lapse loop, an outside caller of `is_done`) reprocesses a single-plane
+  image, with the reason "planar flag", rather than skip it unchecked (decision D8).
+
+### Refusals
+
+A single-plane run stops right after the read, before any pixel is processed and before any file is written,
+with a `PlanarConfigError` that lists every problem:
+
+- `io.planar: true` on an image with more than one plane (above);
+- everything a projected run refuses (a 3D-only stage switched on with its channel roles bound, a segmentation
+  backend without `planar_ok` such as `nuclei3d`);
+- a spot backend without `planar_ok`, for the main spots instance and for every `spots.instances` entry whose
+  role is bound: `log` and `net3d` cannot run on one plane;
+- a malformed `io.planar` or `io.voxel_size_um` (a quoted `"true"` is text, not a boolean), as for the recipe
+  keys below.
+
+### Time series
+
+Single-plane time series are refused in this release (decision D9; design section 4.13 allows a refusal). With
+`io.planar: true`, or `auto` on an image whose header has one plane, `germquant run IMAGE --t ...` exits with code
+2 before any timepoint, `api.run(..., t=...)` raises `PlanarConfigError` before any file is written, and
+`process_series` records every timepoint as failed, each with this message:
+
+> single-plane time series are refused in this release: io.planar is true, or auto on an image with one plane,
+> and timepoints were asked for (--t, or t=). Run the series with io.planar false, which processes each
+> timepoint as a stack of one plane, as before; or save the timepoints as separate single-plane images and run
+> those (docs/PLANAR.md, 'Time series')
+
+### The z radius SpotMAX gets on one plane
+
+PLANAR_RZ_PX_TABLE
+
+### The legacy golden
+
+`tests/golden/single_plane_legacy/` records what the tranche 5 base commit's code (8eb73de) writes for the
+calibrated plane of `tests/planar_helpers.py`, written as an OME-TIFF CYX (no z step) and as an OME-TIFF CZYX
+with Z = 1 (with a z step), under `generic_2d.yaml` with `io.planar` false: every table, for each form. It was
+made on that commit's code before any single-plane code existed, so `tests/test_planar_bioio.py` compares the new
+code with the old one, not with itself: with `io.planar` false the same files give the same tables cell for
+cell. The CYX file keeps the 1 um guess and its flag; the CZYX file, which has a z step, runs as a calibrated
+stack of one plane. To make it again (only for a deliberate change, with a detached worktree of the base commit
+at BASE): from this checkout, `GERMQUANT_UPDATE_GOLDEN=1 PYTHONPATH=BASE/src python -m pytest
+tests/test_planar_bioio.py -k legacy`. The update refuses to run on code that has `planar.decide`.
+
+### Limits
+
+- A single-plane run has no time series (above) and no 3D-only stage: germline, axis, envelope, audit,
+  staging, sc_trace, granule, coloc, partition and granule_tail need the third dimension or worm biology.
+- The classical watershed smooths with a Gaussian of sigma 0.4 um before its threshold, which moves an object's
+  edge outward on fine pixels. At the 0.8 um pixel of the synthetic golden it recovers every planted disk
+  exactly; a check on the same kind of flat disks (radius 4 to 6 um) gave areas 7 to 22 percent too large at
+  pixels of 0.325 to 0.65 um. It is a baseline, as in 3D; Cellpose's 2D call does not share this rule.
 
 ## Segmentation backends and 2D objects
 
@@ -215,3 +377,13 @@ check a typo would silently swap Cellpose masks for watershed masks.
   shipped config sets one) and `tests/test_projected_run.py`, which runs a synthetic yeast-like stack
   through a projected recipe (`tests/fixtures/planar/projected_yeast_like.yaml`) and compares it with the
   golden in `tests/golden/synthetic_projected/`.
+- A recipe without `io.planar` and `io.voxel_size_um` reads, segments, measures, counts and writes a
+  one-plane image exactly as before: `tests/test_planar_bioio.py` compares that run with the legacy golden
+  made on the base commit's code, and the fence pins the legacy single-plane rule.
+- Single-plane tests: `tests/test_planar_single.py` (the decision, the pixel size, the override, the recipe
+  keys, resume's safe default, `germquant info`, the readers), `tests/test_planar_run.py` (the synthetic_2d
+  golden in `tests/golden/synthetic_2d/`, whose sentinel is generic_2d.yaml's own hash, dz invariance, the YX
+  writers, the refusals, the stage hashes and `batch --resume`), `tests/test_planar_bioio.py` (real one-plane
+  OME-TIFFs through bioio, and the legacy golden), `tests/test_planar_series.py` (time series refused) and
+  `tests/test_planar_spots.py` (SpotMAX on one plane, the `PLANAR_RZ_PX` table). The test images come from
+  `tests/planar_helpers.py`.
