@@ -46,6 +46,10 @@ post_stages:
       - {key: radius_um, type: float, unit: um, min: 0.1, max: 5.0, default: 1.0, label: "Shell width"}
 ```
 
+The `version` is what resume trusts: a post-stage's sub-hash covers its version, never its code. A code change
+that can change the numbers needs a new version (or a call with `resume=False`); otherwise, with an editable
+install for example, an edit to the function reruns nothing on folders it has already done.
+
 `reads` (every key optional):
 
 | key | meaning |
@@ -103,8 +107,8 @@ without `labels: true`) raises an error, which fails that post-stage.
 
 The function returns one DataFrame per declared table, with exactly the declared columns (any order; they are
 written in the declared order). germquant writes the files; the function must not write into the results folder
-itself, nor into a subfolder of it. It should import numpy, pandas or anything heavy inside the function, not at the top of its module, so
-that importing the package stays cheap.
+itself, nor into a subfolder of it. It should import numpy, pandas or anything heavy inside the function, not at
+the top of its module, so that importing the package stays cheap.
 
 ## Switching post-stages on: post_stages.yaml
 
@@ -125,9 +129,10 @@ completion marker, so it reruns neither the image nor anything but the post-stag
 The file is checked against the post-stages installed in the environment that runs: each entry must name a
 usable post-stage, list it once, and give only declared parameters, each of its declared type and inside its
 range. Two post-stages whose tables would share a file name are refused together: `a` writing table `b_c` and
-`a_b` writing table `c` would both write `<image_id>__post_a_b_c.csv`. Write it with germquant, which checks it first and writes it in one canonical form (ASCII, with YAML
-escapes for any other character; LF line endings; the parameter keys sorted; float parameters as floats; an
-atomic replace). From Python, the same line works in PowerShell, cmd, bash and zsh:
+`a_b` writing table `c` would both write `<image_id>__post_a_b_c.csv`, so switch on only one of them. Write the
+file with germquant, which checks it first and writes it in one canonical form (ASCII, with YAML escapes for any
+other character; LF line endings; the parameter keys sorted; float parameters as floats; an atomic replace).
+From Python, the same line works in PowerShell, cmd, bash and zsh:
 
 ```
 python -c "from germquant.post_stages import write_post_stages_file; write_post_stages_file('post_stages.yaml', [{'name': 'ring_intensity', 'params': {'radius_um': 0.8}}])"
@@ -261,7 +266,7 @@ build-backend = "setuptools.build_meta"
 name = "germquant-ring-intensity"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["germquant", "numpy", "pandas", "scipy"]
+dependencies = ["numpy", "pandas", "scipy"]
 
 [project.entry-points."germquant.post_stages"]
 ring_intensity = "germquant_ring_intensity:measure"
@@ -272,6 +277,10 @@ where = ["src"]
 [tool.setuptools.package-data]
 germquant_ring_intensity = ["germquant_post_stage.yaml"]
 ```
+
+germquant is not among the dependencies: it is not on PyPI, so pip could only fetch someone else's package of
+that name. Install the post-stage into the environment that already runs germquant (below); the function never
+imports germquant anyway.
 
 `src/germquant_ring_intensity/germquant_post_stage.yaml`: the declaration shown above, under "The declaration
 file".
@@ -370,12 +379,12 @@ engine's and the plugin's tests both use that one helper.
 
 | name | what it does |
 |---|---|
-| `germquant.post_stages.list_post_stages(include_unusable=False)` | the usable post-stages, from metadata: name, version, dist, title, reads, writes, params, source |
+| `germquant.post_stages.list_post_stages(*, include_unusable=False)` | the usable post-stages, from metadata: name, version, dist, title, reads, writes, params, source |
 | `load_post_stages_file(path)` | the entries of a `post_stages.yaml` (ValueError for a malformed file) |
 | `validate_post_stages(entries, declarations=None)` | every problem, against this environment's post-stages or the given declarations |
-| `write_post_stages_file(path, entries, declarations=None)` | check, then write the canonical file |
+| `write_post_stages_file(path, entries, *, declarations=None)` | check, then write the canonical file |
 | `post_stages_sha256(path or entries)` | the digest that enters the sub-hashes |
-| `run_post_stages(out_dir, image_id, entries, cfg=, image_path=, stack=None, resume=True)` | run them on a finished results folder |
-| `register_post_stage(name, fn, declaration, replace=False)`, `unregister_post_stage(name)` | in-process registration |
+| `run_post_stages(out_dir, image_id, entries, *, cfg, image_path, stack=None, resume=True)` | run them on a finished results folder |
+| `register_post_stage(name, fn, declaration, *, replace=False)`, `unregister_post_stage(name)` | in-process registration |
 | `read_post_record(out_dir, image_id)`, `post_table_name(image_id, name, table)` | the record and the table file names |
 | `python -m germquant.post_stages list [--json] [--all]`, `write DIR --entries JSON [--json]` | the torch-free command line |
