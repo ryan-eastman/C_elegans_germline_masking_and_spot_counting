@@ -678,6 +678,9 @@ texture, one frame per timepoint.
 | `timelapse.register.piecewise_segments` | 4 | register `--mode piecewise` (`--segments`) |
 | `timelapse.register.piecewise_margin_um` | 6.0 | register `--mode piecewise` (`--margin-um`) |
 | `timelapse.register.piecewise_taper` | 0.25 | register `--mode piecewise` (`--taper`) |
+| `timelapse.register.piecewise_seed` | `none` | register `--mode piecewise` (`--seed none\|rigid`; "Seeding the piecewise registration") |
+| `timelapse.register.piecewise_axis_guard` | false | register `--mode piecewise` (`--axis-guard`; "The folded-axis guard") |
+| `timelapse.register.piecewise_axis_fold_ratio` | 4.0 | register `--mode piecewise`: the guard's threshold on the spread ratio |
 
 A command line flag wins over the key; the key wins over the code default. No shipped config file names
 any of them, so every config hash is unchanged.
@@ -1038,6 +1041,13 @@ step when capped, cumulative, brightfield step and cumulative, disagreement, qua
 lists of capped and disagreeing timepoints, the errors, the median quality before and after, the largest
 step, the cumulative shift at the last timepoint, and the rigid fits when asked for.
 
+With `--max-step-at` or `--prior stage` ("Per-gap caps and the acquisition record" below) the table gains, after
+the declared columns, `cap_um` (the cap of the gap into that timepoint; empty for no cap) and `cap_source`
+(`max_step_at`, `prior:stage` or `max_step_um`) and, with the prior, `stage_dx_um`, `stage_dy_um`, `stage_dz_um`,
+`refocus_pauses`, `stack_overlap_um` and `prior_flags`; the report gains `parameters.max_step_at` and
+`parameters.prior` (only the ones given), a top-level `prior` block and the cap and gap prior of each `steps`
+entry. Without them the table and the report are exactly what they were.
+
 The quality numbers are a sanity check, not a loss: after a good registration what remains is the real flow
 of the nuclei plus segmentation jitter, so `quality_after_um` should drop well below `quality_before_um` and
 stay well under the nearest-neighbour spacing (3.3 to 4.7 um in the goldens). On the lab series the flow
@@ -1120,7 +1130,10 @@ parameters, the segments, the per-step and per-segment summaries, the capped, di
 steps, the errors, the quality medians per segment and the cumulative displacement at the last timepoint. The
 rigid `<stem>__register_shifts.csv` is not touched; `track-link --registration piecewise` reads the piecewise
 table (`load_piecewise`), rebuilding the fixed axis from the origin's nuclei table exactly as the registration
-built it.
+built it. The opt-in options of the next three sections append their own columns after the declared ones, only
+when given: `cap_um`, `cap_source` and the gap prior's columns (`--max-step-at`, `--prior stage`, `--seed`; the
+same on every segment row of a gap), the seed's columns (`--seed rigid`) and `axis_source` with the PC1 axis
+columns (`--axis-guard`).
 
 What the registered frame means here: it follows the germline itself, segment by segment. Linking in it sees
 nearly stationary nuclei, which is the point, but the tracks' speeds and `axis_velocity_um_per_min` are then the
@@ -1147,6 +1160,200 @@ writes the finer ones next to them (one read-back per timepoint, no stage runs),
 `timelapse.reference_stride: 8` to keep using the old ones. The second limit: the brightfield cross-check is not a test of a sliding segment, because the gonad has texture
 in transmitted light too: on the fine volumes of the stride-2 run the brightfield crops over the two sliding
 proximal segments moved 67 to 93 percent as far as the GFP crops while the whole-field brightfield stayed put.
+
+### Per-gap caps and the acquisition record (`--max-step-at`, `--prior stage`)
+
+```
+germquant register results/SERIES --max-step-um 15 --prior stage
+germquant register results/SERIES --max-step-at 6=40 [--max-step-at 9=45]
+germquant register results/SERIES --prior stage --nd2 D:/live_local/kate/MOVIE.nd2
+```
+
+Why. Kate Walsh's heat-shock movies (`C:/Users/ryane/live_results/kate_movies/KATE_FIRST_LOOK.md`, sections 4 and 5)
+have three hand re-centrings of the stage, 19.9 to 36.9 um (20261008 into t8, 20261013 herm into t9, 20261020 into
+t6), and crawls, whole-field GFP moves of 6 to 16 um between frames. The cap is a clip after the estimate: the
+full-field correlation finds every re-centring within 0.13 to 0.86 um of the motion forensics once the cap lets it
+through, but the 5 um default shortens it, so the runs set `--max-step-um 40` or 45 for the whole movie and gave up
+the cap everywhere else. Refocusing is recorded in the file before any pixel is read.
+
+The record. `germquant.io.nd2_stage.read_stage_record` reads from the nd2's metadata, without a pixel, per
+timepoint of position 0 (the one `read_stack` reads): the first frame's time stamp, the median stage X and Y, the Z
+Coord of the stack's first and last frame and the median Ti2 ZDrive (empty without that tag), the z stack's
+geometry, and the events, each placed after the last timepoint that started before it. The per-frame X, Y and Z
+columns are not in nd2's public API (0.11.3: `events()` zips the per-frame columns down to a one-value exposure tag
+on these files, and `frame_metadata(i)` reports one position for every frame); they come from the reader's
+`_custom_tags()`, the one private call, and a version without it, or a file without the X, Y or Z column, is refused
+(`StageRecordUnavailable`, naming the nd2 version). On the six shown movies the record equals the per-timepoint
+tables of the Kate work's metadata reader within their 4-decimal rounding, events included (the six records took
+2.5 s).
+
+`--prior stage` keeps the record next to the series record as `<stem>__stage_record.json`
+(`"format": "germquant.stage_record/1"`): the source, the stack, the series' own timepoints only and the events
+between its first and last timepoint (a part folder gets its own; the 20261022 t25 to t36 folder holds nothing of t0
+to t24). It is found in this order: `--nd2 PATH`; else the series record's `file_path` when it is an .nd2 that
+exists (both read and written as the record file); else an existing `<stem>__stage_record.json` (a folder moved
+without its nd2, the simulator); else the command exits 1 saying which to give. An nd2 whose timepoint count differs
+from the series record's is refused: it is not the movie the series was run from. The record is read at `register`
+time, not at `run` time: a run-time key would change the config hash, and `--resume` would then segment every
+timepoint again.
+
+The prior of a gap, between two registrable timepoints (not always consecutive): the stage xy step in stage
+coordinates (never mapped to image axes: at the three re-centrings the image moved 0.85 to 0.91 times the recorded
+step, 1.8 to 5.5 degrees off (dy, dx) = (-stage y, +stage x), a scope fact the prior does not need), the move of the
+stack's centre in Z Coord, the depth both stacks share (within the run's `z_range`), the refocus pauses (events whose
+description holds "Refocus") and the stack depth.
+
+The cap of the gap into timepoint T is, in this order:
+
+1. `--max-step-at T=UM` (repeatable; 0 = no cap at that gap), source `max_step_at`. A T that is not a registrable
+   timepoint of the series after the first one is an error, not a silent no-op.
+2. With `--prior stage`: `--max-step-um` plus the stage xy step when it is 1.0 um or more (between frames without a
+   re-centring the shown stage moved at most 0.95 um) plus the stack z step when it is 0.5 um or more (every ZDrive
+   step of that size falls in a paused gap), source `prior:stage`. A seeded piecewise step leaves the stage xy term
+   out (the seed carries the move). A base of 0 stays "no cap".
+3. Otherwise `--max-step-um`, source `max_step_um`.
+
+The cap is still a clip on the 3D length with the direction kept. Over the 125 shown gaps, with the steps of the
+report's rigid GFP registration A:
+
+| cap rule | gaps capped |
+|---|---|
+| `--max-step-um 5` (the default), no prior | 21, the three re-centrings among them |
+| `--max-step-um 5 --prior stage` | 12, all crawl or refocus gaps (largest 16.1 um, 20261013 herm t5 to t6); no re-centring |
+| `--max-step-um 10 --prior stage` | 3 crawls (20261020 t3 to t4, 20261013 herm t4 to t5, 20261008 t4 to t5) |
+| `--max-step-um 15 --prior stage` | none |
+| `--max-step-um 15` or 20, no prior | 4 or 2 |
+
+So for these movies `--max-step-um 15 --prior stage` (or 20 for margin): the crawls, which the record cannot see,
+set the base. With it every rigid step of the seven shown base folders equals the report's A table bit for bit,
+nothing is capped, and the cap is raised exactly at the 64 gaps with a recorded stage move or stack z step.
+
+The flags, in `prior_flags` (";"-joined) and the report's `prior` block, are advisory: nothing is changed by one.
+
+* `z_beyond_record`: the estimate's |dz| (before the cap; for the piecewise registration any segment's) is more
+  than 2.5 um above the record's |dz|. On the 125 shown gaps it marks exactly three, all failures of the report's
+  check, by 3.61, 3.79 and 2.81 um: 20261013 herm001 t12 to t13 (a sample move at the z wrap with no refocus),
+  20261022 t34 to t35 (the dim frame) and 20261008 t0 to t1 (where the forensics' two z estimators disagree). At the
+  102 gaps that pass the check the estimate exceeds the record's |dz| by at most 1.87 um (20261020 t6 to t7); a
+  threshold of 2.0 um marks the same three gaps, 3.0 um only the first two.
+* `no_shared_depth`: the two stacks share no depth (20261022 t24 to t25; not inside any shown series).
+* `stage_step_mismatch` (rigid only): at a recorded stage move the estimate's xy length differs from the stage step's
+  by more than the base cap (5 um when the base is 0); the three re-centrings differ by 2.5 to 4.5 um.
+* `no_record`: the record lacks one of the gap's timepoints; that gap keeps the base cap.
+
+The unseeded piecewise registration with the prior also warns, in the report and on the console, at a gap whose
+stage move is larger than `--margin-um`: its crops cannot follow it (use `--seed rigid`).
+
+No z seed. The record bounds z and flags it; it does not seed it. At the 63 shown gaps with a ZDrive step of 0.5 um
+or more the image z step over the ZDrive step has a median of -0.22 and ranges from -9.6 to +0.8 (Kate refocuses to
+follow the sample), so a z search centred on a fraction of the focus step would move 20261013 herm t5 to t6 out of
+the window (-1.66 um would read +10.54) and bring no true value into it, and the one real z failure (20261013
+herm001 t12 to t13) had no focus move to centre on.
+
+### Seeding the piecewise registration (`--seed rigid`)
+
+```
+germquant register results/SERIES --max-step-um 15 --prior stage            # the rigid table: the seed
+germquant register results/SERIES --mode piecewise --seed rigid --max-step-um 10 [--prior stage] [--axis-guard]
+germquant register results/SERIES --mode piecewise --seed rigid --seed-table OTHER__register_shifts.csv
+```
+
+Why. The piecewise registration cuts the same crop box out of both volumes, the segment's extent widened by
+`--margin-um`, so content that moved further than the margin is not in the moving crop: it cannot cross a stage
+re-centring, and the Kate runs registered the parts between re-centrings separately.
+
+What `--seed rigid` (key `timelapse.register.piecewise_seed`, code default none) does, per gap from timepoint a to b:
+
+1. The seed is the rigid step of that gap, cum(b) minus cum(a) of `<stem>__register_shifts.csv` (or of
+   `--seed-table`, any rigid table): the difference of cumulative shifts works for either `--reference` and for gaps
+   across error rows. No table is an error naming `germquant register`; a gap whose two timepoints are not both in
+   the table is unseeded (`seed_source` "none: no rigid step for tNNN", `cap_basis` "step").
+2. The moving crop follows the seed: the seed's y and x are rounded to whole reference voxels (`seed_shift_y_vox`,
+   `seed_shift_x_vox`), the reference box is main's, clipped so that the moved box stays inside the volume, and the
+   estimate is the correlation of the reference crop with the moved crop plus that offset. The rounding, at most half
+   a voxel, stays in the residual. z is not seeded: every plane and the circular z estimate stay.
+3. The cap applies to the departure from the seed, estimate minus (0, seed y, seed x); when the departure is capped
+   the step is the seed plus the capped departure, otherwise the step is the estimate itself. With `--prior stage`
+   only the recorded z move is added to a seeded gap's cap.
+4. The brightfield cross-check uses the same moving box. A seed below half a voxel moves no crop: there the estimate
+   is the unseeded one exactly (tested), which is why every gap is seeded and not only the large moves.
+
+The table gains `seed_dz_um`, `seed_dy_um`, `seed_dx_um` (the rigid step; z recorded, never applied),
+`seed_shift_y_vox`, `seed_shift_x_vox`, `mov_crop_y0` to `mov_crop_x1` (the moving box; the declared `crop_*` stay
+the reference box), `seed_source`, `cap_basis` ("departure"), and `cap_um` and `cap_source`; the report a `seed` block
+(the table, its sha256, its own report's parameters, the seeded and unseeded gaps) and `seed_um`, `departure_um` and
+`mov_crop_yx` per segment step.
+
+On the shown series (`C:/Users/ryane/regpriors_work/eval/`; laptrack 3.0 um, gap 2; the segment steps against the
+nearest of the five forensics windows along the gonad):
+
+| movie | registration | segment steps within 1 um of their window | full-length tracks | continuing at the gaps that matter |
+|---|---|---|---|---|
+| 20261020 s2, t0 to t24 | unseeded, cap 40 (what main can do) | 95 of 96 (one 20.5 um off at the re-centring) | 433 | re-centring t5 to t6: 0.784 |
+| 20261020 s2, t0 to t24 | `--seed rigid`, cap 10 | 95 of 96 (worst 1.10 um) | 525 (rigid A 426) | crawl 0.970 and 0.973, re-centring 0.967, t6 to t7 0.824 (A 0.934, 0.789, 0.965, 0.820) |
+| 20261013 herm, t0 to t24 | `--seed rigid`, cap 10 | 95 of 96 | 95 (A 76) | t3 to t6: 0.908, 0.899, 0.984 (the report's part at cap 10: 0.908, 0.587, 0.667); re-centring 0.943 |
+| 20261013 herm001, t0 to t24 | unseeded / seeded, cap 10 | 84 / 92 of 96 | 0 / 0 | crawls t0 to t1 0.496 / 0.538, t6 to t7 0.810 / 0.834; t12 to t13 0.000 (the z wrap) |
+| 20261008, t0 to t24 | `--seed rigid`, cap 10 | 84 of 96 (2 capped) | 154 (A 123) | t0 to t1 0.718, t1 to t2 0.641; re-centring 0.989 |
+| 20261008, t0 to t24 | the same with `--prior stage` | 84 of 96 (1 capped) | 194 | t1 to t2 0.785 (its 3.3 um refocus raises that gap's cap) |
+| 20261008, t0 to t7 | `--seed-table` of a `--taper 0.25` rigid table | 19 of 28 (27 within 2 um) | 211 of 573 tracks (the part at cap 10: 124 of 725) | t1 to t2 0.817 (A 0.692, the part 0.651) |
+| 20261022 t25 to t36, 20260917 | unseeded and seeded | 39 of 44; 72 of 72 | 22; 1 | unchanged |
+
+On a re-centring scenario of the tracker simulator (`C:/Users/ryane/regpriors_work/sim/recentre_sim.py`, on
+`C:/Users/ryane/trackers_work/sim/`: its `nohs_like` motion plus crawls of 9.9 and 7.6 um into t4 and t5 with a 1.5
+um gradient along the gonad, a 27.2 um re-centring into t6 and its acquisition record; scored against the true
+identities, means of three seeds) the seeded registration links every nucleus across the re-centring and is as good
+as the simulator's own tissue displacement used as the registration: 17 identity switches and 0.766 of the lives
+tracked whole (the tissue displacement: 21 and 0.774), against 143 and 0.617 unseeded at cap 40, 217 and 0.147
+unseeded at cap 10 (its step into t6 capped), 122 and 0.545 rigid at cap 40 or at cap 15 with the prior, and 615 and
+0.082 rigid at the default cap of 5 um (`regpriors_work/sim/data/recentre_crawl/e5_scores.csv`).
+
+A limit, measured: the segments stay the origin's. Tissue that comes into the field after a re-centring lies beyond
+the outermost segment centre and takes that segment's displacement. On 20261020 at t6 to t7 the 222 nuclei at x below
+30 um (a cluster at the left field edge that joins the gonad after the re-centring) continue 0.568 under the seeded
+registration, against 0.919 under the report's part t6 to t24 whose origin is t6; the nuclei at x of 60 um or more
+continue 0.933 under both. So use one seeded registration to keep tracks across a re-centring, and still start a part
+at the re-centring to track the tissue that enters there; both are cheap.
+
+### The folded-axis guard (`--axis-guard`)
+
+```
+germquant register results/SERIES --mode piecewise --axis-guard [--seed rigid]
+```
+
+Why. The segments are placed on the origin's axis, and when the axis stage folded the origin's axis (two limbs side
+by side, as at 20261020 t0 at xy stride 4), equal-count segments put spatially distant nuclei into one segment: there
+the t0 to t5 segment steps were up to 2.60 um off their forensics windows.
+
+The measure (the spread ratio): for each of the origin's K equal-count segments, the 5th to 95th percentile range of
+its nuclei's projection on the first principal direction of the origin's germline yx centroids, over the segment's
+axis span; the guard takes the largest. A sound axis, straight or curved, reads about 1 (a segment on a bend spreads
+less along the global direction than along the axis); a fold or a collapsed stretch reads high. With `--axis-guard`
+(key `timelapse.register.piecewise_axis_guard`, code default off) a ratio above
+`timelapse.register.piecewise_axis_fold_ratio` (code default 4) replaces the axis by PC1, the straight principal axis
+of the origin's germline yx centroids. Its sign makes the Spearman correlation with `axis_position_um` non-negative
+where the origin has five or more positions (so segment 0 sits as near the axis stage's distal end as the fold
+allows), else the SVD's sign is kept, and it is zeroed at the smallest origin value. A default axis whose positions
+do not split into K segments at all counts as folded.
+
+Storage. The table gains `axis_source` on every row ("pc1", or the default axis's source when the guard did not trip)
+and, for PC1, its direction, centre and offset (`axis_pc1_vy`, `axis_pc1_vx`, `axis_pc1_cy_um`, `axis_pc1_cx_um`,
+`axis_pc1_offset_um`); `load_piecewise`, so `track-link --registration piecewise`, builds the same function from
+those columns (no refit). A table without `axis_source` is read exactly as before. The report gains
+`parameters.axis_guard` and an `axis_guard` block: the threshold, the ratio per segment and the largest, whether it
+tripped, the axis used, PC1's numbers and the segment spans before and after.
+
+Evidence, over the 156 shown timepoints: the ratio is above 4 at five, 39.6 (20261020 s4 t0, the fold), 17.9
+(20261013 herm t2), 5.95 and 5.10 (20261013 herm t22 and t21) and 4.96 (20261013 herm t0); every other timepoint
+reads 0.85 to 3.42. Among the origins of the report's parts the guard trips at 20261020 s4 t0 and 20261013 herm t0
+only.
+
+* 20261020 s4, t0 to t5 (unseeded, cap 15): with PC1, 20 of 20 segment steps within 1 um of their windows instead of
+  14, the largest error 0.87 um instead of 2.60, 573 full-length tracks instead of 562. Over the whole movie with
+  `--seed rigid`: 96 of 96, 493 full-length tracks (A 406).
+* 20261013 herm t0 trips at 4.96 and costs nothing: 95 of 96 segment steps within 1 um either way, 94 full-length
+  tracks against 95.
+* The test gonad of test_timelapse_piecewise with its axis turned back at the middle reads 7.4 (a threshold of 8
+  would miss it); its straight axis reads 0.9.
 
 ### Tests
 
@@ -1181,6 +1388,26 @@ options it refuses, the segment count from the series' run_manifest.json and fro
 `--registration piecewise` without the table exits 1, the default stays rigid); the missing-volume and
 too-few-nuclei errors; and that `register_piecewise` is appended last to `schema.SERIES_TABLES`.
 
+tests/test_timelapse_priors.py covers the registration priors. The reader runs against a fake ND2File (a 3 T x 2 P x
+4 Z movie with a stage move into t2 and a refocus pause in the gap t0 to t1): only position 0 is read, the medians
+and the first and last Z per timepoint, the events placed after their timepoint, an empty ZDrive without the tag, and
+the refusals (no X column, a short one, no `_custom_tags`) naming the nd2 version; the record file's round trip, its
+series-only timepoints and events, and the precedence of `--nd2`, the series record's nd2 and the record file. The
+gap prior across an error row and within a `z_range`, the 1.0 and 0.5 um floors and the flags. The rigid caps on the
+1.62 um jump of test_timelapse_register: uncapped at 1.0 + 1.6 um where the record says the stage moved 1.6 um while
+every other gap keeps 1.0, `--max-step-at 3=0`, the refusals, the three flags on planted cases (a 3 um z jump with no
+recorded focus step, a recorded focus step deeper than the stack, a recorded stage move with no image move), and
+without a new option main's columns and report keys. The seed on a 240 um wide copy of the piecewise gonad with a
+whole-field move of (0, +8, +30) um into t2 that the brightfield shares: unseeded the four segment steps at t2 are
+19.6 to 34.4 um off; seeded every step is the planted move plus the shear within 0.3 um and laptrack links all 60
+nuclei full length with no wrong link; seeds below half a voxel reproduce the unseeded table exactly; the departure
+cap clips only the departure; `--seed-table`, a missing table and a missing row; the prior's caps and its margin
+warning. The guard on the piecewise gonad with its origin axis turned back at the middle: off, the segments pair the
+limbs and the displacement is 2.9 to 10.4 um off the flow; on, PC1 is used, the steps follow the shear within 0.3
+um and track-link's registered coordinates give the table's own quality numbers; on the straight gonad it does not
+trip and the table is the unguarded one exactly. The command line: the flags reach the functions, the refusals exit
+1, and without a new flag every new keyword is None.
+
 ## What stays unchanged
 
 The fixed-image path is byte-identical: `process_image` without `t` makes the same reader call, the
@@ -1188,3 +1415,13 @@ same image id, the same tables and the same marker keys as before; `tests/test_g
 synthetic goldens unchanged, and `config/config.yaml`, the study configs and the channel maps are not
 edited. Every new key is read with a code default; the new schema entries are appended, not inserted.
 `segmentation.nuclei.channel` is read with the code default `dna`, the value every shipped config carries.
+
+The registration priors (`--max-step-at`, `--prior stage`, `--seed`, `--seed-table`, `--axis-guard` and their keys)
+are opt-in: without them `register` runs main's statements in main's order and writes the same tables and reports.
+Checked on 2026-10-24 (`C:/Users/ryane/regpriors_work/identity/`) by running every registration and linking command
+of the existing fixtures (rigid: default, `--reference t0`, `--rigid`, `--channel brightfield`, `--taper 0.25`,
+`--max-step-um 1.0` on three fixtures; piecewise: default and `--segments 3`; track-link with laptrack rigid and
+piecewise, `overlap_inhouse` and `laptrack_flow`) and the Kate runs' own commands on a copy of the shown
+20261020_herm_s4 under 0c29949 and under this code: every CSV equal as text, every parquet equal value for value and
+every JSON equal, apart from the git sha, the timestamps and the elapsed times (39 CSV, 39 parquet and 33 JSON
+files). The rigid and piecewise tables of that copy also equal the Kate report's own tables of 8eb73de.
