@@ -293,6 +293,7 @@ def model_records(root, manifest: dict, cfg, pack, recipe) -> tuple[list[dict], 
             path = pipeline.resolve_model_path(_Named(cfg, MODEL_KEY, ref)) if key == MODEL_KEY else Path(root) / ref
         except (OSError, ValueError):
             path = None
+        # a plain path on purpose: Cellpose loads the model by it, and use-model refuses a longer one
         present = path is not None and Path(str(path)).is_file()
         got = provenance.file_sha256(path) if present else None
         verified = present and got == want
@@ -325,6 +326,16 @@ def model_records(root, manifest: dict, cfg, pack, recipe) -> tuple[list[dict], 
     return out, warnings
 
 
+def mismatch_text(record: dict, pack) -> str:
+    """What is wrong with a model whose file is there but is not the one expected: a pinned pack model (a ref
+    with "@") whose blob is not the pinned file, or a project model whose file is not the one the manifest
+    records."""
+    if "@" in record["ref"]:
+        return (f"is not the pinned blob ({record['mismatch']}): fetch it again with `germquant pack fetch-models "
+                f"{pack.id}`")
+    return f"is not the file the manifest records: {record['mismatch']}"
+
+
 def model_refusal(records: list[dict], pack) -> str | None:
     """Why the run is refused for its models (a needed model missing, or not the one the manifest records)."""
     problems = []
@@ -337,7 +348,7 @@ def model_refusal(records: list[dict], pack) -> str | None:
                    "restore the file, or choose another model with `germquant project use-model`")
             problems.append(f"{what} is missing: {fix}")
         elif r["mismatch"]:
-            problems.append(f"{what} is not the file the manifest records: {r['mismatch']}")
+            problems.append(f"{what} {mismatch_text(r, pack)}")
     if not problems:
         return None
     return "; ".join(problems) + ". The run is refused before any pixel is read"

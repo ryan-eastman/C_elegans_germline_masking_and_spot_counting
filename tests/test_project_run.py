@@ -433,6 +433,29 @@ def test_decoy_model_refused(project_env, tmp_path, monkeypatch, capsys):  # noq
         P.run_project(proj, resume=False)
 
 
+def test_a_pack_blob_with_another_digest_is_refused(project_env, tmp_path, monkeypatch):  # noqa: F811
+    """A pinned pack model whose blob in the model store is not the pinned file (the right size, another sha256)
+    is refused before any image, naming the fetch that replaces it; status reports it once, the same way."""
+    from germquant.packs.blobs import model_location
+
+    proj = project_with_images(tmp_path, names=("a",), recipe="with_model")
+    spec = packs.find_pack(TEST_PACK_REF).model("tinynet@f5055f8a")
+    blob = model_location(spec)
+    blob.parent.mkdir(parents=True)
+    blob.write_bytes(b"x" * spec.size)
+    seen = []
+    fake_run_loaded(monkeypatch, seen)
+    with pytest.raises(P.ProjectError, match="is not the pinned blob") as exc:
+        P.run_project(proj)
+    assert "germquant pack fetch-models test_pack" in str(exc.value) and "manifest" not in str(exc.value)
+    assert seen == [] and not (proj.root / "runs").exists()
+    st = P.project_status(proj)
+    (tiny,) = [m for m in st["models"] if m["ref"] == "tinynet@f5055f8a"]
+    assert (tiny["present"], tiny["verified"], tiny["needed"]) == (True, False, True) and tiny["mismatch"]
+    said = [w for w in st["warnings"] if "tinynet@f5055f8a" in w]
+    assert len(said) == 1 and "is not the pinned blob" in said[0] and "fetch-models test_pack" in said[0], said
+
+
 def test_a_model_that_cannot_be_resolved_is_refused(project_env, tmp_path, monkeypatch):  # noqa: F811
     """A recipe whose segmentation model the engine cannot resolve here (neither a file, nor registered, nor a
     Cellpose built-in) is refused before any image, instead of failing on each."""

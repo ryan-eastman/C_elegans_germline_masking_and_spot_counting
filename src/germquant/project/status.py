@@ -31,8 +31,10 @@ was stopped without one, or is still running in another process) is ``interrupte
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+from ..fsutil import long_path
 from . import runlog
 from .manifest import ProjectError
 
@@ -172,7 +174,7 @@ def project_status(project) -> dict:
     from . import _root, open_project, project_config
     from .lock import lock_report
     from .recipe import resolve_pack
-    from .run import ResumeHashes, model_records
+    from .run import ResumeHashes, mismatch_text, model_records
 
     root = _root(project)
     proj = open_project(root)
@@ -190,8 +192,7 @@ def project_status(project) -> dict:
         if r["needed"] and not r["present"]:
             warnings.append(f"model {r['ref']} ({r['key']}) is missing: a run is refused until it is back")
         elif r["needed"] and r["mismatch"]:
-            warnings.append(f"model {r['ref']} ({r['key']}) is not the file the manifest records: {r['mismatch']}; "
-                            f"a run is refused")
+            warnings.append(f"model {r['ref']} ({r['key']}) {mismatch_text(r, pack)}; a run is refused")
     warnings += model_warnings
     mix = _environment_mix(events)
     if mix:
@@ -203,7 +204,7 @@ def project_status(project) -> dict:
            "z_range": (int(zr[0]), int(zr[1])) if zr else None, "last": last, "processed": processed}
     with use_project(root):
         images = [_image(e, ctx) for e in m.get("images") or []]
-    if ctx["hashes"].problem and not any(r["needed"] and not r["present"] for r in models):
+    if ctx["hashes"].problem and not any(r["needed"] and (not r["present"] or r["mismatch"]) for r in models):
         warnings.append(f"the recipe's segmentation model cannot be resolved here ({ctx['hashes'].problem}): the "
                         f"images' segment stage is not compared, and a run is refused until the model is back")
     p = m["pack"]
@@ -212,6 +213,7 @@ def project_status(project) -> dict:
             "expected_config_hash": m["recipe"].get("expected_config_hash"), "edited": bool(m["recipe"].get("file")),
             "validated": m.get("validated"),
             "pack": {"id": p["id"], "pinned": f"{p['id']}@{p['version']}", "installed": installed,
-                     "project_copy": (Path(root) / "packs" / p["id"] / p["version"] / "pack.yaml").is_file()},
+                     "project_copy": os.path.isfile(long_path(Path(root) / "packs" / p["id"] / p["version"] /
+                                                             "pack.yaml"))},
             "models": models, "images": images, "warnings": warnings, "lock": lock_report(root),
             "runs": _runs(events)}
