@@ -21,11 +21,21 @@ import numpy as np
 import pandas as pd
 import pytest
 import tifffile
+from test_timelapse_piecewise import BASES as PW_BASES
+from test_timelapse_piecewise import L_UM as PW_L
+from test_timelapse_piecewise import STEM as PW_STEM
+from test_timelapse_piecewise import T as PW_T
+from test_timelapse_piecewise import U_UM as PW_U
+from test_timelapse_piecewise import X0_UM as PW_X0
+from test_timelapse_piecewise import centre_um as pw_centre
+from test_timelapse_piecewise import flow_per_step as pw_flow
+from test_timelapse_piecewise import write_piecewise_series
 from test_timelapse_register import SP, STEM_SYN, make_series, write_fake_series
 
 from germquant import schema
 from germquant.io import nd2_stage as S
-from germquant.timelapse import link_series, register_series_piecewise
+from germquant.timelapse import find_series, link_series, load_piecewise, register_series_piecewise
+from germquant.timelapse import piecewise as PW
 from germquant.timelapse import priors as PR
 from germquant.timelapse import register as R
 
@@ -728,3 +738,124 @@ def test_piecewise_prior_caps_and_warns(moved, tmp_path):
     assert not any("--seed rigid" in w for w in se["report"]["warnings"])
     assert se["report"]["prior"]["loaded_from"] == "record file"
     PR.stage_record_path(moved["out"], STEM_W).unlink()
+
+
+# ---- the folded-axis guard ------------------------------------------------------------------------------------------
+# test_timelapse_piecewise's straight gonad (x 10 to 126 um, axis_position_um = x - 10) with the origin's axis turned
+# back at its middle (a = x - 10 up to x = 70, then 130 - x): equal-count segments then pair the two limbs.
+
+AXIS_COLUMNS = ["axis_source", "axis_pc1_vy", "axis_pc1_vx", "axis_pc1_cy_um", "axis_pc1_cx_um", "axis_pc1_offset_um"]
+
+
+def _fold_origin_axis(out: Path) -> None:
+    f = out / "t000" / f"{PW_STEM}_t000__nuclei.csv"
+    df = pd.read_csv(f)
+    x = df["centroid_x_um"].to_numpy(float)
+    df["axis_position_um"] = np.where(x <= 70.0, x - 10.0, 130.0 - x)
+    df.to_csv(f, index=False)
+
+
+def _nucleus_errors(out: Path) -> np.ndarray:
+    """Per timepoint, the largest error of the interpolated x displacement against the planted flow, over the nuclei
+    between the outermost segment centres (beyond them the displacement is held constant by design)."""
+    pw = load_piecewise(find_series(out))
+    idents = sorted(PW_BASES)
+    a0 = pw.axis(np.array([PW_BASES[i] for i in idents]))
+    inner = (a0 >= pw.centres.min()) & (a0 <= pw.centres.max())
+    worst = []
+    for k in range(1, PW_T):
+        raw = np.array([pw_centre(i, k) for i in idents])
+        planted = np.array([k * pw_flow(i) for i in idents])
+        worst.append(float(np.abs(pw.displacement(k, raw)[inner, 2] - planted[inner]).max()))
+    return np.array(worst)
+
+
+@pytest.fixture(scope="module")
+def folded(tmp_path_factory):
+    s = write_piecewise_series(tmp_path_factory.mktemp("fold"))
+    _fold_origin_axis(s["out"])
+    return s
+
+
+def test_guard_off_the_folded_axis_mixes_the_limbs(folded):
+    res = register_series_piecewise(folded["out"], max_step_um=6.0)
+    assert list(res["table"].columns) == schema.REGISTER_PIECEWISE
+    assert "axis_guard" not in res["report"] and "axis_guard" not in res["report"]["parameters"]
+    assert res["report"]["parameters"]["axis_source"] == "axis_position_um"
+    # the segments pair the two limbs (crops 130, 102, 69 and 41 um wide on this 116 um gonad; spread ratio 7.4), and
+    # the interpolated displacement is several um off the planted flow (inner nuclei: 2.9 um at t1 to 10.4 um at t4)
+    t1 = res["table"][res["table"]["t_index"] == 1]
+    widths = (t1["crop_x1"] - t1["crop_x0"]).to_numpy(float) * 0.8
+    assert widths.max() > 100.0 and (widths > 60.0).sum() >= 3
+    assert (_nucleus_errors(folded["out"]) > 2.0).all()
+
+
+def test_guard_on_uses_the_straight_axis_and_track_link_rebuilds_it(folded):
+    res = register_series_piecewise(folded["out"], max_step_um=6.0, axis_guard=True)
+    t, rep = res["table"], res["report"]
+    assert list(t.columns) == schema.REGISTER_PIECEWISE + AXIS_COLUMNS
+    assert t["axis_source"].eq("pc1").all()
+    for c in AXIS_COLUMNS[1:]:
+        assert t[c].nunique() == 1 and np.isfinite(t[c]).all()
+    g = rep["axis_guard"]
+    assert rep["parameters"]["axis_guard"] is True and rep["parameters"]["axis_source"] == "pc1"
+    assert g["tripped"] is True and g["axis_used"] == "pc1" and g["threshold"] == 4.0
+    assert 6.0 < g["spread_ratio"] < 9.0 and g["spread_ratio"] == pytest.approx(max(g["spread_ratio_by_segment"]))
+    assert g["axis_before"] == "axis_position_um" and len(g["segment_spans_before_um"]) == 4
+    pc1 = g["pc1"]
+    assert abs(pc1["vx"]) > 0.99 and pc1["sign_rule"].startswith("spearman")        # the gonad runs along x
+    assert [pc1["vy"], pc1["vx"], pc1["cy_um"], pc1["cx_um"], pc1["offset_um"]] == [
+        t[c].iloc[0] for c in AXIS_COLUMNS[1:]]
+    # each segment is a stretch of the straight gonad again: its step is the shear at its nuclei's median x
+    pw = load_piecewise(find_series(folded["out"]))
+    assert pw.axis_source == "pc1" and pw.summary()["axis_source"] == "pc1"
+    idents = sorted(PW_BASES)
+    c0 = np.array([PW_BASES[i] for i in idents])
+    seg = PW.assign_segments(pw.axis(c0), pw.edges)
+    for r in t[t["t_index"] > 0].itertuples(index=False):
+        xs = c0[seg == int(r.segment), 2]
+        planted = PW_U * (float(np.median(xs)) - PW_X0) / PW_L
+        assert abs(r.step_dx_um - planted) < 0.3, (r.t_index, r.segment, r.step_dx_um, planted)
+        assert (xs.max() - xs.min()) < 40.0                                     # one limb per segment
+    assert (_nucleus_errors(folded["out"]) < 0.3 * np.arange(1, PW_T) + 1e-9).all()
+    # track-link's axis is the registration's: its registered coordinates give the table's own quality numbers
+    lay = find_series(folded["out"])
+    for k in range(1, PW_T):
+        cm = PW.germline_points(PW.read_nuclei_table(lay.sub(k), lay.image_id(k)), k)[["zr_um", "yr_um", "xr_um"]].to_numpy(float)
+        cr = PW.germline_points(PW.read_nuclei_table(lay.sub(k - 1), lay.image_id(k - 1)), k - 1)[
+            ["zr_um", "yr_um", "xr_um"]].to_numpy(float)
+        reg_m, a_m = pw.register(k, cm)
+        reg_r, _a = pw.register(k - 1, cr)
+        sm = PW.assign_segments(a_m, pw.edges)
+        for s_ in range(4):
+            q = R.nn_median(reg_m[sm == s_], reg_r)
+            row = t[(t["t_index"] == k) & (t["segment"] == s_)].iloc[0]
+            assert q == pytest.approx(float(row["quality_after_um"]), abs=1e-9)
+            assert int(row["n_nuclei"]) == int((sm == s_).sum())
+
+
+def test_guard_on_a_straight_axis_changes_nothing(tmp_path):
+    s = write_piecewise_series(tmp_path)
+    off = register_series_piecewise(s["out"], max_step_um=6.0)
+    on = register_series_piecewise(s["out"], max_step_um=6.0, axis_guard=True)
+    g = on["report"]["axis_guard"]
+    assert g["tripped"] is False and g["axis_used"] == "axis_position_um" and g["pc1"] is None
+    assert g["spread_ratio"] < 1.5
+    assert list(on["table"].columns) == schema.REGISTER_PIECEWISE + ["axis_source"]
+    assert on["table"]["axis_source"].eq("axis_position_um").all()
+    pd.testing.assert_frame_equal(off["table"], on["table"][list(off["table"].columns)], check_exact=True)
+    pw = load_piecewise(find_series(s["out"]))                       # not pc1: the axis is rebuilt as on main
+    assert pw.axis_source == "axis_position_um"
+
+
+def test_guard_keys_and_threshold(folded):
+    cfg = {"timelapse": {"register": {"piecewise_axis_guard": True, "piecewise_axis_fold_ratio": 10.0}}}
+    rep = register_series_piecewise(folded["out"], max_step_um=6.0, cfg=cfg)["report"]
+    assert rep["axis_guard"]["threshold"] == 10.0 and rep["axis_guard"]["tripped"] is False
+    rep2 = register_series_piecewise(folded["out"], max_step_um=6.0, cfg=cfg, axis_fold_ratio=4.0)["report"]
+    assert rep2["axis_guard"]["tripped"] is True                       # an explicit value wins over the key
+    assert PW.piecewise_options(None) == {"seed": "none", "axis_guard": False, "axis_fold_ratio": 4.0}
+    assert PW.piecewise_options({"timelapse": {"register": {"piecewise_seed": "rigid"}}})["seed"] == "rigid"
+    for bad in ({"seed": "stage"}, {"axis_fold_ratio": 0.0}, {"axis_fold_ratio": "x"}):
+        with pytest.raises(ValueError):
+            PW.piecewise_options(None, **bad)

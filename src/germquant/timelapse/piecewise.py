@@ -230,6 +230,104 @@ def origin_axis(points: pd.DataFrame) -> tuple:
     return model, ("axis_position_um" if n_ax >= 5 else "centerline")
 
 
+# ---- the folded-axis guard (docs/TIMELAPSE.md "The folded-axis guard"; opt-in) ---------------------------------------
+
+PC1_COLUMNS = {"vy": "axis_pc1_vy", "vx": "axis_pc1_vx", "cy_um": "axis_pc1_cy_um", "cx_um": "axis_pc1_cx_um",
+               "offset_um": "axis_pc1_offset_um"}
+
+
+def _pc1_direction(yx: np.ndarray) -> np.ndarray:
+    """The first principal direction (unit, (y, x)) of the centred points."""
+    return np.linalg.svd(yx - yx.mean(axis=0), full_matrices=False)[2][0]
+
+
+def spread_ratios(points: pd.DataFrame, a0, k: int) -> dict:
+    """The folded-axis measure: for each of the K equal-count segments of the axis positions ``a0`` of the origin's
+    germline ``points``, the 5th to 95th percentile range of its nuclei's projection on the first principal direction
+    of their yx centroids, over the segment's axis span. A sound axis, straight or curved, reads about 1 (a segment on
+    a bend spreads less along the global direction than along the axis); a fold, two limbs side by side on the axis,
+    or a collapsed stretch reads high. ``{"ratios", "spread_ratio" (the largest), "spans_um", "extents_um"}``."""
+    yx = points[["yr_um", "xr_um"]].to_numpy(float)
+    pc = (yx - yx.mean(axis=0)) @ _pc1_direction(yx)
+    edges, _centres, seg = segment_bounds(a0, k)
+    spans = np.diff(edges)
+    ext = np.array([float(np.percentile(pc[seg == s], 95) - np.percentile(pc[seg == s], 5)) if np.any(seg == s)
+                    else np.nan for s in range(int(k))])
+    ratios = ext / np.maximum(spans, 1e-6)
+    return {"ratios": ratios, "spread_ratio": float(np.nanmax(ratios)), "spans_um": spans, "extents_um": ext}
+
+
+def pc1_model(params: dict):
+    """The straight PC1 axis as a callable on (N, 3) points (z, y, x um): the projection of (y, x) minus the centre on
+    the direction, minus the offset (so the origin's smallest value is 0). Built from the stored numbers only, so
+    the registration and load_piecewise evaluate the same function."""
+    v = np.array([float(params["vy"]), float(params["vx"])])
+    mu = np.array([float(params["cy_um"]), float(params["cx_um"])])
+    off = float(params["offset_um"])
+
+    def model(x):
+        x = np.asarray(x, dtype=float).reshape(-1, 3)
+        return (x[:, 1:] - mu) @ v - off
+
+    return model
+
+
+def pc1_axis(points: pd.DataFrame) -> tuple:
+    """``(model, params)``: the straight principal axis of the origin's germline yx centroids, the guard's fallback.
+    Its sign makes the Spearman correlation with ``axis_position_um`` non-negative where the origin has five or
+    more positions (segment 0 then sits as near the axis stage's distal end as the fold allows), else the SVD's sign
+    is kept; it is zeroed at the smallest origin value."""
+    from scipy.stats import spearmanr
+
+    yx = points[["yr_um", "xr_um"]].to_numpy(float)
+    mu = yx.mean(axis=0)
+    v = _pc1_direction(yx)
+    proj = (yx - mu) @ v
+    ap = points["axis_position_um"].to_numpy(float) if "axis_position_um" in points.columns else np.full(len(yx), np.nan)
+    ok = np.isfinite(ap)
+    rule = "svd (fewer than 5 axis positions)"
+    if int(ok.sum()) >= 5:
+        rule = "spearman with axis_position_um, non-negative"
+        rho = float(spearmanr(proj[ok], ap[ok])[0])
+        if np.isfinite(rho) and rho < 0:
+            v = -v
+    params = {"vy": float(v[0]), "vx": float(v[1]), "cy_um": float(mu[0]), "cx_um": float(mu[1])}
+    params["offset_um"] = float(np.min((yx - mu) @ np.array([params["vy"], params["vx"]])))
+    return pc1_model(params), {**params, "sign_rule": rule}
+
+
+def guard_origin_axis(points: pd.DataFrame, c0, a0, axis, source: str, k: int, threshold: float) -> tuple:
+    """The guard on the origin axis: ``(axis, source, a0, block)``, the axis to use (the default one, or PC1 when the
+    spread ratio is above ``threshold``), its positions of the origin nuclei ``c0`` and the report block. A default
+    axis whose positions cannot be split into K segments at all counts as folded."""
+    block = {"threshold": float(threshold), "axis_before": source}
+    try:
+        sr = spread_ratios(points, a0, k)
+        block.update(spread_ratio_by_segment=[float(v) for v in sr["ratios"]], spread_ratio=sr["spread_ratio"],
+                     segment_spans_before_um=[float(v) for v in sr["spans_um"]])
+        tripped = bool(sr["spread_ratio"] > threshold)
+    except ValueError as e:                 # the positions collapse into ties: as folded as an axis gets
+        block.update(spread_ratio_by_segment=None, spread_ratio=None, segment_spans_before_um=None,
+                     why=f"the default axis does not separate into {k} segments: {e}")
+        tripped = True
+    block["tripped"] = tripped
+    if not tripped:
+        block.update(axis_used=source, pc1=None)
+        return axis, source, a0, block
+    model, params = pc1_axis(points)
+    block.update(axis_used="pc1", pc1=params)
+    return model, "pc1", np.asarray(model(c0), dtype=float), block
+
+
+def _pc1_from_table(path: Path) -> dict:
+    """The stored PC1 axis of a register_piecewise table, its numbers read back exactly (round-trip parser)."""
+    cols = list(PC1_COLUMNS.values())
+    df = pd.read_csv(long_path(path), usecols=cols, nrows=1, float_precision="round_trip")
+    if df.empty or not np.isfinite(df[cols].to_numpy(float)).all():
+        raise ValueError(f"{path.name}: axis_source is pc1 but the axis columns {', '.join(cols)} are empty")
+    return {k: float(df[c].iloc[0]) for k, c in PC1_COLUMNS.items()}
+
+
 def assign_segments(a, edges) -> np.ndarray:
     """The segment (0 .. K-1) of each axis position for the segment edges (K + 1 values); positions before the
     first edge belong to segment 0 and after the last to segment K-1; NaN gives -1."""
@@ -421,8 +519,13 @@ def register_series_piecewise(
     axis, axis_source = origin_axis(pts0)
     c0 = pts0[["zr_um", "yr_um", "xr_um"]].to_numpy(float)
     a0 = np.asarray(axis(c0), dtype=float)
+    guard = None
+    if opt["axis_guard"]:           # a folded origin axis is replaced by the straight PC1 axis (guard_origin_axis)
+        axis, axis_source, a0, guard = guard_origin_axis(pts0, c0, a0, axis, axis_source, K, opt["axis_fold_ratio"])
     edges, centres, seg0 = segment_bounds(a0, K)
     n0 = np.array([int(np.sum(seg0 == s)) for s in range(K)])
+    if guard is not None:
+        guard["segment_spans_after_um"] = [float(v) for v in np.diff(edges)]
 
     cache: dict[tuple[int, str], np.ndarray] = {}
 
@@ -644,6 +747,11 @@ def register_series_piecewise(
         PR.add_gap_columns(df, gap_rows, with_prior=stage is not None)
         if seeding:
             _add_seed_columns(df, seed_rows)
+    if guard is not None:           # the axis used, and PC1's numbers for load_piecewise to rebuild it exactly
+        df["axis_source"] = [axis_source] * len(df)
+        if axis_source == "pc1":
+            for key, col in PC1_COLUMNS.items():
+                df[col] = np.full(len(df), float(guard["pc1"][key]))
     table_path = write_series_table(df, TABLE, sdir, stem, _series_meta(sdir, stem, record))
 
     by_seg = []
@@ -686,6 +794,9 @@ def register_series_piecewise(
             report["seed"] = {**seed_info, "n_seeded_gaps": n_seeded, "unseeded_gaps": unseeded_gaps,
                               "z": "recorded, not applied (every plane and the circular z estimate are kept)",
                               "cap_basis": "the departure from the seed (estimate minus (0, seed_y, seed_x))"}
+    if guard is not None:
+        report["parameters"]["axis_guard"] = True
+        report["axis_guard"] = guard
     report_path = sdir / f"{stem}{REPORT_SUFFIX}"
     with open(long_path(report_path), "w", encoding="utf-8") as fh:
         json.dump(_clean(report), fh, indent=1)
@@ -798,7 +909,9 @@ class PiecewiseRegistration:
 def load_piecewise(layout) -> PiecewiseRegistration:
     """The piecewise registration of a series folder (layout.SeriesLayout) from ``<stem>__register_piecewise.csv``,
     with the fixed-axis model rebuilt from the origin timepoint's nuclei table exactly as the registration built
-    it. PiecewiseRegistrationMissing without the table; ValueError for a table this code cannot read."""
+    it; a table whose ``axis_source`` column says ``pc1`` (the folded-axis guard) carries its axis in its
+    ``axis_pc1_*`` columns, and that axis is built from them instead (no refit). PiecewiseRegistrationMissing
+    without the table; ValueError for a table this code cannot read."""
     p = layout.series_table_path(TABLE)
     if not p.is_file():
         raise PiecewiseRegistrationMissing(
@@ -824,12 +937,15 @@ def load_piecewise(layout) -> PiecewiseRegistration:
             cum[int(t)] = v
     if origin not in cum:
         cum[origin] = np.zeros((K, 3))
-    nuc = read_nuclei_table(layout.sub(origin), layout.image_id(origin))
-    pts0 = germline_points(nuc, origin)
-    if pts0 is None:
-        raise ValueError(f"{layout.image_id(origin)}: the origin's nuclei table is missing; the piecewise registration "
-                         f"cannot rebuild its axis")
-    axis, source = origin_axis(pts0)
+    if "axis_source" in df.columns and str(next(iter(df["axis_source"].dropna()), "")) == "pc1":
+        axis, source = pc1_model(_pc1_from_table(p)), "pc1"
+    else:
+        nuc = read_nuclei_table(layout.sub(origin), layout.image_id(origin))
+        pts0 = germline_points(nuc, origin)
+        if pts0 is None:
+            raise ValueError(f"{layout.image_id(origin)}: the origin's nuclei table is missing; the piecewise "
+                             f"registration cannot rebuild its axis")
+        axis, source = origin_axis(pts0)
     params = {}
     for c in ("channel_role", "method", "taper", "margin_um", "upsample_factor", "xy_stride"):
         if c in df.columns and len(df[c].dropna()):
