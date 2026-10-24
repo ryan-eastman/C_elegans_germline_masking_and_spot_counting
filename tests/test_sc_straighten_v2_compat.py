@@ -6,9 +6,10 @@ also stays identical (image, labels and truth of two seeds per family).
 
 The digests were made on the lab workstation. A difference fails when GERMQUANT_WORKSTATION_PINS=1 (set on the
 workstation); elsewhere the test skips with a reason that says what differs (another platform's floating point
-may change a last digit), so a CI log still shows whether the platform agrees. The structure of a synthetic case,
-its number of strands and its strip index (strand ids, offsets and lengths), fails on every platform (protocol
-changelog entry 27): a last-digit difference does not change it, a v1 regression does.
+may change a last digit), so a CI log still shows whether the platform agrees. The number of strands of a
+synthetic case fails on every platform (protocol changelog entries 27 and 30): a last-digit difference does not
+change it, a v1 regression of the decomposition does. The strip index stays a workstation pin: a strip column is
+0.05 um, and on macOS arm64 one case has a strip index other than the workstation's with the same strands.
 """
 from __future__ import annotations
 
@@ -23,8 +24,8 @@ from germquant.sc.straighten import params
 GOLDEN = json.loads(C.golden_path().read_text(encoding="ascii"))
 ENFORCE = os.environ.get("GERMQUANT_WORKSTATION_PINS") == "1"
 V1 = params.v1_sets()
-# the structure of a case: compared on every platform (protocol changelog entry 27)
-STRUCT = ("n_strands", "strip_index")
+# the structure of a case: compared on every platform (protocol changelog entries 27 and 30)
+STRUCT = ("n_strands",)
 
 
 def _check(got: dict, want: dict, what: str) -> None:
@@ -46,10 +47,9 @@ def test_a_structural_difference_fails_off_the_workstation_too(monkeypatch):
     want = {"n_strands": 7, "strip_index": "a", "strands": "x"}
     with pytest.raises(pytest.fail.Exception):
         _check({**want, "n_strands": 6}, want, "case")
-    with pytest.raises(pytest.fail.Exception):
-        _check({**want, "strip_index": "b"}, want, "case")
-    with pytest.raises(pytest.skip.Exception):                 # a table digest alone: a skip off the workstation
-        _check({**want, "strands": "y"}, want, "case")
+    for k in ("strip_index", "strands"):                       # digests alone: a skip off the workstation
+        with pytest.raises(pytest.skip.Exception):
+            _check({**want, k: "b"}, want, "case")
     _check(dict(want), want, "case")
 
 
