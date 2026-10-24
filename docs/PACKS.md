@@ -79,9 +79,17 @@ From Python:
 
 A program that must stay light (a GUI refreshing a pack card) imports `germquant.packs` instead of
 `germquant.api`: listing and checking packs never loads torch, Cellpose, SpotMAX or CuPy. The command
-`python -m germquant.packs list --json` (also `check`, `fetch-models`, `fetch-example`, `install`, `verify`,
-`lint`) is the torch-free entry the napari plugin uses; `python -m germquant.packs --version` prints the engine
-version, git sha and python.
+`python -m germquant.packs list --json` (also `show`, `check`, `fetch-models`, `fetch-example`, `install`,
+`verify`, `lint` and `derive`) is the torch-free entry the napari plugin uses; `python -m germquant.packs
+--version` prints the engine version, git sha and python, and `--version --json` adds the engine's features
+(section "Versions and features" below).
+
+`--project DIR` on `pack list`, `show`, `check` and `fetch-models` searches the project's own packs first
+(`DIR/packs/`: the copy of the pack version the project was made with, and its derived packs), so a project's
+packs list, check and fetch their models like any other:
+
+    germquant pack list --project D:\projects\yeast_2026
+    germquant pack check test_pack_derived_1a2b3c4d --project D:\projects\yeast_2026
 
 ## Example images
 
@@ -180,7 +188,8 @@ is one cell. The pack card and `pack show` say which:
 
 `germquant pack list` prints the search order. Packs are found, in this order:
 
-1. the packs of an open project (`<project>/packs/`, from a later package);
+1. the packs of a project (`<project>/packs/<id>/<version>/`: the copy of the pack version the project was made
+   with, and the packs derived from it), while the project is open or running, and with `--project DIR`;
 2. the built-in packs, `packs/<id>/` in the engine checkout, or under `$GERMQUANT_CONFIG_ROOT`;
 3. each folder of `$GERMQUANT_PACKS` (several folders separated by `;` on Windows, `:` on a Mac); the first
    folder is where `germquant pack install` writes;
@@ -259,6 +268,85 @@ A profile that builds on a pack this way records the paths it inherits (channel 
 with their original relative values and hashes those values in its stage hashes, so the same edited recipe gives
 the same stage hashes on another computer and finished images stay finished there. Every other profile, the
 shipped ones and study files with an absolute `extends` path included, hashes exactly as before.
+
+## Derived packs
+
+A model trained in a project (docs/DESIGN_system_packs.md, section 10) can be promoted into a pack of its own,
+so it appears in the pack list like any pack model and runs by name on another computer:
+
+    germquant pack derive --from test_pack@0.1.0 --recipe with_model --model PROJECT/training/r01/models/r01_nuclei/r01_nuclei --card PROJECT/training/r01/models/r01_nuclei/r01_nuclei.card.json --out PROJECT/packs
+
+That writes `PROJECT/packs/test_pack_derived_<sha8>/0.1.0/`, where `<sha8>` is the first 8 hex digits of the
+model's sha256 (`--id NEW_ID` names it instead):
+
+- `pack.yaml`: version 0.1.0, status provisional; the parent's system, object kind, engine range and expected
+  sizes; `derived_from` (the parent, its recipe and its pack_sha256); one recipe; and the model spec
+  `<name>@<sha8>` (the name is the card's, else the file's) with its sha256, size and card, and `sources: []`,
+  because the weights are not in any download;
+- `config/profiles/<recipe>.yaml`: only `extends: pack:<parent>@<version>/<recipe>` and
+  `segmentation.nuclei.cellpose_model: <name>@<sha8>`. Both lines are hashed text without a machine path, so the
+  recipe's config hash is new and the same on every computer. The recipe keeps the parent's needs (the new
+  model in place of the one it replaces), tunables and dims;
+- `models/<name>.card.json`: the card made portable. model_file becomes the file's name, base_model.path and
+  every other absolute path become bare names (the sha256 values beside them stay), a path quoted in a text is
+  shortened the same way, and non-ASCII text is written as JSON escapes. A `derived` record names the parent,
+  the recipe, the sha256 of the card it came from and the keys it rewrote;
+- `README.md` and `SHA256SUMS`.
+
+A copy of the parent version is written beside it (`PROJECT/packs/test_pack/0.1.0/`), as a new project copies
+it, so the derived recipe still resolves after an engine update moves the parent's built-in version. The model
+goes into the model store, `models_dir()/blobs/<sha256>/<file>` (hard-linked when the disk allows), with its
+verification record, where a run of the derived recipe finds it and checks its pin. Nothing is written before
+every check has passed, the pack goes in through the same checks as `pack install`, and deriving again with
+the same inputs changes nothing.
+
+`--out` is a folder of packs: a project's `packs/` (searched while the project is open or running, and with
+`--project PROJECT`), a `$GERMQUANT_PACKS` folder or the per-user folder (always searched). For any other folder
+the command warns that nothing searches it. The engine's own packs/ folder and a folder inside a pack are
+refused. So are, each with the reason and the fix: a parent recipe that never runs a Cellpose model
+(`segmentation.nuclei.method: classical`, labels from files, or another segmentation backend), a parent recipe
+that does not load or no longer hashes to its expected value, a card whose model_sha256 or model_size is not the
+file's, an id that is not a pack id or is the parent's or a built-in pack's, and a folder that already holds the
+id and version with other content (derive with another `--id`). A refusal exits with code 1.
+
+`--json` prints the record: `ok`, `status` (derived, or already present), `pack`, `id`, `version`, `folder`,
+`recipe`, `extends`, `config_hash`, `parent` {pack, folder, copied}, `model` {name, file_name, sha256, size, blob,
+placed}, `card`, `rewritten` and `where` (searched, project, or not searched); a refusal prints
+`{"ok": false, "error": ...}`. From Python: `germquant.packs.derive_pack(parent, recipe, model, card, out,
+pack_id=None)`, which imports nothing heavy.
+
+On another computer the weights are not in the pack. Copy the model file there and run
+
+    germquant pack fetch-models test_pack_derived_<sha8> --project PROJECT --from-file r01_nuclei@<sha8>=PATH
+
+`pack lint` on a derived pack reports what the outside-recipe rules ask of a recipe written by hand, because
+those rules count only the keys set inside the pack folder: no recipe golden (the parent's recipe golden runs
+the classical segmenter, which never loads this model), and the worm stage switches and the segmentation method,
+which the parent's files set. It reports no ASCII, dash, machine-path or unversioned `pack:` problem.
+
+## Versions and features
+
+`germquant --version` and `python -m germquant.packs --version` print the engine version, git sha and python.
+`python -m germquant.packs --version --json` prints them as JSON, with the interpreter (`executable`) and
+`features`: what this engine can do that its version string does not say, since the version stays 0.2.0.dev0
+through tranche 5. The napari plugin gates its docks on these names.
+
+| feature | what it is |
+|---|---|
+| packs | system packs (this file) |
+| planar | single-plane images |
+| labels_from | nucleus labels read from files (segmentation.nuclei.labels_from) |
+| projects | project folders (germquant.project) |
+| sample_sheet | the sample sheet (`--samples`) |
+| import_labels | `germquant import-labels` |
+| train_curve | `germquant train-curve` |
+| pack_derive | `germquant pack derive` |
+| tune_spots | `germquant tune-spots` |
+
+A feature is listed when its code is in the engine (`germquant.packs.FEATURE_PROBES`): its module file exists
+and, for planar and train_curve, whose modules exist without them, the module defines `PLANAR_DZ` or
+`train_curve`. Nothing is imported to find out, so the command stays torch-free, and an engine that lacks a
+feature never lists it.
 
 ## Making a pack
 
