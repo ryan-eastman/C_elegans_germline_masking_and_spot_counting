@@ -89,8 +89,13 @@ def test_names_and_annotators():
     for bad in ("", "a" * 33, "ry an", "r" + chr(0xE9)):
         with pytest.raises(ValueError, match="annotator"):
             P.points_file_name("img", bad)
-    with pytest.raises(ValueError, match="image id"):
-        P.points_file_name("a/b", "ryan")
+    for bad in ("a/b", "", " ", "a\tb"):
+        with pytest.raises(ValueError, match="image id"):
+            P.points_file_name(bad, "ryan")
+    # an image id may hold non-ASCII letters, as project ids from file names do (review P5-TUNE N7)
+    gonad = "gonad_" + chr(0xFC) + chr(0x3B3)
+    assert P.points_file_name(gonad, "ryan") == gonad + "__points_ryan.csv"
+    assert P.parse_points_name(P.points_file_name(gonad, "ryan")) == (gonad, "ryan")
 
 
 def test_read_points_refusals(tmp_path):

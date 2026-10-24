@@ -289,6 +289,18 @@ def test_digests_ignore_line_endings(planted, tmp_path):
     assert S._lf_sha256(crlf) == S._lf_sha256(src)
 
 
+def test_an_image_of_another_name_gets_a_warning(planted, tmp_path):
+    """Only the image's shape is checked against its run, so an image whose file name is not the one the run read
+    gets a warning; a root move keeps the name and gets none (review P5-TUNE N8)."""
+    item = planted.items[0]
+    warned: list = []
+    S._prepare({**item, "image": tmp_path / "moved" / "PLANTED_A.nd2"}, 0, "log", warned, None)
+    assert warned == []
+    S._prepare({**item, "image": tmp_path / "planted_b.nd2"}, 0, "log", warned, None)
+    assert len(warned) == 1, warned
+    assert "its run read a file named planted_a.nd2, and the image given is planted_b.nd2" in warned[0]
+
+
 def test_a_nested_batch_folder_finds_its_manifest(planted, tmp_path):
     """`germquant batch` writes <out>/<rel>/<id>/ for images in subfolders and one run_manifest.json at <out>: the
     tuner takes the nearest manifest above a run, and refuses one of another config (review P5-TUNE N3)."""

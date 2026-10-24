@@ -96,7 +96,9 @@ Each annotated image needs a finished run in `results/<image_id>/` with its labe
 that run's stride and z range, with the call the spots stage itself makes; every key the grid does not name
 keeps the value of the config the run was made with. When the recipe has changed since a run (an earlier
 Apply, for example), the search says so in a warning and still starts from that run's own settings: run the
-images again first when the change matters.
+images again first when the change matters. The image must read with the shape of the run's labels, and a
+warning says so when its file name is not the name of the file the run read (moving the project keeps the
+names).
 
 ## Grids
 

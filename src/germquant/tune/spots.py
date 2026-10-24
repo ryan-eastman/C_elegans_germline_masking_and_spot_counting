@@ -373,6 +373,10 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
     planar = bool(marker.get("planar") or manifest.get("planar"))
     labels = _read_labels(result_dir, image_id)
     summary = _image_summary(result_dir, image_id)
+    ran_on = _summary_file_name(summary)
+    if ran_on is not None and ran_on.casefold() != image.name.casefold():
+        warnings.append(f"{image_id}: its run read a file named {ran_on}, and the image given is {image.name}; "
+                        f"only the image's shape is checked, so make sure it is the same image")
     roles = _roles(summary, image_id)
     if roles.get("foci") is None:
         raise TuneRefused(f"{image_id}: its run bound no channel to the foci role, the channel the spots stage "
@@ -468,6 +472,18 @@ def _image_summary(result_dir: Path, image_id: str) -> pd.DataFrame:
             if len(df):
                 return df
     raise TuneRefused(f"{image_id}: no image summary table in {result_dir}")
+
+
+def _summary_file_name(summary: pd.DataFrame) -> str | None:
+    """The name of the file the run read (the image summary's file_path), or None when it is not recorded. A
+    root move keeps the name; another name means another file, or a renamed one."""
+    try:
+        value = summary["file_path"].iloc[0]
+    except (KeyError, IndexError):
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return re.split(r"[\\/]", value.strip())[-1] or None
 
 
 def _roles(summary: pd.DataFrame, image_id: str) -> dict:
@@ -591,7 +607,10 @@ def stage_kwargs(section: dict) -> dict:
 
 
 def _detect(ctx: dict, stack, labels: np.ndarray, section: dict):
-    """One detection on the run's labels with the spots: section ``section``, as the spots stage makes it."""
+    """One detection on the run's labels with the spots: section ``section``, as the spots stage makes it, but
+    for the tables' marker column: the stage writes the channel map's marker name there, which a finished run
+    keeps only in the rows of its spots table, so the tuner passes the role name foci. The marker only labels
+    the tables (the backend contract of germquant.spots.backends), and scoring does not read it."""
     from germquant import pipeline
     from germquant.spots import detect as D
 

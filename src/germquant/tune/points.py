@@ -42,10 +42,12 @@ _FALSE = {"false", "0", "no", ""}
 
 def points_file_name(image_id: str, annotator: str) -> str:
     """``<image_id>__points_<annotator>.csv``; ValueError for an annotator outside ^[A-Za-z0-9_-]{1,32}$ or an
-    image id that cannot name a file."""
+    image id that cannot name a file. An image id may hold non-ASCII letters, as a project's image ids may (they
+    come from file names); the file's content stays ASCII."""
     if not isinstance(annotator, str) or not ANNOTATOR_RE.fullmatch(annotator):
         raise ValueError(f"annotator {annotator!r}: use 1 to 32 letters, digits, '-' or '_'")
-    if not isinstance(image_id, str) or not image_id or not image_id.isascii() or any(c in image_id for c in '\\/:*?"<>|'):
+    if not isinstance(image_id, str) or not image_id.strip() or any(c in image_id for c in '\\/:*?"<>|') \
+            or any(ord(c) < 32 for c in image_id):
         raise ValueError(f"image id {image_id!r} cannot name an annotation file")
     return f"{image_id}__points_{annotator}.csv"
 
