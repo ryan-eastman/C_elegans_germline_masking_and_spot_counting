@@ -429,6 +429,8 @@ def main(argv: list[str] | None = None) -> int:
 
     cli_packs.add_parsers(sub)                     # germquant pack ... (docs/PACKS.md)
     cli_assemble.add_parsers(sub)                  # germquant assemble (one TIFF per channel -> one OME-TIFF)
+    from . import cli_projects                     # germquant project ... (docs/PROJECTS.md)
+    cli_projects.add_parsers(sub)
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
@@ -437,6 +439,7 @@ def main(argv: list[str] | None = None) -> int:
     return {
         "pack": lambda: cli_packs.dispatch(args),
         "assemble": lambda: cli_assemble.dispatch(args),
+        "project": lambda: cli_projects.dispatch(args),
         "info": lambda: _info(args.nd2),
         "run": lambda: _run(args),
         "batch": lambda: _batch(args),
