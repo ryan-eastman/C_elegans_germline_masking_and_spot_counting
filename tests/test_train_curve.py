@@ -143,9 +143,9 @@ def _square_labels(shape, n, size=5) -> np.ndarray:
 
 
 def _write_pairs(folder: Path, groups, *, per_group=2, orientations=("xy",), pixel_um=0.25, role="dna",
-                 n_objects=4, lookup=None, export=False) -> Path:
+                 n_objects=4, lookup=None) -> Path:
     """A hand-made pairs folder: per group and orientation, per_group pairs of a 24 x 24 image whose labels are
-    n_objects squares; manifest.csv with every column; no export.json unless asked."""
+    n_objects squares; manifest.csv with every column; no export.json."""
     for sub in ("image", "labels"):
         (folder / sub).mkdir(parents=True, exist_ok=True)
     rows = []

@@ -194,7 +194,7 @@ def _run_record(folder: str | Path, image_id: str) -> dict:
     only). Keys a stage record nests under run_geometry or geometry are lifted to the top when absent there."""
     folder = Path(folder)
     man = folder / "run_manifest.json"
-    rec = _read_json(man if man.exists() else folder / f"{image_id}__stages.json")
+    rec = _read_json(man if os.path.exists(long_path(man)) else folder / f"{image_id}__stages.json")
     for nested in ("run_geometry", "geometry"):
         if isinstance(rec.get(nested), dict):
             for k, v in rec[nested].items():
@@ -337,7 +337,7 @@ def _projected_pair(run: RunRef, projection: dict | None, img: np.ndarray, label
            "xy_stride": run.xy_stride, "z_range": json.dumps(run.z_range) if run.z_range else "",
            "channel_role": run.channel_role, "channel_index": int(channel_index), "pixel_um": float(spacing[1]),
            "z_zoom": 1.0, "height": int(lab2d.shape[0]), "width": int(lab2d.shape[1])}
-    return row, p_im.stat().st_size + p_lab.stat().st_size
+    return row, os.path.getsize(long_path(p_im)) + os.path.getsize(long_path(p_lab))
 
 
 def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orientations=None,
@@ -689,14 +689,14 @@ def _dataset_record(dataset: str) -> dict:
     rec = {"id": text, "licence": None, "split_sha256": None}
     for root in config_roots():
         folder = Path(root) / "benchmarks" / "ext" / text
-        if not folder.is_dir():
+        if not os.path.isdir(long_path(folder)):
             continue
-        if (folder / "dataset.json").is_file():
+        if os.path.isfile(long_path(folder / "dataset.json")):
             try:
                 rec["licence"] = _read_json(folder / "dataset.json").get("licence")
             except (OSError, ValueError, AttributeError) as e:
                 log.warning("%s: unreadable (%s); the card records no licence", folder / "dataset.json", e)
-        if (folder / "split.json").is_file():
+        if os.path.isfile(long_path(folder / "split.json")):
             with open(long_path(folder / "split.json"), "rb") as fh:
                 rec["split_sha256"] = hashlib.sha256(fh.read().replace(b"\r\n", b"\n")).hexdigest()
         return rec
@@ -710,7 +710,7 @@ def _source_runs(pairs_dir: Path) -> dict[str, dict | None]:
     into it): each run's record read again from its results folder; None when that folder or record cannot be
     read. Empty without an export.json (pairs made by hand, or merged from elsewhere)."""
     path = pairs_dir / "export.json"
-    if not path.is_file():
+    if not os.path.isfile(long_path(path)):
         return {}
     try:
         runs = _read_json(path).get("runs") or []
@@ -737,7 +737,7 @@ def _source_runs(pairs_dir: Path) -> dict[str, dict | None]:
 def _manifest_rows(pairs_dir: Path) -> dict[str, dict]:
     """The manifest.csv rows of a pairs folder by the image path load_pairs gives (``str(pairs_dir / image)``)."""
     path = pairs_dir / "manifest.csv"
-    if not path.is_file():
+    if not os.path.isfile(long_path(path)):
         return {}
     df = pd.read_csv(long_path(path), low_memory=False)
     if "image" not in df.columns:

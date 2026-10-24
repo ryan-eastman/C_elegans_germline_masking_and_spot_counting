@@ -140,6 +140,10 @@ per orientation and per zone, and per pair), and what the data was:
 | `dataset` | for public data only: `{id, licence, split_sha256}` | `--dataset ID`: the committed record benchmarks/ext/ID/ (its dataset.json and the sha256 of its split.json) |
 | `source_url` | null: a local model has no download address | |
 
+`export.json` records the last export into the pairs folder only. Export every run at once (one results tree)
+for the card to name its pack; pairs exported into the folder earlier, or copied without their results, give
+`pack` null with `pack_note`.
+
 The option is `--kind`, not `--object-kind`, so that `--o` stays short for `--out`. A wrong `--kind` or dataset id
 is refused before anything is read or written. The card's `model_file` and `base_model.path` hold this machine's
 paths; `pack derive` (step 8) rewrites them before a card is published.
@@ -218,10 +222,12 @@ recipe's spot settings for the best match; applying the result writes recipe.yam
 
 `tests/test_training_export_geometry.py` pins the 3D export of the synthetic gonad (manifest.csv and export.json)
 to what the export wrote before this change, and checks the proj pairs of projected runs (the recorded plane, the
-projections, the run's stride and z range) and a tree that mixes both. `tests/test_train_curve.py` checks the card
-fields (trained from the test pack's stand-in model `tinynet@f5055f8a` through the model store, as CI cannot hold
-the 1.2 GB Cellpose-SAM weights; the same command with `cpsam_v2@0f1cc3f7` is an opt-in test,
-`GERMQUANT_TRAIN_CARD_BASE`), and the learning curve: nested, seeded subsets, one held-out set, the scorer seam,
-and `--keep-models` none and best. `tests/test_training_loop.py` covers the export of time series, the split, the
-card's training record and the registry. In all of them Cellpose's training and prediction are replaced by stand-ins,
-so the suite never trains the network; a real two-epoch training on the CPU is opt-in, `GERMQUANT_TRAIN_SMOKE=1`.
+projections, the run's stride and z range, a run of a batch tree) and a tree that mixes both.
+`tests/test_train_curve.py` checks the card fields (trained from the test pack's stand-in model `tinynet@f5055f8a`
+through the model store, as CI cannot hold the 1.2 GB Cellpose-SAM weights; the same command with
+`cpsam_v2@0f1cc3f7` is an opt-in test, `GERMQUANT_TRAIN_CARD_BASE`), the card's pack and object kind from the run
+records, and the learning curve: nested, seeded subsets, one held-out set, the scorer seam, `--keep-models` none
+and best, a subset too thin to train, and a base refused with exit 2. `tests/test_training_loop.py` covers the
+export of time series, the split, the card's training record and the registry. In all of them Cellpose's training
+and prediction are replaced by stand-ins, so the suite never trains the network; a real two-epoch training on the
+CPU is opt-in, `GERMQUANT_TRAIN_SMOKE=1`.
