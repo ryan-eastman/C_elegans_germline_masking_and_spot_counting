@@ -167,13 +167,19 @@ def series_refusal(cfg, path) -> str | None:
 class ResumeHashes:
     """The segment sub-hashes batch.is_done compares, as cli._batch computes them: one pair for the run (the model
     file's sha256 and the segmentation backend's provenance; the planar hash only when the recipe sets io.planar,
-    D44), computed on first use, or in a labels_from run the pair of each image's labels file (D46)."""
+    D44), computed on first use, or in a labels_from run the pair of each image's labels file (D46).
 
-    def __init__(self, cfg) -> None:
+    A segmentation model that cannot be resolved here raises, as it would in a run; with ``unresolved_ok`` (project
+    status, which reports such a model instead of failing) the reason is kept in ``problem`` and the pair is
+    (None, None), so is_done leaves the segment stage out of its comparison (its default without a segment hash)."""
+
+    def __init__(self, cfg, *, unresolved_ok: bool = False) -> None:
         self.cfg = cfg
-        self._pair: tuple[str, str | None] | None = None
+        self.unresolved_ok = unresolved_ok
+        self.problem: str | None = None
+        self._pair: tuple[str | None, str | None] | None = None
 
-    def for_image(self, path) -> tuple[str, str | None]:
+    def for_image(self, path) -> tuple[str | None, str | None]:
         cfg = self.cfg
         if cfg.get(LABELS_KEY) is not None:
             from ..io.labels import segment_hashes
@@ -182,11 +188,19 @@ class ResumeHashes:
             return seg, seg_planar
         if self._pair is None:
             from .. import pipeline, provenance
+            from ..models_registry import ModelPinError
             from ..stages import stage_hashes
 
             method = str(cfg.get("segmentation.nuclei.method", "auto"))
-            model_sha = (provenance.file_sha256(pipeline.resolve_model_path(cfg)) if method != "classical"
-                         else "unused")
+            try:
+                model_sha = (provenance.file_sha256(pipeline.resolve_model_path(cfg)) if method != "classical"
+                             else "unused")
+            except (OSError, ValueError, ModelPinError) as e:
+                if not self.unresolved_ok:
+                    raise
+                self.problem = f"{type(e).__name__}: {e}"
+                self._pair = (None, None)
+                return self._pair
             seg_prov = pipeline.segment_backend_provenance(cfg)
             tools = provenance.tool_versions()
             seg = stage_hashes(cfg, {}, tools, model_sha, segment_backend=seg_prov)["segment"]

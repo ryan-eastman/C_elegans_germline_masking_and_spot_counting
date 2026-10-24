@@ -14,9 +14,10 @@ import os
 import shutil
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from packs_helpers import pack_env  # noqa: F401
 from project_helpers import BASIC_HASH, TEST_PACK_REF, project_env  # noqa: F401
-from test_project_run import log_events, need_p2b, need_readers, project_with_images
+from test_project_run import _project_model, hand_edit_recipe, log_events, need_p2b, need_readers, project_with_images
 
 import germquant.project as P
 from germquant import api, cli, cli_projects
@@ -114,6 +115,38 @@ def test_a_planar_marker_reads_stale_with_the_planar_flag(project_env, tmp_path)
     _fabricate(proj, "a", "pla", planar=True, stage_hashes={**marker["stage_hashes"], "segment": planar_seg})
     rows = {r["id"]: r for r in P.project_status(proj)["images"]}
     assert (rows["pla"]["status"], rows["pla"]["reason_code"]) == ("stale", "planar_flag")
+
+
+def test_status_reports_a_model_that_is_not_here(project_env, tmp_path, capsys):  # noqa: F811
+    """A recipe whose segmentation model is not on this computer (the state of a new computer before `pack
+    fetch-models`): status still answers, with the model missing and needed and a warning, while a run is refused
+    (design 7.7: status reports whether models are present and verified)."""
+    proj = project_with_images(tmp_path, names=("a",), recipe="with_model")       # the pack's tinynet, not fetched
+    st = P.project_status(proj)
+    (tiny,) = [m for m in st["models"] if m["ref"] == "tinynet@f5055f8a"]
+    assert tiny["present"] is False and tiny["needed"] is True
+    assert [(r["id"], r["status"]) for r in st["images"]] == [("a", "missing")]
+    assert any("tinynet@f5055f8a" in w and "missing" in w for w in st["warnings"]), st["warnings"]
+    assert not any("cannot be resolved here" in w for w in st["warnings"]), st["warnings"]   # said once
+    assert cli.main(["project", "status", str(proj.root), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["models"] == json.loads(json.dumps(st["models"]))
+    with pytest.raises(P.ProjectError, match="missing"):
+        P.run_project(proj)
+    # a model name the engine cannot resolve at all (no file, not registered, not a Cellpose built-in)
+    hand_edit_recipe(proj, {"segmentation": {"nuclei": {"cellpose_model": "no_such_model"}}})
+    st = P.project_status(proj)
+    assert [r["status"] for r in st["images"]] == ["missing"]
+    assert any("cannot be resolved here" in w and "no_such_model" in w for w in st["warnings"]), st["warnings"]
+    with pytest.raises(P.ProjectError, match="cannot be resolved"):
+        P.run_project(proj)
+    # a project model removed after use-model: reported missing, never raised
+    model, _sha = _project_model(project_with_images(tmp_path, names=("b",), recipe="with_model", folder="p2"))
+    model.unlink()
+    st = P.project_status(tmp_path / "p2")
+    (rec,) = [m for m in st["models"] if m["key"] == "segmentation.nuclei.cellpose_model"]
+    assert (rec["present"], rec["needed"]) == (False, True)
+    assert [r["status"] for r in st["images"]] == ["missing"]
+    assert any("training/r01/models/m1/m1" in w and "missing" in w for w in st["warnings"]), st["warnings"]
 
 
 def test_edit_marks_every_image_stale_with_reason(project_env, tmp_path):  # noqa: F811

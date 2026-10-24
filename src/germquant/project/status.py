@@ -23,10 +23,11 @@ last_run_id from the last run that processed it (done or failed).
 in this environment outside the project, ``project_copy`` whether packs/<id>/<version>/ holds the project's copy.
 ``models`` is project/run.py's model check, the one a run refuses on. The warnings are open_project's (a hash
 that changed and why, the project's copy of the pack missing or replaced, an unrecorded recipe.yaml, a held or
-stale lock), a model the run needs that is missing or not the recorded file, the labels_from rule of D12, and an
-environment mix: runs that name more than one device, interpreter or engine git sha. ``runs`` merges every log
-under runs/ by time; a run whose log has no run_end (it was stopped without one, or is still running in another
-process) is ``interrupted`` with ``finished`` false.
+stale lock), a model the run needs that is missing or not the recorded file, a segmentation model the engine
+cannot resolve on this computer (then the images' segment stage is not compared; status reports such a model and
+never fails on it), the labels_from rule of D12, and an environment mix: runs that name more than one device,
+interpreter or engine git sha. ``runs`` merges every log under runs/ by time; a run whose log has no run_end (it
+was stopped without one, or is still running in another process) is ``interrupted`` with ``finished`` false.
 """
 from __future__ import annotations
 
@@ -163,8 +164,8 @@ def _image(entry: dict, ctx: dict) -> dict:
 
 
 def project_status(project) -> dict:
-    """The status record of the module docstring (PLAN.md 9.3). ProjectError when the project's recipe does not
-    load (open_project names why)."""
+    """The status record of the module docstring (PLAN.md 9.3). ProjectError only when the project's recipe does
+    not load (open_project names why); a model that is not on this computer is reported, never raised."""
     import germquant.pipeline  # noqa: F401  (torch first: the model lookup and the backends' provenance follow)
 
     from ..packs import discover, use_project
@@ -197,10 +198,14 @@ def project_status(project) -> dict:
         warnings.append(mix)
     last, processed = _last_events(events)
     zr = m["run"].get("z_range")
-    ctx = {"root": root, "hashes": ResumeHashes(cfg), "xy_stride": int(m["run"].get("xy_stride") or 1),
+    ctx = {"root": root, "hashes": ResumeHashes(cfg, unresolved_ok=True),
+           "xy_stride": int(m["run"].get("xy_stride") or 1),
            "z_range": (int(zr[0]), int(zr[1])) if zr else None, "last": last, "processed": processed}
     with use_project(root):
         images = [_image(e, ctx) for e in m.get("images") or []]
+    if ctx["hashes"].problem and not any(r["needed"] and not r["present"] for r in models):
+        warnings.append(f"the recipe's segmentation model cannot be resolved here ({ctx['hashes'].problem}): the "
+                        f"images' segment stage is not compared, and a run is refused until the model is back")
     p = m["pack"]
     installed = _version_sort({pk.version for pk in discover().packs if pk.id == p["id"]})
     return {"format": FORMAT, "root": str(root), "name": m.get("name"), "config_hash": proj.config_hash,
