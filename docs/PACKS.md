@@ -343,13 +343,14 @@ through tranche 5. The napari plugin gates its docks on these names.
 | sample_sheet | the sample sheet (`--samples`) |
 | import_labels | `germquant import-labels` |
 | train_curve | `germquant train-curve` |
-| pack_derive | `germquant pack derive` |
+| pack_derive | `germquant pack derive`, and `--project DIR` on pack list, show, check and fetch-models |
 | tune_spots | `germquant tune-spots` |
 
 A feature is listed when its code is in the engine (`germquant.packs.FEATURE_PROBES`): its module file exists
-and, for planar and train_curve, whose modules exist without them, the module defines `PLANAR_DZ` or
-`train_curve`. Nothing is imported to find out, so the command stays torch-free, and an engine that lacks a
-feature never lists it.
+and, for planar, projects and train_curve, whose module or package exists before the feature does, the module
+defines `PLANAR_DZ`, `run_project` (in `germquant/project/run.py`) or `train_curve`. So projects is listed once
+`germquant project run` exists, not while the package holds only its first stubs or commands. Nothing is
+imported to find out, so the command stays torch-free, and an engine that lacks a feature never lists it.
 
 ## Making a pack
 

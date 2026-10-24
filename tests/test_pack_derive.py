@@ -433,6 +433,12 @@ def test_version_json_carries_the_features_present(capsys, tmp_path):
     # each feature is listed exactly when its code is there: a stand-in package folder, filled step by step
     pkg = tmp_path / "germquant"
     assert packs.features(pkg) == []
+    # the project package's first stubs (PRJ part 1a: every call raises NotImplementedError) are not the feature;
+    # projects arrives with project/run.py and its run_project
+    stub = pkg / "project" / "__init__.py"
+    stub.parent.mkdir(parents=True)
+    stub.write_text("def run_project(project):\n    raise NotImplementedError('P5-RUN')\n", encoding="ascii")
+    assert packs.features(pkg) == []
     for name, rel, attr in packs.FEATURE_PROBES:
         f = pkg / rel
         f.parent.mkdir(parents=True, exist_ok=True)
