@@ -142,12 +142,15 @@ def _planar_stage_flags(*tables) -> list[str]:
 def segment_backend_provenance(cfg) -> dict:
     """The provenance the configured segmentation backend declares (nuclei3d: the model file and its
     sha256), or ``{}``: for the default cellpose backend and the classical one (no ``provenance``
-    attribute), and whenever ``segmentation.nuclei.method`` is classical (the backend is never called).
+    attribute), whenever ``segmentation.nuclei.method`` is classical (the backend is never called), and in a
+    labels run (``segmentation.nuclei.labels_from`` set: nothing is segmented, docs/LABELS.md).
     A non-empty record enters the segment stage sub-hash and run_manifest.json (``segment_backend``); the
     default run's hashes and manifest are unchanged."""
     from .segment.backends import backend_provenance
 
     if str(cfg.get("segmentation.nuclei.method", "auto")) == "classical":
+        return {}
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
         return {}
     return backend_provenance(cfg.get("segmentation.nuclei.backend", "cellpose"),
                               cfg.get("segmentation.nuclei", {}) or {})
@@ -302,7 +305,12 @@ def process_image(
     ``read_fn`` (None by default) replaces the image reader (see ``_read_input``); only the pack golden runner
     passes one. A run whose config carries a pack record (``api.resolve_config(pack=...)``, ``--pack``) also
     records the pack and the runtime in run_manifest.json and ``<image_id>__stages.json`` and the device
-    Cellpose ran on (post_run.segment_device_used); no table, done marker or hash changes."""
+    Cellpose ran on (post_run.segment_device_used); no table, done marker or hash changes.
+
+    With ``segmentation.nuclei.labels_from`` set (docs/LABELS.md) the segment stage reads the image's labels file
+    instead of segmenting: no model is resolved (model_sha256 "unused"), segmentation_method reads labels_file,
+    the flag segment:labels_from_file is raised and run_geometry and the segment sub-hash record the file. Such a
+    run refuses ``t``."""
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
     os.makedirs(long_path(out_dir), exist_ok=True)
@@ -365,12 +373,28 @@ def process_image(
     # are refused and the plane to segment is resolved here, before any stage runs; None on every other run, and
     # in a single-plane run, where one plane needs no projection (D7)
     projection = None if planar_run else planar.prepare_projection(cfg, stack, role_to_idx)
+    # labels from files (segmentation.nuclei.labels_from, docs/LABELS.md): the image's labels file is read and
+    # hashed here, before any stage runs (a missing file, a .npy, a damaged TIFF, labels that do not fit the image,
+    # a time series and, in a projected run, a file with more than one plane are refused); None on every other run,
+    # which neither imports germquant.io.labels nor calls it
+    given = None
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
+        from .io import labels as labels_io
+
+        given = labels_io.labels_for_run(cfg, nd2_path, nz=labels_io.image_planes(meta, stack, z_range),
+                                         shape_zyx=stack.shape_zyx, xy_stride=xy_stride, z_range=z_range, t=t,
+                                         projected=projection is not None)
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
     # the stage record, never table columns, so no CSV header changes.
     spot_instances(cfg)                    # a bad spots.instances declaration fails here, before any pixel is read
-    model_file = resolve_model_path(cfg)
-    model_sha = (provenance.file_sha256(model_file)
-                 if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
+    if given is not None:
+        # a labels run segments nothing: no model is resolved, hashed or pin-checked (model_sha256 "unused", as
+        # under the classical method)
+        model_file, model_sha = None, "unused"
+    else:
+        model_file = resolve_model_path(cfg)
+        model_sha = (provenance.file_sha256(model_file)
+                     if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
     if model_sha != "unused":
         model_key = str(cfg.get("segmentation.nuclei.cellpose_model") or "")
         if "@" in model_key:
@@ -384,7 +408,8 @@ def process_image(
     # the same for the segmentation backend (nuclei3d: its model sha256); {} on the default run
     seg_prov = segment_backend_provenance(cfg)
     stage_hashes = stage_hashes_fn(cfg, role_to_idx, provenance.tool_versions(), model_sha, spot_backend=spot_prov,
-                                   segment_backend=seg_prov, **({"planar": True} if planar_run else {}))
+                                   segment_backend=seg_prov, **({"planar": True} if planar_run else {}),
+                                   **({} if given is None else {"labels_sha256": given["sha256"]}))
     run_geometry = {"xy_stride": int(xy_stride), "z_range": list(z_range) if z_range else None,
                     "stage_hashes": stage_hashes, "model_sha256": model_sha,
                     "enabled_stages": [s.name for s in STAGES if stage_enabled(cfg, s.name)]}
@@ -392,6 +417,9 @@ def process_image(
         run_geometry["spot_backend"] = spot_prov
     if seg_prov:
         run_geometry["segment_backend"] = seg_prov
+    if given is not None:
+        # the labels file enters the run geometry (manifest, stage record) ONLY in a labels run
+        run_geometry["labels_from"] = {"path": str(given["path"]), "sha256": given["sha256"]}
     if t is not None:
         # the timepoint enters the run geometry (manifest, stage record) and the marker ONLY for a series
         run_geometry["t_index"] = int(t)
@@ -493,6 +521,22 @@ def process_image(
             cfg_section=cfg.get("segmentation.nuclei", {}))
 
     def _segment():
+        if given is not None:
+            # labels from files (docs/LABELS.md): nothing is segmented and require_channel does not apply; the
+            # labels read before any stage are the objects. A projected run keeps its projected measure and records;
+            # its projection is computed only for the montage, of the channel prepare_projection resolved the plane on
+            flags.append("segment:labels_from_file")
+            if planar_run and planar_prep["project_ignored"]:
+                flags.append("segment:project_ignored_planar")   # D7, as _segment_single_plane raises it
+            if projection is not None:
+                seg_img = stack.channel(role_to_idx.get(seg_role))
+                if seg_img is None and not bool(cfg.get("segmentation.nuclei.require_channel", False)):
+                    seg_img = stack.data[0]          # the channel prepare_projection resolved the plane on
+                projected.update(image=None if seg_img is None else
+                                 planar.project_image(seg_img, projection["mode"], projection["z"]),
+                                 labels2d=given["labels"][0])
+                flags.append(projection["flag"])
+            return given["labels"], "labels_file"
         img = stack.channel(role_to_idx.get(seg_role))
         if img is None:
             if bool(cfg.get("segmentation.nuclei.require_channel", False)):

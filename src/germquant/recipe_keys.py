@@ -17,6 +17,8 @@ of these keys, so a default run checks nothing and changes nothing.
     segmentation.nuclei.cellpose                     null or a mapping
     segmentation.nuclei.cellpose.object_diameter_um  null or a positive number (micrometres)
     segmentation.nuclei.require_channel              null, true or false
+    segmentation.nuclei.labels_from                  null or a path template (P2c, docs/LABELS.md)
+    segmentation.nuclei.labels_frame                 null or a whole number, 0 or more (P2c)
     qc.min_nuclei                                    null or a whole number, 0 or more
     spots.spot_radius_z_um                           null or a positive number (micrometres)
     spots.remove_hot_pixels, spots.sharpen           null, true or false
@@ -44,6 +46,7 @@ linter can use it.
 from __future__ import annotations
 
 import math
+import string
 
 # the optional SpotMAX keys, by kind (spots.detect.SPOTMAX_OPTIONAL_KEYS holds the same three names; a test
 # keeps the two in step without importing the spots package here)
@@ -56,9 +59,12 @@ CHECKED_KEYS = (
     "segmentation.nuclei.require_channel",
     "qc.min_nuclei",
     *(f"spots.{k}" for k in SPOT_LENGTH_KEYS + SPOT_FLAG_KEYS),
+    "segmentation.nuclei.labels_from", "segmentation.nuclei.labels_frame",
 )
 # the single-plane keys (P2b): checked like the keys above, listed apart because generic_2d.yaml sets io.planar
 IO_KEYS = ("io.planar", "io.voxel_size_um")
+# the fields of a labels_from template (germquant.io.labels formats it)
+LABELS_TEMPLATE_FIELDS = ("image_dir", "image_stem", "image_id")
 
 
 def _is_int(value) -> bool:
@@ -123,6 +129,28 @@ def voxel_size_problem(value) -> str | None:
     return None
 
 
+def labels_template_problem(key: str, value) -> str | None:
+    """None when ``value`` is null or a path template: a non-empty string whose fields are only {image_dir},
+    {image_stem} and {image_id}, with no format spec or conversion ({{ and }} are literal braces). Otherwise the
+    message naming ``key``."""
+    if value is None:
+        return None
+    want = "a path template with the fields {image_dir}, {image_stem} and {image_id} (or null)"
+    if not isinstance(value, str) or not value.strip():
+        return f"{key} must be {want}; got {value!r}"
+    try:
+        parts = list(string.Formatter().parse(value))
+    except ValueError as e:                    # an unbalanced brace
+        return f"{key} must be {want}; {value!r} is not a template ({e})"
+    for _text, field, spec, conversion in parts:
+        if field is None:
+            continue
+        if field not in LABELS_TEMPLATE_FIELDS or spec or conversion:
+            shown = "{" + field + (f"!{conversion}" if conversion else "") + (f":{spec}" if spec else "") + "}"
+            return f"{key} must be {want}; got the field {shown} in {value!r}"
+    return None
+
+
 def object_diameter_problem(cfg_section) -> str | None:
     """The problem with segmentation.nuclei.cellpose.object_diameter_um in a segmentation.nuclei section, or
     None (unset or valid)."""
@@ -155,6 +183,8 @@ def problems(cfg) -> list[str]:
     if isinstance(seg, dict):
         found.append(object_diameter_problem(seg))
         found.append(flag_problem("segmentation.nuclei.require_channel", seg.get("require_channel")))
+        found.append(labels_template_problem("segmentation.nuclei.labels_from", seg.get("labels_from")))
+        found.append(count_problem("segmentation.nuclei.labels_frame", seg.get("labels_frame")))
     found.append(count_problem("qc.min_nuclei", cfg.get("qc.min_nuclei")))
     spots = cfg.get("spots", {}) or {}
     sections = [("spots", spots)] if isinstance(spots, dict) else []

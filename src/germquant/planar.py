@@ -523,7 +523,8 @@ def check_planar(cfg, role_to_idx: dict, *, planar: bool = False) -> None:
       partition, granule_tail) that is switched on and whose channel roles are all bound; a stage whose
       roles are missing skips itself as it always has;
     * a segmentation backend without planar_ok (cellpose and classical declare it, nuclei3d does not), unless
-      segmentation.nuclei.method is classical, which never calls the backend;
+      segmentation.nuclei.method is classical, which never calls the backend, or segmentation.nuclei.labels_from
+      is set, which segments nothing (docs/LABELS.md);
     * with ``planar=True`` (single-plane runs, P2b) also a spot backend without planar_ok, for the main spots
       instance and every spots.instances entry whose role is bound. Projected runs count spots in 3D, so
       any spot backend may run there.
@@ -539,7 +540,8 @@ def check_planar(cfg, role_to_idx: dict, *, planar: bool = False) -> None:
         how = f"{st.config_key}: false" + (f" or --no-{st.name}" if st.cli_switchable else "")
         problems.append(f"the {st.name} stage is 3D-only and is switched on with its channel roles bound "
                         f"(switch it off with {how})")
-    if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical":
+    if (str(cfg.get("segmentation.nuclei.method", "auto")) != "classical"
+            and cfg.get("segmentation.nuclei.labels_from") is None):
         name = str(cfg.get("segmentation.nuclei.backend", seg_backends.DEFAULT_BACKEND) or "").strip() \
             or seg_backends.DEFAULT_BACKEND
         fn = seg_backends.get_backend(name)      # an unknown name raises here, as the segment stage would

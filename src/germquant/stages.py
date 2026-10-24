@@ -163,7 +163,7 @@ PLANAR_PAYLOAD_STAGES = ("read", "segment", "measure", "spots")   # the sub-hash
 
 def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str = "",
                  spot_backend: dict | None = None, segment_backend: dict | None = None,
-                 planar: bool = False) -> dict[str, str]:
+                 planar: bool = False, labels_sha256: str | None = None) -> dict[str, str]:
     """Per-stage provenance sub-hash: sha256 (12 hex) of the stage's resolved config sections, the
     channel roles it consumes, the versions of the tools it depends on, and (segment) the Cellpose model
     file digest. Lets two runs with different whole-config hashes be recognised as identical for one stage
@@ -174,6 +174,9 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
     sha256 and the extra channel roles it reads); it enters the spots payload only when not empty, so
     the hashes of a default run are unchanged. ``segment_backend`` is the same for the segmentation
     backend (nuclei3d: its model file's sha256), entering the segment payload only when not empty.
+    ``labels_sha256`` is the sha256 of a labels run's labels file (segmentation.nuclei.labels_from,
+    docs/LABELS.md); it enters the segment payload only in a labels run, so an edited labels file restales its
+    image.
 
     ``planar`` (False by default) is a single-plane run's (docs/PLANAR.md): it adds ``"planar": true`` to the read,
     segment, measure and spots payloads (PLANAR_PAYLOAD_STAGES), so a planar result never satisfies a 3D resume
@@ -202,6 +205,8 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
             payload["model_sha256"] = model_sha
         if st.name == "segment" and segment_backend:
             payload["segment_backend"] = segment_backend
+        if st.name == "segment" and labels_sha256:
+            payload["labels_sha256"] = labels_sha256
         if st.name == "spots" and spot_backend:
             payload["spot_backend"] = spot_backend
         if planar and st.name in PLANAR_PAYLOAD_STAGES:

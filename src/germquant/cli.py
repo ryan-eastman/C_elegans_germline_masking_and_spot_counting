@@ -786,7 +786,7 @@ def _run_series(args, cfg) -> int:
 
     refused = _series_refusal(cfg, args.nd2)
     if refused:
-        print(f"ERROR: {refused}", file=sys.stderr)
+        print(f"REFUSED: {refused}", file=sys.stderr)       # one prefix for every series refusal (D45)
         return 2
     res = process_series(args.nd2, cfg, args.out, timepoints=args.t, xy_stride=args.xy_stride,
                          z_range=args.z_range, resume=bool(getattr(args, "resume", False)))
@@ -803,9 +803,14 @@ def _run_series(args, cfg) -> int:
 
 
 def _series_refusal(cfg, path) -> str | None:
-    """Why ``run --t`` cannot run this series in this release, or None. A single-plane run (io.planar true, or auto
-    on a file whose header has one plane) is refused before the loop (D9, docs/PLANAR.md); process_image refuses
-    each such timepoint as well."""
+    """Why ``run --t`` cannot run this series in this release, or None; _run_series prints it as "REFUSED:
+    <message>" (D45). A labels recipe (segmentation.nuclei.labels_from, D15, docs/LABELS.md) is refused first,
+    with no header read; then a single-plane run (io.planar true, or auto on a file whose header has one plane;
+    D9, docs/PLANAR.md). process_image refuses each such timepoint as well."""
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
+        from .io.labels import SERIES_REFUSAL
+
+        return SERIES_REFUSAL
     from . import planar
 
     try:
@@ -851,8 +856,16 @@ def _batch(args) -> int:
     from .pipeline import resolve_model_path, segment_backend_provenance
     from .stages import stage_hashes as stage_hashes_fn
 
-    model_sha = (provenance.file_sha256(resolve_model_path(cfg))
-                 if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
+    labels_run = cfg.get("segmentation.nuclei.labels_from") is not None
+    if labels_run:
+        # labels from files (docs/LABELS.md): process_image's rule, no model is resolved; the segment hashes are
+        # computed per image below, with that image's labels sha256
+        from .io import labels as labels_io
+
+        model_sha = "unused"
+    else:
+        model_sha = (provenance.file_sha256(resolve_model_path(cfg))
+                     if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
     # the segmentation backend's own provenance ({} on the default run), as process_image hashes it
     segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
                                    segment_backend=segment_backend_provenance(cfg))["segment"]
@@ -881,8 +894,16 @@ def _batch(args) -> int:
         out_dir = out_root / rel / f.stem
         print(f"[{i}/{len(files)}] {f.name}")
         if resume:
-            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=segment_hash,
-                                  **planar_kw)
+            seg, seg_kw = segment_hash, planar_kw
+            if labels_run:
+                # this image's segment hashes, its labels file's sha256 in the payload, the single-plane one only
+                # for a recipe that sets io.planar (D44, D46); a file that cannot be hashed matches no marker, so
+                # the image is reprocessed and fails with process_image's message
+                seg, seg_planar, problem = labels_io.segment_hashes(cfg, f, model_sha=model_sha)
+                seg_kw = {} if seg_planar is None else {"segment_hash_planar": seg_planar}
+                if problem:
+                    print(f"    {problem}")
+            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=seg, **seg_kw)
             if done:
                 print("    already done (completion marker matches); skipping")
                 continue
