@@ -1417,3 +1417,14 @@ Entries are appended, never edited. Each one says whether a test result had been
    the rules of a new entry, and it qualifies S2a in the meantime: on development data part of the low
    piece_lw_mean_um of full SC may be dim stretches read as gaps. The robustness report of section 9, the thresholds
    on all development gonads and the freeze entry wait for the project lead's decisions.
+30. 2026-10-24, the v2 development round (the CI check of entry 27 (f), departure; no method change), written before
+   any number of the change below was computed (no test result had been computed, no test or reserved image was run,
+   no test or reserved truth was read and no sealed seed was generated). CI at commit b1610c7: the Linux and Windows
+   jobs passed; both macOS arm64 jobs failed one case of tests/test_sc_straighten_v2_compat.py, gaps/entry2/2004,
+   whose strip index differed from v1 while its number of strands (2) did not. On the Linux and macOS runners the
+   table digests of most cases differ from those of the workstation (the floating point of another platform; on the
+   Windows runner they all match), and no case differed in its number of strands on any runner. A strip runs every
+   0.05 um along its strand, so a last-digit change of an end can add a column, and an end refitted from deeper
+   inside can move by more than that. The structural check of entry 27 (f) is therefore the number of strands of
+   every synthetic case alone, on every platform; the strip index stays with the table digests among the workstation
+   pins (GERMQUANT_WORKSTATION_PINS=1), which the hand-off runs on the workstation.
