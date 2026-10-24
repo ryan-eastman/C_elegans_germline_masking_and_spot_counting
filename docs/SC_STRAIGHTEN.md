@@ -4,10 +4,10 @@ Experimental, version 2.0. Every image it writes carries the flag `sc_straighten
 pre-registered protocol (docs/SC_VALIDATION_PROTOCOL.md) has scored the method on its sealed test set. The design
 it implements is docs/SC_STRAIGHTEN_DESIGN.md; the differences are listed at the end of this page.
 
-Version 2.0 is the v2 development round of the protocol (changelog entries 10 to 26). Every change it tried is a
-switch, and none met its pre-registered adoption rule, so every switch is off by default and the defaults give the
-outputs of version 1.0 in every column of 1.0 (tests/test_sc_straighten_v2_compat.py); see "Version 2.0
-switches". New in 2.0: the strand column `punctum_sigma_z_um` and the nucleus columns `n_puncta`,
+Version 2.0 is the v2 development round of the protocol (changelog entries 10 to 26, and 27 to 29 after an
+independent review of the round). Every change it tried is a switch, and none met its pre-registered adoption
+rule, so every switch is off by default and the defaults give the outputs of version 1.0 in every column of 1.0
+(tests/test_sc_straighten_v2_compat.py); see "Version 2.0 switches". New in 2.0: the strand column `punctum_sigma_z_um` and the nucleus columns `n_puncta`,
 `puncta_signal_frac` (both 0 with the punctum class off) and `steep_length_frac`.
 
 ## What it does
@@ -379,8 +379,8 @@ worse beyond the tolerances of that entry. None was adopted.
 Two further changes of the plan were built and run on the design seeds only and not proposed (entries 23 and 24): a
 junction-aware end fit (it shortened ends near other strands) and the re-pairing of branches at junction zones (it
 did not reduce the turns and end-to-end joins of the final strands). The development phantom families of the
-round (`psf_check`, `puncta_pt`, `puncta_agg`, `dense_puncta`, `real_dense`; germquant.sc.straighten.synth_dev)
-are not registered.
+round (`psf_check`, `puncta_pt`, `puncta_agg`, `dense_puncta`, `real_dense` and, recalibrated by protocol changelog
+entry 28, `real_dense_r2`; germquant.sc.straighten.synth_dev) are not registered and have no sealed seeds.
 
 ## QC flags
 
@@ -461,7 +461,14 @@ almost no nucleus is a `complete_nucleus`, so `total_length_complete_um` is near
   come out short, tracer breaks at crossings, links across junctions); none of its changes fixed them.
 * Real data: 39 to 46 percent of the traced strand length on the development gonads runs steeper than 60 degrees
   to the image plane, against 13 percent for randomly oriented ribbons; many short steep strands are probably the
-  axial blur of SYP puncta or aggregates. The phantoms hold no puncta, so this is not measured by them.
+  axial blur of SYP puncta or aggregates. The registered phantoms hold no puncta; the realism phantoms do (below).
+* Continuity and brightness (protocol changelog entries 28 and 29; development phantoms calibrated on truth-free
+  statistics of the development images): with the brightness of each ribbon varying along it as much as on real
+  in-plane strands, the median `piece_lw_mean_um` of dense phantoms falls from 5.0 to 3.6 um (real full SC: 2.6
+  um), because dim stretches of continuous ribbons are detected as gaps (gaps per nucleus 1.8 to 4.3) while the
+  strands stay whole. On real data part of the low continuity of full SC may therefore be dim stretches read as
+  gaps; no change of the method was made for it in version 2.0. With all four realism features (PSF, brightness,
+  texture, puncta) the dense totals have an SD of 16 percent and a CCC of 0.18.
 
 ## napari
 
@@ -487,15 +494,21 @@ Development snapshot of version 2.0 (protocol changelog entry 26; computed once 
 `dev_eval/summary_a711fe5.json`): the configuration proposed for the freeze (every switch off) and version 1.0 give
 the same numbers (version 1.0 there is the code of 2.0 with every switch at its v1 value, which
 tests/test_sc_straighten_v2_compat.py ties to commit 5cb3cb6, and an independent recompute with the v1 code gave
-the same dense S1b; protocol changelog entry 27). Met: S1a (isolated ribbons: mean length error +0.076 um, 95 percent limits -0.07 to +0.22 um,
-median centreline distance 0.017 um, one strand per ribbon in all), S1c (gap precision 1.00, recall 0.91, gap length
-error 0.034 um), S1d (0.064 um, all on the right ribbon) and S1f; not met: S1b (dense nuclei: mean total -6.7 percent,
-SD 8.7 percent, CCC 0.49; coverage 0.96 and off-truth 0.01 pass) and S1e (complete precision 0.890 pooled against
-0.90; 0.67 in dense nuclei). With the registered generator the dense totals run 15.3 percent short (SD 9.9 percent,
+the same dense S1b; protocol changelog entry 27). Met: S1a (isolated ribbons: mean length error +0.076 um, 95
+percent limits -0.07 to +0.22 um, median centreline distance 0.017 um, one strand per ribbon in all), S1c (gap
+precision 1.00, recall 0.91, gap length error 0.034 um), S1d (0.064 um, all on the right ribbon) and S1f; not met:
+S1b (dense nuclei: mean total -6.7 percent, SD 8.7 percent, CCC 0.49; coverage 0.96 and off-truth 0.01 pass) and
+S1e (complete precision 0.890 pooled against 0.90; 0.67 in dense nuclei). With the registered generator the dense totals run 15.3 percent short (SD 9.9 percent,
 CCC 0.22). No zone checkpoint was run in v2, since no change that reaches an S2 input was adopted. The hold-out
 check H1 (entry 26) had one gonad with a germquant run, 20251021_n2_nohs_HERM_2, so it decides nothing: S2b
 0.989; S2a not evaluable under the registered guard and 0.739 under guard_frac 0.25 (intensity comparator 0.670);
 SC_fullstart within one point spacing with the thresholds of the twelve (out of sample).
+
+An independent review of the round (protocol changelog entry 27) found no blocker; it disclosed one zone
+computation made outside a checkpoint (it compared no configuration), corrected the reports above, and led to
+code-only changes of the scoring path and the input guards, and to a recalibrated realism probe (entries 28 and
+29), whose brightness feature reproduces the low continuity of real full SC (see Accuracy notes); by entry 11 (e)
+nothing in the method changed after the hold-out check.
 
 Development snapshot after the review fixes (commit 6b7be22; synthetic development seeds 2000 to 2049 and the
 fresh seeds 3000 to 3049, 50 scenes per family; twelve development gonads, the eight of 2025-11-05 and the four
