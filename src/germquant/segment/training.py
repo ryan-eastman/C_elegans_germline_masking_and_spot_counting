@@ -136,6 +136,12 @@ def _run_ref(folder: Path, iid: str, labels_path: Path, summary_path: Path) -> R
         for nested in ("run_geometry", "geometry"):
             if isinstance(rec.get(nested), dict):
                 man.update({k: v for k, v in rec[nested].items() if k in ("xy_stride", "z_range", "t_index")})
+        if isinstance(rec.get("segment_projection"), dict):
+            # a projected run of a batch: its proj pair must be the channel the segmenter saw, so the segmented
+            # role comes from the batch's own config (3D batch runs keep the dna default, as before)
+            batch_man = _batch_manifest(folder, rec.get("config_hash"))
+            if batch_man is not None:
+                man["config"] = batch_man.get("config")
     s = pd.read_csv(long_path(summary_path), low_memory=False)
     row = s.iloc[0] if len(s) else pd.Series(dtype=object)
     src = row.get("file_path")
@@ -158,6 +164,23 @@ def _run_ref(folder: Path, iid: str, labels_path: Path, summary_path: Path) -> R
                   t_index=None if t_index is None else int(t_index), channel_role=role,
                   channel_index=None if idx is None else int(idx), labels_path=str(labels_path),
                   nuclei_path=str(nuclei) if nuclei.exists() else None)
+
+
+def _batch_manifest(folder: Path, config_hash) -> dict | None:
+    """The run_manifest.json of the batch a run folder belongs to: the nearest one above the folder, when it
+    records the run's config_hash; else None."""
+    if not config_hash:
+        return None
+    for parent in Path(os.path.abspath(folder)).parents:      # absolute: a relative "." has no parents
+        p = parent / "run_manifest.json"
+        if os.path.exists(long_path(p)):
+            try:
+                with open(long_path(p), encoding="utf-8") as fh:
+                    m = json.load(fh)
+            except (OSError, ValueError):
+                return None
+            return m if isinstance(m, dict) and m.get("config_hash") == config_hash else None
+    return None
 
 
 def _read_json(path: str | Path) -> dict:

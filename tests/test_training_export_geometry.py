@@ -304,3 +304,42 @@ def test_a_mixed_tree_exports_each_run_by_its_geometry(tmp_path, results, reader
                                   pd.read_csv(tmp_path / "pairs" / "manifest.csv"))
     assert cli.main(["export-training", str(mixed), "--out", str(tmp_path / "cli_yz"), "--orientations", "yz"]) == 0
     assert list(pd.read_csv(tmp_path / "cli_yz" / "manifest.csv")["orientation"]) == ["yz", "yz", "yz", "proj"]
+
+
+# ---- a batch tree: the run folder has no run_manifest.json ---------------------------------------------------
+
+def test_a_projected_batch_run_exports_the_channel_it_segmented(tmp_path, monkeypatch):
+    """A batch writes one run_manifest.json, at its root; the run folder holds <id>__stages.json, which the
+    geometry is read from. The proj pair is still the channel the segmenter saw: the recipe's transmitted role,
+    here channel 1 of the file, from the config of the batch's manifest. A manifest above the folder that
+    records another config_hash is not the run's, and the role falls back to dna as before."""
+    from test_projected_run import SP
+
+    from germquant import provenance
+
+    stack, _ = yeast_like_stack()
+    swapped = Stack(data=stack.data[::-1].copy(), spacing=SP, channel_names=["Cy3", "Bright"], path="x.nd2",
+                    spacing_ok=True)
+    c, z, y, x = swapped.data.shape
+    meta = {"sizes": {"C": c, "Z": z, "Y": y, "X": x}, "spacing": SP, "spacing_ok": True,
+            "channel_names": ["Cy3", "Bright"], "dtype": "float32", "is_2d": False}
+    monkeypatch.setattr(pipeline, "read_nd2_metadata", lambda path, **kw: meta)
+    monkeypatch.setattr(pipeline, "read_stack", lambda path, **kw: swapped)
+    cfg = recipe(**{"spots.enabled": False})
+    root = tmp_path / "batch"
+    prov = provenance.write_manifest(root, config_hash=cfg.hash, config=cfg.as_dict(), extra={})
+    pipeline.process_image(YEAST, cfg, root / YEAST_ID, prov=prov)
+    assert not (root / YEAST_ID / "run_manifest.json").exists()
+    man = TR.export_training_pairs(root, tmp_path / "pairs")
+    r = man.iloc[0].to_dict()
+    assert (r["orientation"], int(r["slice_index"]), r["channel_role"], int(r["channel_index"])) == \
+        ("proj", Z_FOCUS, "transmitted", 1)
+    assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r["image"]), _u16(swapped.data[1][Z_FOCUS]))
+    monkeypatch.chdir(root / YEAST_ID)                 # an export from inside the run folder: "." has no parents
+    r = TR.export_training_pairs(".", tmp_path / "here").iloc[0].to_dict()
+    assert (r["channel_role"], int(r["channel_index"])) == ("transmitted", 1)
+    other = json.loads((root / "run_manifest.json").read_text(encoding="utf-8"))
+    other["config_hash"] = "0" * len(cfg.hash)
+    (root / "run_manifest.json").write_text(json.dumps(other), encoding="utf-8")
+    r = TR.export_training_pairs(root, tmp_path / "other").iloc[0].to_dict()
+    assert (r["orientation"], r["channel_role"], int(r["channel_index"])) == ("proj", "dna", 0)

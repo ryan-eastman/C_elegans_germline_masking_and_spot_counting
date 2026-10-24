@@ -48,8 +48,10 @@ Mac:
 The first path is a results folder, a time-lapse series folder or a batch tree. For every finished run under it,
 export-training reads the image again from its source file at the xy stride, z range and timepoint the run
 recorded, so the exported images sit on exactly the grid the labels were made on, and takes the channel the run
-segmented (`segmentation.nuclei.channel`, through the run's channel map). What it writes follows the run's
-geometry (`--orientations auto`, the default):
+segmented (`segmentation.nuclei.channel`, through the run's channel map). In a batch tree the run folders hold
+no `run_manifest.json`: a projected run then takes its role from the batch's own `run_manifest.json` (the one
+above the folder that records the run's config hash), and a 3D run of a batch is exported from the `dna` role,
+as before this release. What it writes follows the run's geometry (`--orientations auto`, the default):
 
 | the run | what export writes | file names |
 |---|---|---|
