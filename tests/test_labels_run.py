@@ -18,6 +18,7 @@ tests/test_labels_run.py``, as for tests/test_golden.py.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -289,6 +290,32 @@ def test_no_model_is_resolved_in_labels_runs(tmp_path, monkeypatch):
     assert pipeline.segment_backend_provenance(cfg) == {}
 
 
+def test_labels_frame_stride_and_z_range_reach_the_run(tmp_path, monkeypatch):
+    """The run passes labels_frame (D13), xy_stride and z_range to the labels (acceptance 2): frame 1 of a
+    (T, Z, Y, X) segm.npz, read at xy_stride 2 and z_range (6, 15), is the truth cut as the stack is cut."""
+    import tifffile
+
+    full = _synthetic_stack()
+
+    def read_cut(path, *, xy_stride=1, z_range=None, **kw):          # read_stack's slicing (nd2_reader)
+        data = full.data if z_range is None else full.data[:, z_range[0]:z_range[1]]
+        dz, dy, dx = full.spacing
+        return dataclasses.replace(full, data=np.ascontiguousarray(data[:, :, ::xy_stride, ::xy_stride]),
+                                   spacing=(dz, dy * xy_stride, dx * xy_stride), downsample_xy=xy_stride)
+
+    patch_reader(monkeypatch, full)                                  # the header holds the full 20 planes
+    monkeypatch.setattr(pipeline, "read_stack", read_cut)
+    truth = truth_labels()
+    np.savez_compressed(str(tmp_path / f"{ND2_ID}_segm.npz"), np.stack([np.zeros_like(truth), truth]))
+    cfg = _cfg(ROOT / "config" / "profiles" / "generic.yaml",
+               **{"segmentation.nuclei.labels_from": "{image_dir}/{image_stem}_segm.npz",
+                  "segmentation.nuclei.labels_frame": 1, "spots.enabled": False, "render.montage": False})
+    out = tmp_path / "cut"
+    res = pipeline.process_image(tmp_path / ND2, cfg, out, prov=None, xy_stride=2, z_range=(6, 15))
+    assert res["n_nuclei"] == 15                                     # frame 0 is empty: frame 1 was read
+    np.testing.assert_array_equal(tifffile.imread(out / f"{ND2_ID}__nuclei_labels.tif"), truth[6:15, ::2, ::2])
+
+
 def test_labels_in_a_projected_run(tmp_path, monkeypatch):
     """D14: the labels file replaces segment_planar's output in a projected run; the projected measure and records
     stay, the projection is computed only for the montage, and a file with more than one plane is refused."""
@@ -338,6 +365,14 @@ def test_labels_in_a_projected_run(tmp_path, monkeypatch):
     assert res2["n_nuclei"] == len(CELLS) + len(DEBRIS) and not any(f.startswith("segment:no_") for f in res2["qc_flags"])
     assert seen[-1]["base_plane"] is None
     assert _json(tmp_path / "nt" / "run_manifest.json")["segment_projection"]["z"] is None
+    # with require_channel false the record resolves its plane on channel 0, as a segmenting run does, and the
+    # montage shows that very plane
+    cfg_c0 = recipe(**{"segmentation.nuclei.labels_from": template, "spots.enabled": False,
+                       "segmentation.nuclei.require_channel": False})
+    pipeline.process_image(tmp_path / IMAGE, cfg_c0, tmp_path / "c0", prov=None)
+    z_c0 = _json(tmp_path / "c0" / "run_manifest.json")["segment_projection"]["z"]
+    assert z_c0 is not None
+    np.testing.assert_array_equal(seen[-1]["base_plane"], no_trans.data[0][z_c0])
     # a segmentation backend without planar_ok is not refused: nothing is segmented
     patch_reader(monkeypatch, stack)
     cfg3 = recipe(**{"segmentation.nuclei.labels_from": template, "spots.enabled": False,

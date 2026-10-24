@@ -332,11 +332,13 @@ def process_image(
     # labels from files (segmentation.nuclei.labels_from, docs/LABELS.md): the image's labels file is read and
     # hashed here, before any stage runs (a missing file, a .npy, labels that do not fit the image, a time series
     # and, in a projected run, a file with more than one plane are refused); None on every other run
-    from .io import labels as labels_io
+    given = None
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
+        from .io import labels as labels_io
 
-    given = labels_io.labels_for_run(cfg, nd2_path, nz=labels_io.image_planes(meta, stack, z_range),
-                                     shape_zyx=stack.shape_zyx, xy_stride=xy_stride, z_range=z_range, t=t,
-                                     projected=projection is not None)
+        given = labels_io.labels_for_run(cfg, nd2_path, nz=labels_io.image_planes(meta, stack, z_range),
+                                         shape_zyx=stack.shape_zyx, xy_stride=xy_stride, z_range=z_range, t=t,
+                                         projected=projection is not None)
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
     # the stage record, never table columns, so no CSV header changes.
     spot_instances(cfg)                    # a bad spots.instances declaration fails here, before any pixel is read
@@ -461,6 +463,8 @@ def process_image(
             flags.append("segment:labels_from_file")
             if projection is not None:
                 seg_img = stack.channel(role_to_idx.get(seg_role))
+                if seg_img is None and not bool(cfg.get("segmentation.nuclei.require_channel", False)):
+                    seg_img = stack.data[0]          # the channel prepare_projection resolved the plane on
                 projected.update(image=None if seg_img is None else
                                  planar.project_image(seg_img, projection["mode"], projection["z"]),
                                  labels2d=given["labels"][0])
