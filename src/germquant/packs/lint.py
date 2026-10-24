@@ -90,7 +90,7 @@ T5_KEYS = frozenset({
     "io.planar", "io.voxel_size_um", "io.input_suffixes",
     "segmentation.nuclei.project", "segmentation.nuclei.project_plane", "segmentation.nuclei.min_area_um2",
     "segmentation.nuclei.cellpose.object_diameter_um", "segmentation.nuclei.labels_from",
-    "segmentation.nuclei.require_channel",
+    "segmentation.nuclei.labels_frame", "segmentation.nuclei.require_channel",
     "spots.spot_radius_z_um", "spots.remove_hot_pixels", "spots.sharpen", "qc.min_nuclei",
 })
 # sections whose inner keys belong to a backend or are data (a mapping read as a whole)
