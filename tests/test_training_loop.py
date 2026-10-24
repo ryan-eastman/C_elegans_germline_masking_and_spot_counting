@@ -367,7 +367,7 @@ def test_register_model_resolves_by_name(tmp_path, models_root):
         R.get_model("never_registered", quiet=True)
 
 
-def test_registered_name_in_the_config_reaches_the_segment_stage(tmp_path, models_root, patched_reader, registry):  # noqa: F811
+def test_registered_name_in_the_config_reaches_the_segment_stage(tmp_path, models_root, patched_reader, registry, monkeypatch):  # noqa: F811
     model, card = _write_model_and_card(tmp_path / "trained", "live_nuclei_test")
     assert cli.main(["register-model", "--model", str(model), "--card", str(card)]) == 0
     assert cli.main(["get-model", "live_nuclei_test"]) == 0
@@ -377,6 +377,9 @@ def test_registered_name_in_the_config_reaches_the_segment_stage(tmp_path, model
     if shipped.is_file():                     # a checkout that holds the release model
         assert Path(str(pipeline.resolve_model_path(cfg))) == shipped
     else:                                     # no models folder (CI): refused, never handed to Cellpose
+        from germquant import model_paths
+
+        monkeypatch.setattr(model_paths, "cellpose_installed", lambda: True)   # (without it nothing is loaded)
         with pytest.raises(FileNotFoundError, match="is not a file"):
             pipeline.resolve_model_path(cfg)
     cfg.set("segmentation.nuclei.cellpose_model", "live_nuclei_test")

@@ -63,7 +63,7 @@ def test_missing_extends_target_is_an_error(tmp_path):
         load_config(p)
 
 
-def test_out_of_repo_profile_inherits_base_relative_paths(tmp_path):
+def test_out_of_repo_profile_inherits_base_relative_paths(tmp_path, monkeypatch):
     """A study profile anywhere on disk extending the shipped config resolves the channel map, model
     and exclusions file against the BASE's repo, not against its own folder."""
     p = tmp_path / "study.yaml"
@@ -80,6 +80,9 @@ def test_out_of_repo_profile_inherits_base_relative_paths(tmp_path):
     if anchored.is_file():                    # a checkout that holds the model: the anchored file is used
         assert Path(str(resolve_model_path(cfg))) == anchored
     else:                                     # no models folder (CI): refused, never handed to Cellpose
+        from germquant import model_paths
+
+        monkeypatch.setattr(model_paths, "cellpose_installed", lambda: True)   # (without it nothing is loaded)
         with pytest.raises(FileNotFoundError, match="is not a file"):
             resolve_model_path(cfg)
 

@@ -6,12 +6,15 @@ image is segmented with Cellpose's stock weights while the manifest records mode
 happened on 2026-10-23 for a study config outside the checkout run from a worktree without the models folder
 (live_results/kate_movies/readiness.md, gap G1). The refusal names every place looked in and the fixes.
 Cellpose's own names (cpsam, cpsam_v2) still pass through, every value that resolves is returned exactly as
-before (the same value and type), and runs that never load the model (method classical, another backend) are
-not refused. Nothing here needs model weights: the Cellpose call is replaced by a spy where a run is made.
+before (the same value and type), and runs that never load the model (method classical, another backend, method
+auto without Cellpose installed) are not refused. Nothing here needs model weights: the Cellpose call is replaced
+by a spy where a run is made.
 """
 from __future__ import annotations
 
 import json
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -20,7 +23,7 @@ from test_live_profile import ND2 as LIVE_ND2
 from test_live_profile import patch_live_series
 from test_segment_backends import registry  # noqa: F401  (fixture: a private backend registry)
 
-from germquant import cli, pipeline, provenance
+from germquant import cli, model_paths, pipeline, provenance
 from germquant import models_registry as R
 from germquant.config import load_config
 from germquant.segment import nuclei as N
@@ -33,8 +36,10 @@ ND2 = "20251105_n2_nohs_HERM_001.nd2"
 @pytest.fixture
 def no_models(tmp_path, monkeypatch):
     """No model anywhere: GERMQUANT_MODELS unset, an empty working directory, and an empty stand-in for the
-    checkout's models/models (models_registry.models_dir), so no test depends on what this machine holds."""
+    checkout's models/models (models_registry.models_dir), so no test depends on what this machine holds.
+    Cellpose counts as installed (model_paths.cellpose_installed), whether or not this environment has it."""
     monkeypatch.delenv("GERMQUANT_MODELS", raising=False)
+    monkeypatch.setattr(model_paths, "cellpose_installed", lambda: True)
     real_models_dir = R.models_dir
     checkout = tmp_path / "checkout_root"
     monkeypatch.setattr(R, "models_dir", lambda base_dir=None: real_models_dir(checkout if base_dir is None else base_dir))
@@ -87,10 +92,12 @@ def test_the_stock_name_reaches_cellpose_unchanged(tmp_path, no_models, patched_
     assert man["model_sha256"] == "absent"                         # a name, not a file: as it always recorded
 
 
-@pytest.mark.parametrize("extra", ["    method: classical\n", "    backend: classical\n", "    backend: nuclei3d\n",
+@pytest.mark.parametrize("extra", ["    method: classical\n", "    method: Cellpose\n", "    method: watershed\n",
+                                   "    backend: classical\n", "    backend: nuclei3d\n",
                                    "    backend: no_such_backend\n"])
 def test_runs_that_never_load_the_cellpose_model_are_not_refused(tmp_path, no_models, extra):
-    # (an unknown backend name is the segment stage's own error, UnknownBackendError, raised there)
+    # (the segment stage runs the watershed for every method but auto and cellpose, spelt exactly so; an unknown
+    # backend name is the segment stage's own error, UnknownBackendError, raised there)
     assert pipeline.resolve_model_path(load_config(_study(tmp_path / "study", extra=extra))) == REL
 
 
@@ -183,6 +190,48 @@ def test_an_inherited_value_anchored_to_a_folder_without_the_model_is_refused(tm
     assert f"inherited as {REL!r}" in msg and f"cellpose_model: {REL}" in msg
 
 
+def test_the_refusal_lists_each_place_once_and_names_the_download_first_where_it_lands(tmp_path, no_models,
+                                                                                         monkeypatch):
+    # the working directory is the config's folder, and the checkout (where get-model downloads) is that folder
+    folder = tmp_path / "checkout_root"
+    cfg = load_config(_study(folder))
+    monkeypatch.chdir(folder)
+    msg = _refusal(cfg)
+    dest = R.models_dir() / "germline_nuclei_combined"
+    assert dest == folder / REL and msg.count(str(folder / REL)) == 2       # looked in once, and the download
+    assert f"Fix: run `germquant get-model germline_nuclei_combined` (it downloads to {dest}), or set " in msg
+    # GERMQUANT_MODELS set: the download lands in a place the lookup searches, so it is the first fix too
+    store = tmp_path / "empty_store"
+    store.mkdir()
+    monkeypatch.setenv("GERMQUANT_MODELS", str(store))
+    msg = _refusal(cfg)
+    assert "Fix: run `germquant get-model germline_nuclei_combined` (it downloads to " in msg
+
+
+def test_a_folder_is_named_as_a_folder(tmp_path, no_models):
+    # handed to Cellpose itself, a folder fails to load (method auto then runs the watershed): no stock weights
+    folder = tmp_path / "weights_folder"
+    folder.mkdir()
+    msg = _refusal(load_config(_study(tmp_path / "study", model=folder.as_posix())))
+    assert f"is not a file ({folder} is a folder)" in msg and "fail to load a folder" in msg
+    assert "using default model" not in msg
+    # a folder next to the config, which Cellpose never sees (it looks from the working directory): stock weights
+    (tmp_path / "study2" / REL).mkdir(parents=True)
+    msg = _refusal(load_config(_study(tmp_path / "study2")))
+    assert f"({tmp_path / 'study2' / REL} is a folder)" in msg and "using default model" in msg
+
+
+def test_the_download_hint_is_offered_for_release_models_only(tmp_path, no_models):
+    # a locally registered model is verified in place by get-model, never downloaded
+    weights = tmp_path / "trained" / "my_local"
+    weights.parent.mkdir()
+    weights.write_bytes(b"weights")
+    R.register_local_model(weights, None, name="my_local")
+    assert "my_local" in R.known_models() and "my_local" not in R.MODELS
+    msg = _refusal(load_config(_study(tmp_path / "study", model="models/models/my_local")))
+    assert "get-model" not in msg and "set GERMQUANT_MODELS to a folder that holds models/my_local" in msg
+
+
 # ---- the run stops before any segmentation -------------------------------------------------------------
 
 def test_process_image_stops_before_segmenting(tmp_path, no_models, patched_reader, monkeypatch):  # noqa: F811
@@ -215,3 +264,35 @@ def test_a_time_series_stops_before_its_first_timepoint(tmp_path, no_models, mon
     with pytest.raises(FileNotFoundError, match="is not a file"):
         cli.main(["run", LIVE_ND2, "--config", str(study), "--out", str(tmp_path / "series"), "--t", "all"])
     assert calls == [] and segmented == []                          # no timepoint was read or segmented
+
+
+# ---- an installation without Cellpose: method auto has always run the watershed there --------------------
+
+def test_without_cellpose_method_auto_goes_on_with_the_watershed_as_before(tmp_path, no_models, patched_reader,  # noqa: F811
+                                                                          monkeypatch):
+    # no Cellpose, so no stock weights can be swapped in: the run records segmentation_method classical, as it did
+    monkeypatch.setattr(model_paths, "cellpose_installed", lambda: False)
+
+    def no_cellpose(*a, **k):
+        raise ImportError("No module named 'cellpose'")
+
+    monkeypatch.setattr(N, "_cellpose", no_cellpose)
+    cfg = load_config(_study(tmp_path / "study"))
+    assert pipeline.resolve_model_path(cfg) == REL
+    cfg._data["spots"]["enabled"] = False
+    res = pipeline.process_image(ND2, cfg, tmp_path / "run", prov=None)
+    assert res["tables"]["image_summary"]["segmentation_method"].iloc[0] == "classical"
+    man = json.loads((tmp_path / "run" / "run_manifest.json").read_text(encoding="utf-8"))
+    assert man["model_sha256"] == "absent"
+    # method cellpose has no fallback: the path is still checked before anything runs
+    assert "is not a file" in _refusal(load_config(_study(tmp_path / "study2", extra="    method: cellpose\n")))
+
+
+def test_cellpose_installed_is_read_without_importing_cellpose(monkeypatch):
+    monkeypatch.setitem(sys.modules, "cellpose", None)                     # an import blocked the way Python marks it
+    assert model_paths.cellpose_installed() is False
+    monkeypatch.setitem(sys.modules, "cellpose", types.SimpleNamespace())  # a stand-in, as tests/test_pack_knobs.py uses
+    assert model_paths.cellpose_installed() is True
+    monkeypatch.delitem(sys.modules, "cellpose")
+    monkeypatch.setattr(model_paths.importlib.util, "find_spec", lambda name, package=None: None)
+    assert model_paths.cellpose_installed() is False
