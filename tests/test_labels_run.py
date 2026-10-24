@@ -515,6 +515,70 @@ def _plane_labels() -> np.ndarray:
     return lab
 
 
+def test_a_planar_labels_run(tmp_path, monkeypatch):
+    """D14 with io.planar: a labels run on an image of one plane is a single-plane run whose objects are the labels
+    file's. It keeps the single-plane measure and records (read:planar, voxel_dz_um NaN, volume_um3 NA, area_um2
+    from the labels, centroid_z_um 0.0, a YX label TIFF, "planar" in the geometry, the four sub-hashes and the
+    marker), adds the labels records, has no size gate, resolves no model and does not refuse a segmentation
+    backend without planar_ok (D12, D14); segmentation.nuclei.project is ignored with its flag (D7)."""
+    import tifffile
+
+    truth = _plane_labels()
+    labels_file = write_tiff(tmp_path / f"{H.STEM}_masks.tif", truth)
+    template = "{image_dir}/{image_stem}_masks.tif"
+    H.patch_reader(monkeypatch)
+    _no_model(monkeypatch)
+    cfg = H.generic_2d(**{"segmentation.nuclei.labels_from": template, "segmentation.nuclei.method": "cellpose",
+                          "segmentation.nuclei.backend": "nuclei3d",
+                          "segmentation.nuclei.cellpose_model": "cpsam_v2@0f1cc3f7", "render.montage": False})
+    out = tmp_path / "plane"
+    res = pipeline.process_image(tmp_path / PLANE, cfg, out, prov=None)
+    assert res["n_nuclei"] == 11                                     # no size gate: the two specks of debris stay
+    assert res["tables"]["image_summary"]["segmentation_method"].iloc[0] == "labels_file"
+    assert {"read:planar", FLAG} <= set(res["qc_flags"]) and FLAG in res["stages"]["segment"]["flags"]
+    assert not any(f.startswith(("segment:project", "segment:no_")) for f in res["qc_flags"])
+    nuclei = pd.read_csv(out / f"{H.STEM}__nuclei.csv").set_index("nucleus_id").sort_index()
+    np.testing.assert_allclose(nuclei["area_um2"], np.bincount(truth.ravel())[1:] * H.DY * H.DX)
+    np.testing.assert_allclose(nuclei["equivalent_diameter_um"], 2 * np.sqrt(nuclei["area_um2"] / np.pi))
+    assert nuclei["volume_um3"].isna().all() and (nuclei["centroid_z_um"] == 0.0).all()
+    assert nuclei["voxel_dz_um"].isna().all()
+    spots = pd.read_csv(out / f"{H.STEM}__spots.csv")
+    assert len(spots) and (spots["z_um"] == 0.0).all() and spots["nucleus_id"].between(1, 9).all()
+    lab = tifffile.imread(out / f"{H.STEM}__nuclei_labels.tif")
+    assert lab.shape == (H.SIZE, H.SIZE)
+    np.testing.assert_array_equal(lab, truth)
+    sha = hashlib.sha256(labels_file.read_bytes()).hexdigest()
+    manifest, done = _json(out / "run_manifest.json"), _json(out / f"{H.STEM}__done.json")
+    assert manifest["planar"] is True and manifest["labels_from"] == {"path": str(labels_file), "sha256": sha}
+    assert manifest["model_sha256"] == "unused" and "segment_backend" not in manifest
+    roles, _ = cfg.channel_map.resolve(list(H.CHANNELS))
+    want = stages.stage_hashes(cfg, roles, provenance.tool_versions(), "unused", planar=True, labels_sha256=sha)
+    assert manifest["stage_hashes"] == done["stage_hashes"] == want and done["planar"] is True
+    seg, seg_planar, problem = L.segment_hashes(cfg, tmp_path / PLANE)      # what a resume compares (D44, D46)
+    assert problem is None and done["stage_hashes"]["segment"] == seg_planar != seg
+    # D7: a projection setting is ignored in a single-plane run, with its flag, also when the labels are read
+    cfg_p = H.generic_2d(**{"segmentation.nuclei.labels_from": template, "segmentation.nuclei.project": "max",
+                            "spots.enabled": False, "render.montage": False})
+    res_p = pipeline.process_image(tmp_path / PLANE, cfg_p, tmp_path / "proj", prov=None)
+    assert res_p["n_nuclei"] == 11
+    assert {"read:planar", FLAG, "segment:project_ignored_planar"} <= set(res_p["qc_flags"])
+    assert "segment:project_ignored_planar" in res_p["stages"]["segment"]["flags"]
+    assert not any(f.startswith("segment:projected_") for f in res_p["qc_flags"])
+    assert "segment_projection" not in _json(tmp_path / "proj" / "run_manifest.json")
+    # an image of one plane reads an unnamed (T, Y, X) file as a series of 2D labels (Cell-ACDC's 2D time-lapse)
+    np.savez_compressed(str(tmp_path / f"{H.STEM}_segm.npz"), np.stack([np.zeros_like(truth), truth]))
+    cfg_t = H.generic_2d(**{"segmentation.nuclei.labels_from": "{image_dir}/{image_stem}_segm.npz",
+                            "segmentation.nuclei.labels_frame": 1, "spots.enabled": False, "render.montage": False})
+    assert pipeline.process_image(tmp_path / PLANE, cfg_t, tmp_path / "t", prov=None)["n_nuclei"] == 11
+    # a labels file with several named planes does not fit an image of one plane: refused before any stage
+    write_ome(tmp_path / f"{H.STEM}_masks3d.ome.tif", np.repeat(truth[None], 3, axis=0), "ZYX")
+    cfg_3 = H.generic_2d(**{"segmentation.nuclei.labels_from": "{image_dir}/{image_stem}_masks3d.ome.tif",
+                            "spots.enabled": False, "render.montage": False})
+    with pytest.raises(L.LabelsError, match="3 planes and the image has 1"):
+        pipeline.process_image(tmp_path / PLANE, cfg_3, tmp_path / "z3", prov=None)
+    assert not list((tmp_path / "z3").iterdir())
+
+
 def test_batch_resume_planar_labels_folder(tmp_path, monkeypatch, capsys):
     """PLAN 10.4's done item: `batch --resume` on a single-plane labels study computes both per-image segment hashes
     (germquant.io.labels.segment_hashes) and passes the single-plane one to is_done because the recipe sets

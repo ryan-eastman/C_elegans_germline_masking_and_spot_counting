@@ -526,6 +526,8 @@ def process_image(
             # labels read before any stage are the objects. A projected run keeps its projected measure and records;
             # its projection is computed only for the montage, of the channel prepare_projection resolved the plane on
             flags.append("segment:labels_from_file")
+            if planar_run and planar_prep["project_ignored"]:
+                flags.append("segment:project_ignored_planar")   # D7, as _segment_single_plane raises it
             if projection is not None:
                 seg_img = stack.channel(role_to_idx.get(seg_role))
                 if seg_img is None and not bool(cfg.get("segmentation.nuclei.require_channel", False)):
