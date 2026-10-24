@@ -88,11 +88,11 @@ def detect_spots(
 
     ``planar`` (single-plane runs, docs/PLANAR.md): the image and the labels are one plane, (1, Y, X), and
     the backend gets the keyword ``planar=True``, which only a backend that declares ``planar_ok`` may
-    receive: spotmax does; log and net3d do not, and planar.check_planar refuses them before any pixel is
-    read, so the PlanarConfigError raised here is a second guard. The tables of a planar call may carry
-    ``attrs["stage_flags"]``, flags for the calling stage to raise under its own prefix (spotmax:
-    ``z_merge_off_planar`` when the call asks for the z-split merge). planar False, the default, calls every
-    backend exactly as before, without the keyword."""
+    receive: spotmax does; log and net3d do not, and planar.check_planar refuses them right after the read,
+    before any pixel is processed, so the PlanarConfigError raised here is a second guard. The tables of a
+    planar call may carry ``attrs["stage_flags"]``, flags for the calling stage to raise under its own prefix
+    (spotmax: ``z_merge_off_planar`` when the call asks for the z-split merge). planar False, the default,
+    calls every backend exactly as before, without the keyword."""
     # precedence: an explicit keyword (not None) wins; else the section's own value; else the SpotMAX default.
     # A caller that passes the shared keys only in cfg_section is therefore not silently overridden.
     section = dict(cfg_section or {})

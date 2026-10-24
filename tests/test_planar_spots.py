@@ -9,7 +9,8 @@ section 4.7, docs/PLANAR.md):
   raises it as spots:z_merge_off_planar); the optional keys of a pack recipe still apply, except the z radius,
   which has no meaning on one plane;
 * planar=True reaches only a backend that declares planar_ok: spotmax does, log and net3d do not, and
-  detect_spots refuses them (a second guard: planar.check_planar refuses them first, before any pixel);
+  detect_spots refuses them (a second guard: planar.check_planar refuses them first, right after the read,
+  before any pixel is processed);
 * the PLANAR_RZ_PX table: one synthetic plane through the real SpotMAX at 0.5, 1.0 and 2.0, printed for
   docs/PLANAR.md, with 1.0 the shipped value; the planar tables do not depend on the dz the caller passes.
 """
@@ -278,7 +279,8 @@ def test_planar_branch_keeps_the_optional_keys(fake_spotmax, merge_spy, caplog):
 
 def test_planar_forwarded_only_to_planar_ok_backends(monkeypatch):
     """spotmax declares planar_ok, log and net3d do not. planar.check_planar refuses log and net3d in a
-    single-plane run before any pixel; detect_spots(planar=True) refuses them too (the second guard).
+    single-plane run right after the read, before any pixel is processed; detect_spots(planar=True) refuses
+    them too (the second guard).
     planar=True reaches only a backend that declares planar_ok, and planar=False never passes the keyword."""
     assert planar.planar_ok(get_backend("spotmax"))
     assert not planar.planar_ok(get_backend("log")) and not planar.planar_ok(get_backend("net3d"))
