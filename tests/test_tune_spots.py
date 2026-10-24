@@ -14,7 +14,8 @@ On the planted examples of tests/tune_helpers.py, finished runs of the test pack
 * the synthetic_tune golden: ranked.csv and best.yaml of the LoG grid, values to 3 decimals, with its
   config-hash sentinel (tests/golden/synthetic_tune/; GERMQUANT_UPDATE_GOLDEN=1 rewrites it);
 * tune_spots on a project, `germquant tune-spots` and apply_tuning, through a stand-in of germquant.project, and
-  once more through the real germquant.project (package P5-PRJ, in feat/t5-p5 since 709ca12).
+  once more through the real germquant.project (package P5-PRJ): --apply refuses a best.yaml that is not YAML
+  (exit 2), exits 1 for a write the project stops part way, and prints the hash the write leaves.
 """
 from __future__ import annotations
 
