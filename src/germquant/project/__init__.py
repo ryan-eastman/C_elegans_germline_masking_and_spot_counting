@@ -40,13 +40,13 @@ from .manifest import (
 )
 from .collect import collect_project
 from .commands import export_commands
-from .run import run_project
+from .run import RunError, run_project
 from .status import project_status
 
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "Project", "ProjectError", "ProjectLockedError", "add_images", "break_lock", "collect_project",
+    "Project", "ProjectError", "ProjectLockedError", "RunError", "add_images", "break_lock", "collect_project",
     "export_commands", "list_rounds", "new_project", "new_round", "open_project", "preview_roles",
     "project_config", "project_status", "revert_recipe", "run_project", "save_project", "use_model",
     "write_recipe",

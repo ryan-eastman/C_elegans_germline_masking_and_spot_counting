@@ -294,14 +294,19 @@ The exit code is 0 when every image was done or skipped, 1 when an image failed,
 never writes the manifest and takes no lock; an edit made while a run goes on applies from the next run (the
 run keeps the recipe it started with, and the images it finished then read stale). `--json` prints the run's
 record on stdout, `{"run_id", "log", "counts": {"done", "failed", "skipped"}, "exit_code", "interrupted",
-"warnings", "message"}`, and the progress lines on stderr. Ctrl-C stops the run between images, and the
-plugin's Cancel stops it at once: the image in progress has no completion marker, so the next run does it
-again, and the images already done are skipped.
+"warnings", "message"}`, and the progress lines on stderr. A run that stops part way for a reason that is no
+image's own (its log can no longer be written, say) names the image in progress as failed in its log and ends
+the log with interrupted true; it exits 1 with one ERROR line, and with `--json` prints `{"error", "kind":
+"RunError", "run_id", "log"}`. Ctrl-C stops the run in the image in progress the same way. The plugin's Cancel
+stops a run it started as a separate process at once, and a run inside napari before its next image. An image
+stopped part way has no completion marker, so the next run does it again, and the images already done are
+skipped.
 
 The Python API is the same code: germquant.project.run_project(project, images=None, resume=True, device=None,
 shard=None, progress=None, *, via="cli", run_id=None, should_stop=None), also in germquant.api, with
 project_status, collect_project and export_commands. `progress(event)` gets every event of the run's log as it
-is written, and `should_stop()` is asked before each image; a refusal raises ProjectError.
+is written, and `should_stop()` is asked before each image; a refusal raises ProjectError, and a run that stops
+part way RunError (a RuntimeError naming its run_id and log).
 
 ## Shards and SLURM
 
@@ -358,9 +363,10 @@ broken line behind a complete one: `{"event", "run_id", "time", ...}`, with the 
 | run_end | counts {done, failed, skipped}, interrupted |
 
 These are the events and fields the napari plugin writes for its own runs, plus project and shard, and
-interrupted (true when the run was stopped between images). done_sha256 is the sha256 of the image's
-completion marker with Windows line ends (CRLF) read as LF, so it is the same on every system. A log whose last
-line is not complete belongs to a run still writing it, or one that was stopped: readers use its complete lines.
+interrupted (true when the run was stopped: between images, or part way through one, which is then logged as
+failed). done_sha256 is the sha256 of the image's completion marker with Windows line ends (CRLF) read as LF, so
+it is the same on every system. A log whose last line is not complete belongs to a run still writing it, or one
+that was stopped: readers use its complete lines.
 
 ## Status
 

@@ -17,7 +17,8 @@
   germquant project export-commands DIR [--shell sh|ps1] [--shards N] [--out FILE] [--json]
 
 Exit codes: 0 done; 1 done in part (`add` and `new --images` refused some files, each named with its reason;
-`run`: an image failed, each named in the run's log);
+`run`: an image failed, each named in the run's log, or the run stopped part way, with one ERROR line and, with
+--json, {"error", "kind": "RunError", "run_id", "log"});
 2 refused (no project, a locked project, an invalid edit, an unknown pack, a project file that is not YAML), with
 nothing written, or a write that stopped part way (a file still denied after 2 s), whose message names what it
 wrote: the same command again finishes it. The reason goes to stderr and, with --json, as {"error", "kind"} to
@@ -424,6 +425,8 @@ def _run(args) -> int:
                             via=args.via, run_id=args.run_id)
     except R.RunError as e:                         # stopped after its start: an error, not a refusal
         print(f"ERROR: {e}", file=sys.stderr)
+        if args.json:
+            _print(json.dumps({"error": str(e), "kind": "RunError", "run_id": e.run_id, "log": e.log}))
         return 1
     finally:
         R.RUN_ARGV.reset(token)

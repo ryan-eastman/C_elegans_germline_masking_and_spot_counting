@@ -258,6 +258,39 @@ def test_run_id_via_and_exit_codes(project_env, tmp_path, capsys):  # noqa: F811
     assert cli.main(["project", "run", str(tmp_path / "nothing")]) == 2
 
 
+def test_a_run_that_stops_part_way(project_env, tmp_path, monkeypatch, capsys):  # noqa: F811
+    """An error outside an image's own steps (a stand-in for a run log that can no longer be written) stops the run:
+    RunError, with its run id and log, after image_failed for the image in progress and run_end interrupted; the
+    CLI exits 1 with one ERROR line and, with --json, prints {"error", "kind", "run_id", "log"} on stdout."""
+    proj = project_with_images(tmp_path, names=("a", "b"))
+    seen = []
+    fake_run_loaded(monkeypatch, seen)
+    real = R._run_one
+
+    def one(entry, ctx):
+        if entry["id"] == "b":
+            raise RuntimeError("the disk went away")
+        return real(entry, ctx)
+
+    monkeypatch.setattr(R, "_run_one", one)
+    with pytest.raises(P.RunError, match="stopped part way") as exc:
+        P.run_project(proj)
+    assert runlog.RUN_ID_RE.fullmatch(exc.value.run_id) and exc.value.log == str(proj.root / "runs" /
+                                                                                   f"{exc.value.run_id}.jsonl")
+    ev = log_events(exc.value.log)
+    assert [e["event"] for e in ev] == ["run_start", "image_done", "image_failed", "run_end"]
+    assert ev[2]["image_id"] == "b" and ev[2]["error"] == "RuntimeError: the run was stopped"
+    assert ev[-1]["interrupted"] is True and ev[-1]["counts"] == {"done": 1, "failed": 1, "skipped": 0}
+    assert cli.main(["project", "run", str(proj.root), "--json"]) == 1
+    cap = capsys.readouterr()
+    out = json.loads(cap.out)
+    assert list(out) == ["error", "kind", "run_id", "log"] and out["kind"] == "RunError"
+    assert "stopped part way" in out["error"] and out["log"] == str(proj.root / "runs" / f"{out['run_id']}.jsonl")
+    assert "ERROR: the run " in cap.err
+    assert cli.main(["project", "run", str(proj.root)]) == 1 and capsys.readouterr().out.startswith("run ")
+    assert P.RunError is R.RunError is api.RunError and "RunError" in P.__all__ and "RunError" in api.__all__
+
+
 def test_lock_held_refuses_and_a_stale_lock_warns(project_env, tmp_path, monkeypatch):  # noqa: F811
     proj = project_with_images(tmp_path, names=("a",))
     with L.project_lock(proj.root, "edit"):
@@ -741,10 +774,10 @@ def test_export_commands(project_env, tmp_path, capsys):  # noqa: F811
 
 # ---- the api re-exports (PLAN.md section 9.1) ----------------------------------------------------------------
 
-PROJECT_NAMES = ["Project", "ProjectError", "ProjectLockedError", "new_project", "open_project", "save_project",
-                 "add_images", "read_header", "project_config", "preview_roles", "write_recipe", "revert_recipe",
-                 "use_model", "run_project", "project_status", "collect_project", "export_commands", "break_lock",
-                 "list_rounds", "new_round"]
+PROJECT_NAMES = ["Project", "ProjectError", "ProjectLockedError", "RunError", "new_project", "open_project",
+                 "save_project", "add_images", "read_header", "project_config", "preview_roles", "write_recipe",
+                 "revert_recipe", "use_model", "run_project", "project_status", "collect_project",
+                 "export_commands", "break_lock", "list_rounds", "new_round"]
 # the names of section 9.1 that other P5 units bring: (name, module, unit); each joins api once its unit is merged
 LATER_NAMES = [("tune_spots", "germquant.tune", "P5-TUNE"), ("apply_tuning", "germquant.tune", "P5-TUNE"),
                ("import_labels", "germquant.import_labels", "P5-TRAIN"),

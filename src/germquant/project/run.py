@@ -23,7 +23,9 @@ through timelapse.process_series, and writes the run's log, runs/<run_id>.jsonl 
    the planar one only for a recipe that sets io.planar, D44, and the per-image labels hash in labels_from runs,
    D46); an image that cannot be reached, or fails (in its resume check or, for a series, the header read that
    io.planar auto decides from, as well as in its run), is an image_failed event and the run goes on.
-4. run_end, with interrupted true when should_stop (or Ctrl-C) stopped the run between images.
+4. run_end, with interrupted true when should_stop stopped the run between images, or when the run stopped part
+   way (Ctrl-C, or an error that is no image's own): the image in progress is then an image_failed event, and
+   an error raises RunError, which names the run id and the log.
 
 An image with timepoints that this release cannot run as a series is refused before process_series is called,
 which would resolve and hash the segmentation model before its loop (D33): a recipe with labels_from (D15) or one
@@ -64,7 +66,11 @@ RUN_ARGV: ContextVar[list | None] = ContextVar("germquant_project_run_argv", def
 
 class RunError(RuntimeError):
     """A run that stopped part way after its start (not a refusal: its log holds run_start, and run_end says
-    interrupted when it could still be written)."""
+    interrupted when it could still be written). ``run_id`` and ``log`` name the run and its log."""
+
+    def __init__(self, message: str, *, run_id: str | None = None, log: str | None = None) -> None:
+        super().__init__(message)
+        self.run_id, self.log = run_id, log
 
 
 # ---- what to run ----------------------------------------------------------------------------------------------
@@ -640,7 +646,7 @@ def run_project(project, images=None, resume=True, device=None, shard=None, prog
                     emit(rlog.event("run_end", counts=dict(counts), interrupted=True))
                 if isinstance(e, Exception):
                     raise RunError(f"the run {run_id} stopped part way ({type(e).__name__}: {e}); its log: "
-                                   f"{rlog.path}") from e
+                                   f"{rlog.path}", run_id=run_id, log=str(rlog.path)) from e
                 raise
             emit(rlog.event("run_end", counts=dict(counts), interrupted=interrupted))
     exit_code = 1 if counts["failed"] else 0
