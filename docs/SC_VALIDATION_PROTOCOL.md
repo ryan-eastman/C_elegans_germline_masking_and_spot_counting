@@ -971,3 +971,47 @@ Entries are appended, never edited. Each one says whether a test result had been
    withdrawn (punctum.enabled false). Z1 is not run: with the per-image PSF withdrawn and the puncta a label only,
    no input of S2 differs from trial 4, so zone truth is not used here; the realism probe measures the trial-4 runs
    (runs/6b7be22) instead of Z1 runs.
+19. 2026-10-24, the v2 development round (realism probe; diagnostics only, no method change), written before any
+   number below was computed (no test result had been computed, no test or reserved image was run, no test or
+   reserved truth was read and no sealed seed was generated). The puncta change of entries 16 to 18 was withdrawn by
+   the rule of entry 18: revision 2 (commit 215e24d) on the confirmation seeds (11000 to 11099;
+   C:/Users/ryane/sc_ribbon_work/v2/logs/step2r2_215e24d_confirm.json) labelled 84 percent of the point puncta and
+   79 percent of the aggregates with no strand outside the class and 0.05 percent of the dense ribbon length, but
+   one strand lying on a gaps ribbon (seed 11049, a 1.26 um vertical strand on a ribbon tilted 28 degrees,
+   length_xy_um 0.48) was labelled punctum, so targeted metric (c) failed; the criteria of 8.1 were identical;
+   punctum.enabled is false from commit bb07ede, which keeps the code behind the switch. The configuration is
+   therefore that of v1 (trial 4) for every output, and Z1 was not run (entry 18).
+   Motivated by development results (entries 7 to 10): in the traced development nuclei with 30 um of SC or more the
+   median piece_lw_mean_um is 2.6 um (entry 7) and the in-plane strands of SCfull nuclei have a median length of 2.4
+   to 2.5 um with 77 to 88 percent of their ends free (entry 10), while continuous dense phantoms give a
+   piece_lw_mean_um of 5.2 um for 5.8 um of truth; 39 to 46 percent of the real traced length runs steeper than 60
+   degrees, 91 percent in the dimmest octile of nuclei, against 16 to 23 percent on dense phantoms with white noise.
+   The phantoms of 2.3 have one PSF, a uniform nucleoplasm, a constant brightness along each ribbon and no puncta.
+   New development family real_dense, not registered (its own family code; seeds as entry 11 (a)): the dense nucleus
+   of 2.3 (the 0.25 um clearance of entry 2 (c)) at a scene peak of 200, 300, 430 or 700 counts (seed modulo 4, as
+   the snr family), with four features drawn from separate random streams so that a feature switched off leaves the
+   others' draws unchanged, each also switched on alone (variants base, psf, brightness, texture, puncta and all):
+   (a) the axial PSF sigma drawn uniformly from the twelve per-image values of the compact RAD-51 foci of entry 9
+   (v2/steep/psf, the median sigma_z of each image times 511/595; the lateral sigma 0.149 um of 2.3); (b) each
+   ribbon's brightness times exp(G(s) - var/2), G a stationary Gaussian process along s with an exponential
+   covariance whose variance and correlation length are the medians over the twelve trial-4 runs of the estimates on
+   in-plane (frac_steep60 <= 0.1), isolated (frac_contaminated <= 0.1) strands of 3 um or more without gaps in
+   traced nuclei with total_length_um >= 30 um (the log of the core profile over its median, every 0.1 um, the mean
+   noise variance (core_se / core)^2 removed; the correlation length from the slope of the log autocovariance at 0.2
+   to 1.0 um); (c) a nucleoplasmic texture: unit white noise blurred with the scene PSF inside the nucleus, scaled
+   so that after a second Gaussian filter of the PSF size its standard deviation over the nucleus is sqrt(r) times
+   the nucleus's nucleoplasm level, r the median over the twelve trial-4 images of (var_s - var_n) / m^2 in at most
+   120 traced no_sc nuclei per image (var_s the variance of the PSF-smoothed counts over the territory eroded by two
+   voxels, var_n the noise model's variance after the same filter, m the mean count above the camera offset of 100);
+   (d) puncta, half points and half spheres of diameter U(0.25, 0.8) um, peaks log-uniform in [100, 1500] counts, at
+   least 0.6 um from every ribbon and 1.2 um apart, their number Poisson with the mean count per traced nucleus of
+   rule B1s (entry 9, with the sigma_z of each image's trial-4 PSF record and the core-profile fits of v2/steep/psf)
+   in the tercile of the nuclei's SYP brightness (central_element_mean_intensity) that the scene peak maps to (200:
+   lowest, 300 and 430: middle, 700: highest). None of these measurements reads a zone label. Reported, choosing
+   nothing, for the configuration of v1 on the tuning seeds (10000 to 10099) per variant: S1b (mean, SD and CCC of
+   the total error), strands and main strands per nucleus against the expected count, the end classes, the steep
+   share of the traced length (pooled and by scene peak), the median length of in-plane strands (frac_steep60 <=
+   0.5) and the median piece_lw_mean_um; beside the same statistics of the trial-4 runs in traced nuclei with
+   total_length_um >= 30 um (the steep share also by octile of SYP brightness). A feature reproduces a real symptom
+   when switching it on alone moves the phantom statistic at least half of the way from its base value to the real
+   one. From here on the synthetic panels of this round also report real_dense with all four features (descriptive).
