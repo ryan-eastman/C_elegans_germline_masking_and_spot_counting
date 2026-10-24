@@ -13,6 +13,13 @@ and every registered scene stay identical for every seed. Each family has its ow
   [100, 1500] counts above the nucleoplasm after the PSF; puncta lie at least 1.2 um apart. ``dense_puncta_clean``
   is the same scene as ``dense_puncta`` (the same draws and the same noise) without the puncta. The puncta are in
   ``info["puncta"]`` (centre, diameter, peak).
+* ``real_dense`` and its variants (the realism probe, protocol changelog entry 19): the dense nucleus of 2.3 at a
+  scene peak of 200, 300, 430 or 700 counts (seed modulo 4) with four features calibrated on truth-free statistics
+  of the twelve trial-4 runs (REAL_DENSE_CALIB): (a) the axial PSF drawn from the per-image compact-foci values, (b)
+  a log-normal brightness modulation along each ribbon, (c) a PSF-correlated nucleoplasmic texture, (d) puncta.
+  ``real_dense`` has all four; ``real_dense_base``, ``real_dense_psf``, ``real_dense_brightness``,
+  ``real_dense_texture`` and ``real_dense_puncta`` have none or one. Each feature draws from its own random
+  stream, so the geometry, the noise draws and the other features do not depend on which features are on.
 """
 from __future__ import annotations
 
@@ -22,7 +29,19 @@ from scipy import ndimage as ndi
 
 from . import synth as S
 
-FAMILY_CODE = {"puncta_pt": 101, "puncta_agg": 102, "dense_puncta": 103, "psf_check": 107}
+FAMILY_CODE = {"puncta_pt": 101, "puncta_agg": 102, "dense_puncta": 103, "psf_check": 107, "real_dense": 108}
+# entry 19: truth-free statistics of the twelve trial-4 runs (C:/Users/ryane/sc_ribbon_work/v2/logs/
+# realism_measures_t4.json; v2/scripts/realism_measure.py)
+REAL_DENSE_CALIB = {
+    "psf_sigma_z_values_um": (0.4635, 0.4311, 0.4748, 0.4534, 0.4491, 0.4200, 0.4211, 0.4134, 0.3620, 0.3982,
+                              0.3866, 0.3873),
+    "brightness_var_log": 0.1224,
+    "brightness_corr_length_um": 0.3126,
+    "texture_rel_excess_var": 0.1082,
+    "puncta_mean_by_tercile": (1.0690, 0.8690, 0.6342),     # lowest, middle, highest SYP brightness
+}
+REAL_PEAKS = (200.0, 300.0, 430.0, 700.0)
+REAL_FEATURES = ("psf", "brightness", "texture", "puncta")
 PSF_LEVELS = (0.33, 0.38, 0.43, 0.48)
 WAVELENGTHS = {"central_element": 511.0, "foci": 595.0}
 FOCI_DENSITY = 0.15                     # per um3 of a dense nucleus
@@ -199,6 +218,110 @@ def puncta_scene(seed: int, *, final: bool = False, family: str = "puncta_pt", w
                                     for x in puncta] if with_puncta else []})
 
 
+def _render_modulated(img, rib, sigma, w):
+    """synth.render_ribbon with a per-point brightness factor ``w`` (mean 1) on the ribbon's points."""
+    P = rib.points
+    s = rib.s
+    probe_s = np.linspace(0.15 * s[-1], 0.85 * s[-1], 25)
+    probe = np.stack([np.interp(probe_s, s, P[:, k]) for k in range(3)], 1)
+    unit_peak = float(S._value_at(probe, P, sigma).max())
+    if unit_peak <= 0:
+        return
+    wv = (rib.peak / unit_peak) * np.asarray(w, float)
+    for a in range(0, len(P), 300):              # synth._render_points with a weight per point, chunk by chunk
+        S._render_points(img, P[a:a + 300], S.SPACING, sigma, weight=wv[a:a + 300], chunk=300)
+
+
+def real_dense_scene(seed: int, *, final: bool = False, features=REAL_FEATURES, name: str = "real_dense") -> S.Scene:
+    seed = S.check_seed(seed, final)
+    code = FAMILY_CODE["real_dense"]
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), code]))
+    streams = {k: np.random.default_rng(np.random.SeedSequence([int(seed), code, i]))
+               for i, k in enumerate(("psf", "brightness", "texture", "puncta", "noise"), start=1)}
+    cal = REAL_DENSE_CALIB
+    feats = set(features)
+    gc = "oocyte" if seed % 2 == 0 else "spermatocyte"
+    pk = REAL_PEAKS[seed % 4]
+    R = float(rng.uniform(2.2, 2.6))
+    label_r = R + float(rng.uniform(-0.2, 0.4))
+    c0 = np.zeros(3)
+    ribs = S._shell_nucleus(rng, gc, c0, R, pk, 1, 1)
+    lev = float(rng.uniform(*S.NUCLEOPLASM))
+    sz = float(streams["psf"].choice(cal["psf_sigma_z_values_um"])) if "psf" in feats else S.PSF_SIGMA[0]
+    psf = (sz, S.PSF_SIGMA[1], S.PSF_SIGMA[2])
+    puncta = []
+    n_p = int(streams["puncta"].poisson(cal["puncta_mean_by_tercile"][0 if pk <= 200 else (2 if pk >= 700 else 1)]))
+    if "puncta" not in feats:
+        n_p = 0
+    rib_pts = np.vstack([r.points[::10] for r in ribs])
+    tries = 0
+    rp = streams["puncta"]
+    while len(puncta) < n_p and tries < 5000:
+        tries += 1
+        d = rp.normal(size=3)
+        d /= np.linalg.norm(d)
+        q = c0 + d * R * rp.uniform(0.3, 0.95) ** (1 / 3) * 0.95
+        if any(np.linalg.norm(q - x["center"]) < 1.2 for x in puncta):
+            continue
+        if np.min(np.linalg.norm(rib_pts - q, axis=1)) < 0.6:
+            continue
+        diam = 0.0 if len(puncta) % 2 == 0 else float(rp.uniform(0.25, 0.8))
+        puncta.append({"center": q, "diam": diam, "peak": float(np.exp(rp.uniform(np.log(100.0), np.log(1500.0))))})
+    shape, shift = S._place([r.points for r in ribs], [c0], [label_r])
+    for r in ribs:
+        r.points = r.points + shift
+    for x in puncta:
+        x["center"] = x["center"] + shift
+    center = c0 + shift
+    labels, _ = S._sphere_masks(shape, S.SPACING, [center], [label_r])
+    nuc = nucleoplasm(shape, S.SPACING, [center], [R], [lev], psf)
+    clean = np.full(shape, S.OFFSET) + nuc
+    if "texture" in feats:
+        sv = np.asarray(psf) / np.asarray(S.SPACING)
+        field = ndi.gaussian_filter(streams["texture"].standard_normal(shape), sv, mode="nearest")
+        twice = ndi.gaussian_filter(field, sv, mode="nearest")
+        zz, yy, xx = np.meshgrid(*[np.arange(n) * s for n, s in zip(shape, S.SPACING)], indexing="ij")
+        inside = (zz - center[0]) ** 2 + (yy - center[1]) ** 2 + (xx - center[2]) ** 2 <= R ** 2
+        scale = np.sqrt(cal["texture_rel_excess_var"]) * lev / max(float(np.std(twice[inside])), 1e-9)
+        clean = clean + field * scale * (nuc / lev)
+    for r in ribs:
+        if "brightness" in feats:
+            v, ell = cal["brightness_var_log"], cal["brightness_corr_length_um"]
+            n = len(r.points)
+            rho = float(np.exp(-S.TRUTH_STEP_UM / ell))
+            e = streams["brightness"].standard_normal(n)
+            G = np.empty(n)
+            G[0] = np.sqrt(v) * e[0]
+            for i in range(1, n):
+                G[i] = rho * G[i - 1] + np.sqrt(v * (1 - rho * rho)) * e[i]
+            _render_modulated(clean, r, psf, np.exp(G - v / 2))
+        else:
+            S.render_ribbon(clean, r, S.SPACING, psf)
+    for x in puncta:
+        pts = x["center"][None, :] if x["diam"] <= 0 else _sphere_points(x["diam"]) + x["center"][None, :]
+        unit = float(S._value_at(x["center"][None, :], pts, psf)[0])
+        S._render_points(clean, pts, S.SPACING, psf, weight=x["peak"] / unit, chunk=2000)
+    ce = S.add_noise(clean, streams["noise"])
+    nuclei = pd.DataFrame([{"nucleus_id": 1, "centroid_z_um": center[0], "centroid_y_um": center[1],
+                            "centroid_x_um": center[2], "radius_um": R, "label_radius_um": label_r, "germ_cell": gc,
+                            "in_germline": True, "volume_um3": float((labels == 1).sum() * np.prod(S.SPACING))}])
+    return S.Scene(family=name, seed=seed, spacing=S.SPACING, channels={"central_element": ce}, labels=labels,
+                   nuclei=nuclei, ribbons=ribs,
+                   spots=pd.DataFrame(columns=["spot_id", "nucleus_id", "z_um", "y_um", "x_um"]),
+                   truth_foci=pd.DataFrame(columns=["spot_id", "ribbon_id", "nucleus_id", "s_um", "z_um", "y_um",
+                                                    "x_um"]),
+                   info={"family": name, "seed": seed, "scene_peak": pk, "features": sorted(feats),
+                         "psf_sigma_um": list(psf), "nucleoplasm": lev,
+                         "puncta": [{"center": [float(v) for v in x["center"]], "diam": x["diam"], "peak": x["peak"]}
+                                    for x in puncta]})
+
+
+def _real(name, features):
+    def f(seed, *, final=False):
+        return real_dense_scene(seed, final=final, features=features, name=name)
+    return f
+
+
 def _puncta(family):
     def f(seed, *, final=False):
         return puncta_scene(seed, final=final, family=family)
@@ -210,7 +333,9 @@ def _dense_puncta_clean(seed, *, final=False):
 
 
 FAMILY_FUNCS = {"psf_check": psf_check_scene, "puncta_pt": _puncta("puncta_pt"), "puncta_agg": _puncta("puncta_agg"),
-                "dense_puncta": _puncta("dense_puncta"), "dense_puncta_clean": _dense_puncta_clean}
+                "dense_puncta": _puncta("dense_puncta"), "dense_puncta_clean": _dense_puncta_clean,
+                "real_dense": _real("real_dense", REAL_FEATURES), "real_dense_base": _real("real_dense_base", ()),
+                **{f"real_dense_{k}": _real(f"real_dense_{k}", (k,)) for k in REAL_FEATURES}}
 
 
 def make_scene(family: str, seed: int, *, final: bool = False, **kw) -> S.Scene:

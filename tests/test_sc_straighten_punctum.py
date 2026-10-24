@@ -141,3 +141,15 @@ def test_the_rule_before_the_end_matching(monkeypatch):
         assert TR.traced_punctum(longest, sampler, bg, noise, synth.SPACING, P) is want
     assert params.resolve()["punctum.before_linking"] is False          # entry 18: the end matching of v1
     assert params.resolve()["punctum.enabled"] is False                 # entry 19: withdrawn
+
+
+def test_real_dense_variants_share_their_draws():
+    base = synth_dev.make_scene("real_dense_base", 2003)
+    full = synth_dev.make_scene("real_dense", 2003)
+    assert [r.length_um for r in base.ribbons] == [r.length_um for r in full.ribbons]
+    assert base.info["psf_sigma_um"][0] == synth.PSF_SIGMA[0] and full.info["features"] == ["brightness", "psf",
+                                                                                           "puncta", "texture"]
+    assert np.array_equal(base.channels["central_element"], synth_dev.make_scene("real_dense_base", 2003)
+                          .channels["central_element"])
+    with pytest.raises(synth.SealedSeedError):
+        synth_dev.make_scene("real_dense", 7_000_000)
