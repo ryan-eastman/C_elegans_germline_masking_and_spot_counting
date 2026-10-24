@@ -20,7 +20,8 @@ configfile: "workflow/config.yaml"
 # its own run log and its image's results folder, never the manifest. Its output is the image's completion record,
 # results/<id>/<id>__done.json (the series record <id>__series.json for an image with timepoints), so an image whose
 # record is missing runs again; the project's recorded config hash is a param, so after an edit Snakemake's params
-# rerun trigger (on by default) runs every job again, and each job's own resume skips the images still done.
+# rerun trigger (on by default) runs every job again. Snakemake deletes a job's output before running it, so a job
+# it runs processes its image again; `germquant project run DIR` runs only the images that are not done.
 PROJECT = config.get("project")
 
 if PROJECT:

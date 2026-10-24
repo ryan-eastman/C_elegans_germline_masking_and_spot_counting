@@ -329,8 +329,12 @@ The workflow's project mode runs one job per image of the project, each `germqua
 <id> --via snakemake`, then `germquant project collect STUDY`. The jobs are named by the image ids, so
 `gonad_01.ome.tif` is `gonad_01`. A job's output is the image's completion marker (the series record
 `<id>__series.json` for an image with timepoints): an image whose marker is missing runs again, and after a
-recipe edit every job runs again (the project's config_hash is one of the jobs' params) and each skips the images
-that are still done. To make Snakemake check every image anyway, add `--forcerun project_image`.
+recipe edit every job runs again (the project's config_hash is one of the jobs' params). Snakemake deletes a
+job's output before it runs the job, so every job it runs processes its image again, also an image that `project
+status` reads as done, and `--forcerun project_image` runs every image of the project again. An image whose stage
+failed keeps its marker, so Snakemake does not try it again; an image that fails ends its job with exit code 1,
+and Snakemake then starts no further job unless `--keep-going` is given. To run only what is stale, missing or
+failed, use `germquant project run STUDY` (or its shards).
 
 Snakemake comes with the workflow extra (`uv pip install -e ".[workflow]"` from the repository folder), or from an
 environment of its own. Its shell steps call the `germquant` command, which must be on PATH (the engine's
