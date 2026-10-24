@@ -590,8 +590,10 @@ def model_entry(root, model, card=None) -> dict:
     """The manifest record of a model file inside the project: ``{key, ref, sha256, card, card_sha256, source}``.
     Relative paths are relative to the project root. The card defaults to <file>.card.json next to the file (what
     germquant train-nuclei writes); a card that names another digest is refused."""
+    from ..fsutil import long_path
     from ..models_registry import validate_card
     from ..provenance import file_sha256
+    from .images import path_too_long
 
     root = Path(os.path.abspath(root))
 
@@ -606,21 +608,25 @@ def model_entry(root, model, card=None) -> dict:
                                f"pack with `germquant pack derive`") from None
 
     full, rel = inside(model, "model")
+    too_long = path_too_long(full, "the model loader")
+    if too_long is not None:
+        raise ProjectError(f"{model}: {too_long}")
     if not full.is_file():
         raise ProjectError(f"{model}: model file not found ({full})")
     sha = file_sha256(full)
     card_full = None
     if card is not None:
         card_full, card_rel = inside(card, "card")
-        if not card_full.is_file():
+        if not os.path.isfile(long_path(card_full)):
             raise ProjectError(f"{card}: card not found ({card_full})")
     else:
         guess = full.with_name(full.name + ".card.json")
-        if guess.is_file():
+        if os.path.isfile(long_path(guess)):         # read here only, so through the long form (a deep project)
             card_full, card_rel = guess, guess.relative_to(root).as_posix()
     card_sha = None
     if card_full is not None:
-        raw = card_full.read_bytes()
+        with open(long_path(card_full), "rb") as fh:
+            raw = fh.read()
         try:
             data = json.loads(raw.decode("utf-8"))
         except ValueError as e:

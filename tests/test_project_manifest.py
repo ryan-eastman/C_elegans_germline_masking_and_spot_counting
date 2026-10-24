@@ -381,6 +381,45 @@ def test_a_recipe_with_input_suffixes_discovers_only_those(project_env, tmp_path
     assert add_images(proj, [data / "a.ome.tif"])["added"] == ["a"]          # a file named explicitly is added
 
 
+def test_a_path_past_the_windows_limit_is_refused_with_its_length(project_env, tmp_path):  # noqa: F811
+    """On Windows without long paths (LongPathsEnabled 0, the lab workstation), a path past 260 characters exists
+    only in its extended form (fsutil.long_path), which the run's readers and the model loader do not use:
+    add_images and use_model refuse it naming its length, not as missing. Where long paths work it is added."""
+    import shutil
+
+    from germquant.fsutil import long_path
+    from germquant.project import use_model
+
+    proj = new_test_project(tmp_path / "p")
+    src = write_ome_tiff(tmp_path / "short.ome.tif")
+    deep = tmp_path / "deep"
+    while len(str(deep)) < 250:
+        deep = deep / ("d" * 30)
+    os.makedirs(long_path(deep), exist_ok=True)
+    img = deep / "a_name_past_the_limit.ome.tif"
+    mdir = proj.root / "training" / "r01" / "models" / ("m" * 60) / ("n" * 60) / ("o" * 60)
+    os.makedirs(long_path(mdir), exist_ok=True)
+    model = mdir / "weights"
+    try:
+        for path, data in ((img, src.read_bytes()), (model, b"weights stand-in\n")):
+            with open(long_path(path), "wb") as fh:
+                fh.write(data)
+        limited = os.name == "nt" and not os.path.exists(img)
+        res = add_images(proj, [img])
+        assert read_header(img)["sizes"]["Z"] == 4                       # the light header reads it either way
+        if limited:
+            assert res["added"] == [] and f"is {len(str(img))} characters long" in res["refused"][0]["reason"]
+            assert add_images(proj, [tmp_path / "deep"])["refused"] == res["refused"]     # found by the walk too
+            with pytest.raises(ProjectError, match=f"is {len(str(model))} characters long"):
+                use_model(proj, model)
+        else:
+            assert res == {"added": ["a_name_past_the_limit"], "refused": []}
+            use_model(proj, model)
+    finally:
+        shutil.rmtree(long_path(tmp_path / "deep"), ignore_errors=True)
+        shutil.rmtree(long_path(proj.root / "training"), ignore_errors=True)
+
+
 def test_headers_are_read_without_bioio_and_agree_with_the_run_reader(tmp_path, monkeypatch):
     yx = write_ome_tiff(tmp_path / "yx.ome.tif", names=("DAPI", GAMMA + "H2AX"), zyx=(0, 32, 40),
                         spacing=(0, 0.12, 0.11))

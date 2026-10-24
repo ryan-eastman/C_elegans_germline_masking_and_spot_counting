@@ -24,6 +24,7 @@ the same process fail or silently fall back to the watershed (the cuBLAS load or
 from __future__ import annotations
 
 import math
+import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -140,7 +141,7 @@ def _series_header(tf) -> dict:
 def _tiff_header(path: Path) -> dict:
     import tifffile
 
-    if not path.exists():
+    if not os.path.exists(long_path(path)):           # the long form, as it is opened (a deep NAS tree)
         raise FileNotFoundError(f"image not found: {path}")
     with tifffile.TiffFile(long_path(path)) as tf:
         xml = tf.ome_metadata

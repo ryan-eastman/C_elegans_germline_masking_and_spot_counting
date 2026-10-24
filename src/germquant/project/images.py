@@ -90,6 +90,17 @@ def _exists(path) -> bool:
     return os.path.exists(long_path(path))
 
 
+def path_too_long(path, opener: str = "the image readers") -> str | None:
+    """Why ``path`` cannot be used, on Windows without long paths, when it exists only in its extended-length form
+    (fsutil.long_path): past the 260 characters Windows allows, which the image readers and the model loader do
+    not lift. None elsewhere, and whenever the plain path works."""
+    if os.name != "nt" or os.path.exists(path) or not _exists(path):
+        return None
+    return (f"the path is {len(os.path.abspath(path))} characters long, past the 260 characters Windows allows, so "
+            f"{opener} cannot open it: move the folder to a shorter path (or map a drive letter to it), or turn on "
+            f"Windows long paths (LongPathsEnabled)")
+
+
 def discover_folder(folder, suffixes, root) -> list[Path]:
     """The image files under ``folder`` (module docstring), sorted by path. The walk goes through
     fsutil.long_path, so a deep NAS tree past Windows' 260-character limit is searched too."""
@@ -157,6 +168,9 @@ def check_candidate(root, path: Path):
 
     if not _exists(path):
         return None, f"not found: {path}"
+    too_long = path_too_long(path)
+    if too_long is not None:
+        return None, too_long
     where = _project_dir_of(root, path)
     if where is not None:
         return None, f"inside the project's {where}/ folder, which germquant writes or keeps for itself"
