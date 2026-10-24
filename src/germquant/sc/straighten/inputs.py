@@ -71,10 +71,21 @@ def _walk(root: Path, suffix: str) -> list[Path]:
 
 
 def discover(root: str | Path) -> list[Found]:
-    """Every finished image under ``root``: one entry per ``<id>__nuclei.csv`` (id from the table)."""
+    """Every finished image under ``root``: one entry per ``<id>__nuclei.csv`` (id from the table). The table of
+    an image that is sealed by its file name or its folder name (a sealed image stem or RAD-51 tag of
+    tests/golden/sc_split.json) is not read: its id is the file name, and the runner refuses it before reading any
+    of its files (protocol changelog entry 27)."""
     root = Path(root)
+    try:
+        names = sealed_names()
+    except InputRefused:
+        names = {}              # an unreadable split record: every image is refused later (sealed_split_unreadable)
     out = []
     for f in _walk(root, NUCLEI_SUFFIX):
+        stem = f.name[: -len(NUCLEI_SUFFIX)]
+        if _fold(stem) in names or _fold(f.parent.name) in names:
+            out.append(Found(image_id=stem, folder=f.parent, nuclei_path=f))
+            continue
         try:
             head = pd.read_csv(long_path(f), usecols=["image_id"], nrows=1, dtype=str, keep_default_na=False)
             iid = str(head["image_id"].iloc[0]) if len(head) else f.name[: -len(NUCLEI_SUFFIX)]
@@ -137,6 +148,39 @@ def sealed_role(image_id: str, file_path: str) -> str | None:
         hit = stems.get(_fold(key))
         if hit is not None:
             return sc_split.role_of(hit, split)
+    return None
+
+
+def sealed_names() -> dict[str, str]:
+    """The folded image stems and RAD-51 tags of the test and reserved gonads of the sealed SC validation split,
+    with their role ({} outside a repository checkout or once the split is unsealed)."""
+    try:
+        from ...benchmark import sc_split
+
+        if sc_split.default_path() is None:
+            return {}
+        split = sc_split.load_split()
+    except Exception as e:  # noqa: BLE001 - a broken split record must not open the seal
+        raise InputRefused("sealed_split_unreadable", f"tests/golden/sc_split.json could not be read: {e}") from e
+    if not split.get("sealed", False):
+        return {}
+    out = {}
+    for g in split["gonads"]:
+        if g.get("role") in sc_split.SEALED_ROLES:
+            for key in (g.get("image_stem"), g.get("rad51_tag")):
+                if key:
+                    out[_fold(key)] = g["role"]
+    return out
+
+
+def sealed_by_name(found: Found) -> str | None:
+    """'test' or 'reserved' when a discovered image is sealed by its file name, image id or folder name alone
+    (nothing of it is read; protocol changelog entry 27)."""
+    names = sealed_names()
+    for key in (found.nuclei_path.name[: -len(NUCLEI_SUFFIX)], found.image_id, found.folder.name):
+        role = names.get(_fold(key))
+        if role:
+            return role
     return None
 
 

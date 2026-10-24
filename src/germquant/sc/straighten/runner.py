@@ -150,17 +150,24 @@ def run_results(results_root: str | Path, image_ids: list[str] | None = None, *,
     return results
 
 
+def _sealed_message(image_id: str, role: str) -> str:
+    return (f"{image_id} is a {role} image of the sealed SC validation split (docs/SC_VALIDATION_PROTOCOL.md); it "
+            "runs only under --allow-sealed with --reason, which the scoring (scripts/benchmark_sc.py zones --final) "
+            "passes")
+
+
 def _one(f, root, out_root, params, geometry, paths_from, refine_imported, ends, nuclei_mode, nucleus_ids,
          workers, force, write_strips, write_overview, source_map, allow_sealed, dry_run, reader, progress, t0,
          need_source=True, plane_reader=None, code="", sealed_reason=None, audit_log=None, ctx=None):
     ctx = ctx if ctx is not None else {}
+    # protocol changelog entry 27: an image sealed by its name is refused before any of its files is read
+    role = inputs.sealed_by_name(f)
+    if role and not allow_sealed:
+        raise inputs.InputRefused("sealed", _sealed_message(f.image_id, role))
     inp = inputs.resolve(f, source_map=source_map, need_source=need_source)
     role = inputs.sealed_role(inp.image_id, inp.file_path)
     if role and not allow_sealed:
-        raise inputs.InputRefused("sealed", f"{inp.image_id} is a {role} image of the sealed SC validation split "
-                                            "(docs/SC_VALIDATION_PROTOCOL.md); it runs only under --allow-sealed "
-                                            "with --reason, which the scoring (scripts/benchmark_sc.py zones "
-                                            "--final) passes")
+        raise inputs.InputRefused("sealed", _sealed_message(inp.image_id, role))
     sealed = role if (role and allow_sealed) else None
     out_dir = _mirror(inp.folder, root, out_root)
     g = inputs.golden_root(out_dir)

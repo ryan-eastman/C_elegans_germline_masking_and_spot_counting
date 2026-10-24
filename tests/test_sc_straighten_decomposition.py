@@ -94,6 +94,29 @@ def test_ends_hooked_toward_a_crossing_ribbon_are_linked():
     assert len(old) == 3 and all(len(s.links) == 0 for s in old)
 
 
+def test_switch_values_are_read_alike_and_unknown_values_refused():
+    # protocol changelog entry 27: link.junction_dirs is read as the other switches are (a string "off" is off);
+    # an unknown value of a switch or of an enumerated v2 key is refused instead of giving another configuration
+    from germquant.sc.straighten import link
+    from germquant.sc.straighten.follow import RawStrand
+
+    A = RawStrand(_poly([(2, 0, 0), (2, 0, 2.5), (2, 0.8, 2.65)]), ["free", "free"])
+    Bs = RawStrand(_poly([(2, 0.8, 2.75), (2, 0, 2.9), (2, 0, 5.4)]), ["free", "free"])
+    C = RawStrand(_poly([(2, -2.5, 2.7), (2, 2.5, 2.7)]), ["free", "free"])
+    off = link.link_strands([A, C, Bs], params.resolve(None, ['link.junction_dirs="off"']))
+    on = link.link_strands([A, C, Bs], params.resolve(None, ['link.junction_dirs="on"']))
+    assert len(off) == 3 and len(on) == 2
+    for bad in ('link.junction_dirs="of"', "punctum.enabled=1", 'psf.foci="maybe"', "classes.complete_guard=0",
+                'follow.contact_test="Claim_Tangent"', 'link.junction_gap="tip"'):
+        with pytest.raises(ValueError):
+            params.resolve(None, [bad])
+    for good in ("punctum.enabled=off", 'psf.foci="ON"', "link.junction_dirs=no", 'follow.contact_test="claim_tangent"',
+                 'link.junction_gap="anchors"'):
+        params.resolve(None, [good])
+    with pytest.raises(ValueError):
+        params.resolve({"follow": {"contact_test": "local "}})
+
+
 def test_pairs_beyond_a_junction_are_judged_from_the_tips():
     # entry 22: two ends measured beyond a junction whose tips lie 1.2 um apart: the anchor estimate of entry 21
     # gives them a gap of 0 and links them; the distance between the tips does not

@@ -60,6 +60,10 @@ FINAL_LOG = BENCH / "final_runs.jsonl"
 REPO = Path(__file__).resolve().parents[1]
 FRAME_TOL_UM = 0.05
 EXTENT_TOL_UM = 1.0
+# protocol changelog entry 11 (g): exploratory nucleus columns of version 2.0 and the residual AUC of entry 7 (c),
+# reported at every checkpoint and at the scoring (secondary, never gating)
+EXPLORATORY = ("n_puncta", "puncta_signal_frac", "steep_length_frac")
+RESIDUAL_COL = "piece_lw_mean_um__residual_auc_on_intensity"
 
 
 def _git_sha() -> str:
@@ -79,10 +83,30 @@ def _git_dirty() -> bool | None:
         return None
 
 
+def _json_safe(o):
+    """``o`` with numpy scalars and arrays as Python values and every non-finite number as None, so that the JSON
+    written is strict (protocol changelog entry 27: a bare NaN is not JSON)."""
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    if isinstance(o, np.ndarray):
+        return _json_safe(o.tolist())
+    if isinstance(o, np.generic):
+        o = o.item()
+    if isinstance(o, float) and not np.isfinite(o):
+        return None
+    return o
+
+
+def _dumps(obj, **kw) -> str:
+    return json.dumps(_json_safe(obj), allow_nan=False, default=str, **kw)
+
+
 def _append(path: Path, rec: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(rec, default=lambda o: None if o != o else str(o)) + "\n")
+        fh.write(_dumps(rec) + "\n")
 
 
 def _utc() -> str:
@@ -252,8 +276,27 @@ def _preflight_masters(split: dict) -> None:
                              f"{m.get('sha256')}; record it in the changelog before scoring")
 
 
+def _thresholds(a, payload) -> dict:
+    """theta_full and theta_present of the boundary estimator (protocol 5.2). --final: the frozen values of the
+    command line (the freeze entry). Otherwise the values of the command line when both are given (source "fixed
+    (command line)", for example the hold-out check, which uses the thresholds of the twelve development gonads;
+    protocol changelog entry 27), else chosen on the scored development gonads, with the tables of the grid."""
+    if a.final:
+        return {"theta_full": float(a.theta_full), "theta_present": float(a.theta_present),
+                "source": "frozen (command line, the freeze entry)"}
+    assert all(sc_split.role_of(gname) == "dev" for gname, *_ in payload), "development gonads only"
+    if a.theta_full is not None and a.theta_present is not None:
+        return {"theta_full": float(a.theta_full), "theta_present": float(a.theta_present),
+                "source": "fixed (command line)"}
+    th = B.choose_thresholds([(lab, nuc) for _g, lab, nuc, _zt in payload])
+    th["source"] = "chosen on these development gonads (protocol 5.2)"
+    return th
+
+
 def cmd_zones(a) -> int:
     _need_reason(a)
+    if (a.theta_full is None) != (a.theta_present is None):
+        raise SystemExit("--theta-full and --theta-present go together")
     if a.final:
         missing = [n for n, v in (("--theta-full", a.theta_full), ("--theta-present", a.theta_present),
                                   ("--results-root", a.results_root), ("--expect-params-hash", a.expect_params_hash))
@@ -347,12 +390,17 @@ def cmd_zones(a) -> int:
             keep = germ[germ["nucleus_id"].map(st).isin(["traced", "no_sc"])]
             n_failed = int((germ["nucleus_id"].map(st) == "failed").sum())
             lab = B.label_nuclei(zt, keep, guard_frac=a.guard_frac)
+            # the comparators of 5.3 and the exploratory columns of entry 11 (g) (n_puncta, puncta_signal_frac,
+            # steep_length_frac; reported, never gating)
             cols = ["piece_lw_mean_um", "total_length_um", "n_pieces", "gaps_per_10um", "longest_piece_um",
-                    "on_strand_frac", "profile_cv_corr"]
+                    "on_strand_frac", "profile_cv_corr", *EXPLORATORY]
             vals = sc_nuc.set_index("nucleus_id")
             aucs = {c: B.gonad_aucs(lab, vals[c]) for c in cols if c in vals}
-            aucs["central_element_mean_intensity"] = B.gonad_aucs(
-                lab, nuc_run.set_index("nucleus_id")["central_element_mean_intensity"])
+            inten = nuc_run.set_index("nucleus_id")["central_element_mean_intensity"]
+            aucs["central_element_mean_intensity"] = B.gonad_aucs(lab, inten)
+            # entry 7 (c) and 11 (g): what piece_lw_mean_um carries beyond the intensity
+            resid = B.residual_auc(lab, vals["piece_lw_mean_um"], inten) if "piece_lw_mean_um" in vals \
+                else float("nan")
             failed_frac = n_failed / max(len(germ), 1)
             row = {"gonad": g["gonad"], "role": g.get("role"), "rad51_tag": g.get("rad51_tag"),
                    "session": g.get("session"), "condition": g["condition"], "sex": g["sex"], "status": "scored",
@@ -361,7 +409,8 @@ def cmd_zones(a) -> int:
                    "run_code_sha256": rec.get("code_sha256"), "params_hash": rec.get("params_hash"),
                    "n_analysis": int(lab["in_analysis"].sum()), "n_failed": n_failed, "failed_frac": failed_frac,
                    "failed_over_5pct": bool(failed_frac > 0.05),
-                   **{f"{c}__{k}": v for c, dd in aucs.items() for k, v in dd.items()}}
+                   **{f"{c}__{k}": v for c, dd in aucs.items() for k, v in dd.items()},
+                   RESIDUAL_COL: resid}
             per.append(row)
             payload.append((g["gonad"], lab, sc_nuc, zt))
             print(f"{g['gonad']}: S2a AUC {row.get('piece_lw_mean_um__auc_full_vs_frag', float('nan')):.3f} "
@@ -372,7 +421,7 @@ def cmd_zones(a) -> int:
         scored = [r for r in per if r.get("status") == "scored"]
         auc_cols = sorted({k for r in scored for k in r if k.endswith("__auc_full_vs_frag") or
                            k.endswith("__auc_sc_vs_none") or k.endswith("__auc_full_vs_scfrag") or
-                           k.endswith("__auc_full_vs_lpfrag")})
+                           k.endswith("__auc_full_vs_lpfrag") or k == RESIDUAL_COL})
         pooled = {"gonad": "pooled", "status": f"mean over evaluable gonads ({len(scored)} of {len(per)} scored)"}
         for c in auc_cols:
             v = [r[c] for r in scored if r.get(c) is not None and np.isfinite(r[c])]
@@ -396,22 +445,21 @@ def cmd_zones(a) -> int:
                         "central_element_mean_intensity__auc_full_vs_frag",
                         "central_element_mean_intensity__auc_sc_vs_none", "on_strand_frac__auc_full_vs_frag",
                         "n_pieces__auc_full_vs_frag", "gaps_per_10um__auc_full_vs_frag",
-                        "longest_piece_um__auc_full_vs_frag", "profile_cv_corr__auc_full_vs_frag"):
+                        "longest_piece_um__auc_full_vs_frag", "profile_cv_corr__auc_full_vs_frag",
+                        *(f"{c}__auc_full_vs_frag" for c in EXPLORATORY), RESIDUAL_COL):
                 if col not in per_df:
                     continue
                 ev = [r for r in scored if r.get(col) is not None and np.isfinite(r[col])]
                 bs = cluster_bootstrap(ev, mean_auc(col), n_boot=a.n_boot, seed=B.BOOT_SEED)
                 summary[col] = {"n_evaluable": len(ev), **bs["stats"]["value"]}
-            if a.final:
-                th = {"theta_full": float(a.theta_full), "theta_present": float(a.theta_present),
-                      "source": "frozen (command line, the freeze entry)"}
-            else:
-                assert all(sc_split.role_of(gname) == "dev" for gname, *_ in payload), "development gonads only"
-                th = B.choose_thresholds([(lab, nuc) for _g, lab, nuc, _zt in payload])
-                th["source"] = "chosen on these development gonads (protocol 5.2)"
+            th = _thresholds(a, payload)
             summary["theta_full"] = th["theta_full"]
             summary["theta_present"] = th["theta_present"]
             summary["theta_source"] = th["source"]
+            for key in ("theta_full_table", "theta_present_table"):
+                if key in th:
+                    # the mean per-gonad balanced accuracy at every grid value of 5.2 (protocol changelog entry 27)
+                    summary[key] = [{"value": t, "mean_balanced_accuracy": m} for t, m in th[key]]
             hits = []
             for gname, lab, nuc, zt in payload:
                 est = B.estimate_boundaries(lab, nuc, th["theta_full"], th["theta_present"])
@@ -439,8 +487,7 @@ def cmd_zones(a) -> int:
             summary["S2c_fullstart_median_err_um"] = float(found.median()) if len(found) else float("nan")
             summary["fragstart_hit_rate"] = float(sc_rows["SC_fragstart_hit"].astype(bool).mean())
             summary["fraglate_hit_rate"] = float(sc_rows["SC_fraglate_hit"].astype(bool).mean())
-        (out / "zones_summary.json").write_text(json.dumps(summary, indent=1,
-                                                           default=lambda o: None if o != o else o))
+        (out / "zones_summary.json").write_text(_dumps(summary, indent=1))
         if not a.final:
             from germquant.sc.straighten import params as PRM
 
@@ -491,7 +538,7 @@ def cmd_filaments(a) -> int:
                                params=params, final=True)
         out = Path(a.out)
         out.mkdir(parents=True, exist_ok=True)
-        (out / "filaments_S3.json").write_text(json.dumps(res, indent=1, default=lambda o: None if o != o else str(o)))
+        (out / "filaments_S3.json").write_text(_dumps(res, indent=1))
         status = "done"
     finally:
         _end_final(run_id, status, out=str(a.out))
@@ -534,7 +581,7 @@ def cmd_report(a) -> int:
                 vt = f"[{v[0]:+.3f}, {v[1]:+.3f}]" if isinstance(v, list) else (f"{v:.3f}" if isinstance(v, float) else v)
                 st = {True: "pass", False: "FAIL", None: "-"}[row["pass"]]
                 print(f"  {row['id']} {st:4s} {vt}  {row['criterion']}")
-        (out / "s1_gates.json").write_text(json.dumps(gates, indent=1, default=lambda o: None if o != o else o))
+        (out / "s1_gates.json").write_text(_dumps(gates, indent=1))
     return 0
 
 

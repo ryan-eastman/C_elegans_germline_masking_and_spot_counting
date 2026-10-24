@@ -6,7 +6,9 @@ also stays identical (image, labels and truth of two seeds per family).
 
 The digests were made on the lab workstation. A difference fails when GERMQUANT_WORKSTATION_PINS=1 (set on the
 workstation); elsewhere the test skips with a reason that says what differs (another platform's floating point
-may change a last digit), so a CI log still shows whether the platform agrees.
+may change a last digit), so a CI log still shows whether the platform agrees. The structure of a synthetic case,
+its number of strands and its strip index (strand ids, offsets and lengths), fails on every platform (protocol
+changelog entry 27): a last-digit difference does not change it, a v1 regression does.
 """
 from __future__ import annotations
 
@@ -21,9 +23,15 @@ from germquant.sc.straighten import params
 GOLDEN = json.loads(C.golden_path().read_text(encoding="ascii"))
 ENFORCE = os.environ.get("GERMQUANT_WORKSTATION_PINS") == "1"
 V1 = params.v1_sets()
+# the structure of a case: compared on every platform (protocol changelog entry 27)
+STRUCT = ("n_strands", "strip_index")
 
 
 def _check(got: dict, want: dict, what: str) -> None:
+    hard = [k for k in STRUCT if k in want and got.get(k) != want[k]]
+    if hard:
+        pytest.fail(f"{what}: structural difference from v1 in {hard} (number of strands {got.get('n_strands')} "
+                    f"against {want.get('n_strands')})")
     diffs = sorted(k for k in want if not k.endswith("_columns") and got.get(k) != want[k])
     if not diffs:
         return
@@ -31,6 +39,18 @@ def _check(got: dict, want: dict, what: str) -> None:
     if ENFORCE:
         pytest.fail(msg)
     pytest.skip(msg + " (enforced with GERMQUANT_WORKSTATION_PINS=1)")
+
+
+def test_a_structural_difference_fails_off_the_workstation_too(monkeypatch):
+    monkeypatch.setitem(globals(), "ENFORCE", False)
+    want = {"n_strands": 7, "strip_index": "a", "strands": "x"}
+    with pytest.raises(pytest.fail.Exception):
+        _check({**want, "n_strands": 6}, want, "case")
+    with pytest.raises(pytest.fail.Exception):
+        _check({**want, "strip_index": "b"}, want, "case")
+    with pytest.raises(pytest.skip.Exception):                 # a table digest alone: a skip off the workstation
+        _check({**want, "strands": "y"}, want, "case")
+    _check(dict(want), want, "case")
 
 
 def test_every_v2_change_has_a_v1_switch():

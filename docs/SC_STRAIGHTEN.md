@@ -77,7 +77,9 @@ folder (`series_folder`), the run has no central_element channel (`no_central_el
 geometry (`no_run_geometry`), the label image is missing or has another shape (`no_labels`,
 `labels_mismatch`), the output folder is inside a golden tree without `--out` (`golden_folder`), or the image is
 a test or reserved image of the sealed SC validation split (`sealed`; tests/golden/sc_split.json; image stems are
-compared without regard to case). `--allow-sealed` lifts the last refusal only with `--reason`; each sealed image
+compared without regard to case). An image whose file name or folder name is a sealed image stem or RAD-51 tag is
+refused before any of its files is read, and discovery does not read its nuclei.csv (protocol changelog entry 27).
+`--allow-sealed` lifts the last refusal only with `--reason`; each sealed image
 then writes a start and an end line to the audit log, and its record says `sealed_override: true` with the
 reason. Imported geometry from the registered live Filament truth file is refused the same way
 (`sealed_import`).
@@ -350,7 +352,10 @@ A top-level `sc_straighten` section, read only by this command (no shipped confi
 config_hash moves): code defaults < the section of `--config` or `--profile` < `--set`. The keys and defaults
 are in `germquant/sc/straighten/params.py` (DEFAULTS). The keys a development sweep may tune are
 `follow.seed_min`, `follow.lo`, `link.*`, `refine.knot_um`, `refine.lambda`, `refine.sigma_loc_um`, `gaps.*` and
-`classes.*`; everything else is fixed unless a changelog entry of the validation protocol says otherwise.
+`classes.*`; everything else is fixed unless a changelog entry of the validation protocol says otherwise. The
+on/off switches of version 2.0 take true, false, on, off, yes or no, and `follow.contact_test` (local,
+claim_tangent) and `link.junction_gap` (anchors, tips) their listed values; any other value is refused (protocol
+changelog entry 27), so a typo never gives another configuration.
 Development calibration: `scripts/calibrate_sc_straighten.py` (synthetic development seeds only; `--generator
 registered` draws the dense and snr phantoms without the 0.25 um clearance of protocol changelog entry 2(c)).
 
@@ -358,9 +363,10 @@ registered` draws the dense and snr phantoms without the 0.25 um clearance of pr
 
 Each change of the v2 round has a switch whose default gives version 1.0 (`V1_VALUES` in
 `germquant/sc/straighten/params.py`; `params.v1_sets()` gives the `--set` lines). Each was designed on the
-development seeds 2000 to 2049 and 3000 to 3049, tuned on 10000 to 10099 and confirmed once on 11000 to 11099 by
-the rule of protocol changelog entry 11 (b): its targeted metric improves by the amount its entry states, and no
-criterion of protocol 8.1 gets worse beyond the tolerances of that entry. None was adopted.
+development seeds 2000 to 2049 and 3000 to 3049, tuned on 10000 to 10099 and, where the tuning met its targets,
+confirmed once on 11000 to 11099 (per-image PSF, punctum label, complete guard), by the rule of protocol changelog
+entry 11 (b): its targeted metric improves by the amount its entry states, and no criterion of protocol 8.1 gets
+worse beyond the tolerances of that entry. None was adopted.
 
 | switch (default) | when on | entries | why it is off |
 |---|---|---|---|
@@ -447,8 +453,10 @@ almost no nucleus is a `complete_nucleus`, so `total_length_complete_um` is near
   carry a spline overshoot of about 0.03 to 0.05 um each.
 * `length_xy_um` ignores z and runs a little short at steep tilt (-0.07 um at 45 degrees to -0.14 um at 90 degrees
   over a few um).
-* Dense nuclei: the totals run about 5 to 7 percent short with a spread of 8 to 9 percent, and 14 to 15 percent
-  short when ribbons may pass through each other (the generator as registered); per-ribbon decomposition is rarely
+* Dense nuclei: the totals run about 7 percent short on fresh seeds (6.7 to 8.3 percent over three blocks of 100
+  scenes; 4.8 to 4.9 percent on the design seeds 2000 to 2049 and 3000 to 3049) with a spread of 8 to 10 percent,
+  and 14 to 15 percent short when ribbons may pass through each other (the generator as registered); per-ribbon
+  decomposition is rarely
   complete (see Strand classes). The v2 round traced the losses to junctions (ends inside another ribbon's blur
   come out short, tracer breaks at crossings, links across junctions); none of its changes fixed them.
 * Real data: 39 to 46 percent of the traced strand length on the development gonads runs steeper than 60 degrees
@@ -477,7 +485,9 @@ its lead on the zone labels does not show that intensity reads continuity.
 
 Development snapshot of version 2.0 (protocol changelog entry 26; computed once on the fresh seeds 12000 to 12099,
 `dev_eval/summary_a711fe5.json`): the configuration proposed for the freeze (every switch off) and version 1.0 give
-the same numbers. Met: S1a (isolated ribbons: mean length error +0.076 um, 95 percent limits -0.07 to +0.22 um,
+the same numbers (version 1.0 there is the code of 2.0 with every switch at its v1 value, which
+tests/test_sc_straighten_v2_compat.py ties to commit 5cb3cb6, and an independent recompute with the v1 code gave
+the same dense S1b; protocol changelog entry 27). Met: S1a (isolated ribbons: mean length error +0.076 um, 95 percent limits -0.07 to +0.22 um,
 median centreline distance 0.017 um, one strand per ribbon in all), S1c (gap precision 1.00, recall 0.91, gap length
 error 0.034 um), S1d (0.064 um, all on the right ribbon) and S1f; not met: S1b (dense nuclei: mean total -6.7 percent,
 SD 8.7 percent, CCC 0.49; coverage 0.96 and off-truth 0.01 pass) and S1e (complete precision 0.890 pooled against
@@ -499,7 +509,9 @@ seeds 3000 to 3049.
   0.06 um), S1d (foci: 90th percentile of the s error 0.07 / 0.07 um, all on the right ribbon) and S1f (no
   noise-only nucleus reached 1 um). Not met: S1b (dense nuclei: the mean total of -4.9 / -4.8 percent, the
   coverage of 0.97 / 0.96 and the off-truth length of 0.01 pass, the SD of 8.1 / 9.0 percent against 7 and the CCC
-  of 0.58 / 0.59 against 0.80 do not) and S1e (complete precision 0.90 / 0.87 pooled against 0.90; 0.71 / 0.58 in
+  of 0.58 / 0.59 against 0.80 do not; on the fresh blocks of 100 scenes of the v2 round the mean total was -6.9,
+  -8.3 and -6.7 percent, outside its band, so the mean passes on these two blocks only, protocol changelog entry
+  27) and S1e (complete precision 0.90 / 0.87 pooled against 0.90; 0.71 / 0.58 in
   dense nuclei). With the generator as registered (dense ribbons may pass through each other) the dense totals run
   13.9 percent short (SD 10.3 percent, CCC 0.27). The dense under-count is 6 to 9 percent at scene peaks of 300 to
   700 counts and 15 percent at 200: no SNR floor within 5 percent on seeds 2000 to 2049 (700 counts on seeds 3000

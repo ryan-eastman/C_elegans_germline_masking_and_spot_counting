@@ -24,6 +24,7 @@ import math
 import numpy as np
 
 from .follow import LINKABLE_ENDS, RawStrand, arclen
+from .params import switch_on
 
 JUNCTION_REACH_UM = 1.0          # entry 21 (a): how far from the tip junction points are looked for
 FWHM = 2.0 * math.sqrt(2.0 * math.log(2.0))
@@ -117,7 +118,7 @@ def link_candidates(strands: list[RawStrand], p) -> tuple[list, list]:
     gc = float(p["link.gap_cost_per_um"])
     sc = float(p["link.skew_cost_per_um"])
     unl = float(p["link.unlinked_cost"])
-    junction = bool(p.get("link.junction_dirs", False))
+    junction = switch_on(p.get("link.junction_dirs", False))      # entry 27: a string "off" is off
     tips_rule = junction and str(p.get("link.junction_gap", "anchors")) == "tips"
     fwhm = tuple(FWHM * float(v) for v in p["psf.fallback_sigma_um"])
     ends = []

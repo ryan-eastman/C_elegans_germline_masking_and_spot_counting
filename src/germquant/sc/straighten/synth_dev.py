@@ -1,7 +1,8 @@
 """Development phantom families of the v2 round (not registered protocol families; docs/SC_VALIDATION_PROTOCOL.md,
 changelog entries 11 to 14). They live here so that germquant.sc.straighten.synth, the generator of protocol 2.3,
 and every registered scene stay identical for every seed. Each family has its own family code; seeds at or above
-7,000,000 are refused (synth.check_seed) like every development seed.
+7,000,000 are refused (synth.check_seed) like every development seed, and so is ``final=True`` (protocol changelog
+entry 27): these families have no sealed seeds.
 
 * ``psf_check`` (entry 12): six dense nuclei of 2.3 and three isolated arcs tilted U(30, 75) degrees in one image,
   the SYP channel rendered with the scene's PSF (sigma_z 0.33, 0.38, 0.43 or 0.48 um by seed modulo 4, sigma_xy
@@ -48,6 +49,15 @@ FOCI_DENSITY = 0.15                     # per um3 of a dense nucleus
 FOCI_PEAK_RANGE = (150.0, 450.0)
 
 
+def _dev_seed(seed: int, final: bool) -> int:
+    """The seed check of the development families: no sealed seed is generated for them (protocol changelog entry
+    27; whether they get sealed seeds at the scoring is decision 9 of the PR), so ``final`` is refused."""
+    if final:
+        raise S.SealedSeedError("the development families of germquant.sc.straighten.synth_dev have no sealed seeds "
+                                "(protocol changelog entry 27); development seeds are below 7,000,000")
+    return S.check_seed(seed, False)
+
+
 def _rng(family: str, seed: int) -> np.random.Generator:
     return np.random.default_rng(np.random.SeedSequence([int(seed), FAMILY_CODE[family]]))
 
@@ -73,7 +83,7 @@ def _nuclei_table(labels, centers, radii, label_radii, germ_cells, kinds) -> pd.
 
 
 def psf_check_scene(seed: int, *, final: bool = False) -> S.Scene:
-    seed = S.check_seed(seed, final)
+    seed = _dev_seed(seed, final)
     rng = _rng("psf_check", seed)
     sz = PSF_LEVELS[seed % 4]
     sxy = float(rng.uniform(0.135, 0.165))
@@ -160,7 +170,7 @@ def _sphere_points(diam: float, step: float = 0.025) -> np.ndarray:
 def puncta_scene(seed: int, *, final: bool = False, family: str = "puncta_pt", with_puncta: bool = True) -> S.Scene:
     """The puncta families (the generator of the entry-8 diagnostics, v2/scripts/steep_phantoms.py, with the same
     family codes): one nucleus with puncta and, for dense_puncta, the dense ribbons of 2.3."""
-    seed = S.check_seed(seed, final)
+    seed = _dev_seed(seed, final)
     rng = _rng(family, seed)
     R = float(rng.uniform(2.2, 2.6))
     label_r = R + float(rng.uniform(-0.2, 0.4))
@@ -233,7 +243,7 @@ def _render_modulated(img, rib, sigma, w):
 
 
 def real_dense_scene(seed: int, *, final: bool = False, features=REAL_FEATURES, name: str = "real_dense") -> S.Scene:
-    seed = S.check_seed(seed, final)
+    seed = _dev_seed(seed, final)
     code = FAMILY_CODE["real_dense"]
     rng = np.random.default_rng(np.random.SeedSequence([int(seed), code]))
     streams = {k: np.random.default_rng(np.random.SeedSequence([int(seed), code, i]))
@@ -339,6 +349,7 @@ FAMILY_FUNCS = {"psf_check": psf_check_scene, "puncta_pt": _puncta("puncta_pt"),
 
 
 def make_scene(family: str, seed: int, *, final: bool = False, **kw) -> S.Scene:
+    _dev_seed(seed, final)
     if family not in FAMILY_FUNCS:
         raise ValueError(f"unknown development family {family!r}; one of {sorted(FAMILY_FUNCS)}")
     return FAMILY_FUNCS[family](seed, final=final, **kw)

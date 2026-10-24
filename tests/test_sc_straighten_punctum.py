@@ -113,6 +113,16 @@ def test_puncta_families_are_development_families():
             synth_dev.make_scene(fam, 7_000_001)
 
 
+def test_development_families_have_no_sealed_seeds():
+    # protocol changelog entry 27: final=True is refused at any seed, through make_scene and the family functions
+    for fam in sorted(synth_dev.FAMILY_FUNCS):
+        for seed in (2001, 7_000_001):
+            with pytest.raises(synth.SealedSeedError):
+                synth_dev.make_scene(fam, seed, final=True)
+            with pytest.raises(synth.SealedSeedError):
+                synth_dev.FAMILY_FUNCS[fam](seed, final=True)
+
+
 def test_the_rule_before_the_end_matching(monkeypatch):
     """Entry 17: a traced punctum takes no part in the end matching; a tilted ribbon's trace is not held out."""
     from germquant.sc.straighten import trace as TR

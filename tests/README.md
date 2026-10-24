@@ -244,7 +244,10 @@ Opt-ins driven by environment variables rather than markers:
 - `GERMQUANT_WORKSTATION_PINS=1`: `test_default_invariants.py` enforces the pins marked
   `"scope": "workstation"` in `golden/default_invariants.json` (today the montage pixels, whose
   rendering may differ by platform). Without it those tests skip, and the skip reason says whether
-  this machine agrees with the workstation pin. `scripts/t5_gate.py` sets it on the workstation; that
+  this machine agrees with the workstation pin. `test_sc_straighten_v2_compat.py` enforces the v1 table and
+  strip digests of sc-straighten the same way (the number of strands and the strip index of each synthetic case
+  fail on every platform); run `GERMQUANT_WORKSTATION_PINS=1 pytest -rs tests/test_sc_straighten_v2_compat.py`
+  on the workstation before an sc-straighten hand-off and give its result in the PR. `scripts/t5_gate.py` sets it on the workstation; that
   script runs ruff (the version CI pins), `pytest -m "not model"`, the scope check and these pins
   (`--no-workstation` skips them on another machine) and, with `GERMQUANT_GOLDEN` and
   `GERMQUANT_CANDIDATE` set, the strict real-golden comparison and the file-list check, plus the

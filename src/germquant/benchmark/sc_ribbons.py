@@ -532,6 +532,40 @@ def gonad_aucs(lab: pd.DataFrame, values: pd.Series, *, min_n: int = 10) -> dict
     return out
 
 
+def finite_for_ranks(v) -> np.ndarray:
+    """``v`` as floats with -inf and +inf moved just below and above the finite values (ranks are kept)."""
+    v = np.asarray(v, float).copy()
+    fin = v[np.isfinite(v)]
+    if fin.size:
+        v[np.isneginf(v)] = fin.min() - 1.0
+        v[np.isposinf(v)] = fin.max() + 1.0
+    return v
+
+
+def residual_auc(lab: pd.DataFrame, score: pd.Series, intensity: pd.Series, *, min_n: int = 10) -> float:
+    """The S2a AUC of a score's within-gonad rank after a least-squares line on the rank of the intensity, over the
+    S2a nuclei (SCfull, SCfrag and LPfrag outside guard bands; classes pooled, the class not used): what the score
+    carries beyond the amount of SYP (protocol changelog entries 7 (c) and 11 (g); reported, never gating). NaN
+    with fewer than ``min_n`` nuclei in either class, as for the S2a AUC."""
+    from scipy.stats import rankdata
+
+    ok = lab["in_analysis"].to_numpy(bool) & ~lab["guard"].to_numpy(bool)
+    z = lab["zone"].to_numpy(object)
+    full = ok & (z == "SCfull")
+    frag = ok & ((z == "SCfrag") | (z == "LPfrag"))
+    if full.sum() < min_n or frag.sum() < min_n:
+        return float("nan")
+    pop = full | frag
+    ids = lab["nucleus_id"].to_numpy()
+    y = rankdata(finite_for_ranks(score.reindex(ids).to_numpy(float)[pop]))
+    x = rankdata(finite_for_ranks(intensity.reindex(ids).to_numpy(float)[pop]))
+    A = np.stack([np.ones_like(x), x], 1)
+    coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+    r = np.full(len(lab), np.nan)
+    r[pop] = y - A @ coef
+    return auc(r[full], r[frag])
+
+
 def balanced_accuracy(call: np.ndarray, truth: np.ndarray) -> float:
     call = np.asarray(call, bool)
     truth = np.asarray(truth, bool)

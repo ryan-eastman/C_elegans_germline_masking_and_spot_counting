@@ -3,6 +3,7 @@ page by page into uint16, discovery by image_id with ids that end in an undersco
 equality with read_stack on a development image (skipped when the file is absent)."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -54,6 +55,37 @@ def test_discovery_by_image_id(tmp_path):
     assert [f.image_id for f in found] == [iid]
     assert inputs.select(found, ["n2rad51_noHS_herm_000"]) == found
     assert inputs.select(found, [iid]) == found and inputs.select(found, ["other"]) == []
+
+
+def test_an_image_sealed_by_its_name_is_refused_before_any_file_is_read(tmp_path, monkeypatch):
+    # protocol changelog entry 27: discovery reads no nuclei.csv of an image sealed by its file name or folder name
+    # (a test or reserved image stem or RAD-51 tag, without regard to case), and the runner refuses it before
+    # reading any of its files; the files here are dummies that cannot be parsed
+    from germquant.benchmark import sc_split
+    from germquant.sc.straighten import params, runner
+
+    g = next(x for x in sc_split.load_split()["gonads"] if x.get("role") == "test" and x.get("rad51_tag"))
+    root = tmp_path / "r"
+    for folder, name in ((g["rad51_tag"], g["image_stem"]), ("copies", g["image_stem"].upper()),
+                         (g["rad51_tag"].upper(), "renamed")):
+        (root / folder).mkdir(parents=True, exist_ok=True)
+        (root / folder / f"{name}__nuclei.csv").write_bytes(b"\x00 not a table")
+    dev = root / "n2rad51_noHS_herm_000"
+    dev.mkdir()
+    iid = "20251105_N2_nohs_HERM _"
+    pd.DataFrame({"nucleus_id": [1], "image_id": [iid]}).to_csv(dev / f"{iid}__nuclei.csv", index=False)
+    reads = []
+    orig = pd.read_csv
+    monkeypatch.setattr(pd, "read_csv", lambda path, *a, **k: reads.append(str(path)) or orig(path, *a, **k))
+    found = inputs.discover(root)
+    assert sorted(f.image_id for f in found) == sorted([g["image_stem"], g["image_stem"].upper(), "renamed", iid])
+    assert len(reads) == 1 and reads[0].endswith(f"n2rad51_noHS_herm_000{os.sep}{iid}__nuclei.csv")
+    sealed = [f for f in found if f.image_id != iid]
+    assert all(inputs.sealed_by_name(f) == "test" for f in sealed)
+    reads.clear()
+    oc = runner.run_results(root, [f.image_id for f in sealed], params=params.resolve(), echo=lambda *_: None)
+    # discovery reads the development image's table again; nothing of the sealed ones is read
+    assert [o.code for o in oc] == ["sealed"] * 3 and all("n2rad51_noHS_herm_000" in r for r in reads)
 
 
 @pytest.mark.skipif(not HERM000.is_file(), reason="development image on the lab workstation only")

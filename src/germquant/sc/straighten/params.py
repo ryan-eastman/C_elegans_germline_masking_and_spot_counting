@@ -105,6 +105,27 @@ def switch_on(value) -> bool:
     return value is True or str(value).strip().lower() in ("on", "true", "yes")
 
 
+# the values resolve() accepts for the v2 switches (protocol changelog entry 27): an unknown value is refused, so a
+# typo can never silently give another configuration
+SWITCH_KEYS = ("psf.foci", "punctum.enabled", "punctum.exclude", "punctum.before_linking", "link.junction_dirs",
+               "classes.complete_guard")
+SWITCH_WORDS = ("on", "off", "true", "false", "yes", "no")
+ENUM_KEYS: dict[str, tuple[str, ...]] = {"follow.contact_test": ("local", "claim_tangent"),
+                                         "link.junction_gap": ("anchors", "tips")}
+
+
+def _check_switches(p: Params) -> None:
+    for key in SWITCH_KEYS:
+        v = p.get(key)
+        if isinstance(v, bool) or (isinstance(v, str) and v.strip().lower() in SWITCH_WORDS):
+            continue
+        raise ValueError(f"sc_straighten.{key} is an on/off switch: true, false, on, off, yes or no; got {v!r}")
+    for key, allowed in ENUM_KEYS.items():
+        v = p.get(key)
+        if v not in allowed:
+            raise ValueError(f"sc_straighten.{key} is one of {', '.join(allowed)}; got {v!r}")
+
+
 # keys a development sweep may tune (DESIGN section 8); everything else is fixed unless the protocol changelog
 # says otherwise
 TUNABLE_PREFIXES = ("follow.seed_min", "follow.lo", "link.", "refine.knot_um", "refine.lambda",
@@ -203,7 +224,9 @@ def resolve(section: dict | None = None, sets: list[str] | tuple[str, ...] = ())
     d = _merge(DEFAULTS, section or {})
     for s in sets or ():
         d = apply_set(d, s)
-    return Params(d)
+    p = Params(d)
+    _check_switches(p)
+    return p
 
 
 def from_config(cfg, sets=()) -> Params:

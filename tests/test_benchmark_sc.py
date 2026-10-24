@@ -187,3 +187,73 @@ def test_evaluate_s1_criteria():
     assert rows[("S1b", "dense mean t")]["pass"] is False and rows[("S1b", "dense SD of ")]["pass"] is True
     assert rows[("S1e", "complete pre")]["value"] == pytest.approx(0.75)
     assert rows[("S1g", "SNR floor (l")]["pass"] is None
+
+
+def test_residual_auc_carries_what_the_intensity_does_not():
+    # protocol changelog entries 7 (c), 11 (g) and 27: the S2a AUC of a score's rank after a least-squares line on
+    # the rank of the intensity, over the S2a nuclei
+    zt = _zt(n=12, step=20.0, f=2, u=3, lt=8, e=11)
+    rng = np.random.default_rng(1)
+    s = rng.uniform(0, 220, 600)
+    nuc = pd.DataFrame({"nucleus_id": np.arange(600), "centroid_x_um": s, "centroid_y_um": rng.uniform(0, 3, 600)})
+    lab = B.label_nuclei(zt, nuc)
+    full = (lab["zone"] == "SCfull").to_numpy()
+    inten = pd.Series(np.where(full, 0.3, 0.0) + rng.normal(0, 1, 600), index=lab["nucleus_id"])
+    # a score that is the intensity plus noise carries nothing beyond it; one with a class signal of its own does
+    same = pd.Series(inten.to_numpy() + rng.normal(0, 0.01, 600), index=lab["nucleus_id"])
+    own = pd.Series(rng.normal(0, 1, 600) + np.where(full, 3.0, 0.0), index=lab["nucleus_id"])
+    assert abs(B.residual_auc(lab, same, inten) - 0.5) < 0.15
+    assert B.residual_auc(lab, own, inten) > 0.8
+    # a reference computation of the same quantity
+    from scipy.stats import rankdata
+
+    ok = lab["in_analysis"].to_numpy(bool) & ~lab["guard"].to_numpy(bool)
+    z = lab["zone"].to_numpy(object)
+    f_, g_ = ok & (z == "SCfull"), ok & np.isin(z, ["SCfrag", "LPfrag"])
+    pop = f_ | g_
+    y, x = rankdata(own.to_numpy()[pop]), rankdata(inten.to_numpy()[pop])
+    res = y - np.polyval(np.polyfit(x, y, 1), x)
+    r = np.full(600, np.nan)
+    r[pop] = res
+    assert B.residual_auc(lab, own, inten) == pytest.approx(B.auc(r[f_], r[g_]), abs=1e-9)
+    few = lab.copy()
+    few.loc[few["zone"] == "SCfull", "in_analysis"] = False
+    assert np.isnan(B.residual_auc(few, own, inten))
+    assert np.array_equal(B.finite_for_ranks([1.0, np.inf, -np.inf, np.nan])[:3], [1.0, 2.0, 0.0])
+
+
+def test_scoring_json_is_strict_and_thresholds_can_be_fixed(tmp_path):
+    # protocol changelog entry 27: no bare NaN in the scoring's JSON; fixed thresholds outside --final say so
+    import importlib.util
+    import json
+    import types
+
+    spec = importlib.util.spec_from_file_location("benchmark_sc", Path(__file__).resolve().parents[1] / "scripts" /
+                                                  "benchmark_sc.py")
+    bs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bs)
+    text = bs._dumps({"a": float("nan"), "b": [np.float32(1.5), np.inf, np.int64(3)], "c": np.array([np.nan, 2.0])})
+    assert json.loads(text, parse_constant=lambda c: pytest.fail(c)) == {"a": None, "b": [1.5, None, 3],
+                                                                         "c": [None, 2.0]}
+    p = tmp_path / "x.jsonl"
+    bs._append(p, {"S2a": {"point": float("nan")}})
+    assert json.loads(p.read_text(encoding="utf-8")) == {"S2a": {"point": None}}
+    a = types.SimpleNamespace(final=False, theta_full=2.0, theta_present=10.0)
+    th = bs._thresholds(a, [])
+    assert th == {"theta_full": 2.0, "theta_present": 10.0, "source": "fixed (command line)"}
+    zt = _zt(n=12, step=20.0, f=2, u=4, lt=9, e=11)
+    s = np.arange(0, 200, 1.0)
+    nuc = pd.DataFrame({"nucleus_id": np.arange(len(s)), "centroid_x_um": s, "centroid_y_um": 0.5})
+    lab = B.label_nuclei(zt, nuc)
+    sc = pd.DataFrame({"nucleus_id": np.arange(len(s)), "piece_lw_mean_um": np.where((s >= 60) & (s < 160), 5.0, 0.5),
+                       "total_length_um": np.where(s >= 20, 20.0, 0.0)})
+    dev = next(g["gonad"] for g in sc_split.load_split()["gonads"] if g.get("role") == "dev")
+    th = bs._thresholds(types.SimpleNamespace(final=False, theta_full=None, theta_present=None),
+                        [(dev, lab, sc, zt)])
+    assert th["source"].startswith("chosen") and len(th["theta_present_table"]) == 20
+    with pytest.raises(AssertionError):
+        bs._thresholds(types.SimpleNamespace(final=False, theta_full=None, theta_present=None),
+                       [(next(g["gonad"] for g in sc_split.load_split()["gonads"] if g.get("role") == "test"),
+                         lab, sc, zt)])
+    with pytest.raises(SystemExit):
+        bs.main(["zones", "--runs", str(tmp_path), "--out", str(tmp_path), "--theta-full", "2.0"])
