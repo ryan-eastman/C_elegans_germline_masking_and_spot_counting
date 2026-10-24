@@ -560,6 +560,32 @@ def test_series_refused_for_planar_recipes(project_env, tmp_path, monkeypatch): 
         assert res["exit_code"] == 1 and calls == {"series": [], "model": [], "read": []}
 
 
+def test_a_series_whose_header_cannot_be_read_fails_that_image_only(project_env, tmp_path, monkeypatch):  # noqa: F811
+    """io.planar auto reads a series' header to decide; a series file that cannot be reached, or whose header
+    cannot be read, fails as that image, and the next image still runs (run.py's docstring, step 3)."""
+    need_p2b()
+    proj = new_test_project(tmp_path / "proj")
+    series = _series_image(proj.root / "images")
+    P.add_images(proj, [series, example_copy(proj.root / "images", "fixed")])
+    hand_edit_recipe(proj, {"io": {"planar": "auto"}})
+    seen = []
+    fake_run_loaded(monkeypatch, seen)
+    for broken in ("removed", "no TIFF"):
+        if broken == "removed":
+            os.remove(series)
+        else:
+            series.write_bytes(b"not a TIFF any more")
+        res = P.run_project(proj, resume=False)
+        assert res["exit_code"] == 1 and res["counts"] == {"done": 1, "failed": 1, "skipped": 0}, res
+        assert [s["image"] for s in seen] == ["fixed.ome.tif"] and res["interrupted"] is False
+        seen.clear()
+        ev = log_events(res["log"])
+        assert ev[-1]["event"] == "run_end" and ev[-1]["interrupted"] is False
+        (e,) = [e for e in ev if e["event"] == "image_failed"]
+        assert e["image_id"] == "movie" and e["error"]
+        assert ("not reachable" in e["error"]) == (broken == "removed"), e["error"]
+
+
 def test_series_refused_for_labels_recipes(project_env, tmp_path, monkeypatch):  # noqa: F811
     need_p2c()
     from germquant.io.labels import SERIES_REFUSAL

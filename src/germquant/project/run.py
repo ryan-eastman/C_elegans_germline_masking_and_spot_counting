@@ -21,7 +21,8 @@ through timelapse.process_series, and writes the run's log, runs/<run_id>.jsonl 
    from the K-th on, so the N shards cover the images exactly once): should_stop is asked before each image; an
    image already done is skipped when ``resume`` (batch.is_done, with the segment sub-hashes cli._batch computes:
    the planar one only for a recipe that sets io.planar, D44, and the per-image labels hash in labels_from runs,
-   D46); an image that cannot be reached, or fails, is an image_failed event and the run goes on.
+   D46); an image that cannot be reached, or fails (in its resume check or, for a series, the header read that
+   io.planar auto decides from, as well as in its run), is an image_failed event and the run goes on.
 4. run_end, with interrupted true when should_stop (or Ctrl-C) stopped the run between images.
 
 An image with timepoints that this release cannot run as a series is refused before process_series is called,
@@ -468,7 +469,14 @@ def _run_one(entry: dict, ctx: dict) -> tuple[str, dict]:
         return kind, fields
 
     if is_series(entry):
-        why = series_refusal(cfg, path)
+        try:
+            why = series_refusal(cfg, path)
+        except Exception as e:  # noqa: BLE001 - io.planar auto reads the header: one image failing must not stop the run
+            if not reachable(path):
+                return finish("image_failed", error=unreachable_text(path))
+            log.exception("FAILED %s", iid)
+            return finish("image_failed", error=(f"the header of this time series cannot be read (io.planar auto "
+                                                 f"decides from it): {type(e).__name__}: {e}")[:4000])
         if why:
             return finish("image_failed", error=f"REFUSED: a time series of {int(entry['timepoints'])} timepoints: "
                                                 f"{why}")
@@ -484,7 +492,11 @@ def _run_one(entry: dict, ctx: dict) -> tuple[str, dict]:
         return finish(kind, **more)
     mid = marker_id(path)
     if ctx["resume"]:
-        done, why = ctx["hashes"].is_done(out_dir, mid, path, xy_stride=ctx["xy_stride"], z_range=ctx["z_range"])
+        try:
+            done, why = ctx["hashes"].is_done(out_dir, mid, path, xy_stride=ctx["xy_stride"], z_range=ctx["z_range"])
+        except Exception as e:  # noqa: BLE001 - the resume check of one image failing must not stop the run
+            log.exception("FAILED %s", iid)
+            return finish("image_failed", error=f"the resume check failed: {type(e).__name__}: {e}"[:4000])
         if done:
             return finish("image_skipped", **finished_fields(out_dir, mid))
         if why != "no completion marker":
