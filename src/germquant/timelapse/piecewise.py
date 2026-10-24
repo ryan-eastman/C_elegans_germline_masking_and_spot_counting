@@ -505,6 +505,7 @@ def register_series_piecewise(
         seeds, seed_info = load_seed_table(sdir, stem, seed_table) if seeding else ({}, None)
         seed_rows: dict[tuple[int, int], dict] = {}     # (t_index, segment) -> the seed columns of that row
         unseeded_gaps: list[dict] = []
+        prior_warnings: list[str] = []
 
     n = len(tps)
     with_vol = [i for i in range(n) if primary in files[i]]
@@ -724,6 +725,7 @@ def register_series_piecewise(
                     w = (f"t{ref_k}-t{k}: the stage moved {gp['stage_xy_um']:.1f} um, more than the {margin:g} um crop "
                          f"margin; the piecewise crops cannot follow it ({why})")
                     warnings.append(w)
+                    prior_warnings.append(w)
                     log.warning("%s", w)
             gap_rows[k] = PR.gap_row(cap_k, cap_src, gp, flags, with_prior=stage is not None)
             steps_rep[-1].update(cap_um=_f(gap_rows[k]["cap_um"]), cap_source=cap_src)
@@ -785,7 +787,7 @@ def register_series_piecewise(
         "pipeline_version": __version__, "git_sha": provenance.git_sha(), "run_timestamp": provenance.run_timestamp(),
     }
     if per_gap:
-        PR.add_report_options(report, msa, pri, stage, gap_list, z_range=z_range)
+        PR.add_report_options(report, msa, pri, stage, gap_list, z_range=z_range, warnings=prior_warnings)
         if seeding:
             report["parameters"]["seed"] = "rigid"
             if seed_table is not None:

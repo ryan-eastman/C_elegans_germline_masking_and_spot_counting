@@ -312,15 +312,81 @@ def add_gap_columns(df, gap_rows: dict, *, with_prior: bool, key: str = "t_index
 
 
 def add_report_options(report: dict, max_step_at: dict, prior: str | None, rec: dict | None, gaps: list[dict], *,
-                       z_range=None) -> None:
+                       z_range=None, warnings: list[str] | None = None) -> None:
     """The report's record of the per-gap options: ``parameters.max_step_at`` and ``parameters.prior`` (only when
-    given) and the top-level ``prior`` block (report_block) when the record was read."""
+    given) and the top-level ``prior`` block (report_block, plus the prior's ``warnings``) when the record was
+    read."""
     if max_step_at:
         report["parameters"]["max_step_at"] = {str(t): float(v) for t, v in sorted(max_step_at.items())}
     if prior is not None:
         report["parameters"]["prior"] = prior
     if rec is not None:
         report["prior"] = report_block(rec, gaps, z_range=z_range)
+        report["prior"]["warnings"] = list(warnings or [])
+
+
+def _gap_caps(report: dict) -> list[tuple[str, float | None, str]]:
+    """(gap, cap or None, source) of every registered gap of a rigid or piecewise report."""
+    out = []
+    for st in report.get("steps", []):
+        if "cap_source" in st:
+            out.append((f"t{st['reference_t_index']}-t{st['t_index']}", st.get("cap_um"), st["cap_source"]))
+    return out
+
+
+def console_lines(report: dict) -> list[str]:
+    """The command's lines for the opt-in options of a registration report, one per option: the caps raised and
+    set (gap, cap, why), the prior's record and flags (and its warnings), the seeded gaps and the largest seed, the
+    guard's ratio and decision. Empty for a report without them."""
+    lines: list[str] = []
+    par = report.get("parameters", {})
+    caps = _gap_caps(report)
+    if caps:
+        raised = [(g, c, s) for g, c, s in caps if s == "prior:stage"]
+        given = [(g, c, s) for g, c, s in caps if s == "max_step_at"]
+        base = par.get("max_step_um")
+        txt = f"  per-gap caps: {len(raised)} gap(s) raised above the base ({f'{base:g} um' if base else 'no cap'})"
+        if raised:
+            txt += ": " + ", ".join(f"{g} {c:.2f} um ({s})" for g, c, s in raised)
+        if given:
+            txt += "; set by --max-step-at: " + ", ".join(f"{g.split('-')[1]} " + ("no cap" if c is None else f"{c:.2f} um")
+                                                         for g, c, _s in given)
+        n_capped = report.get("n_capped", len(report.get("capped", [])))
+        lines.append(txt + f"; {n_capped} capped")
+    blk = report.get("prior")
+    if blk:
+        rf = Path(str(blk.get("record_file"))).name if blk.get("record_file") else "?"
+        flags = blk.get("flags") or {}
+        ftxt = "; ".join(f"{g} {', '.join(f)}" for g, f in flags.items()) if flags else "none"
+        lines.append(f"  prior stage: {blk.get('loaded_from')} ({rf}); {len(blk.get('gaps_with_a_move_or_refocus', []))} "
+                     f"gap(s) with a stage move or a refocus pause; flags: {ftxt}")
+        for w in blk.get("warnings") or []:
+            lines.append(f"  warning: {w}")
+    sb = report.get("seed")
+    if sb:
+        best = None
+        for st in report.get("steps", []):
+            for seg in st.get("segments", []):
+                s = seg.get("seed_um")
+                if s is not None:
+                    n = float(np.hypot(s[1], s[2]))
+                    if best is None or n > best[0]:
+                        best = (n, f"t{st['reference_t_index']}-t{st['t_index']}")
+        n_gaps = len(report.get("steps", []))
+        txt = f"  seed rigid: {sb.get('n_seeded_gaps', 0)} of {n_gaps} gap(s) seeded from {Path(str(sb.get('table'))).name}"
+        if best is not None:
+            txt += f" (largest seed {best[0]:.1f} um in y and x, at {best[1]})"
+        if sb.get("unseeded_gaps"):
+            txt += "; unseeded: " + ", ".join(f"{u['gap']} ({u['why']})" for u in sb["unseeded_gaps"])
+        lines.append(txt)
+    g = report.get("axis_guard")
+    if g:
+        ratio = g.get("spread_ratio")
+        rtxt = f"spread ratio {ratio:.2f}" if ratio is not None else "the default axis does not split into segments"
+        decision = ("tripped, the straight PC1 axis is used" if g.get("tripped")
+                    else f"not tripped, the axis stays {g.get('axis_used')}")
+        lines.append(f"  axis guard: {rtxt} (threshold {g.get('threshold'):g}): {decision}")
+    return lines
 
 
 def report_block(rec: dict, gaps: list[dict], *, z_range=None) -> dict:

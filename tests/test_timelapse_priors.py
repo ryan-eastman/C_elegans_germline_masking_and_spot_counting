@@ -32,7 +32,7 @@ from test_timelapse_piecewise import flow_per_step as pw_flow
 from test_timelapse_piecewise import write_piecewise_series
 from test_timelapse_register import SP, STEM_SYN, make_series, write_fake_series
 
-from germquant import schema
+from germquant import cli, schema
 from germquant.io import nd2_stage as S
 from germquant.timelapse import find_series, link_series, load_piecewise, register_series_piecewise
 from germquant.timelapse import piecewise as PW
@@ -859,3 +859,92 @@ def test_guard_keys_and_threshold(folded):
     for bad in ({"seed": "stage"}, {"axis_fold_ratio": 0.0}, {"axis_fold_ratio": "x"}):
         with pytest.raises(ValueError):
             PW.piecewise_options(None, **bad)
+
+
+# ---- the command line -------------------------------------------------------------------------------------------------
+
+def test_cli_rigid_caps_prior_and_refusals(jump_series, capsys):
+    sd = str(jump_series)
+    assert cli.main(["register", sd, "--max-step-um", "1.0", "--prior", "stage"]) == 0
+    out = capsys.readouterr().out
+    assert "per-gap caps: 1 gap(s) raised" in out and "t2-t3 2.60 um (prior:stage)" in out
+    assert "prior stage: record file" in out and "flags: none" in out
+    t = pd.read_csv(jump_series / f"{STEM_SYN}__register_shifts.csv")
+    assert not t["capped"].any() and t.loc[3, "cap_source"] == "prior:stage"
+    assert cli.main(["register", sd, "--max-step-um", "1.0", "--max-step-at", "3=0", "--max-step-at", "t4=2"]) == 0
+    out = capsys.readouterr().out
+    assert "set by --max-step-at: t3 no cap, t4 2.00 um" in out
+    t = pd.read_csv(jump_series / f"{STEM_SYN}__register_shifts.csv")
+    assert list(t.loc[[3, 4], "cap_source"]) == ["max_step_at", "max_step_at"] and t.loc[4, "cap_um"] == 2.0
+    # refusals: the piecewise-only options, --nd2 without --prior, a malformed or unknown --max-step-at
+    for extra in (["--seed", "rigid"], ["--seed-table", "x.csv"], ["--axis-guard"], ["--nd2", "x.nd2"],
+                  ["--max-step-at", "3"], ["--max-step-at", "9=4"]):
+        assert cli.main(["register", sd] + extra) == 1, extra
+    err = capsys.readouterr().err
+    assert "--seed applies to --mode piecewise only" in err and "--axis-guard applies to --mode piecewise only" in err
+    assert "--prior stage" in err and "T=UM" in err and "not a registrable timepoint" in err
+    # --prior stage with no record and no nd2 to read: exit 1 with what to give
+    PR.stage_record_path(jump_series, STEM_SYN).unlink()
+    assert cli.main(["register", sd, "--prior", "stage"]) == 1
+    assert "--nd2" in capsys.readouterr().err
+
+
+def test_cli_passes_none_without_the_new_flags(jump_series, monkeypatch):
+    seen = {}
+    real_rigid, real_pw = R.register_series, PW.register_series_piecewise
+
+    def rigid(*a, **k):
+        seen["rigid"] = k
+        return real_rigid(*a, **k)
+
+    def pw(*a, **k):
+        seen["piecewise"] = k
+        return real_pw(*a, **k)
+
+    monkeypatch.setattr(R, "register_series", rigid)
+    monkeypatch.setattr(PW, "register_series_piecewise", pw)
+    assert cli.main(["register", str(jump_series)]) == 0
+    assert {k: seen["rigid"][k] for k in ("max_step_at", "prior", "nd2")} == {"max_step_at": None, "prior": None,
+                                                                               "nd2": None}
+    s = write_piecewise_series(jump_series / "pw", n_t=3)
+    assert cli.main(["register", str(s["out"]), "--mode", "piecewise", "--max-step-um", "6"]) == 0
+    assert {k: seen["piecewise"][k] for k in ("max_step_at", "prior", "nd2", "seed", "seed_table", "axis_guard")} == {
+        "max_step_at": None, "prior": None, "nd2": None, "seed": None, "seed_table": None, "axis_guard": None}
+    assert list(pd.read_csv(s["out"] / f"{PW_STEM}__register_piecewise.csv").columns) == (
+        schema.REGISTER_PIECEWISE + schema.SERIES_META)
+
+
+def test_cli_piecewise_seed_and_guard(tmp_path, capsys):
+    s = write_moved_series(tmp_path / "m", n_t=3)
+    sd = str(s["out"])
+    assert cli.main(["register", sd, "--mode", "piecewise", "--seed", "rigid"]) == 1     # no rigid table yet
+    assert "germquant register" in capsys.readouterr().err
+    assert cli.main(["register", sd, "--max-step-um", "0"]) == 0
+    capsys.readouterr()
+    assert cli.main(["register", sd, "--mode", "piecewise", "--seed", "rigid", "--max-step-um", "10"]) == 0
+    out = capsys.readouterr().out
+    assert "seed rigid: 2 of 2 gap(s) seeded from" in out and "largest seed" in out and "t1-t2" in out
+    t = pd.read_csv(s["out"] / f"{STEM_W}__register_piecewise.csv")
+    assert t.loc[t["t_index"] == 2, "seed_shift_y_vox"].eq(10).all() and t["cap_basis"].fillna("").isin(
+        ["", "departure"]).all()
+    rig = pd.read_csv(s["out"] / f"{STEM_W}__register_shifts.csv")
+    p = tmp_path / "copy__register_shifts.csv"
+    rig.to_csv(p, index=False)
+    assert cli.main(["register", sd, "--mode", "piecewise", "--seed", "rigid", "--seed-table", str(p)]) == 0
+    rep = json.loads((s["out"] / f"{STEM_W}__register_piecewise_report.json").read_text(encoding="utf-8"))
+    assert rep["parameters"]["seed_table"] == str(p) and rep["seed"]["table"] == str(p)
+    assert cli.main(["register", sd, "--mode", "piecewise", "--seed-table", str(p)]) == 1          # without --seed rigid
+    assert cli.main(["register", sd, "--mode", "piecewise", "--nd2", "x.nd2"]) == 1                # without --prior
+    assert cli.main(["register", sd, "--mode", "piecewise", "--reference", "t0"]) == 1
+    assert cli.main(["register", sd, "--mode", "piecewise", "--rigid"]) == 1
+    capsys.readouterr()
+    # the guard on the folded gonad, and its key through the series' run_manifest.json
+    f = write_piecewise_series(tmp_path / "f", n_t=3)
+    _fold_origin_axis(f["out"])
+    assert cli.main(["register", str(f["out"]), "--mode", "piecewise", "--axis-guard", "--max-step-um", "6"]) == 0
+    out = capsys.readouterr().out
+    assert "axis guard: spread ratio 7.39 (threshold 4)" in out and "the straight PC1 axis is used" in out
+    (f["out"] / "run_manifest.json").write_text(json.dumps({"config": {"timelapse": {"register": {
+        "piecewise_axis_guard": True, "piecewise_axis_fold_ratio": 8.0}}}}))
+    assert cli.main(["register", str(f["out"]), "--mode", "piecewise", "--max-step-um", "6"]) == 0
+    assert "spread ratio 7.39 (threshold 8): not tripped" in capsys.readouterr().out
