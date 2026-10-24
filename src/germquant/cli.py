@@ -781,17 +781,12 @@ def _run_series(args, cfg) -> int:
     """``germquant run SERIES.nd2 --t ...``: the per-timepoint loop (timelapse.series.process_series). A
     timepoint that raises is recorded in the series record and the loop goes on; the exit code is 0 when at
     least one requested timepoint finished and 1 when none did, and 2 when the series is refused before any
-    timepoint (a recipe with segmentation.nuclei.labels_from, docs/LABELS.md; _series_refusal)."""
-    if cfg.get("segmentation.nuclei.labels_from") is not None:
-        from .io.labels import SERIES_REFUSAL
-
-        print(f"REFUSED: {SERIES_REFUSAL}", file=sys.stderr)
-        return 2
+    timepoint (_series_refusal)."""
     from .timelapse import process_series
 
     refused = _series_refusal(cfg, args.nd2)
     if refused:
-        print(f"ERROR: {refused}", file=sys.stderr)
+        print(f"REFUSED: {refused}", file=sys.stderr)       # one prefix for every series refusal (D45)
         return 2
     res = process_series(args.nd2, cfg, args.out, timepoints=args.t, xy_stride=args.xy_stride,
                          z_range=args.z_range, resume=bool(getattr(args, "resume", False)))
@@ -808,9 +803,14 @@ def _run_series(args, cfg) -> int:
 
 
 def _series_refusal(cfg, path) -> str | None:
-    """Why ``run --t`` cannot run this series in this release, or None. A single-plane run (io.planar true, or auto
-    on a file whose header has one plane) is refused before the loop (D9, docs/PLANAR.md); process_image refuses
-    each such timepoint as well."""
+    """Why ``run --t`` cannot run this series in this release, or None; _run_series prints it as "REFUSED:
+    <message>" (D45). A labels recipe (segmentation.nuclei.labels_from, D15, docs/LABELS.md) is refused first,
+    with no header read; then a single-plane run (io.planar true, or auto on a file whose header has one plane;
+    D9, docs/PLANAR.md). process_image refuses each such timepoint as well."""
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
+        from .io.labels import SERIES_REFUSAL
+
+        return SERIES_REFUSAL
     from . import planar
 
     try:

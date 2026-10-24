@@ -454,13 +454,49 @@ def test_labels_plus_t_is_refused(tmp_path, monkeypatch, capsys):
     capsys.readouterr()
     rc = cli.main(["run", str(tmp_path / ND2), "--config", str(study), "--out", str(tmp_path / "cli"), "--t", "0-1"])
     err = capsys.readouterr().err
-    assert rc == 2 and "REFUSED" in err and L.SERIES_REFUSAL in err
+    assert rc == 2 and f"REFUSED: {L.SERIES_REFUSAL}" in err
     assert not (tmp_path / "cli").exists()
     # the same image without --t runs
     res = api.run(tmp_path / ND2, config=_cfg(ROOT / "config" / "profiles" / "generic.yaml",
                                               **{"segmentation.nuclei.labels_from": TEMPLATE, "spots.enabled": False,
                                                  "render.montage": False}), out=tmp_path / "fixed")
     assert res["n_nuclei"] == 15
+
+
+def test_one_series_refusal_for_labels_and_single_planes(tmp_path, monkeypatch, capsys):
+    """D45: cli._series_refusal holds every refusal of `run --t`, the labels one first because it needs no header
+    read, and _run_series prints each as "REFUSED: <message>" with exit code 2 before any timepoint (the planar one
+    of P2b too, which printed "ERROR:" before the sync)."""
+    from germquant import planar, timelapse
+
+    def no_header(*a, **k):
+        raise AssertionError("the header was read")
+
+    with monkeypatch.context() as mp:
+        mp.setattr(pipeline, "read_input_metadata", no_header)
+        cfg = H.generic_2d(**{"segmentation.nuclei.labels_from": TEMPLATE})       # io.planar auto, and labels
+        assert cli._series_refusal(cfg, tmp_path / PLANE) == L.SERIES_REFUSAL
+    H.patch_reader(monkeypatch, series=2)
+
+    def no_series(*a, **k):
+        raise AssertionError("process_series called")
+
+    monkeypatch.setattr(timelapse, "process_series", no_series)
+    study = tmp_path / "series_2d.yaml"
+    study.write_text(f"extends: {(ROOT / 'config' / 'profiles' / 'generic_2d.yaml').as_posix()}\n"
+                     "segmentation:\n  nuclei:\n    method: classical\nspots:\n  enabled: false\n", encoding="utf-8")
+    assert cli._series_refusal(load_config(study), PLANE) == planar.PLANAR_SERIES_REFUSED
+    capsys.readouterr()
+    rc = cli.main(["run", PLANE, "--config", str(study), "--out", str(tmp_path / "s"), "--t", "0-1"])
+    err = capsys.readouterr().err
+    assert rc == 2 and f"REFUSED: {planar.PLANAR_SERIES_REFUSED}" in err and "ERROR" not in err
+    assert not (tmp_path / "s").exists()
+    # a labels recipe that is also single-plane gets the labels message (the first refusal), in the same form
+    study.write_text(study.read_text(encoding="utf-8").replace(
+        "method: classical\n", f"method: classical\n    labels_from: '{TEMPLATE}'\n"), encoding="utf-8")
+    rc = cli.main(["run", PLANE, "--config", str(study), "--out", str(tmp_path / "s"), "--t", "0-1"])
+    err = capsys.readouterr().err
+    assert rc == 2 and f"REFUSED: {L.SERIES_REFUSAL}" in err and planar.PLANAR_SERIES_REFUSED not in err
 
 
 # ---- labels on single-plane images (io.planar, decision D14; after the sync on merge #1) ----------------------
