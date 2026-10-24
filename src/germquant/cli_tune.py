@@ -9,8 +9,9 @@ and run.json); the second writes the run's best.yaml into the project's recipe.y
 1 the search ran but nothing could be scored, or a detection failed, or the write of --apply failed (also one
 that stopped part way: the same command run again finishes it), 2 refused before any detection or write (the
 project, the grid, --max-runs, an image without a finished run, a truth-point file that cannot be read, no
-truth point in an object of its run, two annotators for one image; for --apply a run without best.yaml, keys
-outside the run's grid, another backend, the project's lock held by another command).
+truth point in an object of its run, two annotators for one image; for --apply a run without best.yaml or
+with one that is not YAML, keys outside the run's grid, another backend, the project's lock held by another
+command).
 """
 from __future__ import annotations
 

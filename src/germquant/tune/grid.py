@@ -149,7 +149,7 @@ def default_grid(cfg) -> dict:
 def load_grid(path) -> dict:
     """The grid in the YAML file ``path`` ({dotted spots key: [values]}), validated by ``check_grid``
     (without a backend: the tuner checks the keys against its backend). GridError for a file that is not
-    such a mapping; FileNotFoundError for a missing file."""
+    YAML in UTF-8 (or ASCII) text, or not such a mapping; FileNotFoundError for a missing file."""
     import yaml
 
     from germquant.fsutil import long_path
@@ -158,7 +158,7 @@ def load_grid(path) -> dict:
     with open(long_path(p), encoding="utf-8-sig") as fh:
         try:
             data = yaml.safe_load(fh)
-        except yaml.YAMLError as e:
+        except (yaml.YAMLError, UnicodeDecodeError) as e:     # UnicodeDecodeError: not UTF-8 text
             raise GridError(f"{p}: not a YAML file ({e})") from e
     if not isinstance(data, dict):
         raise GridError(f"{p}: a grid file is a mapping of dotted spots keys to lists of values")

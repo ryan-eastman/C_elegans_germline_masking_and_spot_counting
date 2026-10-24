@@ -527,6 +527,9 @@ def test_grid_rules(tmp_path):
     f.write_text("- not a mapping\n", encoding="ascii")
     with pytest.raises(G.GridError, match="a grid file is a mapping"):
         G.load_grid(f)
+    f.write_bytes(b"spots.log.min_snr: [2, 3]  # 0.5 \xb5m, saved as cp1252\n")          # not UTF-8 text
+    with pytest.raises(G.GridError, match="not a YAML file"):
+        G.load_grid(f)
     a = {ES_KEY: 1.0, "spots.sharpen": True}
     assert G.group_key(a) == G.group_key({ES_KEY: 4.0, "spots.sharpen": True}) != G.group_key({**a, "spots.sharpen": False})
 
@@ -642,6 +645,9 @@ def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
     assert cli.main(["tune-spots", "--project", str(root), "--grid", "g.yaml"]) == 2
     assert "projected must be true or false (row 1: 'maybe')" in capsys.readouterr().err
     pfile.write_text(good, encoding="ascii")
+    (root / "cp1252.yaml").write_bytes(b"spots.log.min_snr: [2.0, 3.0]  # 0.5 \xb5m\n")    # a grid that is not UTF-8
+    assert cli.main(["tune-spots", "--project", str(root), "--grid", "cp1252.yaml"]) == 2
+    assert "cp1252.yaml: not a YAML file" in capsys.readouterr().err
 
     def crash(*a, **k):
         raise RuntimeError("the backend crashed")
@@ -683,6 +689,25 @@ def test_apply_tuning_checks_the_run(planted, tmp_path, monkeypatch):
     with pytest.raises(TuneRefused, match="no best.yaml"):
         A.apply_tuning(project, run)
     assert len(edits) == 2
+
+
+def test_apply_refuses_a_best_yaml_that_is_not_yaml(planted, tmp_path, monkeypatch, capsys):
+    """A best.yaml that is not YAML (a hand edit gone wrong) or not UTF-8 text is a refusal naming the file, in
+    Python (TuneRefused) and from the command (exit 2), and nothing is written (review P5-TUNE-sync N4)."""
+    root = tmp_path / "proj"
+    project = _project(planted, root)
+    edits: list = []
+    monkeypatch.setattr(A, "_project_api", lambda: H.fake_project_api(project, edits))
+    run = root / "tuning" / "r1"
+    shutil.copytree(planted.log["run_dir"], run)
+    for text in (b"keys: {spots.log.min_snr: [3.0\n", b"keys:\n\tspots.log.min_snr: 3.0\n",
+                 b"objective: object_ccc\nbackend: log\nkeys: {spots.log.min_snr: 3.0}  # 0.5 \xb5m\n"):
+        (run / "best.yaml").write_bytes(text)
+        with pytest.raises(TuneRefused, match="best.yaml: not a YAML file"):
+            A.apply_tuning(project, run)
+        assert cli.main(["tune-spots", "--project", str(root), "--apply", "tuning/r1"]) == 2, text
+        assert "best.yaml: not a YAML file" in capsys.readouterr().err
+    assert edits == []
 
 
 # ------------------------------------------------------------------------------ with germquant.project (P5-PRJ)

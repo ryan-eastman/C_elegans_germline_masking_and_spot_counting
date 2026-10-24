@@ -793,7 +793,10 @@ def read_best(run_dir) -> dict:
     if not os.path.isfile(long_path(p)):
         raise TuneRefused(f"{p.parent}: no best.yaml (not a tuning run, or no parameter set could be scored)")
     with open(long_path(p), encoding="utf-8-sig") as fh:
-        best = yaml.safe_load(fh)
+        try:
+            best = yaml.safe_load(fh)
+        except (yaml.YAMLError, UnicodeDecodeError) as e:     # a hand edit gone wrong, or not UTF-8 text
+            raise TuneRefused(f"{p}: not a YAML file ({e})") from None
     if not isinstance(best, dict) or set(best) != {"objective", "backend", "keys"} or not isinstance(best["keys"], dict) \
             or not best["keys"] or not isinstance(best["backend"], str):
         raise TuneRefused(f"{p}: best.yaml holds objective, backend and keys {{dotted spots key: value}}")
