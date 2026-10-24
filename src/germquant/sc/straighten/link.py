@@ -11,8 +11,11 @@ each other; chains become strands and a closed chain is cut at its most expensiv
 v2 (protocol changelog entry 21): with ``link.junction_dirs`` an end whose last ``JUNCTION_REACH_UM`` holds points
 within one PSF FWHM (axial and lateral) of another strand takes its anchor and outward direction from the first
 point beyond them (inside a junction the traced end hooks toward the neighbour), the gap still counted from the
-tip; with ``link.max_chain_um`` a matched chain longer than the bound is cut at its most expensive link, again
-until none is longer, and the cut ends are free.
+tip. With ``link.junction_gap: tips`` (entry 22, revision 1 of entry 21) a pair with such an end is judged by the
+distance between the two tips (not the anchor estimate, which a shifted anchor makes 0 for tips microns apart) and
+by the angles of the two directions to the line between the anchors. With ``link.max_chain_um`` (entry 21 (b),
+withdrawn by entry 22: null by default) a matched chain longer than the bound is cut at its most expensive link,
+again until none is longer, and the cut ends are free.
 """
 from __future__ import annotations
 
@@ -115,6 +118,7 @@ def link_candidates(strands: list[RawStrand], p) -> tuple[list, list]:
     sc = float(p["link.skew_cost_per_um"])
     unl = float(p["link.unlinked_cost"])
     junction = bool(p.get("link.junction_dirs", False))
+    tips_rule = junction and str(p.get("link.junction_gap", "anchors")) == "tips"
     fwhm = tuple(FWHM * float(v) for v in p["psf.fallback_sigma_um"])
     ends = []
     for i, st in enumerate(strands):
@@ -126,21 +130,27 @@ def link_candidates(strands: list[RawStrand], p) -> tuple[list, list]:
             if st.end_types[side] in LINKABLE_ENDS:
                 shift = junction_shift(st.points, side, others, fwhm) if junction else 0.0
                 pos, d, tip = end_geometry(st.points, side, win, tip_um, shift)
-                ends.append((i, side, pos, d, tip, st.end_types[side]))
+                tip_pt = np.asarray(st.points[0] if side == 0 else st.points[-1], float)
+                ends.append((i, side, pos, d, tip, st.end_types[side], tip_pt, shift > 0))
     cands = []
     for a in range(len(ends)):
-        ia, sa, pa, da, ta, ea = ends[a]
+        ia, sa, pa, da, ta, ea = ends[a][:6]
         for b in range(a + 1, len(ends)):
-            ib, sb, pb, db, tb, eb = ends[b]
+            ib, sb, pb, db, tb, eb = ends[b][:6]
             if ia == ib:
                 continue
             w = pb - pa
             span = float(np.linalg.norm(w))
-            gap = max(span - (ta + tb), 0.0)          # the tip-to-tip gap estimated from the anchors
+            shifted = tips_rule and (ends[a][7] or ends[b][7])
+            if shifted:
+                # entry 22: an end measured beyond a junction: the gap is the distance between the two tips
+                gap = float(np.linalg.norm(ends[b][6] - ends[a][6]))
+            else:
+                gap = max(span - (ta + tb), 0.0)      # the tip-to-tip gap estimated from the anchors
             limit = max_gap_cc if (ea == "contact" and eb == "contact") else max_gap
             if gap > limit:
                 continue
-            if span < 0.05 or span <= ta + tb:
+            if span < 0.05 or (span <= ta + tb and not shifted):
                 # tips that meet or overlap (PSF-blurred tips drift past each other): judge the collinearity of
                 # the two ends instead of the direction of a vanishing link
                 ang = _angle(da, -db)

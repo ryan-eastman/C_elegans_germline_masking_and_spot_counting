@@ -33,8 +33,9 @@ DEFAULTS: dict[str, Any] = {
     "link": {"max_gap_um": 1.0, "max_gap_contact_um": 1.5, "max_angle_deg": 50.0, "max_skew_um": None,
              "gap_cost_per_um": 40.0, "skew_cost_per_um": 100.0, "unlinked_cost": 60.0, "tip_um": 0.3,
              "dir_window_um": [0.3, 1.2],
-             # v2 (protocol changelog entry 21): end directions outside junction zones; the chain bound
-             "junction_dirs": True, "max_chain_um": 9.0},
+             # v2 (protocol changelog entry 21): end directions outside junction zones; the chain bound (9.0 um),
+             # withdrawn by entry 22 (null); entry 22 (revision 1 of entry 21): such pairs judged from the tips
+             "junction_dirs": True, "max_chain_um": None, "junction_gap": "tips"},
     "dedupe": {"lateral_um": 0.15, "axial_um": 0.3, "min_run_um": 0.4, "parallel_cos": 0.9,
                "min_remainder_um": 0.5, "ghost_max_um": 1.5, "ghost_tz_min": 0.7, "ghost_reach_um": [1.0, 0.35],
                "shadow_frac": 0.8},
@@ -83,6 +84,7 @@ V1_VALUES: dict[str, Any] = {
     "follow.contact_test": "local",
     "link.junction_dirs": False,
     "link.max_chain_um": None,
+    "link.junction_gap": "anchors",
 }
 
 
