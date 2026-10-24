@@ -163,3 +163,20 @@ def test_real_dense_variants_share_their_draws():
                           .channels["central_element"])
     with pytest.raises(synth.SealedSeedError):
         synth_dev.make_scene("real_dense", 7_000_000)
+
+
+def test_real_dense_calibration_argument_and_a_draw_without_ribbons():
+    # protocol changelog entry 28: the defaults give the scenes of entry 19; a calibration argument changes only the
+    # feature it names; without ribbons the scene keeps its geometry, nucleoplasm and texture
+    b = synth_dev.make_scene("real_dense_brightness", 2003)
+    a = synth_dev.real_dense_scene(2003, features=("brightness",), name="real_dense_brightness")
+    assert np.array_equal(a.channels["central_element"], b.channels["central_element"]) and "calib" not in a.info
+    c = synth_dev.real_dense_scene(2003, features=("brightness",), name="real_dense_brightness",
+                                   calib={"brightness_var_log": 0.5})
+    assert not np.array_equal(c.channels["central_element"], b.channels["central_element"])
+    assert c.info["calib"] == {"brightness_var_log": 0.5} and np.array_equal(c.labels, b.labels)
+    t = synth_dev.real_dense_scene(2003, features=("texture", "puncta"), name="t", ribbons=False)
+    assert t.ribbons == [] and t.info["puncta"] == [] and t.info["ribbons"] is False
+    assert np.array_equal(t.labels, b.labels)
+    with pytest.raises(ValueError):
+        synth_dev.real_dense_scene(2003, calib={"nonsense": 1.0})

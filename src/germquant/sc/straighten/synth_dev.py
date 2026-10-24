@@ -242,13 +242,20 @@ def _render_modulated(img, rib, sigma, w):
         S._render_points(img, P[a:a + 300], S.SPACING, sigma, weight=wv[a:a + 300], chunk=300)
 
 
-def real_dense_scene(seed: int, *, final: bool = False, features=REAL_FEATURES, name: str = "real_dense") -> S.Scene:
+def real_dense_scene(seed: int, *, final: bool = False, features=REAL_FEATURES, name: str = "real_dense",
+                     calib: dict | None = None, ribbons: bool = True) -> S.Scene:
+    """The realism-probe nucleus (entry 19). ``calib`` replaces values of REAL_DENSE_CALIB, and ``ribbons=False``
+    draws the same scene without its ribbons and puncta (nucleoplasm, texture and noise only; the texture check of
+    entry 28 (b)); every random draw is the same either way, so the defaults give the scenes of entry 19."""
     seed = _dev_seed(seed, final)
     code = FAMILY_CODE["real_dense"]
     rng = np.random.default_rng(np.random.SeedSequence([int(seed), code]))
     streams = {k: np.random.default_rng(np.random.SeedSequence([int(seed), code, i]))
                for i, k in enumerate(("psf", "brightness", "texture", "puncta", "noise"), start=1)}
-    cal = REAL_DENSE_CALIB
+    unknown = sorted(set(calib or {}) - set(REAL_DENSE_CALIB))
+    if unknown:
+        raise ValueError(f"unknown real_dense calibration keys {unknown}; one of {sorted(REAL_DENSE_CALIB)}")
+    cal = {**REAL_DENSE_CALIB, **(calib or {})}
     feats = set(features)
     gc = "oocyte" if seed % 2 == 0 else "spermatocyte"
     pk = REAL_PEAKS[seed % 4]
@@ -261,7 +268,7 @@ def real_dense_scene(seed: int, *, final: bool = False, features=REAL_FEATURES, 
     psf = (sz, S.PSF_SIGMA[1], S.PSF_SIGMA[2])
     puncta = []
     n_p = int(streams["puncta"].poisson(cal["puncta_mean_by_tercile"][0 if pk <= 200 else (2 if pk >= 700 else 1)]))
-    if "puncta" not in feats:
+    if "puncta" not in feats or not ribbons:
         n_p = 0
     rib_pts = np.vstack([r.points[::10] for r in ribs])
     tries = 0
@@ -294,7 +301,7 @@ def real_dense_scene(seed: int, *, final: bool = False, features=REAL_FEATURES, 
         inside = (zz - center[0]) ** 2 + (yy - center[1]) ** 2 + (xx - center[2]) ** 2 <= R ** 2
         scale = np.sqrt(cal["texture_rel_excess_var"]) * lev / max(float(np.std(twice[inside])), 1e-9)
         clean = clean + field * scale * (nuc / lev)
-    for r in ribs:
+    for r in (ribs if ribbons else []):
         if "brightness" in feats:
             v, ell = cal["brightness_var_log"], cal["brightness_corr_length_um"]
             n = len(r.points)
@@ -315,20 +322,25 @@ def real_dense_scene(seed: int, *, final: bool = False, features=REAL_FEATURES, 
     nuclei = pd.DataFrame([{"nucleus_id": 1, "centroid_z_um": center[0], "centroid_y_um": center[1],
                             "centroid_x_um": center[2], "radius_um": R, "label_radius_um": label_r, "germ_cell": gc,
                             "in_germline": True, "volume_um3": float((labels == 1).sum() * np.prod(S.SPACING))}])
+    info = {"family": name, "seed": seed, "scene_peak": pk, "features": sorted(feats), "psf_sigma_um": list(psf),
+            "nucleoplasm": lev,
+            "puncta": [{"center": [float(v) for v in x["center"]], "diam": x["diam"], "peak": x["peak"]}
+                       for x in puncta]}
+    if calib:
+        info["calib"] = {k: cal[k] for k in sorted(calib)}
+    if not ribbons:
+        info["ribbons"] = False
     return S.Scene(family=name, seed=seed, spacing=S.SPACING, channels={"central_element": ce}, labels=labels,
-                   nuclei=nuclei, ribbons=ribs,
+                   nuclei=nuclei, ribbons=ribs if ribbons else [],
                    spots=pd.DataFrame(columns=["spot_id", "nucleus_id", "z_um", "y_um", "x_um"]),
                    truth_foci=pd.DataFrame(columns=["spot_id", "ribbon_id", "nucleus_id", "s_um", "z_um", "y_um",
                                                     "x_um"]),
-                   info={"family": name, "seed": seed, "scene_peak": pk, "features": sorted(feats),
-                         "psf_sigma_um": list(psf), "nucleoplasm": lev,
-                         "puncta": [{"center": [float(v) for v in x["center"]], "diam": x["diam"], "peak": x["peak"]}
-                                    for x in puncta]})
+                   info=info)
 
 
-def _real(name, features):
+def _real(name, features, calib=None):
     def f(seed, *, final=False):
-        return real_dense_scene(seed, final=final, features=features, name=name)
+        return real_dense_scene(seed, final=final, features=features, name=name, calib=calib)
     return f
 
 
