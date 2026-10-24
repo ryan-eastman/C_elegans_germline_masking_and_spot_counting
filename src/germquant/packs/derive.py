@@ -491,7 +491,7 @@ def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | 
             stored = _store_model(model, spec, new_ref)
             parent_folder = par.folder if inside else vendor(par.id, par.version, out)
             installed = install_pack(stage, target=out)
-        where = _where(out)
+    where = _where(out)                 # outside _searching: DIR is a project root only while it is searched first
     return {"ok": True, "status": "already present" if present else "derived", "pack": installed.ref,
             "id": installed.id, "version": installed.version, "folder": str(installed.folder), "recipe": r.id,
             "extends": f"pack:{par.ref}/{r.id}", "config_hash": dcfg.hash,

@@ -372,6 +372,22 @@ def test_derive_again_is_a_no_op_and_refusals_write_nothing(trained, tmp_path, c
     assert {p: p.read_bytes() for p in t.packs.rglob("*") if p.is_file()} == files
 
 
+def test_where_the_derived_pack_goes(trained, tmp_path, capsys):
+    t = trained
+    # the per-user folder, which discovery always searches (it is named packs, like a project's folder)
+    assert _derive(t, "--json", out=packs.user_packs_dir()) == 0
+    assert json.loads(capsys.readouterr().out)["where"] == "searched"
+    assert DERIVED in {p["id"] for p in packs.list_packs()}                    # listed without --project
+    # a project's packs folder: searched while the project is open, or with --project
+    assert _derive(t, "--json") == 0
+    assert json.loads(capsys.readouterr().out)["where"] == "project"
+    # any other folder: written, with a warning that nothing searches it
+    assert _derive(t, out=tmp_path / "somewhere") == 0
+    out = capsys.readouterr().out
+    assert "warning:" in out and "is not a folder this engine searches for packs" in out
+    assert packs.verify_pack(tmp_path / "somewhere" / DERIVED / "0.1.0") == []
+
+
 # ---- the version features (I4) --------------------------------------------------------------------------------
 
 def test_version_json_carries_the_features_present(capsys, tmp_path):
