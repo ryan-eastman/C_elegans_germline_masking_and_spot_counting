@@ -581,3 +581,48 @@ Entries are appended, never edited. Each one says whether a test result had been
    which changes memory only (identical outputs checked on two development gonads). No parameter was changed after
    trial 4. The development S1 gates were reported on development seeds 2000 to 2049, on the fresh seeds 3000 to
    3049 and, for S1b and S1e, on the registered generator (entry 5 (d)).
+7. 2026-10-24, the v2 development round, written before any number below was computed (no test result had been
+   computed, no test or reserved image was run, no test or reserved truth was read and no sealed seed was
+   generated). An analysis of the continuity score on the zone truth of the twelve development gonads with
+   trial-4 runs (the outputs of commit 6b7be22; nothing is run again), motivated by development results: on S2a
+   the raw SYP intensity (mean AUC 0.97) separated SCfull from fragmented nuclei better than piece_lw_mean_um
+   (0.83, per gonad 0.45 to 0.98, 7 evaluable gonads), and 39 to 46 percent of the traced length runs steeper than
+   60 degrees. Looked at before this entry: the trial-4 zone tables (the per-gonad AUCs of the nucleus columns and
+   of the intensity in zones_per_gonad.csv) and, without zone truth, the trial-4 strand tables: frac_steep60 is
+   bimodal (28 percent of the 35,840 strands under 0.1, 35 percent above 0.9), steep strands are short and dim
+   (median 1.5 um, median integrated signal 107 against 186), 83 percent of the strands carry no detected gap, and
+   in the traced nuclei with 30 um of SC or more the median piece_lw_mean_um is 2.6 um (a full ribbon is 4.5 to
+   7.0 um in the phantoms of 2.3). The rules below were fixed after that look and before any zone label was joined
+   to them. Scripts and logs: C:/Users/ryane/sc_ribbon_work/v2/ (scripts/cont_*.py, logs/cont_*).
+   (a) Candidates, computed from the trial-4 strands, samples and gaps tables (pieces: each strand split at the s
+   windows of its gaps, as in v1; this reconstruction reproduces piece_lw_mean_um within 2e-5 um in every
+   nucleus). A strand is steep when frac_steep60 > 0.5 (the steep_z rule, qc.steep_frac_review), in-plane
+   otherwise. C1: piece_lw_mean_um over the pieces of in-plane strands only (0 without one). C2: on_strand_frac
+   times the share of the strands' integrated signal (in-strand samples outside gaps, clipped at 0) that lies on
+   pieces of 3.0 um or more of in-plane strands (0 without strands): the share of the nucleus's SYP on long
+   in-plane SC; 3.0 um is half a full-length ribbon and is not tuned. C3: the break density, pieces of 0.25 um or
+   more of in-plane strands per um of their summed length, scored as its negative (a nucleus with under 1 um of
+   such pieces counts as the most fragmented); pieces are counted rather than detected gaps because most breaks
+   end a strand. R0 is piece_lw_mean_um.
+   (b) Reported for R0, C1, C2, C3 and the intensity comparator (central_element_mean_intensity): the per-gonad
+   S2a AUC with the registered rules (4.2, 6.2), the mean, SD, minimum and maximum over the evaluable gonads, the
+   cluster-bootstrap interval of the mean and of the paired differences against R0 and against the comparator
+   (section 7: 1000 resamples, seed 20261023); SCfull against SCfrag and against LPfrag; all of it again with
+   guard_frac 0.25 and 0 (for decision 1 of the project lead; the registered 0.5 stays unless a later entry
+   changes it).
+   (c) Diagnostics (they explain and never choose): per gonad and zone, the median intensity above the camera
+   offset of 100 counts, the steep share of the traced length, the in-plane and steep strand counts against the
+   expected count, and the pieces per um; within SCfull and within the fragmented zones, the Spearman correlation
+   of each score with the intensity; the S2a AUC of each score's within-gonad rank after a least-squares fit on
+   the rank of the intensity over the S2a nuclei (classes pooled, the class not used), and of the intensity after
+   the same fit on each score (what each carries beyond the other); the S2a AUC of each score averaged over the
+   nuclei within 5 um along the gonad axis (the window of the 5.2 estimator; a measure of per-nucleus noise, never
+   an S2a statistic).
+   (d) The recommendation rule, fixed now: a candidate may replace piece_lw_mean_um as the S2a statistic only when
+   its mean AUC under the registered guard exceeds R0's by at least 0.03 with a paired bootstrap interval above 0,
+   it is below R0 in at most two evaluable gonads, and its paired difference keeps its sign with guard_frac 0.25;
+   between qualifying candidates the one closest to v1 (C1, then C3, then C2) wins unless another is ahead by more
+   than 0.03 (C1 keeps the unit of theta_full and the grid of 5.2). The choice is in-sample (7 evaluable gonads
+   under the registered guard): it is checked on the six development gonads without runs once they have runs,
+   before the freeze, and no candidate is added after that check. Each candidate counts as one configuration
+   against the budget of section 9.
