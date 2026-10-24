@@ -21,15 +21,17 @@ discovery reads (``<project>/packs/``, a $GERMQUANT_PACKS folder or the per-user
   source card's sha256 and the keys rewritten;
 * README.md (a short card) and SHA256SUMS.
 
-The parent version is copied beside the derived pack (packs.vendor, as a new project copies it), so the derived
-recipe keeps resolving after an engine update moves the parent's built-in version (section 3.8). The model goes
-into the model store at ``models_dir()/blobs/<sha256>/<file_name>``, with its verification record, where the
-pack-model lookup and the pin check find it; the store's copy is a hard link to the training file when the disk
-allows, so that file is to be replaced, never overwritten in place. The pack is built in a staging folder, put
-through every check of packs.install_pack (install.check_installable), and installed through it; the same
-inputs give the same bytes, so deriving again is a no-op. Nothing is written before every check has passed. If
-a write itself fails (a full disk, a path too long for Windows), the model in the store and the parent's copy
-may stay; the next derive reuses them.
+The parent version is copied beside the derived pack (packs.vendor, as a new project copies it), unless DIR
+already holds the parent (the copy `germquant project new` made, or one an earlier derive wrote): the parent is
+then used where it is, nothing is written there, and the record's ``parent.copied`` is false. Either way the
+derived recipe keeps resolving after an engine update moves the parent's built-in version (section 3.8). The
+model goes into the model store at ``models_dir()/blobs/<sha256>/<file_name>``, with its verification record,
+where the pack-model lookup and the pin check find it; the store's copy is a hard link to the training file
+when the disk allows, so that file is to be replaced, never overwritten in place. The pack is built in a
+staging folder, put through every check of packs.install_pack (install.check_installable), and installed
+through it; the same inputs give the same bytes, so deriving again is a no-op. Nothing is written before every
+check has passed. If a write itself fails (a full disk, a path too long for Windows), the model in the store
+and the parent's copy may stay; the next derive reuses them.
 
 Refused: a parent recipe that never runs a Cellpose model (segmentation.nuclei.method classical, labels from
 files, or another segmentation backend); a parent recipe that does not load or no longer hashes to its expected

@@ -80,9 +80,9 @@ From Python:
 A program that must stay light (a GUI refreshing a pack card) imports `germquant.packs` instead of
 `germquant.api`: listing and checking packs never loads torch, Cellpose, SpotMAX or CuPy. The command
 `python -m germquant.packs list --json` (also `show`, `check`, `fetch-models`, `fetch-example`, `install`,
-`verify`, `lint` and `derive`) is the torch-free entry the napari plugin uses; `python -m germquant.packs
---version` prints the engine version, git sha and python, and `--version --json` adds the engine's features
-(section "Versions and features" below).
+`verify`, `build-sums`, `lint` and `derive`) is the torch-free entry the napari plugin uses; `python -m
+germquant.packs --version` prints the engine version, git sha and python, and `--version --json` adds the
+engine's features (section "Versions and features" below).
 
 `--project DIR` on `pack list`, `show`, `check` and `fetch-models` searches the project's own packs first
 (`DIR/packs/`: the copy of the pack version the project was made with, and its derived packs), so a project's
@@ -294,8 +294,11 @@ model's sha256 (`--id NEW_ID` names it instead):
 - `README.md` and `SHA256SUMS`.
 
 A copy of the parent version is written beside it (`PROJECT/packs/test_pack/0.1.0/`), as a new project copies
-it, so the derived recipe still resolves after an engine update moves the parent's built-in version. The model
-goes into the model store, `models_dir()/blobs/<sha256>/<file>`, with its verification record, where a run of
+it, unless the `--out` folder already holds the parent: a project made with `germquant project new` holds that
+copy, and so does a folder an earlier derive wrote into. The parent is then used where it is, nothing is
+written there, and the record's `parent.copied` is false. Either way the derived recipe still resolves after an
+engine update moves the parent's built-in version. The model goes into the model store,
+`models_dir()/blobs/<sha256>/<file>`, with its verification record, where a run of
 the derived recipe finds it and checks its pin. When the disk allows, the store's copy is a hard link to the
 training file: replace that file, never overwrite it in place (`germquant train-nuclei` replaces it; a `cp` or
 `rsync --inplace` onto it would change the store's copy too, and the pin check would then refuse it). The
