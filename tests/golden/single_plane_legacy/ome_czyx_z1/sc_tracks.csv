@@ -1,0 +1,1 @@
+track_id,nucleus_id,channel_role,marker,length_um,n_branches,n_junctions,tortuosity,trace_method,image_id,genotype,sex,germ_cell,treatment,replicate,acquisition_date,voxel_dz_um,voxel_dy_um,voxel_dx_um,n_channels,dapi_present,channel_map_json
