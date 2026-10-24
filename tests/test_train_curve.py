@@ -392,3 +392,51 @@ def test_card_with_a_real_pack_base(tmp_path, monkeypatch, fake_cellpose):  # no
     assert card["pack"] == {"id": "test_pack", "version": packs.find_pack("test_pack").version, "recipe": "basic"}
     print(json.dumps({k: card[k] for k in ("base_model", "kind", "dims", "pixel_um", "object_kind", "system", "pack",
                                            "segmented_role", "source_url", "model_sha256")}, indent=1))
+
+
+# ---- the card's pack and object kind from the run records; the command's card options -------------------------
+
+def test_card_pack_and_object_kind_from_the_run_records(tmp_path, pack_env, monkeypatch, fake_cellpose):  # noqa: F811
+    use_fixture_packs(monkeypatch)
+    pairs_dir = _pack_pairs(tmp_path, monkeypatch)
+    _index_pairs(pairs_dir, fake_cellpose["lookup"])
+    runs = json.loads((pairs_dir / "export.json").read_text(encoding="utf-8"))["runs"]
+
+    def records(edit):
+        # every record a source run's pack is read from: run_manifest.json and <id>__stages.json
+        for i, r in enumerate(runs):
+            for name in ("run_manifest.json", f"{r['image_id']}__stages.json"):
+                f = Path(r["folder"]) / name
+                data = json.loads(f.read_text(encoding="utf-8"))
+                data["pack"] = edit(i, data["pack"])
+                f.write_text(json.dumps(data), encoding="utf-8")
+
+    def card(name):
+        res = TR.train_nuclei(pairs_dir, tmp_path / "m" / name, base="none", epochs=1, cpu=True, split_by="image",
+                              min_train_masks=1)
+        return _card(res["card_path"])
+
+    version = packs.find_pack("test_pack").version
+    # a project's edited recipe (project_config records edited, section 9.1) is not the pack recipe itself
+    records(lambda i, p: {**p, "edited": True})
+    assert card("edited")["pack"] == {"id": "test_pack", "version": version, "recipe": "basic", "edited": True}
+    records(lambda i, p: {**p, "edited": i == 0})
+    c = card("half_edited")
+    assert c["pack"] is None and "different" in c["pack_note"] and "basic (edited)" in c["pack_note"]
+    # an unedited project run is the pack recipe itself: the card's pack is the same as for --pack runs
+    records(lambda i, p: {**p, "edited": False})
+    assert card("unedited")["pack"] == {"id": "test_pack", "version": version, "recipe": "basic"}
+    # a cell pack: object_kind comes from the pack's record, also when the runs used two of its recipes
+    cell = {"id": "cellpack", "version": "0.1.0", "object_kind": "cell", "edited": False}
+    records(lambda i, p: {**p, **cell, "recipe": "cells"})
+    c = card("one_recipe")
+    assert c["object_kind"] == "cell" and c["what"].startswith("Cellpose cell model")
+    assert c["pack"] == {"id": "cellpack", "version": "0.1.0", "recipe": "cells"}
+    records(lambda i, p: {**p, **cell, "recipe": "cells" if i == 0 else "cells_2d"})
+    c = card("two_recipes")
+    assert c["object_kind"] == "cell" and c["pack"] is None
+    assert c["pack_note"].endswith("cellpack@0.1.0/cells; cellpack@0.1.0/cells_2d")
+    # runs of a cell pack and a nucleus pack: nucleus unless --kind says otherwise
+    records(lambda i, p: {**p, **cell, "recipe": "cells"} if i == 0 else {**p, "id": "test_pack", "recipe": "basic",
+                                                                         "object_kind": "nucleus"})
+    assert card("mixed")["object_kind"] == "nucleus"

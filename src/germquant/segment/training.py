@@ -762,12 +762,13 @@ def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None 
     * ``kind`` "cellpose"; ``dims`` "3d" (slices of 3D runs), "2d" (proj pairs) or "2d+3d";
     * ``pixel_um``: the pairs' manifest pixel size when they share one, else None (``pixel_um_values`` lists
       them when they differ);
-    * ``object_kind``: ``kind`` when given (nucleus or cell), else the object kind of the pack the pairs' runs
-      used, else nucleus;
+    * ``object_kind``: ``kind`` when given (nucleus or cell), else the object kind that the packs of all the
+      pairs' runs name (two recipes of one pack included), else nucleus;
     * ``system``: the text given, else None;
     * ``pack``: {id, version, recipe} of the pack recipe every source run used (export.json's runs, read again
-      from their results folders); None for runs without a pack, and None with ``pack_note`` when the runs
-      differ or are unknown;
+      from their results folders), plus ``"edited": true`` when that is a project's edited recipe (the record
+      project_config writes); None for runs without a pack, and None with ``pack_note`` when the runs differ
+      (an edited recipe differs from its pack recipe) or are unknown;
     * ``segmented_role``: the role the runs segmented (the manifest's channel_role), like pixel_um;
     * ``dataset`` (_dataset_record, or a record made before) only when ``dataset`` is given; ``source_url``
       None (a local model).
@@ -798,7 +799,8 @@ def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None 
     ids = sorted({str(p["image_id"]) for p in pairs})
     unknown = [i for i in ids if sources.get(i) is None]
     records = {i: sources[i]["pack"] for i in ids if sources.get(i) is not None}
-    keys = {None if rec is None else (rec.get("id"), rec.get("version"), rec.get("recipe"))
+    # a project run records edited (project_config, section 9.1): an edited recipe is not the pack recipe itself
+    keys = {None if rec is None else (rec.get("id"), rec.get("version"), rec.get("recipe"), bool(rec.get("edited")))
             for rec in records.values()}
     pack, note = None, None
     if unknown:
@@ -806,15 +808,17 @@ def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None 
                 f"export.json, or a results folder that cannot be read): {', '.join(unknown[:5])}"
                 + (" ..." if len(unknown) > 5 else ""))
     elif len(keys) == 1 and None not in keys:
-        pack_id, version, recipe = next(iter(keys))
-        pack = {"id": pack_id, "version": version, "recipe": recipe}
+        pack_id, version, recipe, edited = next(iter(keys))
+        pack = {"id": pack_id, "version": version, "recipe": recipe, **({"edited": True} if edited else {})}
     elif len(keys) > 1:
         note = "the pairs come from runs of different packs or recipes: " + "; ".join(
-            sorted("no pack" if k is None else f"{k[0]}@{k[1]}/{k[2]}" for k in keys))
+            sorted("no pack" if k is None else f"{k[0]}@{k[1]}/{k[2]}" + (" (edited)" if k[3] else "")
+                   for k in keys))
     if kind is None:
-        pack_kind = next(iter(records.values()), None) if pack is not None else None
-        pack_kind = (pack_kind or {}).get("object_kind")
-        kind = pack_kind if pack_kind in OBJECT_KINDS else "nucleus"
+        # the object kind every known source run's pack names (two recipes of one pack included), else nucleus
+        found = {(rec or {}).get("object_kind") for rec in records.values()}
+        one = next(iter(found)) if len(found) == 1 and not unknown else None
+        kind = one if one in OBJECT_KINDS else "nucleus"
     out = {"kind": "cellpose", "dims": dims[0] if len(dims) == 1 else ("2d+3d" if dims else None),
            **_one_or_all(pixel, "pixel_um"), "object_kind": str(kind),
            "system": (str(system).strip() or None) if system is not None else None, "pack": pack}

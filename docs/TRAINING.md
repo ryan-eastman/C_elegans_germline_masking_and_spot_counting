@@ -133,9 +133,9 @@ per orientation and per zone, and per pair), and what the data was:
 | `kind` | the model type, `cellpose` | |
 | `dims` | `3d` for a model trained on slices of 3D runs, `2d` on proj pairs, `2d+3d` on both | the pairs' orientations |
 | `pixel_um` | the pixel size of the pairs, in micrometres; null when they differ, with `pixel_um_values` listing them | manifest.csv |
-| `object_kind` | what one label is: `nucleus` or `cell` | `--kind`, else the pack of the runs, else nucleus |
+| `object_kind` | what one label is: `nucleus` or `cell` | `--kind`, else the object kind the packs of all the runs name (two recipes of one pack included), else nucleus |
 | `system` | the biological system the pairs show | `--system` (free text), else null |
-| `pack` | `{id, version, recipe}` of the pack recipe the runs used; null for runs without a pack, and null with `pack_note` when the runs differ or cannot be read | the runs export.json lists, read again from their results folders |
+| `pack` | `{id, version, recipe}` of the pack recipe the runs used, with `"edited": true` when that is a project's edited recipe (docs/PROJECTS.md); null for runs without a pack, and null with `pack_note` when the runs differ (an edited recipe differs from its pack recipe) or cannot be read | the runs export.json lists, read again from their results folders |
 | `segmented_role` | the channel role the runs segmented, such as `dna` | manifest.csv |
 | `dataset` | for public data only: `{id, licence, split_sha256}` | `--dataset ID`: the committed record benchmarks/ext/ID/ (its dataset.json and the sha256 of its split.json) |
 | `source_url` | null: a local model has no download address | |
