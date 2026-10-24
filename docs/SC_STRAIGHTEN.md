@@ -29,9 +29,13 @@ germquant sc-view RESULTS_DIR IMAGE_ID [--nucleus N] [--strips]
 ```
 
 `IMAGE_IDS` are image ids or result-folder names; without them every finished image under the root runs. One
-line per image, for example `20251105_N2_nohs_HERM _: 1243 nuclei (traced 498, no_sc 742, failed 3), 4105
-strands (complete 211, partial 2810, ...), flags: psf_fallback, 9.6 min`. Exit code 0 when at least one image
+line per image, for example (development gonad n2rad51_noHS_herm_000, six workers) `20251105_N2_nohs_HERM _: 1243
+nuclei (traced 663, no_sc 580), 4542 strands (partial 3041, fragment 713, complete 441, merged_suspect 347), flags:
+noise_fit_poor, foci_uncalibrated, label_merged_suspect=217, 1.7 min`. Exit code 0 when at least one image
 finished or was up to date, 1 when none did, 2 for usage errors.
+
+Cost on the eight 2025-11-05 development gonads (2600 x 2600 x 67 to 71 planes, six workers): 0.7 to 2.2 min per
+gonad, at most 5.6 GB in the main process and about 7 GB over all processes; CPU only.
 
 Options: `--config` / `--profile` (only their `sc_straighten` section is read), `--set KEY=VALUE` (for example
 `follow.seed_min=3.5`; it enters the parameter hash), `--out DIR` (mirror the tree under DIR; required when the
@@ -188,7 +192,24 @@ napari, which lives in the napari-germquant environment, not in the main one).
 Not validated. The pre-registered protocol (docs/SC_VALIDATION_PROTOCOL.md) fixes a development set and a sealed
 test set of images, synthetic development and sealed seeds, the metrics and the success criteria; the test set is
 scored once, later, by the orchestrator. Development results are kept under
-`C:/Users/ryane/sc_ribbon_work/dev_eval/` and summarised in the pull request; they are not test results.
+`C:/Users/ryane/sc_ribbon_work/dev_eval/` (summary_<commit>.json); they are not test results and claim nothing.
+
+Development snapshot at the build (commit 3e88403; synthetic development seeds 2000 to 2049, 50 scenes per
+family; the eight 2025-11-05 development gonads):
+
+* Synthetic criteria of protocol 8.1 met on development seeds: S1a (isolated ribbons up to 60 degrees: mean
+  length error +0.05 um, 95 percent limits -0.17 to +0.27 um, median centreline distance 0.02 um, one strand per
+  ribbon in all), S1c (gap precision 1.00, recall 0.84, gap length error 0.08 um), S1d (foci: 90th percentile of
+  the s error 0.07 um, all on the right ribbon), S1f (no noise-only nucleus reached 1 um). Not met: S1b (dense
+  nuclei: mean total -4.7 percent, SD 7.9 percent against 7, CCC 0.57 against 0.80; coverage 0.97 and off-truth
+  0.01 pass) and S1e (complete precision 0.89 against 0.90). The dense under-count of 6 to 7 percent does not shrink
+  with brightness (scene peak 300, 430, 700), and reaches 15 percent at peak 200: no SNR floor within 5 percent.
+  Steep isolated ribbons (60 to 75 degrees) are over-measured (flag steep_z).
+* Zones (protocol S2, development gonads, three trials logged in dev_trials.jsonl): SC present against None by
+  total_length_um, mean per-gonad AUC 0.983 (bootstrap interval 0.977 to 0.989, eight gonads), level with the raw
+  SYP intensity (0.985); SCfull against fragmented by piece_lw_mean_um, mean AUC 0.77 (0.40 to 0.99) over the three
+  gonads with at least ten nuclei in each class, below the intensity comparator (0.96); SC_fullstart found within
+  one point spacing in 6 of 8 gonads, median error 21 um (trial 2, commit f7dc9a3: 7 of 8, 11 um).
 
 ## Differences from the design document
 
