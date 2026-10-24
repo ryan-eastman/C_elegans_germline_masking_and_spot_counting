@@ -694,3 +694,61 @@ Entries are appended, never edited. Each one says whether a test result had been
    2000 to 2049, scene peaks 200 to 700 counts, the dense nucleus of each seed with continuous ribbons and the same
    nucleus with every ribbon cut into pieces of 1 to 2 um by gaps of 0.4 to 0.8 um), where R0 separated continuous
    from cut ribbons with AUC 0.99 to 1.00 at every peak and the mean intensity over the label with 0.55 to 0.61.
+11. 2026-10-24, the v2 development round (its rules), written before any number of the v2 changes was computed (no
+   test result had been computed, no test or reserved image was run, no test or reserved truth was read and no
+   sealed seed was generated). Motivated by development results: entries 7 to 10, and a failure taxonomy of the
+   dense phantoms made without a method change and without zone truth (the code of commit 5cb3cb6 with hooks on the
+   phase-A steps, development seeds 2000 to 2049 and 3000 to 3049, both generators;
+   C:/Users/ryane/sc_ribbon_work/v2/dense_taxonomy/report_v1.json). The round follows
+   C:/Users/ryane/sc_ribbon_work/v2/PLAN_V2.md (sha256 in v2/logs/prereg_entry11.txt). Fixed now:
+   (a) Seeds. Development seeds used before this round: 1000 to 1023, 2000 to 2049, 3000 to 3049, 5000 to 5459, 5500
+   to 5959, 6000 to 6139 and 6300 to 6359. Changes of this round are designed on 2000 to 2049 and 3000 to 3049,
+   tuned on 10000 to 10099 (any number of runs) and confirmed on 11000 to 11099 (once per change and per revision);
+   the development snapshot of the configuration proposed for the freeze is computed once, on 12000 to 12099, which
+   no run touches before. Development families that are not registered use the same blocks; they live outside the
+   generator of 2.3, whose scenes stay identical for every seed (a test pins them).
+   (b) A change is adopted on synthetic evidence: its targeted metric, named in its entry, improves on the tuning
+   seeds by the amount the entry states and moves the same way on the confirmation seeds by at least half of that
+   amount, and on the confirmation seeds no criterion metric of 8.1 gets worse than before the change, on the same
+   scenes, by more than: S1a mean length error 0.03 um, 95 percent limits 0.05 um, median centreline distance 0.01
+   um, one strand per ribbon 0.02; S1b mean total error 1.5 percentage points, SD 0.5 points, CCC 0.03, coverage
+   0.01, off-truth 0.01; S1c precision and recall 0.03, gap length error 0.03 um; S1d 90th percentile 0.02 um,
+   correct ribbon 0.02; S1e precision 0.02; S1f 0.02; the median time per nucleus on n2rad51_noHS_herm_000 stays
+   within 1.5 times that of v1 and no process exceeds 8 GB. A parameter that a change introduces is set from physics
+   or the literature where its entry says so, otherwise chosen on the tuning seeds by the rule its entry states;
+   none is chosen on development images. Every change has a switch whose other value gives the configuration before
+   it; a change that fails is withdrawn by its switch, and a change gets at most two revisions, each with its own
+   entry, before it is withdrawn. The criteria of 8.1 themselves are judged on the snapshot seeds.
+   (c) Zone truth enters this round at most three times: Z1 after the per-image PSF and the punctum class; Z2 after
+   the decomposition changes (contact stop, end matching, junction end fit, complete guard and, if made, junction
+   re-pairing); Z3 after a realism-driven change, if one is made. A checkpoint runs sc-straighten with the
+   cumulative configuration on the twelve development gonads with trial-4 runs and computes S2 by the registered
+   rules (theta_full and theta_present chosen again by 5.2) under guard_frac 0.5 and 0.25, with the paired
+   differences against development trial 4 (cluster bootstrap, section 7); it is one line of dev_trials.jsonl. A
+   checkpoint can only veto: when the paired S2a difference against trial 4 is below -0.03 under both guards, or the
+   S2b mean is more than 0.01 below that of trial 4, the changes it covers are withdrawn and that configuration is
+   not scored on zone truth again; at Z1 the per-image PSF and the punctum class and flag stay while punctum strands
+   return to every total, count and continuity column as in v1; at Z2 the complete guard stays (no S2 input depends
+   on the strand class). No two variants are compared on zone truth and no parameter is chosen on it, the registered
+   grid of 5.2 excepted. Statistics by zone are computed only at the checkpoints.
+   (d) Truth-free statistics of the development images (flag rates, strands per nucleus, steep shares, end classes,
+   profile statistics, PSF estimates) may be computed at any time; they may calibrate development phantoms (the
+   realism entry of this round) and set no method parameter directly.
+   (e) Hold-out. The six development gonads without a run (20251021_n2_nohs_HERM_2, 20251021_n2_nohs_MALE_2,
+   20260105_n2_hs_1_HERM_1, 20260105_n2_hs_HERM_2, 20260105_n2_nohs_HERM_1, 20260105_n2_nohs_MALE_3) get germquant
+   runs now, the 2025-10-21 session channel map being built and checked on the first two, and no sc-straighten run
+   until the configuration proposed for the freeze is fixed. Then the trial-4 configuration and that configuration
+   run on them once; S2 is computed with theta_full and theta_present of the twelve (so S2c is out of sample there)
+   and with the paired differences; the result is one line of dev_trials.jsonl. When the paired S2a difference over
+   the gonads evaluable under guard_frac 0.25 is below -0.05, the Z1 configuration is proposed for the freeze
+   instead; with fewer than three evaluable gonads the check is reported and decides nothing. Nothing is changed
+   after this check.
+   (f) Not changed in this round: the QC flag thresholds, the S1 criteria of 8.1 and the S2 rules; the definition of
+   piece_lw_mean_um, except that punctum strands are not pieces; the registered synthetic families and
+   sc_split.json.
+   (g) Reporting added under rule 2 (secondary, never gating), at every checkpoint and at the scoring: the S2a AUC
+   of piece_lw_mean_um's within-gonad rank after a least-squares fit on the rank of the intensity (entry 7 (c));
+   n_puncta, puncta_signal_frac and steep_length_frac as exploratory comparators (5.3); and docs/SC_STRAIGHTEN.md
+   states that the intensity comparator measures the amount of SYP, not its continuity (entry 10).
+   (h) The package VERSION becomes 2.0. The method under test of 5.1 is the configuration named by the freeze entry;
+   no test result exists for any version, so its scoring is the first of section 10.
