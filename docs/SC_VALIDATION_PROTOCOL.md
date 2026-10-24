@@ -924,3 +924,23 @@ Entries are appended, never edited. Each one says whether a test result had been
    truth length (confirmation: the same). Adopted when (a) to (c) and the rules of entry 11 (b) hold. Reported,
    choosing nothing: the share of puncta inside a strand of two or more members (0.3 um of its samples within the
    punctum's ellipsoid). Z1 (entry 11 (c)) follows this entry.
+17. 2026-10-24, the v2 development round (puncta, revision 1 of entry 16), written before any number of this
+   revision was computed (no test result had been computed, no test or reserved image was run, no test or reserved
+   truth was read and no sealed seed was generated). Entry 16 (commit 7c3a25e) on the tuning seeds against
+   punctum.enabled false (C:/Users/ryane/sc_ribbon_work/v2/logs/step2_7c3a25e_tuning.json): (a) failed, the
+   dense_puncta excess fell by 36 percent (6.47 to 4.13 um per nucleus, of which 2.16 um on strands attributed to
+   puncta but not of class punctum and 1.97 um on ribbon strands that differ from the clean scenes); (b) held, 83
+   percent of the point puncta and 78 percent of the aggregates left no strand outside the class; (c) held, no
+   strand on an iso, gaps or foci ribbon and none on a dense ribbon became punctum; the criteria of 8.1 on the
+   registered families were identical; 38 percent of the dense-nucleus puncta and 22 to 24 percent of the isolated
+   ones lay inside strands of two or more members. That share is above the trigger of PLAN_V2.md section 5 for the
+   deferred item "B1 before end matching" (10 percent), and revision 1 is that item: in phase A, after the tracer,
+   the axial shadows and the T contacts and before the end matching, a traced strand whose polyline has frac_steep60
+   > 0.5 (tangents over +/-0.1 um) and length_xy_um <= punctum.max_xy_um, and whose core profile (the core ellipse
+   of the measurement, background-subtracted raw counts) along the polyline extended straight by 0.5 um at both
+   ends, fitted by the Gaussian of entry 16, has sigma times its mean |t_z| at most punctum.sigma_ratio times the
+   fallback sigma_z (the image PSF is estimated after phase A), takes no part in the end matching and rejoins the
+   strands after it; the punctum class of entry 16 is still decided on the measured strand. New key (fixed group):
+   punctum.before_linking (true; false gives entry 16). Everything else of entry 16, its targeted metrics (a) to (c)
+   and their confirmation levels, is unchanged; they are computed again on the tuning seeds against the
+   configuration before entry 16, then once on the confirmation seeds.
