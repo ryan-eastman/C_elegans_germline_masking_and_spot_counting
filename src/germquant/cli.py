@@ -423,6 +423,8 @@ def main(argv: list[str] | None = None) -> int:
     prm.add_argument("--model", required=True, help="the model file `train-nuclei` wrote")
     prm.add_argument("--card", help="its model card JSON (<name>.card.json next to the model file)")
     prm.add_argument("--name", help="registry name (default: the card's name, else the file name)")
+    from . import cli_tune
+    cli_tune.add_parsers(sub)                      # germquant tune-spots (docs/TUNING.md)
 
     _add_track_parsers(sub)
     from . import cli_assemble, cli_packs
@@ -458,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
         "train-spots": lambda: _train_spots(args),
         "train-nuclei3d": lambda: _train_nuclei3d(args),
         "register-model": lambda: _register_model(args),
+        "tune-spots": lambda: cli_tune.dispatch(args),
 
         "track-export": lambda: _track_export(args),
         "track-link": lambda: _track_link(args),
