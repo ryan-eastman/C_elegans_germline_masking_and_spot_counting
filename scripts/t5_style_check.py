@@ -7,7 +7,11 @@ config files and project writes") and rule R9 (hashed text is pure ASCII); the T
 rules:
 
   (a) no U+2013 (EN DASH) or U+2014 (EM DASH) in a line the diff adds, in any text file: code, docs,
-      workflows and data files alike;
+      workflows and data files alike. A line that is not UTF-8 is also read as cp1252, the ANSI code page
+      that Windows PowerShell 5.1's Set-Content and Add-Content write by default, where the two dashes are
+      the bytes 0x96 and 0x97. A UTF-16 or UTF-32 text file (one that starts with its byte-order mark) holds
+      NUL bytes, so git takes it for binary and its lines cannot be checked: it is reported instead, to be
+      written as UTF-8;
   (b) pure ASCII in the text files the diff adds under config/, packs/, tests/fixtures/ and tests/golden/,
       and in every *.yaml or *.yml file it adds anywhere. A text file here is one whose suffix is on
       TEXT_SUFFIXES of germquant.packs.format (.yaml, .yml, .json, .md, .csv, .txt, .cff), read from that
@@ -16,9 +20,10 @@ rules:
 
 Skipped: deleted files; binary files (git's own binary detection, which follows the binary rules of
 .gitattributes, a NUL byte in the first 8000 bytes of an untracked file, and the suffixes of BINARY_SUFFIXES,
-such as .tif, .ome.tif, .npz and .png); and the frozen R8 paths of scripts/t5_scope_check.py (the RAD-51
-seal), which this check never opens: every git command it runs on paths excludes them by pathspec, and it
-never reads them from the working tree.
+such as .tif, .ome.tif, .npz and .png), except the UTF-16 and UTF-32 text files of rule (a); an untracked
+folder that holds a git repository of its own (git lists only its name); and the frozen R8 paths of
+scripts/t5_scope_check.py (the RAD-51 seal), which this check never opens: every git command it runs on
+paths excludes them by pathspec, and it never reads them from the working tree.
 
 What is compared, and with which base, is as in scripts/t5_scope_check.py, whose base resolution this check
 imports: without --head the working tree (committed, staged, unstaged and untracked files), with --head REF
@@ -29,7 +34,8 @@ charged to the branch. CI runs this check after the scope check in the T5 step o
 tests/test_t5_style_check.py also runs it on the checkout, so t5_gate's pytest step enforces G7 on the
 workstation.
 
-Exit codes, as the scope check's: 0 nothing found, 1 a finding, 2 the base or the head could not be read.
+Exit codes, as the scope check's: 0 nothing found, 1 a finding, 2 the base or the head could not be read
+(a git error, or a working-tree file that cannot be read).
 """
 from __future__ import annotations
 
@@ -56,6 +62,13 @@ GitError = scope.GitError
 REPO = Path(__file__).resolve().parents[1]
 FORMAT_SOURCE = REPO / "src" / "germquant" / "packs" / "format.py"
 DASHES = {chr(0x2013): "U+2013 EN DASH", chr(0x2014): "U+2014 EM DASH"}   # by code point: no dash in this file
+# a line that is not UTF-8 is read in this code page too: Windows PowerShell 5.1's Set-Content and Add-Content
+# write it by default, and it stores the two dashes as the single bytes 0x96 and 0x97
+LEGACY_CODEC = "cp1252"
+# the byte-order marks of UTF-16 and UTF-32 text, longest first: git takes such a file for binary (its ASCII
+# characters hold NUL bytes), so rule (a) reports the file instead of its lines
+WIDE_BOMS = ((b"\xff\xfe\x00\x00", "UTF-32 LE"), (b"\x00\x00\xfe\xff", "UTF-32 BE"),
+             (b"\xff\xfe", "UTF-16 LE"), (b"\xfe\xff", "UTF-16 BE"))
 ASCII_FOLDERS = ("config/", "packs/", "tests/fixtures/", "tests/golden/")   # rule (b), for TEXT_SUFFIXES files
 ASCII_EVERYWHERE = (".yaml", ".yml")                                        # rule (b), wherever they are
 # skipped as binary whatever git says: the binary rules of .gitattributes (.tif, .tiff, .png, .npz, .zip, .h5;
@@ -68,7 +81,8 @@ R8_FILES = tuple(sorted(p for p, rule in scope.FROZEN_FILES.items() if rule == "
 R8_FOLDERS = tuple(sorted(f for f, rule in scope.SEALED_FOLDERS.items() if rule == "R8"))
 R8_EXCLUDES = tuple([f":(top,exclude,literal){p}" for p in R8_FILES] +
                     [f":(top,exclude,literal){f}" for f in R8_FOLDERS])
-RULES = {"a": "no U+2013 or U+2014 in a line the diff adds (any text file)",
+RULES = {"a": "no U+2013 or U+2014 in a line the diff adds (any text file, also as cp1252 bytes; a UTF-16 or "
+              "UTF-32 text file is reported, since git cannot diff it)",
          "b": "pure ASCII in text files added under " + ", ".join(ASCII_FOLDERS) +
               " and in every added *.yaml or *.yml"}
 
@@ -216,10 +230,41 @@ def _diff_args(base: str, head: str | None) -> list[str]:
     return [base] + ([head] if head is not None else [])
 
 
-def tracked_changes(repo: Path, base: str, head: str | None) -> tuple[dict[str, list[tuple[int, bytes]]],
-                                                                      set[str], set[str]]:
-    """(added lines per text file, binary files, every changed path) between the base and the head, or the
-    working tree when ``head`` is None. Deleted files and the R8 paths are left out by git itself."""
+def wide_encoding(start: bytes) -> str | None:
+    """The UTF-16 or UTF-32 encoding whose byte-order mark ``start`` begins with, or None."""
+    return next((name for bom, name in WIDE_BOMS if start.startswith(bom)), None)
+
+
+def read_file(repo: Path, path: str, limit: int | None = None) -> bytes:
+    """The bytes of a working-tree file, or its first ``limit`` bytes. Never called for an R8 path: the
+    listings that name the paths exclude them."""
+    with open(repo / path, "rb") as fh:
+        return fh.read() if limit is None else fh.read(limit)
+
+
+def _wide_texts(repo: Path, head: str | None, binary: set[str]) -> dict[str, str]:
+    """{path: encoding} of the changed files that git takes for binary only by its NUL test (not by their
+    suffix or a .gitattributes rule) and that start with a UTF-16 or UTF-32 byte-order mark: text that git
+    cannot diff. The first bytes come from ``head``, or from the working tree when ``head`` is None."""
+    sniff = [p for p in sorted(binary) if not binary_by_name(p)]
+    by_rule = attr_binary(repo, sniff)
+    out: dict[str, str] = {}
+    for p in sniff:
+        if p in by_rule:
+            continue
+        start = (_git_bytes(repo, "cat-file", "blob", f"{head}:{p}")[:4] if head is not None
+                 else read_file(repo, p, 4))
+        enc = wide_encoding(start)
+        if enc:
+            out[p] = enc
+    return out
+
+
+def tracked_changes(repo: Path, base: str, head: str | None, sniff: bool = True) -> tuple[
+        dict[str, list[tuple[int, bytes]]], dict[str, str], dict[str, str], set[str]]:
+    """(added lines per text file, {skipped path: why}, {UTF-16 or UTF-32 text file: encoding}, every changed
+    path) between the base and the head, or the working tree when ``head`` is None. Deleted files and the R8
+    paths are left out by git itself. ``sniff=False`` leaves the wide-text test out (every binary is skipped)."""
     common = ["--no-renames", "--ignore-submodules", "--diff-filter=d"]
     spec = ["--", ".", *R8_EXCLUDES]
     numstat = _split_z(_git_bytes(repo, "diff", "--numstat", "-z", *common, *_diff_args(base, head), *spec))
@@ -231,39 +276,46 @@ def tracked_changes(repo: Path, base: str, head: str | None) -> tuple[dict[str, 
         changed.add(path)
         if added == "-" or binary_by_name(path):
             binary.add(path)
+    wide = _wide_texts(repo, head, binary) if sniff else {}
     patch = _git_bytes(repo, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/",
                        "--dst-prefix=b/", *common, *_diff_args(base, head), *spec)
     added_lines = {p: v for p, v in parse_patch(patch).items() if p not in binary}
     stray = sorted(set(added_lines) - changed)
     if stray:
         raise GitError(f"the patch names paths that the numstat listing does not: {stray[:3]}")
-    return added_lines, binary, changed
+    return added_lines, {p: "binary" for p in binary if p not in wide}, wide, changed
 
 
-def read_untracked(repo: Path, path: str) -> bytes:
-    """The bytes of an untracked file (never called for an R8 path)."""
-    return (repo / path).read_bytes()
-
-
-def untracked_changes(repo: Path) -> tuple[dict[str, list[tuple[int, bytes]]], set[str], set[str]]:
-    """(lines per text file, binary files, every path) of the untracked files that git does not ignore."""
+def untracked_changes(repo: Path) -> tuple[dict[str, list[tuple[int, bytes]]], dict[str, str], dict[str, str],
+                                           set[str]]:
+    """(lines per text file, {skipped path: why}, {UTF-16 or UTF-32 text file: encoding}, every path) of the
+    untracked files that git does not ignore. git lists an untracked folder that holds a repository of its
+    own by its name and a final "/": it is skipped, never read."""
     paths = [p for p in _split_z(_git_bytes(repo, "ls-files", "--others", "--exclude-standard", "-z", "--", ".",
                                             *R8_EXCLUDES)) if not is_r8(p)]
-    binary = {p for p in paths if binary_by_name(p)}
-    binary |= attr_binary(repo, [p for p in paths if p not in binary])
+    skipped = {p: "nested repository" for p in paths if p.endswith("/")}
+    files = [p for p in paths if p not in skipped]
+    binary = {p for p in files if binary_by_name(p)}
+    binary |= attr_binary(repo, [p for p in files if p not in binary])
     lines: dict[str, list[tuple[int, bytes]]] = {}
-    for p in paths:
+    wide: dict[str, str] = {}
+    for p in files:
         if p in binary:
             continue
-        data = read_untracked(repo, p)
+        data = read_file(repo, p)
         if b"\0" in data[:SNIFF]:
-            binary.add(p)
+            enc = wide_encoding(data)
+            if enc:
+                wide[p] = enc
+            else:
+                binary.add(p)
             continue
         rows = data.split(b"\n")
         if rows and rows[-1] == b"":
             rows.pop()
         lines[p] = [(n, row) for n, row in enumerate(rows, 1)]
-    return lines, binary, set(paths)
+    skipped.update((p, "binary") for p in binary)
+    return lines, skipped, wide, set(paths)
 
 
 def attr_binary(repo: Path, paths: list[str]) -> set[str]:
@@ -306,51 +358,70 @@ def _char_name(ch: str) -> str:
 
 
 def line_findings(path: str, lineno: int, raw: bytes) -> list[dict]:
-    """The findings of rules (a) and (b) on one added line of ``path``."""
+    """The findings of rules (a) and (b) on one added line of ``path``. A line that is not UTF-8 is searched
+    for the dashes as cp1252 too."""
     raw = raw[:-1] if raw.endswith(b"\r") else raw
     text = raw.decode("utf-8", "replace")
+    try:
+        raw.decode("utf-8")
+        utf8 = True
+        texts = ((text, ""),)
+    except UnicodeDecodeError:
+        utf8 = False
+        texts = ((text, ""), (raw.decode(LEGACY_CODEC, "replace"),
+                              f", as the {LEGACY_CODEC} byte of a non-UTF-8 line"))
     out = []
     for ch, name in DASHES.items():
-        at = text.find(ch)
-        if at >= 0:
-            out.append({"path": path, "line": lineno, "rule": "a", "what": name, "text": _excerpt(text, at)})
+        hit = next(((t, t.find(ch), note) for t, note in texts if ch in t), None)
+        if hit:
+            t, at, note = hit
+            out.append({"path": path, "line": lineno, "rule": "a", "what": name + note, "text": _excerpt(t, at)})
     if ascii_rule_applies(path) and any(b > 127 for b in raw):
         at = next(k for k, ch in enumerate(text) if ord(ch) > 127)
-        try:
-            raw.decode("utf-8")
-            what = f"non-ASCII {_char_name(text[at])}"
-        except UnicodeDecodeError:
-            what = "non-ASCII bytes (not UTF-8)"
+        what = f"non-ASCII {_char_name(text[at])}" if utf8 else "non-ASCII bytes (not UTF-8)"
         out.append({"path": path, "line": lineno, "rule": "b", "what": what, "text": _excerpt(text, at)})
     return out
 
 
+def wide_finding(path: str, encoding: str) -> dict:
+    """Rule (a) on a UTF-16 or UTF-32 text file: git takes it for binary, so its lines cannot be checked."""
+    bom = next(b for b, name in WIDE_BOMS if name == encoding)
+    return {"path": path, "line": 1, "rule": "a",
+            "what": f"{encoding} text, which git takes for binary, so its lines cannot be checked; write it as UTF-8",
+            "text": "byte-order mark " + bom.hex(" ").upper()}
+
+
 def check(repo: Path = REPO, base: str = "auto", head: str | None = None) -> dict:
-    """Run the check; returns the report (``report["status"]`` is PASS or FAIL). Raises GitError."""
+    """Run the check; returns the report (``report["status"]`` is PASS or FAIL). Raises GitError, or OSError
+    when a working-tree file cannot be read."""
     head_commit = scope._commit(repo, head or "HEAD")
     if head_commit is None:
         raise GitError(f"cannot resolve the head {head or 'HEAD'!r} to a commit")
     base_sha, why, second = scope.resolve_base(repo, base, head_commit, head)
-    lines, binary, changed = tracked_changes(repo, base_sha, head)
+    lines, skipped, wide, changed = tracked_changes(repo, base_sha, head)
     if head is None:
-        u_lines, u_binary, u_paths = untracked_changes(repo)
+        u_lines, u_skipped, u_wide, u_paths = untracked_changes(repo)
         lines.update(u_lines)
-        binary |= u_binary
+        skipped.update(u_skipped)
+        wide.update(u_wide)
         changed |= u_paths
     if second:
         # diverged bases: a line counts only when it is added against both (as a path does in the scope check)
-        s_lines, _, s_changed = tracked_changes(repo, second, head)
+        s_lines, _, _, s_changed = tracked_changes(repo, second, head, sniff=False)
         if head is None:
             s_lines.update(u_lines)
             s_changed |= u_paths
         lines = _intersect(lines, s_lines)
-        binary = {p for p in binary if p in s_changed}
+        skipped = {p: w for p, w in skipped.items() if p in s_changed}
+        wide = {p: enc for p, enc in wide.items() if p in s_changed}
     findings = [f for path in sorted(lines) for n, raw in lines[path] for f in line_findings(path, n, raw)]
+    findings += [wide_finding(p, enc) for p, enc in wide.items()]
+    findings.sort(key=lambda f: (f["path"], f["line"]))      # stable: a line's own findings keep their order
     return {"status": "FAIL" if findings else "PASS", "base": base_sha, "base_reason": why, "second_base": second,
             "head": head_commit if head else "working tree", "rules": RULES,
             "n_files": len(lines), "n_lines": sum(len(v) for v in lines.values()),
             "files": sorted(lines), "findings": findings,
-            "skipped": [{"path": p, "why": "binary"} for p in sorted(binary)],
+            "skipped": [{"path": p, "why": w} for p, w in sorted(skipped.items())],
             "never_opened": {"files": list(R8_FILES), "folders": list(R8_FOLDERS), "rule": "R8"},
             "text_suffixes": list(TEXT_SUFFIXES), "ascii_folders": list(ASCII_FOLDERS)}
 
@@ -364,13 +435,15 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     try:
         rep = check(Path(args.repo), args.base, args.head)
-    except GitError as e:
+    except (GitError, OSError) as e:
         print(f"t5_style_check: ERROR: {e}")
         return 2
     print(f"t5_style_check: base {rep['base'][:12]}: {rep['base_reason']}")
     print(f"  compared with {('commit ' + rep['head'][:12]) if args.head else 'the working tree'}")
-    print(f"  {rep['n_lines']} added lines in {rep['n_files']} text files checked, {len(rep['skipped'])} binary "
-          f"files skipped, the R8 paths never opened")
+    n_skipped = Counter(s["why"] for s in rep["skipped"])
+    print(f"  {rep['n_lines']} added lines in {rep['n_files']} text files checked, {n_skipped['binary']} binary "
+          f"files skipped" + (f", {n_skipped['nested repository']} nested repositories skipped"
+                              if n_skipped["nested repository"] else "") + ", the R8 paths never opened")
     for f in rep["findings"]:
         print(f"  FOUND: {f['path']}:{f['line']}: ({f['rule']}) {f['what']}: {f['text']}")
     if args.json:

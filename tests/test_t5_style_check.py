@@ -4,8 +4,10 @@ On throwaway git repositories: an en or em dash in a line the diff adds fails, i
 while a dash that was there at the base passes; a non-ASCII character fails in a text file added under
 config/, packs/, tests/fixtures/ or tests/golden/, in any YAML file, and in the lines added to such a file,
 and passes elsewhere; binary files are skipped (git's detection, a NUL byte, the suffix, a .gitattributes
-rule); untracked files count without --head and ignored ones never; the base is the scope check's, so
-main's own lines are never charged to the branch; and the frozen R8 paths are never opened. The last test
+rule); a dash in a cp1252 line is found, and a UTF-16 or UTF-32 text file (binary to git) is reported; an
+untracked nested repository is skipped, and an unreadable file gives exit code 2; untracked files count
+without --head and ignored ones never; the base is the scope check's, so main's own lines are never charged
+to the branch; and the frozen R8 paths are never opened. The last test
 runs the check on this checkout when its full history and origin/main are present, so t5_gate's pytest step
 enforces G7 on the workstation; CI's shallow checkout skips it, and the T5 step of the workflow runs the
 script on the pushed commit instead.
@@ -14,6 +16,7 @@ Every non-ASCII character below is built with chr(), so this file itself stays A
 """
 from __future__ import annotations
 
+import codecs
 import importlib.util
 import json
 import shutil
@@ -191,14 +194,85 @@ def test_the_frozen_r8_paths_are_never_opened(repo, monkeypatch):
     _write(r, "src/germquant/benchmark/new_module.py", f"N = 1  # {EN}\n")      # untracked, in the sealed folder
     _git(r, "add", "docs/BENCHMARK_PROTOCOL.md")
     calls, reads = [], []
-    real_git, real_read = style._git_bytes, style.read_untracked
+    real_git, real_read = style._git_bytes, style.read_file
     monkeypatch.setattr(style, "_git_bytes", lambda repo, *a: calls.append(a) or real_git(repo, *a))
-    monkeypatch.setattr(style, "read_untracked", lambda repo, p: reads.append(p) or real_read(repo, p))
+    monkeypatch.setattr(style, "read_file", lambda repo, p, limit=None: reads.append(p) or real_read(repo, p, limit))
+    sealed = (*style.R8_FILES, *style.R8_FOLDERS)
+
+    def only_excluded() -> bool:
+        """Every git argument that names an R8 path is one of the exclude pathspecs."""
+        named = {x for a in calls for x in a if any(s in x for s in sealed)}
+        return named <= set(style.R8_EXCLUDES)
+
     rep = style.check(r, base)
     assert rep["status"] == "PASS" and rep["files"] == [] and rep["skipped"] == [] and reads == []
     on_paths = [a for a in calls if a[0] in ("diff", "ls-files")]
-    assert len(on_paths) == 3 and all(set(style.R8_EXCLUDES) <= set(a) for a in on_paths)
+    assert len(on_paths) == 3 and all(set(style.R8_EXCLUDES) <= set(a) for a in on_paths) and only_excluded()
+    # the same with --head on a commit that holds every one of those edits
+    _commit(r, "R8 edits")
+    calls.clear()
+    rep = style.check(r, base, head="HEAD")
+    assert rep["status"] == "PASS" and rep["files"] == [] and rep["skipped"] == [] and reads == []
+    on_paths = [a for a in calls if a[0] in ("diff", "ls-files")]
+    assert len(on_paths) == 2 and all(set(style.R8_EXCLUDES) <= set(a) for a in on_paths) and only_excluded()
     assert set(style.R8_FILES) == {p for p, rule in scope.FROZEN_FILES.items() if rule == "R8"}
+
+
+def test_cp1252_utf16_and_nested_repositories(repo, monkeypatch):
+    """A dash in a cp1252 line is found (Set-Content's default in Windows PowerShell 5.1); a UTF-16 or UTF-32
+    text file, which git takes for binary, is reported; a binary file stays skipped, also when a .gitattributes
+    rule makes it binary; an untracked nested repository is skipped, never read; and a working-tree file that
+    cannot be read gives exit code 2."""
+    r, base = repo
+    cp_line = f"an {EN} and an {EM}\n".encode("cp1252")                    # the bytes 0x96 and 0x97
+    cp_note = ", as the cp1252 byte of a non-UTF-8 line"
+    wide = ", which git takes for binary, so its lines cannot be checked; write it as UTF-8"
+    _write(r, "docs/cp1252.md", b"title\n" + cp_line)
+    _write(r, "docs/u16be.txt", codecs.BOM_UTF16_BE + "no dash at all\n".encode("utf-16-be"))
+    _git(r, "add", "-A")
+    _write(r, "tool.py", f"X = 1  # {EN}\n".encode("cp1252"))                                 # untracked
+    _write(r, "config/profiles/cp.yaml", f"unit: {MU}m\n".encode("cp1252"))                    # (b)
+    _write(r, "docs/u16le.md", codecs.BOM_UTF16_LE + f"an {EN} dash\n".encode("utf-16-le"))
+    _write(r, "src/u32.md", codecs.BOM_UTF32_LE + "x\n".encode("utf-32-le"))
+    _write(r, "tests/golden/x/raw.dat", codecs.BOM_UTF16_LE + "x\n".encode("utf-16-le"))      # binary by rule
+    _write(r, "docs/blob.bin", b"\x00\x01" + EN.encode())                                     # binary (NUL)
+    (r / "vendor").mkdir()
+    _git(r / "vendor", "init", "-q")                                   # an untracked nested repository
+    _write(r, "vendor/notes.md", f"{EM} in a nested repository\n")
+    expected = sorted([
+        ("docs/cp1252.md", 2, "a", "U+2013 EN DASH" + cp_note),
+        ("docs/cp1252.md", 2, "a", "U+2014 EM DASH" + cp_note),
+        ("docs/u16be.txt", 1, "a", "UTF-16 BE text" + wide),
+        ("tool.py", 1, "a", "U+2013 EN DASH" + cp_note),
+        ("config/profiles/cp.yaml", 1, "b", "non-ASCII bytes (not UTF-8)"),
+        ("docs/u16le.md", 1, "a", "UTF-16 LE text" + wide),
+        ("src/u32.md", 1, "a", "UTF-32 LE text" + wide),
+    ])
+    reads = []
+    real_read = style.read_file
+    monkeypatch.setattr(style, "read_file", lambda repo, p, limit=None: reads.append(p) or real_read(repo, p, limit))
+    rep = style.check(r, base)
+    assert _found(rep) == expected
+    assert rep["skipped"] == [{"path": "docs/blob.bin", "why": "binary"},
+                              {"path": "tests/golden/x/raw.dat", "why": "binary"},
+                              {"path": "vendor/", "why": "nested repository"}]
+    assert not any(p.startswith("vendor/") for p in reads) and "tests/golden/x/raw.dat" not in reads
+    assert style.main(["--repo", str(r), "--base", base]) == 1
+    # committed, with --head: the first bytes come from the commit (git cat-file), not from the working tree
+    shutil.rmtree(r / "vendor")
+    _commit(r, "other encodings")
+    reads.clear()
+    rep = style.check(r, base, head="HEAD")
+    assert _found(rep) == expected and reads == []
+    assert [s["path"] for s in rep["skipped"]] == ["docs/blob.bin", "tests/golden/x/raw.dat"]
+    # a working-tree file that cannot be read: exit code 2, as for an unreadable base or head
+    _write(r, "docs/later.md", "text\n")
+
+    def unreadable(repo, p, limit=None):
+        raise PermissionError(f"cannot open {p}")
+
+    monkeypatch.setattr(style, "read_file", unreadable)
+    assert style.main(["--repo", str(r), "--base", base]) == 2
 
 
 def test_text_suffixes_are_those_of_the_packs_format():
