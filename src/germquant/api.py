@@ -38,6 +38,28 @@ from .io import (
 from .models_registry import get_model, known_models, register_local_model
 from .packs import fetch_example, fetch_pack_models, find_pack, install_pack, list_packs, load_pack, pack_status
 from .pipeline import process_image, resolve_model_path, spot_instances
+from .project import (
+    Project,
+    ProjectError,
+    ProjectLockedError,
+    add_images,
+    break_lock,
+    collect_project,
+    export_commands,
+    list_rounds,
+    new_project,
+    new_round,
+    open_project,
+    preview_roles,
+    project_config,
+    project_status,
+    revert_recipe,
+    run_project,
+    save_project,
+    use_model,
+    write_recipe,
+)
+from .project.headers import read_header
 from .provenance import read_done_marker
 from .segment import segment_nuclei
 from .spots import detect_spots
@@ -51,7 +73,9 @@ from .timelapse import parse_timepoints, process_series, register_series
 # image_format, image_stem, read_image, read_image_metadata, read_nd2_metadata, read_stack); stages
 # (STAGES, stage_enabled, cli_switches, apply_cli_switches, spot_instances); the heavy building blocks
 # (segment_nuclei, detect_spots); models (resolve_model_path, get_model); batch helpers and the completion
-# marker (discover_files, load_exclusions, collect, is_done, enabled_stage_names, read_done_marker).
+# marker (discover_files, load_exclusions, collect, is_done, enabled_stage_names, read_done_marker); projects
+# (germquant.project, docs/PROJECTS.md: Project, new_project to run_project and export_commands, the light header
+# read_header; importing germquant.project alone loads no torch).
 __all__ = [
     "STAGES",
     "SUPPORTED_SUFFIXES",
@@ -102,6 +126,27 @@ __all__ = [
     "list_spot_backends",
     "known_models",
     "register_local_model",
+    # projects (docs/PROJECTS.md); germquant.project offers the same names, and its light entry the writes, without torch
+    "Project",
+    "ProjectError",
+    "ProjectLockedError",
+    "new_project",
+    "open_project",
+    "save_project",
+    "add_images",
+    "read_header",
+    "project_config",
+    "preview_roles",
+    "write_recipe",
+    "revert_recipe",
+    "use_model",
+    "run_project",
+    "project_status",
+    "collect_project",
+    "export_commands",
+    "break_lock",
+    "list_rounds",
+    "new_round",
 ]
 
 

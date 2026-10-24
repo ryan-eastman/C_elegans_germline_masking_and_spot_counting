@@ -402,6 +402,8 @@ def test_vendored_pack_survives_root_upgrade(project_env, tmp_path, monkeypatch)
 def test_labels_project_skips_the_segmentation_model(project_env, tmp_path, monkeypatch):  # noqa: F811
     """D12: a project whose recipe sets labels_from skips the segmentation model's digest check (with a warning)
     and status reports that model as not needed; the run itself reads the labels files (P2c)."""
+    from germquant.project.recipe import resolve_pack
+
     proj = project_with_images(tmp_path, names=("a",), recipe="with_model")
     _project_model(proj)
     decoy = project_env.models / "training" / "r01" / "models" / "m1" / "m1"
@@ -413,35 +415,33 @@ def test_labels_project_skips_the_segmentation_model(project_env, tmp_path, monk
     recipe.pop("extends")
     recipe["segmentation"]["nuclei"]["labels_from"] = "{image_dir}/{image_stem}_labels.tif"
     hand_edit_recipe(proj, recipe)
-    st = P.project_status(proj)
-    (rec,) = [m for m in st["models"] if m["key"] == "segmentation.nuclei.cellpose_model"]
-    assert rec["needed"] is False and rec["mismatch"] is not None
-    assert any("labels_from" in w and "not checked" in w for w in st["warnings"]), st["warnings"]
-    seen = []
-    mp = pytest.MonkeyPatch()
-    try:
-        fake_run_loaded(mp, seen)
-        res = P.run_project(proj)
-    finally:
-        mp.undo()
-    assert res["exit_code"] == 0 and [s["image"] for s in seen] == ["a.ome.tif"]
-    assert any("labels_from" in w for w in res["warnings"])
+    cfg = P.project_config(proj)
+    pack, rec = resolve_pack(proj.root, proj.manifest)
+    records, warnings = R.model_records(proj.root, proj.manifest, cfg, pack, rec)
+    (seg,) = [m for m in records if m["key"] == "segmentation.nuclei.cellpose_model"]
+    assert seg["needed"] is False and seg["mismatch"] is not None and str(decoy) in seg["mismatch"]
+    assert R.model_refusal(records, pack) is None
+    assert any("labels_from" in w and "not checked" in w for w in warnings), warnings
     need_p2c()
     import numpy as np
     import tifffile
 
     from germquant.io.labels import labels_path
 
-    cfg = P.project_config(proj)
+    st = P.project_status(proj)
+    (rec,) = [m for m in st["models"] if m["key"] == "segmentation.nuclei.cellpose_model"]
+    assert rec["needed"] is False and any("labels_from" in w and "not checked" in w for w in st["warnings"])
     lab = np.zeros((12, 64, 96), dtype=np.int32)
     lab[:, 10:20, 10:20] = 1
     tifffile.imwrite(labels_path(cfg, proj.root / "images" / "a.ome.tif"), lab)
-    res = P.run_project(proj, resume=False)
+    res = P.run_project(proj)
     assert res["exit_code"] == 0 and res["counts"]["done"] == 1
+    assert any("labels_from" in w for w in res["warnings"])
     marker = json.loads((proj.root / "results" / "a" / "a__done.json").read_text(encoding="utf-8"))
     assert marker["config_hash"] == cfg.hash
-    # the resume uses the per-image labels hash (D46): a second run skips the image
+    # the resume uses the per-image labels hash (D46): a second run skips the image, and status says done
     assert P.run_project(proj)["counts"] == {"done": 0, "failed": 0, "skipped": 1}
+    assert [r["status"] for r in P.project_status(proj)["images"]] == ["done"]
 
 
 # ---- time series (D9, D15, D33) ------------------------------------------------------------------------
@@ -613,7 +613,7 @@ def test_export_commands(project_env, tmp_path, capsys):  # noqa: F811
     root = str(proj.root)
     sh = P.export_commands(proj)
     lines = [ln for ln in sh.splitlines() if ln and not ln.startswith("#")]
-    assert sh.startswith("#!/bin/sh\n") and "set -e" in lines
+    assert sh.startswith("#!/bin/sh\n") and len(lines) == 2
     exe, q = f"{shlex.quote(sys.executable)} -m germquant", shlex.quote(root)
     assert q == f"'{root}'"                                           # the folder name holds a space
     assert lines[-2:] == [f"{exe} project run {q}", f"{exe} project collect {q}"]
@@ -642,3 +642,37 @@ def test_export_commands(project_env, tmp_path, capsys):  # noqa: F811
     assert cli.main(["project", "export-commands", root, "--shards", "2", "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == {"text": P.export_commands(proj, shards=2), "out": None,
                                                    "shell": "sh", "shards": 2}
+
+
+# ---- the api re-exports (PLAN.md section 9.1) ----------------------------------------------------------------
+
+PROJECT_NAMES = ["Project", "ProjectError", "ProjectLockedError", "new_project", "open_project", "save_project",
+                 "add_images", "read_header", "project_config", "preview_roles", "write_recipe", "revert_recipe",
+                 "use_model", "run_project", "project_status", "collect_project", "export_commands", "break_lock",
+                 "list_rounds", "new_round"]
+# the names of section 9.1 that other P5 units bring: (name, module, unit); each joins api once its unit is merged
+LATER_NAMES = [("tune_spots", "germquant.tune", "P5-TUNE"), ("apply_tuning", "germquant.tune", "P5-TUNE"),
+               ("import_labels", "germquant.import_labels", "P5-TRAIN"),
+               ("SampleRow", "germquant.io.sample_sheet", "P5-SHEET"),
+               ("SampleSheet", "germquant.io.sample_sheet", "P5-SHEET"),
+               ("read_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET"),
+               ("write_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET")]
+
+
+def test_api_re_exports_the_project_names():
+    from germquant.project import headers
+
+    for name in PROJECT_NAMES:
+        assert name in api.__all__, name
+        assert getattr(api, name) is getattr(headers if name == "read_header" else P, name), name
+    assert len(set(api.__all__)) == len(api.__all__)
+
+
+@pytest.mark.parametrize("name,module,unit", LATER_NAMES)
+def test_api_re_exports_the_other_p5_names(name, module, unit):
+    import importlib
+    import importlib.util
+
+    if importlib.util.find_spec(module) is None:
+        pytest.skip(f"{module} comes with {unit}, which is not merged into this branch yet")
+    assert name in api.__all__ and getattr(api, name) is getattr(importlib.import_module(module), name)

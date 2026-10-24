@@ -12,8 +12,10 @@ updates the Project it was given; runs never write the manifest.
 
 Importing this package loads nothing heavy (no torch, CuPy, SpotMAX, Cellpose, bioio or dask.array; gate G6,
 rule R5), and neither does any function here on an .nd2 or TIFF image: the torch-free entry ``python -m
-germquant.project`` runs them (new, add, edit, use-model, rounds, unlock). run_project, project_status,
-collect_project and export_commands belong to unit P5-RUN.
+germquant.project`` runs them (new, add, edit, use-model, rounds, unlock). run_project (project/run.py, with its
+log, project/runlog.py) and project_status (project/status.py) import germquant.pipeline first, so torch loads
+before any reader or backend (decision D28); collect_project (project/collect.py) and export_commands
+(project/commands.py) read the project's files only.
 """
 from __future__ import annotations
 
@@ -36,6 +38,10 @@ from .manifest import (
     stamp,
     write_manifest,
 )
+from .collect import collect_project
+from .commands import export_commands
+from .run import run_project
+from .status import project_status
 
 log = logging.getLogger(__name__)
 
@@ -45,10 +51,6 @@ __all__ = [
     "project_config", "project_status", "revert_recipe", "run_project", "save_project", "use_model",
     "write_recipe",
 ]
-
-
-def _todo(name: str, unit: str) -> str:
-    return f"germquant.project.{name} is not built yet: unit {unit} of tranche 5 Train B builds it"
 
 
 @dataclass
@@ -475,26 +477,3 @@ def new_round(project, name=None, *, plugin_version=None) -> Path:
     if isinstance(project, Project):
         project.manifest = m
     return path
-
-
-# ---- unit P5-RUN ------------------------------------------------------------------------------------------------
-
-def run_project(project, images=None, resume=True, device=None, shard=None, progress=None, *, via="cli",
-                run_id=None, should_stop=None) -> dict:
-    """Run the project's images: ``{"run_id", "log", "counts": {"done", "failed", "skipped"}, "exit_code"}``."""
-    raise NotImplementedError(_todo("run_project", "P5-RUN"))
-
-
-def project_status(project) -> dict:
-    """The status record of PLAN.md section 9.3 (what `germquant project status --json` prints)."""
-    raise NotImplementedError(_todo("project_status", "P5-RUN"))
-
-
-def collect_project(project) -> dict:
-    """Collect the per-image tables of results/ with the recipe's qc.germline_outlier_factor."""
-    raise NotImplementedError(_todo("collect_project", "P5-RUN"))
-
-
-def export_commands(project, *, shell="sh", shards=None) -> str:
-    """The commands that run the project headless (sh or ps1), optionally split into shards."""
-    raise NotImplementedError(_todo("export_commands", "P5-RUN"))

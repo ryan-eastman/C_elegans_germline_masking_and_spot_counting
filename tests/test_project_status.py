@@ -14,7 +14,6 @@ import os
 import shutil
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from packs_helpers import pack_env  # noqa: F401
 from project_helpers import BASIC_HASH, TEST_PACK_REF, project_env  # noqa: F401
 from test_project_run import log_events, need_p2b, project_with_images

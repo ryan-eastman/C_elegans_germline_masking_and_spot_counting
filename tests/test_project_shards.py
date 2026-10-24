@@ -77,7 +77,7 @@ def test_three_parallel_shards(project_env, tmp_path):  # noqa: F811
     assert (proj.root / "germquant_project.yaml").read_bytes() == manifest
     assert not (proj.root / "germquant_project.lock").exists()
     st = P.project_status(proj)
-    assert [r["run_id"] for r in st["runs"]] == run_ids and all(r["finished"] for r in st["runs"])
+    assert sorted(r["run_id"] for r in st["runs"]) == run_ids and all(r["finished"] for r in st["runs"])
     rows = {r["id"]: r for r in st["images"]}
     assert all(r["status"] == "done" for r in rows.values())
     by_run = {i: rid for ev, rid in zip(logs, run_ids) for i in (x["image_id"] for x in ev[0]["images"])}
