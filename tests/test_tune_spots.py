@@ -316,13 +316,16 @@ def test_detection_reproduces_the_run(backend, planted, tmp_path):
         pairs = [(planted.log_tables[(1, k)], it) for k, it in enumerate(planted.items)]      # min_snr 2.0
     else:
         pytest.importorskip("spotmax")
-        item = dict(planted.items[0])
-        rd = tmp_path / "results" / "planted_a"
-        H.finished_run(item["image"], H.basic_recipe(**{"spots.backend": "spotmax"}), rd)
-        item["result_dir"] = rd
+        stack = H.planted_stack("tiny")[0]
+        item = {"image_id": "tiny", "image": tmp_path / "tiny.nd2", "result_dir": tmp_path / "results" / "tiny"}
         got: dict = {}
-        S._tune([item], {ES_KEY: [3.0]}, S.OBJECTIVE, "project", backend="spotmax", out_dir=tmp_path / "t",
-                max_runs=1, shortcut=False, on_tables=lambda i, k, ps, pn: got.__setitem__(k, ps))
+        with pytest.MonkeyPatch.context() as mp:
+            H.patch_planted_reader(mp, {"tiny.nd2": stack})
+            H.finished_run(item["image"], H.basic_recipe(**{"spots.backend": "spotmax"}), item["result_dir"])
+            item["points"] = H.write_truth(tmp_path / "tiny__points_ryan.csv", H.planted_stack("tiny")[1],
+                                           item["result_dir"], "tiny")
+            S._tune([item], {ES_KEY: [3.0]}, S.OBJECTIVE, "project", backend="spotmax", out_dir=tmp_path / "t",
+                    max_runs=1, shortcut=False, on_tables=lambda i, k, ps, pn: got.__setitem__(k, ps))
         pairs = [(got[0], item)]
     for ps, item in pairs:
         run = pd.read_csv(item["result_dir"] / f"{item['image_id']}__spots.csv", float_precision="round_trip")
@@ -465,7 +468,7 @@ def test_tune_spots_on_a_project(planted, tmp_path, monkeypatch):
 
 def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    project = _project(planted, root)
+    project = _project(planted, root, images=[{"id": "planted_a", "path": "planted_a.nd2"}])
     edits: list = []
     api = H.fake_project_api(project, edits)
     monkeypatch.setattr(S, "_project_api", lambda: api[:2])
@@ -477,8 +480,8 @@ def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
         out = json.loads(capsys.readouterr().out)
         assert out["best"]["keys"] == {"spots.log.min_snr": 3.0} and len(out["ranked"]) == 2
         rel = Path(out["run_dir"]).relative_to(root).as_posix()
-        assert cli.main(["tune-spots", "--project", str(root), "--grid", "g.yaml", "--max-runs", "3"]) == 2
-        assert "above --max-runs 3" in capsys.readouterr().err
+        assert cli.main(["tune-spots", "--project", str(root), "--grid", "g.yaml", "--max-runs", "1"]) == 2
+        assert "above --max-runs 1" in capsys.readouterr().err
     assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == {"config_hash": "c0ffee000000", "run_dir": rel}
     assert edits == [{"edits": {"spots.log.min_snr": 3.0}, "origin": "tuning", "plugin_version": None}]
