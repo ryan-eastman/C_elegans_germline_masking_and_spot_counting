@@ -293,13 +293,20 @@ def _apply(project, *, command: str, plugin_version=None, dry_run: bool = False,
         new = plan["manifest"]
         new["saved"] = stamp(plugin_version)
         data = {CHANNEL_MAP_NAME: plan["channel_map_bytes"], RECIPE_NAME: plan["recipe_bytes"]}
-        for name in plan["to_write"]:
-            atomic_write(root / name, data[name])
-            written.append(name)
-        for name in plan["to_remove"]:
-            if remove_file(root / name):
-                removed.append(name)
-        write_manifest(root, new)
+        try:
+            for name in plan["to_write"]:
+                atomic_write(root / name, data[name])
+                written.append(name)
+            for name in plan["to_remove"]:
+                if remove_file(root / name):
+                    removed.append(name)
+            write_manifest(root, new)
+        except OSError as e:
+            if not (written or removed):
+                raise                                # nothing was changed: the project is as it was
+            done = ", ".join([f"wrote {n}" for n in written] + [f"removed {n}" for n in removed])
+            raise ProjectError(f"{e}; the write stopped part way ({done}), and the manifest still records the project "
+                               f"as it was: run the same command again to finish it") from e
         written.append(MANIFEST_NAME)
     if isinstance(project, Project):
         project.manifest = new
@@ -384,11 +391,13 @@ def _paths(paths) -> list:
 
 
 def preview_roles(project, roles, *, image_id=None) -> dict:
-    """``{"yaml", "bindings", "problems"}``: the channel_map.yaml that ``write_recipe(project, roles=roles)``
-    writes (exactly its text), how each role binds on each image (``{image_id: {role: {"channel", "how": "name" |
-    "index" | "unbound"}}}``, all images or ``image_id`` only; an image whose header cannot be read is left out),
-    and the problems that make write_recipe refuse (an unknown role, a required role that binds no channel, two
-    roles on one channel). Nothing is written."""
+    """``{"yaml", "bindings", "problems"}``. ``yaml``: the channel map these role choices give, the pack's map with
+    each chosen role bound by its exact channel name; ``write_recipe(project, roles=roles)`` writes exactly this
+    text as channel_map.yaml when a role differs from the pack map, and no map otherwise. ``bindings``: how each
+    role binds on each image (``{image_id: {role: {"channel", "how": "name" | "index" | "unbound"}}}``, all images
+    or ``image_id`` only; an image whose header cannot be read is left out). ``problems``: what makes write_recipe
+    refuse (an unknown role, a required role that binds no channel, two roles on one channel). Nothing is
+    written."""
     from .recipe import plan_change
 
     root = _root(project)

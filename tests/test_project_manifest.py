@@ -139,6 +139,21 @@ def test_a_failure_mid_write_leaves_the_old_file(project_env, tmp_path, monkeypa
     assert read_manifest_file(proj.root)["run"]["device"] == "cpu" and len(seen) == 3
     assert not (proj.root / "germquant_project.lock").exists()                          # released every time
 
+    def manifest_denied(src, dst):             # recipe.yaml is replaced, then the manifest stays denied
+        if str(dst).endswith("germquant_project.yaml"):
+            raise PermissionError("in use")
+        return real(src, dst)
+
+    monkeypatch.setattr(M, "_replace", manifest_denied)
+    with pytest.raises(ProjectError, match="stopped part way [(]wrote recipe.yaml[)]") as e:
+        write_recipe(proj, edits={"spots.log.min_snr": 3.0})
+    assert "run the same command again" in str(e.value) and isinstance(e.value.__cause__, PermissionError)
+    assert read_manifest_file(proj.root)["recipe"]["file"] is None and (proj.root / "recipe.yaml").exists()
+    monkeypatch.setattr(M, "_replace", real)
+    h = write_recipe(proj, edits={"spots.log.min_snr": 3.0})                          # the same command again
+    assert read_manifest_file(proj.root)["recipe"]["expected_config_hash"] == h
+    assert project_config(open_project(proj.root)).hash == h and not (proj.root / "germquant_project.lock").exists()
+
 
 def _write_lock(root: Path, *, host="otherhost", pid=4242, hours_ago=0.0, command="germquant project add"):
     at = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
