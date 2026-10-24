@@ -263,6 +263,22 @@ def test_lock_held_refuses_and_a_stale_lock_warns(project_env, tmp_path, monkeyp
     assert (proj.root / "germquant_project.lock").exists()            # reported, never removed
 
 
+def test_an_unusable_pack_is_refused(project_env, tmp_path, monkeypatch, capsys):  # noqa: F811
+    """I2: a pack that `pack check` finds unusable (here the project's copy no longer matches its SHA256SUMS) is a
+    refusal before any image, with the fix."""
+    proj = project_with_images(tmp_path, names=("a",))
+    readme = proj.root / "packs" / "test_pack" / "0.1.0" / "README.md"
+    readme.write_bytes(readme.read_bytes() + b"\nedited by hand\n")
+    seen = []
+    fake_run_loaded(monkeypatch, seen)
+    with pytest.raises(P.ProjectError, match="SHA256SUMS") as exc:
+        P.run_project(proj)
+    assert "not usable" in str(exc.value) and "fix:" in str(exc.value)
+    assert seen == [] and not (proj.root / "runs").exists()
+    assert cli.main(["project", "run", str(proj.root)]) == 2
+    assert "REFUSED: pack test_pack@0.1.0 recipe basic is not usable here" in capsys.readouterr().err
+
+
 def test_should_stop_between_images(project_env, tmp_path, monkeypatch):  # noqa: F811
     proj = project_with_images(tmp_path, names=("a", "b", "c"))
     seen = []

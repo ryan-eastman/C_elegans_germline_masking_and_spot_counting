@@ -21,6 +21,7 @@ from test_project_run import log_events, need_p2b, project_with_images
 import germquant.project as P
 from germquant import api, cli, cli_projects
 from germquant.project import manifest as M
+from germquant.project import runlog
 from germquant.project import status as S
 
 IMAGE_KEYS = ["id", "path", "status", "reason_code", "reason", "out_dir", "qc_pass", "last_run_id", "device_used",
@@ -148,11 +149,17 @@ def test_environment_mix_and_the_runs(project_env, tmp_path):  # noqa: F811
     assert [(r["run_id"], r["finished"], r["interrupted"], r["ended"]) for r in st["runs"]] == [
         ("20261024T100000Z_00000001", True, False, "2026-10-24T10:00:01.000+00:00"),
         ("20261024T110000Z_00000002", False, True, None)]          # no run_end: stopped, or still running
-    # a line that is not JSON, or a half line, is left out; a file that is no run log is not read
-    with open(proj.root / "runs" / "20261024T110000Z_00000002.jsonl", "ab") as fh:
-        fh.write(b'{"event": "image_done", "run_id": "20261024T1')
+    # a line still being written (no newline yet, even when it already reads as JSON) and a line that is not JSON
+    # are left out; a file that is no run log is not read
+    log2 = proj.root / "runs" / "20261024T110000Z_00000002.jsonl"
+    with open(log2, "ab") as fh:
+        fh.write(b"not json\n")
+        fh.write(json.dumps({"event": "image_done", "run_id": "20261024T110000Z_00000002", "status": "done",
+                             "time": "2026-10-24T11:00:02.000+00:00", "image_id": "a"}).encode("ascii"))
+    assert [e["event"] for e in runlog.read_log(log2)] == ["run_start"]
     (proj.root / "runs" / "notes.jsonl").write_bytes(b"not a log\n")
-    assert len(P.project_status(proj)["runs"]) == 2
+    runs = P.project_status(proj)["runs"]
+    assert len(runs) == 2 and runs[1]["counts"] == {"done": 0, "failed": 0, "skipped": 0}
 
 
 def test_lock_report(project_env, tmp_path):  # noqa: F811
