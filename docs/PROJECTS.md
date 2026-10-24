@@ -8,9 +8,20 @@ a cluster write the same files.
 Projects are new in germquant 0.2 (tranche 5, Train B). The design is docs/DESIGN_system_packs.md, section 7;
 packs are described in docs/PACKS.md.
 
+Windows (PowerShell, after `.venv\Scripts\activate`):
+
     germquant project new STUDY --pack cultured_cells --images "D:/scope/2026-10-20/*.ome.tif"
     germquant project edit STUDY --set spots.effect_size_min=4 --role foci="Cy3 RAD-51" --dry-run
     germquant project edit STUDY --set spots.effect_size_min=4 --role foci="Cy3 RAD-51"
+
+Mac (the Terminal, Applications > Utilities > Terminal, after `source .venv/bin/activate`):
+
+    germquant project new STUDY --pack cultured_cells --images "/Volumes/scope/2026-10-20/*.ome.tif"
+    germquant project edit STUDY --set spots.effect_size_min=4 --role foci="Cy3 RAD-51" --dry-run
+    germquant project edit STUDY --set spots.effect_size_min=4 --role foci="Cy3 RAD-51"
+
+The commands are the same on both; only the paths differ. Keep the quotes around a glob pattern, so germquant
+expands it rather than the shell, and around a channel name with a space in it.
 
 ## Layout and manifest
 
@@ -70,6 +81,9 @@ Only the commands that edit a project write it: new, add, edit, use-model and ro
   one image (a multi-scene OME-TIFF; split it into one file per scene), is an .nd2 with more than one position
   (P > 1; export each position as its own .nd2), or has the id of an image already in the project. The other
   files are still added, and the command exits with code 1 when anything was refused.
+- On Windows, a path longer than 260 characters (a deep folder on a NAS) is refused too, naming its length,
+  unless Windows long paths are turned on (the LongPathsEnabled setting): the image readers cannot open it.
+  Move the folder to a shorter path, or map a drive letter to it. The same holds for a project model.
 - The image id is the file name without its format suffix (`gonad_01.ome.tif` is `gonad_01`) and names the
   results folder, so ids must be unique, and may not differ only in letter case (Windows and macOS would put
   both into one folder). An id that no folder can carry on every system is refused too: one ending with a dot
@@ -100,13 +114,13 @@ validated becomes false: the pack's validation does not cover a changed recipe.
 
 | option | what |
 |---|---|
-| `--set KEY=VALUE` | set a tunable of the pack recipe (the settings the pack declares for the parameter form; `germquant pack show ID` lists them). VALUE is read as YAML: `4` is a number, `true` a boolean, `max` a word |
+| `--set KEY=VALUE` | set a tunable of the pack recipe (the settings the pack declares for the parameter form; `germquant pack show ID` lists them). VALUE is read as YAML 1.1, as the recipe file is: `4` is a number, `true` a boolean, `max` a word. Write an exponent with a dot and a sign, `1.0e-5` or `2.0e+3` (`1e-5` and `1.0e5` are read as words); `yes` and `no` are booleans, and `010` is the number 8 |
 | `--unset KEY` | drop an edit (or a stage switch, or `io.channel_map`, which drops every role edit) |
 | `--role ROLE=CHANNEL` | bind a channel role to an image's exact channel name (see Channel roles); the roles not named keep their binding, and `ROLE=` drops that role's edit |
 | `--revert` | drop every recipe edit, role edit and project model: back to the pack recipe |
 | `--no-<stage>` | turn a stage off in this project (as `--no-spots` does on `germquant run`; it enters the hash) |
 | `--device D`, `--xy-stride N`, `--z-range Z0 Z1`, `--runner R`, `--interpreter RECIPE=PYTHON`, `--samples FILE` | the run settings; the word `none` clears a device, z range, runner, interpreter or sample sheet |
-| `--dry-run` | print what would be written (the files, the role preview, the new config_hash) and write nothing |
+| `--dry-run` | print what would be written (the files, the role preview with its problems, the new config_hash) and write nothing; it exits 0 also when the edit itself would be refused, and says why |
 | `--plugin-version V`, `--json` | the plugin version for the stamps; machine-readable output |
 
 What each kind of edit may set (the engine refuses anything else, naming the key and the rule):
@@ -121,7 +135,13 @@ What each kind of edit may set (the engine refuses anything else, naming the key
 A value equal to the pack recipe's own is no edit, and when the last edit is dropped, recipe.yaml is removed and
 the project hashes as the pack recipe again. A change of run settings alone (device, stride, interpreter)
 never rewrites recipe.yaml. A hand edit of recipe.yaml is kept as an edit (origin manual), and the next edit
-rewrites the file in the form above, from the version the manifest pins.
+rewrites the file in the form above, from the version the manifest pins. A typo that leaves recipe.yaml unreadable
+as YAML makes every edit refuse with the line and column; fix the file, or go back with `--revert`.
+
+Only a recipe.yaml that the manifest records is used, rewritten or removed. One put into the folder by hand, for
+example copied from another project, is not used by runs: opening the project warns about it, no change removes
+it, and an edit that would replace it is refused until it is moved out of the folder. Its settings can then be
+made with `--set`.
 
 When a project is opened, its hash is computed again. A hash that differs from the one the manifest recorded is
 a warning that names the change: for example recipe.yaml extending another pack version than the manifest pins,
@@ -144,8 +164,17 @@ gammaH2AX) is written as a YAML escape and still matches.
 
 `--dry-run` (and the API's preview_roles) shows, for every image of the project, how each role binds with the
 edited map: by name, by index, or unbound. The preview is computed by the same code that writes the map and binds
-the roles in a run, so it shows exactly what will run. An edit is refused when a required role binds no channel
-on an image, or when two roles bind one channel.
+the roles in a run, so it shows exactly what will run. An edit is refused (exit 2) while a required role binds
+no channel on an image, or two roles bind one channel. The dry run lists those problems (`PROBLEM:` lines, and
+`preview.problems` with `--json`) and still exits 0, so the plugin's role editor can show them in red before
+anything is applied.
+
+A lab that needs a map the role editor cannot write (several tokens per role, or `match_by: index`) can keep its
+own map file in the project and name it in recipe.yaml by hand (`io:` then `channel_map: lab_map.yaml`, a path
+inside the project). The project runs with that map, every other edit keeps it, and no change removes it. A role
+edit is refused while recipe.yaml names it, since it would replace that map with the role editor's
+channel_map.yaml: drop the line first with `--unset io.channel_map` to go back to the pack's map. Likewise a
+channel_map.yaml the role editor did not write is never replaced.
 
 The limit in this release: the channel map applies to every image of the project. Per-image bindings outside the
 hash are not offered (design 7.3): the stage hashes that decide whether an image is done carry no channel roles,
@@ -158,6 +187,9 @@ A model trained in the project lives under `training/<round>/models/<name>/`. Ro
     germquant project rounds STUDY --new            # training/r01/, then r02 and so on
     germquant project rounds STUDY --new fine_tune  # a name of letters, digits, _ and -, up to 40 characters
     germquant project rounds STUDY                  # list them
+
+A round name may not differ from another only in letter case (`R01` next to `r01` is one folder on Windows and
+macOS).
 
 and `germquant project use-model STUDY --model training/r01/models/m1/m1` puts the model into the recipe:
 recipe.yaml names it by its path relative to the project (segmentation.nuclei.cellpose_model), and the manifest
@@ -185,7 +217,8 @@ process id as the message shows them:
     germquant project unlock STUDY --host LABPC --pid 4242
 
 The command refuses a host or pid that is not the holder's, so it never removes a lock another command has taken
-since.
+since. A lock file that cannot be read (a command that stopped while it was making the lock) is reported as
+such, whatever its age; once no germquant command is writing the project, delete it by hand.
 
 ## The light entry
 
@@ -198,9 +231,12 @@ after the pipeline has loaded torch.
 
 The napari plugin makes every project change through this entry, with the engine's own interpreter, so the code
 that writes a project is the code that runs it. With `--json` each command prints one JSON object on stdout (an
-error as `{"error": ...}`); the exit code is 0 when done, 1 when `add` (or `new --images`) refused some files,
-and 2 when the command was refused before anything was written. `--plugin-version V` records the plugin version
-in the manifest's stamps.
+error as `{"error": ..., "kind": ...}`); the exit code is 0 when done, 1 when `add` (or `new --images`) refused
+some files, and 2 when the command was refused. A refusal writes nothing. Exit 2 also reports the rare write that
+stops part way, when Windows still denies a file after 2 seconds (an indexer or a virus scanner holding it):
+recipe.yaml or channel_map.yaml may then be written while the manifest is not, and the message names what was
+written. Run the same command again to finish it. `--plugin-version V` records the plugin version in the
+manifest's stamps.
 
 The Python API is the same code: germquant.project offers new_project, open_project, save_project, add_images,
 project_config, preview_roles, write_recipe, revert_recipe, use_model, list_rounds, new_round and break_lock.

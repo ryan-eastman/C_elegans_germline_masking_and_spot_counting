@@ -12,8 +12,10 @@
   germquant project unlock DIR --host H --pid P [--json]
 
 Exit codes: 0 done; 1 done in part (`add` and `new --images` refused some files, each named with its reason);
-2 refused before anything was written (no project, a locked project, an invalid edit, an unknown pack), with the
-reason on stderr and, with --json, as {"error": ...} on stdout.
+2 refused (no project, a locked project, an invalid edit, an unknown pack, a project file that is not YAML), with
+nothing written, or a write that stopped part way (a file still denied after 2 s), whose message names what it
+wrote: the same command again finishes it. The reason goes to stderr and, with --json, as {"error", "kind"} to
+stdout.
 
 `edit` takes everything the project records: recipe edits (--set KEY=VALUE, a declared tunable of the pack
 recipe; VALUE is read as YAML, so 3 is a number and true a boolean), --unset KEY (a recipe edit, a stage switch
