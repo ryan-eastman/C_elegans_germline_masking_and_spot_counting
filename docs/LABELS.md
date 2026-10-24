@@ -54,9 +54,11 @@ template without any field names one file for every image. Any other field, a fo
 * An npz is read with numpy and `allow_pickle=False`: its first array, as Cell-ACDC saves it. An npz whose array
   holds Python objects is refused, and nothing in it is unpickled.
 * A 3D array without axis names (a segm.npz, or a plain TIFF that tifffile wrote without metadata) is a z stack
-  when its first axis has the image's number of planes, and a series of 2D labels (T, Y, X) otherwise. A series
-  of 2D labels with exactly as many frames as the image has planes cannot be told apart from a z stack: save it
-  as (T, 1, Y, X), or as an OME-TIFF with its axes.
+  when its first axis has the image's number of planes. For an image of one plane it is a series of 2D labels
+  (T, Y, X), as Cell-ACDC saves a 2D time-lapse. Any other number is refused: a z stack with planes missing or
+  added cannot be told apart from a series. A series of 2D labels for an image of several planes needs a named T
+  axis: save it as a (T, 1, Y, X) segm.npz or as an OME-TIFF with its axes. A plain TIFF drops an axis of one
+  plane, so (T, 1, Y, X) does not survive in it.
 * The ids are relabelled consecutively, 1 to N, in the order of the file's ids, after the cut. There is no size
   gate: `segmentation.nuclei.min_volume_um3` and `min_area_um2` do not apply, so every object of the file is an
   object of the run.
@@ -64,9 +66,10 @@ template without any field names one file for every image. Any other field, a fo
 ## Frames
 
 A label file with a T axis (an OME-TIFF or ImageJ TIFF with T in its axes, a (T, Z, Y, X) segm.npz, or a
-(T, Y, X) segm.npz whose first axis is not the image's planes) holds one label image per frame. `segmentation.nuclei.labels_frame` picks one; the default is
-0. A frame outside the file, or a frame other than 0 for a file without a T axis, is refused. The frame is chosen
-with this key rather than in the template (decision D13).
+(T, Y, X) segm.npz of an image with one plane) holds one label image per frame.
+`segmentation.nuclei.labels_frame` picks one; the default is 0. A frame outside the file, or a frame other than 0
+for a file without a T axis, is refused. The frame is chosen with this key rather than in the template (decision
+D13).
 
 ## What a labels run records
 

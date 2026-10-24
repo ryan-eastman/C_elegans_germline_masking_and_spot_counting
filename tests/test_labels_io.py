@@ -74,8 +74,8 @@ def test_reads_labels(tmp_path, kind):
     else:
         # Cell-ACDC time-lapse layouts: (T, Z, Y, X), and (T, Y, X) for a series of 2D labels
         cases = [(write_npz(tmp_path / "ct_segm.npz", series), 1, series[1], NZ),
-                 (write_npz(tmp_path / "ct2_segm.npz", series[:, 2]), 0, series[0, 2], NZ),
-                 (write_npz(tmp_path / "ct3_segm.npz", series[:, 2]), 1, series[1, 2], NZ)]
+                 (write_npz(tmp_path / "ct2_segm.npz", series[:, 2]), 0, series[0, 2], 1),
+                 (write_npz(tmp_path / "ct3_segm.npz", series[:, 2]), 1, series[1, 2], 1)]
     for path, frame, want, nz in cases:
         got = L.read_labels(path, nz=nz, frame=frame)
         assert got.dtype == np.int32 and got.shape == (nz, NY, NX), (path.name, got.shape)
@@ -129,11 +129,12 @@ def test_the_file_must_match_the_images_planes(tmp_path):
     p = write_ome(tmp_path / "z.ome.tif", lab3, "ZYX")
     with pytest.raises(L.LabelsError, match=r"6 planes.*the image has 8"):
         L.read_labels(p, nz=8)
-    # a segm.npz or plain TIFF whose first axis is not the image's planes is a series of 2D labels (T, Y, X)
+    # a segm.npz or plain TIFF without axis names: z when its first axis is the image's planes, a series of 2D
+    # labels (T, Y, X) for an image of one plane, refused otherwise (a z stack with planes missing is not frame 0)
     for path in (write_npz(tmp_path / "amb_segm.npz", lab3), write_tiff(tmp_path / "amb.tif", lab3)):
         np.testing.assert_array_equal(L.read_labels(path, nz=6), _relabelled(lab3))           # 6 = the image's Z
-        np.testing.assert_array_equal(L.read_labels(path, nz=8, frame=2),
-                                      np.repeat(_relabelled(lab3[2])[None], 8, axis=0))      # frame 2 of 6
+        with pytest.raises(L.LabelsError, match=r"6 planes and no axis names, and the image has 8"):
+            L.read_labels(path, nz=8, frame=2)
         np.testing.assert_array_equal(L.read_labels(path, nz=1, frame=4), _relabelled(lab3[4])[None])
     # what a label image cannot be
     with pytest.raises(L.LabelsError, match="channel"):

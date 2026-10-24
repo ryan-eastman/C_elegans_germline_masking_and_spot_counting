@@ -14,7 +14,8 @@ How a file is read, here and only here:
   import-labels --allow-pickle` converts one once (read_seg_npy is its reader).
 * The axes: a TIFF's own axes (T, Z; a C or colour-sample axis of more than one is refused). A segm.npz has none,
   so its layout follows Cell-ACDC: (Y, X), (Z, Y, X) or (T, Z, Y, X). A 3D array without axis names, (A, Y, X), is
-  a z stack when A is the image's number of planes and a series of 2D labels (T, Y, X) otherwise.
+  a z stack when A is the image's number of planes, a series of 2D labels (T, Y, X) when the image has one plane,
+  and refused otherwise.
 * ``segmentation.nuclei.labels_frame`` (code default 0, decision D13) picks the frame of a T axis; a file without
   one has frame 0 only.
 * The labels sit on the image's own grid: one plane (2D), or every plane of the image. z_range and xy_stride cut
@@ -203,11 +204,17 @@ def _frame(data: bytes, fmt: str, name: str, *, nz: int, frame: int) -> np.ndarr
     arr, axes = _npz(data, name) if fmt == "npz" else _tiff(data, name)
     how = ""
     if axes == "QYX":                                   # no axis names: the image's planes decide
-        n = int(arr.shape[0])
-        axes = "ZYX" if n == int(nz) else "TYX"
-        how = (f"its first axis of {n} was read as z, because the image has {int(nz)} planes" if axes == "ZYX" else
-               f"its first axis of {n} was read as time, because the image has {int(nz)} "
-               f"plane{'' if int(nz) == 1 else 's'}")
+        n, planes = int(arr.shape[0]), int(nz)
+        if n == planes:
+            axes, how = "ZYX", (f"its first axis of {n} was read as z, because the image has {planes} "
+                                f"plane{'' if planes == 1 else 's'}")
+        elif planes == 1:
+            axes, how = "TYX", f"its first axis of {n} was read as time, because the image has 1 plane"
+        else:
+            raise LabelsError(f"{name} has {n} planes and no axis names, and the image has {planes}: a labels file "
+                              f"holds one plane or every plane of the image (before --z-range); a series of 2D "
+                              f"labels for an image of several planes needs a named T axis (an OME-TIFF with T, or "
+                              f"a (T, 1, Y, X) segm.npz; docs/LABELS.md)")
     frame = int(frame)
     if axes.startswith("T"):
         n = int(arr.shape[0])
