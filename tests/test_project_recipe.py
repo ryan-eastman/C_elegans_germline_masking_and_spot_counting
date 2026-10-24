@@ -308,6 +308,21 @@ def test_edit_dry_run_writes_nothing_and_prints_what_preview_roles_returns(proje
                                                                                           "recipe.yaml"]
     rc = cli_projects.main(["edit", str(proj.root), "--revert", "--set", "spots.log.min_snr=3", "--json"])
     assert rc == 2 and "--revert" in last_json(capsys.readouterr().out)["error"]
+    # a role choice with a problem: the dry run shows it (exit 0, the preview with its problems); the edit refuses it
+    clash = {"dna": "RAD-51 Cy3", "foci": "RAD-51 Cy3"}
+    before = snapshot(proj.root)
+    argv = ["edit", str(proj.root), "--role", "dna=RAD-51 Cy3", "--role", "foci=RAD-51 Cy3", "--json"]
+    rc = cli_projects.main([*argv, "--dry-run"])
+    out = last_json(capsys.readouterr().out)
+    assert rc == 0 and out["dry_run"] is True and out["written"] == [] and snapshot(proj.root) == before
+    assert out["preview"] == preview_roles(proj, clash) and any("same channel" in p for p in out["preview"]["problems"])
+    assert out["preview"]["bindings"]["a"]["foci"] == {"channel": "RAD-51 Cy3", "how": "name"}
+    assert cli_projects.main(argv[:-1] + ["--dry-run"]) == 0
+    assert "PROBLEM: image a: the roles dna and foci bind the same channel" in capsys.readouterr().out
+    rc = cli_projects.main(argv)
+    out = last_json(capsys.readouterr().out)
+    assert rc == 2 and "same channel" in out["error"] and out["kind"] == "ProjectError"
+    assert snapshot(proj.root) == before
 
 
 def test_edit_writes_the_provenance_options(project_env, tmp_path, capsys):  # noqa: F811

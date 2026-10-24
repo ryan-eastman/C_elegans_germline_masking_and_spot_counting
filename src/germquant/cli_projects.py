@@ -21,8 +21,8 @@ or io.channel_map, which drops the role edits), --role ROLE=CHANNEL (bind a role
 name; ROLE= drops that role's edit), --revert (back to the pack recipe), and the run settings (--device, the
 word none clearing it; --xy-stride; --z-range Z0 Z1 or none; --runner; --interpreter RECIPE=PYTHON, PYTHON none
 removing it; --samples FILE or none; --no-<stage>). --dry-run prints what would be written, the role preview
-with the bindings per image and the new config_hash, and writes nothing. --plugin-version goes into the
-manifest's stamps.
+with the bindings per image and the problems that make the edit itself refused (exit 0 all the same), and the new
+config_hash, and writes nothing. --plugin-version goes into the manifest's stamps.
 
 This module imports nothing heavy at module level, so the same parsers serve cli.main (one line there) and
 germquant.project.__main__, whose commands never load torch (gate G6). The run, status, collect and
@@ -259,6 +259,8 @@ def _edit(args) -> int:
         for iid, b in plan["preview"]["bindings"].items():
             lines.append(f"  {iid}: " + ", ".join(f"{r}={v['channel']} ({v['how']})" for r, v in b.items()))
         lines += [f"  PROBLEM: {p}" for p in plan["preview"]["problems"]]
+        if plan["preview"]["problems"]:
+            lines.append("  without --dry-run this edit is refused while a problem is left")
     lines += [f"  warning: {w}" for w in plan["warnings"]]
     lines += [f"  wrote {n}" for n in plan["written"]] + [f"  removed {n}" for n in plan["removed"]]
     _emit(args, out, lines)

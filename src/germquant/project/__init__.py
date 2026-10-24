@@ -230,26 +230,29 @@ def project_config(project):
 
 def _apply(project, *, command: str, plugin_version=None, dry_run: bool = False, **change) -> dict:
     """Plan a change (project/recipe.py plan_change) and, unless ``dry_run``, write it under the lock: the recipe
-    files, then the manifest with a new saved stamp. Returns the plan plus ``written`` and ``removed``."""
+    files, then the manifest with a new saved stamp. Returns the plan plus ``written`` and ``removed``.
+
+    A write is refused (ProjectError) while a role edit has problems. A dry run is not: it returns the plan with
+    the problems in its preview, so the preview shows what a write refuses."""
     from .manifest import CHANNEL_MAP_NAME
     from .recipe import _file_bytes, plan_change
 
     root = _root(project)
     read_manifest(root)                          # not a project: refused before any lock file is made
 
-    def plan_for(m):
+    def plan_for(m, *, refuse: bool) -> dict:
         plan = plan_change(root, m, **change)
-        if plan["problems"] and change.get("roles") is not None:
+        if refuse and plan["problems"] and change.get("roles") is not None:
             raise ProjectError("the role edit is refused: " + "; ".join(plan["problems"]))
         return plan
 
     if dry_run:
-        plan = plan_for(read_manifest(root))
+        plan = plan_for(read_manifest(root), refuse=False)
         plan.update(written=[], removed=[])
         return plan
     written, removed = [], []
     with project_lock(root, command):
-        plan = plan_for(read_manifest(root))
+        plan = plan_for(read_manifest(root), refuse=True)
         new = plan["manifest"]
         new["saved"] = stamp(plugin_version)
         files = ((CHANNEL_MAP_NAME, plan["channel_map_bytes"]), (RECIPE_NAME, plan["recipe_bytes"]))
