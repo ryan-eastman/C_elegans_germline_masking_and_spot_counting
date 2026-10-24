@@ -1129,3 +1129,46 @@ Entries are appended, never edited. Each one says whether a test result had been
    15 percent); correct links do not fall (confirmation: the same); the dense S1b SD falls (confirmation: does not
    rise). The tuning seeds run the dense, gaps and iso families; the confirmation seeds run every registered family
    for the tolerances of entry 11 (b), once; the cost rule is checked on n2rad51_noHS_herm_000.
+23. 2026-10-24, the v2 development round (complete class), written before any tuning or confirmation number of this
+   change was computed (no test result had been computed, no test or reserved image was run, no test or reserved
+   truth was read and no sealed seed was generated). Revision 1 of the end matching (entry 22, commit ecf52a3) on
+   the tuning seeds against the configuration before entry 21
+   (C:/Users/ryane/sc_ribbon_work/v2/logs/step5r1_ecf52a3_tuning.json): wrong-ribbon links fell by 31 percent (107
+   to 74; met), correct links fell from 179 to 172 (failed) and the dense S1b SD rose from 8.59 to 8.81 percent
+   (failed); the mean went from -6.92 to -6.15 percent and the CCC from 0.535 to 0.564, angle rejections from 127 to
+   130 and strands longer than 9 um holding more than one ribbon from 0.64 to 0.40 per nucleus. The end matching
+   change is withdrawn without a second revision (link.junction_dirs is false by default; the switches and their
+   tests stay): directions measured beyond a junction rescue none of the pairs that the 50 degree rule rejects, and
+   what remains, fewer wrong links at the price of correct ones, gives no rule that the design seeds pointed to. The
+   junction end fit of PLAN_V2.md step 6 was implemented as the plan states it and run on the design seeds (2000 to
+   2049 and 3000 to 3049) with code that was never committed
+   (C:/Users/ryane/sc_ribbon_work/v2/logs/dev/step6_junction_endfit_explored.diff): against v1, the mean shortfall
+   at T and end-to-end ends went from 0.39 and 0.38 um to 0.42 and 0.44 um, the dense S1b mean from -4.9 and -4.8 to
+   -7.4 and -7.4 percent, the CCC from 0.579 and 0.594 to 0.527 and 0.533, and the pooled S1e precision from 0.910
+   and 0.888 to 0.862 and 0.857; with the bound on e at the path's closest approach to the neighbour, at that point
+   plus half the lateral FWHM, or with no bound, the shortfall stayed between 0.38 and 0.42 um and the mean between
+   -5.6 and -7.2 percent: the neighbour term takes up the ribbon's own end signal. The junction end fit is therefore
+   not proposed, and no entry of the round carries it. With the decomposition of v1 the dense S1b on the tuning
+   seeds has SD 8.59 percent and CCC 0.535, so the junction re-pairing of PLAN_V2.md step 8 follows this entry.
+   Motivated by development results (the taxonomy of entry 11): 27 of the 77 complete strands of the dense phantoms
+   were wrong (10 spurs at T or end-to-end contacts, 8 chimeras, 5 pieces of broken ribbons with both ends fitted, 4
+   end errors); another strand's end lay within 2 PSF FWHM of the switch point for 92 percent of the crossing turns,
+   55 percent of the T turns and 39 percent of the end-to-end joins. Method: besides the rule of v1, a complete
+   strand needs (i) length_um <= classes.max_complete_um (9.0 um: the longest pachytene SC of wild-type C. elegans
+   is about 7 um, the field review of the build, section 0, and the registered iso, gaps and foci ribbons reach 8
+   um; entry 21 set the same bound on chains, which entry 22 withdrew; here it bounds the class only), (ii) no end
+   within contamination_um of another strand, and (iii) no end of another strand whose outward direction lies within
+   45 degrees of the strand's local tangent (either sense) within classes.complete_guard_fwhm PSF FWHM (axial and
+   lateral, the image PSF) of a point of the strand more than 0.5 um from its own ends; the other strands are those
+   of the whole image. classes.complete_guard_fwhm is chosen on the tuning seeds from {1.0, 1.5, 2.0}: the smallest
+   value with pooled S1e precision >= 0.92 and dense S1e precision >= 0.85 there, else 2.0; the choice is repeated
+   by the same rule after any later change of this round that alters the strands, and confirmed once on the
+   confirmation seeds with the final configuration. A check of the code on the design seeds 2000 to 2049 (every
+   registered family, code not committed) gave pooled S1e precision 0.896 in v1 and 0.933, 0.940 and 0.947 at 1.0,
+   1.5 and 2.0 FWHM, dense precision 0.707 and 0.792, 0.826 and 0.882, and an unchanged iso recall (0.92). New keys:
+   classes.complete_guard (true; false gives v1), classes.complete_guard_fwhm, classes.max_complete_um (9.0; null
+   gives v1). Targeted metrics on the confirmation seeds: pooled S1e precision >= 0.90 and dense S1e precision >=
+   0.80; complete recall is reported by family and stays on iso at least 0.9 times that of v1; and the tolerances of
+   entry 11 (b). No length, continuity or intensity column changes: the class of a strand that fails the guard
+   becomes partial instead of complete, and with it n_complete and n_partial, complete_nucleus and
+   total_length_complete_um; no input of S2 depends on the class.
