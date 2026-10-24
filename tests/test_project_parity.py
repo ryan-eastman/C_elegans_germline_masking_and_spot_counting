@@ -149,14 +149,26 @@ def _snakemake() -> str:
 
 
 def test_snakemake_dry_run_project_mode(project_env, tmp_path):  # noqa: F811
-    """P5 acceptance 12: `snakemake -n` lists the .ome.tif jobs of a project under their image_stem ids."""
+    """P5 acceptance 12: `snakemake -n` lists the .ome.tif jobs of a project under their image_stem ids. It runs
+    from the repository folder, as the docs say, and leaves nothing there."""
     exe = _snakemake()
     proj = new_test_project(tmp_path / "proj")
     P.add_images(proj, [example_copy(proj.root / "images", "g1"), example_copy(proj.root / "images", "g 2")])
-    r = subprocess.run([exe, "-n", "-p", "-s", str(ROOT / "workflow" / "Snakefile"), "--cores", "1", "--config",
-                        f"project={proj.root}"], capture_output=True, text=True, cwd=ROOT,
-                       env=subprocess_env(GERMQUANT_PACKS=TEST_PACK.parent), timeout=600)
+    # Snakemake keeps its cache under the user's local application data, which Windows finds under USERPROFILE
+    # (the fixture's home): without that folder the cache path comes out relative to the working folder
+    (project_env.home / "AppData" / "Local").mkdir(parents=True, exist_ok=True)
+    left = {name: (ROOT / name).exists() for name in (".snakemake", "snakemake")}
+    try:
+        r = subprocess.run([exe, "-n", "-p", "-s", str(ROOT / "workflow" / "Snakefile"), "--cores", "1", "--config",
+                            f"project={proj.root}"], capture_output=True, text=True, cwd=ROOT,
+                           env=subprocess_env(GERMQUANT_PACKS=TEST_PACK.parent), timeout=600)
+        stray = [name for name, was in left.items() if name != ".snakemake" and not was and (ROOT / name).exists()]
+    finally:
+        for name, was in left.items():           # only what this run made: .snakemake is Snakemake's own record
+            if not was:
+                shutil.rmtree(ROOT / name, ignore_errors=True)
     assert r.returncode == 0, (r.stdout + r.stderr)[-3000:]
+    assert stray == [], f"snakemake left {stray} in {ROOT}"
     out = r.stdout + r.stderr
     for iid in ("g1", "g 2"):
         assert f'project run "{proj.root}" --images "{iid}" --via snakemake' in out, out[-3000:]
