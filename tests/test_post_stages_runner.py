@@ -49,7 +49,8 @@ def _run(rf, entries, **kw):
     return PS.run_post_stages(rf.out_dir, rf.image_id, entries, cfg=rf.cfg, image_path=rf.image_path, **kw)
 
 
-def test_the_fixture_writes_only_its_declared_table_and_the_record(tmp_path, fixture_post_stage):
+@pytest.mark.usefixtures("fixture_post_stage")
+def test_the_fixture_writes_only_its_declared_table_and_the_record(tmp_path):
     rf = make_result_folder(tmp_path)
     before = snapshot(rf.out_dir)
     empty = _run(rf, [])
@@ -92,7 +93,8 @@ def test_the_fixture_writes_only_its_declared_table_and_the_record(tmp_path, fix
         assert table2.loc[i, "foci_value_scaled"] == pytest.approx(2.0 * table2.loc[i, "foci_value"])
 
 
-def test_the_sub_hash_follows_params_the_file_digest_and_the_inputs(tmp_path, fixture_post_stage):
+@pytest.mark.usefixtures("fixture_post_stage")
+def test_the_sub_hash_follows_params_the_file_digest_and_the_inputs(tmp_path):
     """D32: the parameters, the post_stages.yaml digest, the main run's read sub-hash, the digest of each table
     and of the label image the post-stage reads, and the spacing. Tables are digested on LF-normalised bytes; a
     table it does not read and the raw image itself never enter."""
@@ -135,7 +137,7 @@ def test_the_sub_hash_follows_params_the_file_digest_and_the_inputs(tmp_path, fi
 
         lab = tifffile.imread(p)
         lab[lab == 2] = 0
-        tifffile.imwrite(p, lab, compression="zlib")
+        tifffile.imwrite(p, lab, compression="zlib", photometric="minisblack")
 
     def line_endings(p):
         data = p.read_bytes().replace(b"\r\n", b"\n")
@@ -201,7 +203,8 @@ def test_resume_skips_a_matching_sub_hash(tmp_path):
         PS.unregister_post_stage("second_stage")
 
 
-def test_failure_recorded_image_stays_done(tmp_path, fixture_post_stage):
+@pytest.mark.usefixtures("fixture_post_stage")
+def test_failure_recorded_image_stays_done(tmp_path):
     """Acceptance 4: a failing post-stage is recorded in __post.json and the image stays done (the completion
     marker is byte-identical and is_done still says done). Entries that cannot run are recorded, never raised."""
     rf = make_result_folder(tmp_path)
@@ -281,8 +284,8 @@ def test_a_post_stage_that_breaks_the_contract_fails_alone(tmp_path):
             PS.unregister_post_stage(name)
 
 
-def test_the_image_is_read_through_the_run_reader_at_its_stride_and_z_range(tmp_path, monkeypatch,
-                                                                             fixture_post_stage):
+@pytest.mark.usefixtures("fixture_post_stage")
+def test_the_image_is_read_through_the_run_reader_at_its_stride_and_z_range(tmp_path, monkeypatch):
     """Without a stack handed over, the image is read with the run's reader (process_image's seam), at the
     xy_stride and z_range of the completion marker, once per image however many post-stages read it."""
     from germquant import pipeline
@@ -320,7 +323,8 @@ def test_the_image_is_read_through_the_run_reader_at_its_stride_and_z_range(tmp_
         assert table.loc[i, "foci_value"] == pytest.approx(float(foci[run_labels == i].mean()))
 
 
-def test_unfinished_series_and_foreign_results_are_refused(tmp_path, fixture_post_stage):
+@pytest.mark.usefixtures("fixture_post_stage")
+def test_unfinished_series_and_foreign_results_are_refused(tmp_path):
     """The runner's own guards, behind the entry points' refusals: no completion marker (the main run did not
     finish), a time-series timepoint (refused in T5, D33) and a folder made with another config_hash are each
     recorded as a failure of every stage, and nothing else is written."""

@@ -302,10 +302,11 @@ def test_write_validates_in_its_own_environment(tmp_path):
     assert r.returncode == 2 and "not a folder" in r.stderr, r.stderr
 
 
-def test_post_stages_file_round_trip(tmp_path, fixture_post_stage):
+@pytest.mark.usefixtures("fixture_post_stage")
+def test_post_stages_file_round_trip(tmp_path):
     """post_stages.yaml: written ASCII with LF (non-ASCII text escaped), read back unchanged, refused when
     malformed; its digest is taken on LF-normalised bytes, and a list digests like the file written from it."""
-    name = fixture_post_stage
+    name = T.FIXTURE_NAME
     path = tmp_path / PS.POST_STAGES_FILE
     entries = [{"name": name, "params": {"statistic": "max", "factor": 3}}]
     PS.write_post_stages_file(path, entries)

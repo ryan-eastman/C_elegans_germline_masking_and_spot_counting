@@ -132,7 +132,8 @@ def make_result_folder(root: Path, image_id: str = "img_001", *, xy_stride: int 
         for k, v in shared.items():
             df[k] = v
         df.to_csv(out / f"{image_id}__{name}.csv", index=False)
-    tifffile.imwrite(out / f"{image_id}__nuclei_labels.tif", labels.astype(np.int32), compression="zlib")
+    tifffile.imwrite(out / f"{image_id}__nuclei_labels.tif", labels.astype(np.int32), compression="zlib",
+                     photometric="minisblack")
     (out / f"{image_id}__montage.png").write_bytes(b"\x89PNG stand-in, not an image\n")
     (out / "run_manifest.json").write_text(json.dumps({"config_hash": cfg.hash, "xy_stride": xy_stride}, indent=2),
                                            encoding="utf-8")
