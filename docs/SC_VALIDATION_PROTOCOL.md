@@ -841,3 +841,23 @@ Entries are appended, never edited. Each one says whether a test result had been
    unchanged. Targeted metric (i) is now the error criterion of entry 12 for the image PSF this rule makes from N_s
    stretches and N_f foci drawn together (500 draws) at every level, and (ii) is unchanged; the adoption rule of
    entry 12 holds for this revision, on the tuning and then once on the confirmation seeds.
+15. 2026-10-24, the v2 development round (per-image PSF, revision 2 of entries 12 to 14), written before any
+   confirmation number of the change was computed (no test result had been computed, no test or reserved image was
+   run, no test or reserved truth was read and no sealed seed was generated). Revision 1 (commit 8b744af) on the
+   tuning seeds (C:/Users/ryane/sc_ribbon_work/v2/logs/step1_8b744af_tuning.json and
+   step1_psf_select_8b744af_tuning.json): every psf_check scene took the foci estimate (25 to 29 kept fits per
+   scene), with per-image relative errors of sigma_z of median +2.9, +1.1, -0.5 and -1.5 percent at sigma_z 0.33,
+   0.38, 0.43 and 0.48 um (90th percentiles of the absolute error 4.9, 2.9, 1.4 and 3.1 percent), against +10.6,
+   -4.0, -15.1 and -24.0 percent with the fallback; targeted metric (i) as entry 14 defined it, on draws of N_s 20
+   stretches and N_f 15 foci, failed at 0.33 um only (median +3.1 percent); targeted metric (ii) cannot measure the
+   change: the mean length errors of the arcs were 0.1231 um with and without it at 0.43 um and 0.1723 and 0.1721 um
+   at 0.48 um, because the lengths of the end rule do not depend on the image PSF in these scenes (the fitted edge
+   sigma stays inside its PSF-scaled bounds). The criteria of 8.1 on the registered families were identical (their
+   scenes have no wavelengths and fewer than 20 stretches, so they keep the fallback). Revision 2 changes nothing in
+   the method of revision 1. Its targeted metrics, stated now: (i) the image PSF that the pipeline makes for each
+   psf_check scene (sigma_z of its record) has, at every level, a median relative error within +/-3 percent and a
+   90th percentile of its absolute error of at most 8 percent; (ii) is dropped; the tolerances and the cost rule of
+   entry 11 (b) stay. The tuning values of this (i) are those above, seen before this entry, so the confirmation
+   seeds decide alone: the change is adopted when (i) and the tolerances hold there (once, seeds 11000 to 11099) and
+   the cost rule holds on n2rad51_noHS_herm_000; otherwise it is withdrawn (psf.foci off) and the round continues
+   with the PSF of v1. No further revision of the per-image PSF is made in this round.
