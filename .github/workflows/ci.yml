@@ -32,8 +32,9 @@
 # two jobs, shards 0 and 1: a shard takes every other file of the sorted tests/test_*.py list, and the
 # two together run every test file once. ubuntu-latest and macos-14 keep one job (shard "all"). If a
 # Windows shard passes the budget, rebalance the shards (the rule in the Test step) before trimming
-# tests (design section 14, the Train B answers of 2026-10-23). A rehearsal of these commands in a fresh
-# environment on the workstation is recorded in tests/README.md.
+# tests (design section 14, the Train B answers of 2026-10-23). A rehearsal of the install and test
+# commands in a fresh environment on the workstation is recorded in tests/README.md; it dates from
+# 2026-10-09, before the Windows split and the readers step.
 name: CI
 
 on:
@@ -126,11 +127,22 @@ jobs:
         run: uv pip install --system -c ${{ matrix.constraints }} -e ".[gpu,spots,sc,dev,timelapse]" numba
 
       - name: Install the TIFF readers (bioio with its TIFF and OME-TIFF plugins, as in the workstation .venv)
-        # constraints/readers-2026-10.txt pins bioio, bioio-base, the two readers and their dependencies at
-        # the workstation .venv's versions, and the matrix constraints keep every other package at its CI
-        # pin. The tests that need these readers (single-plane and OME-TIFF reads through germquant.io, and
-        # Train B's project tests that read the test pack's OME-TIFF example) then run on every system.
+        # constraints/readers-2026-10.txt pins bioio, bioio-base, the two readers and most of their
+        # dependencies at the workstation .venv's versions, and the matrix constraints keep the packages they
+        # pin at their CI pins. Thirteen packages that the readers bring in are pinned by neither file and
+        # resolve to their newest releases: zarr, numcodecs, kerchunk, donfig, google-crc32c and ujson
+        # (through tifffile[zarr], which the two readers ask for), msgpack, sortedcontainers, tblib, tornado
+        # and zict (through distributed), and flexcache and flexparser (through pint). constraints/ is frozen
+        # in Train B, so pinning them is a follow-up. The tests that need these readers (single-plane and
+        # OME-TIFF reads through germquant.io, and Train B's project tests that read the test pack's OME-TIFF
+        # example) then run on every system.
         run: uv pip install --system -c ${{ matrix.constraints }} -c constraints/readers-2026-10.txt bioio bioio-base bioio-tifffile bioio-ome-tiff
+
+      - name: Check that the TIFF readers import
+        # Those tests skip when a reader is missing (pytest.importorskip), so without this step a broken
+        # readers install would pass as skipped tests. One command, so its exit code is the step's on every
+        # shell (the Windows default, pwsh, takes only the last command's).
+        run: python -c "import importlib.metadata as m, bioio, bioio_tifffile, bioio_ome_tiff; print(*(f'{d} {m.version(d)}' for d in ('bioio', 'bioio-base', 'bioio-tifffile', 'bioio-ome-tiff')))"
 
       - name: Record the resolved environment
         run: |
