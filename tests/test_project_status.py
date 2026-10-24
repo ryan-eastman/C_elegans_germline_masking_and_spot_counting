@@ -149,7 +149,15 @@ def test_status_reports_a_model_that_is_not_here(project_env, tmp_path, capsys):
     hand_edit_recipe(proj, {"segmentation": {"nuclei": {"cellpose_model": "no_such_model"}}})
     st = P.project_status(proj)
     assert [r["status"] for r in st["images"]] == ["missing"]
-    assert any("cannot be resolved here" in w and "no_such_model" in w for w in st["warnings"]), st["warnings"]
+    said = [w for w in st["warnings"] if "cannot be resolved here" in w]
+    assert len(said) == 1 and "no_such_model" in said[0] and "not compared" in said[0], st["warnings"]
+    with pytest.raises(P.ProjectError, match="cannot be resolved"):
+        P.run_project(proj)
+    # the classical method loads no model, but process_image still resolves the name, so a run is refused: status
+    # says so too (the segment stage is compared there: its sub-hash takes no model digest)
+    hand_edit_recipe(proj, {"segmentation": {"nuclei": {"method": "classical", "cellpose_model": "no_such_model"}}})
+    said = [w for w in P.project_status(proj)["warnings"] if "cannot be resolved here" in w]
+    assert len(said) == 1 and "refused" in said[0] and "not compared" not in said[0], said
     with pytest.raises(P.ProjectError, match="cannot be resolved"):
         P.run_project(proj)
     # a project model removed after use-model: reported missing, never raised

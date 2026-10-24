@@ -24,11 +24,13 @@ its stage record, last_run_id from the last run that processed it (done or faile
 in this environment outside the project, ``project_copy`` whether packs/<id>/<version>/ holds the project's copy.
 ``models`` is project/run.py's model check, the one a run refuses on. The warnings are open_project's (a hash
 that changed and why, the project's copy of the pack missing or replaced, an unrecorded recipe.yaml, a held or
-stale lock), a model the run needs that is missing or not the recorded file, a segmentation model the engine
-cannot resolve on this computer (then the images' segment stage is not compared; status reports such a model and
-never fails on it), the labels_from rule of D12, and an environment mix: runs that name more than one device,
-interpreter or engine git sha. ``runs`` merges every log under runs/ by time; a run whose log has no run_end (it
-was stopped without one, or is still running in another process) is ``interrupted`` with ``finished`` false.
+stale lock), a model the run needs that is missing or not the expected file, a segmentation model the engine
+cannot resolve on this computer (said once, in the run's own words where a run would refuse, the classical
+method included; status reports such a model and never fails on it, and where the segment hash needs the model
+the images' segment stage is not compared), the labels_from rule of D12, and an environment mix: runs that name
+more than one device, interpreter or engine git sha. ``runs`` merges every log under runs/ by time; a run whose
+log has no run_end (it was stopped without one, or is still running in another process) is ``interrupted`` with
+``finished`` false.
 """
 from __future__ import annotations
 
@@ -181,6 +183,26 @@ def _series_refused(entry: dict, path, ctx: dict) -> str | None:
     return series_refusal_text(entry, why) if why else None
 
 
+def _resolution_warning(cfg, manifest: dict, models: list[dict], problem: str | None) -> str | None:
+    """The warning for a segmentation model the engine cannot resolve on this computer, said once (None when a
+    needed model is already reported missing or mismatched). Where a run makes the check (no labels_from, and a
+    fixed image to run: process_image resolves the model under every method, classical included), it is the
+    run's own refusal; ``problem`` is ResumeHashes', whose segment stage comparison is then left out."""
+    from .run import LABELS_KEY, _model_resolution_refusal, is_series
+
+    if any(r["needed"] and (not r["present"] or r["mismatch"]) for r in models):
+        return None
+    fixed = any(not is_series(e) and not e.get("excluded") for e in manifest.get("images") or [])
+    refusal = _model_resolution_refusal(cfg) if fixed and cfg.get(LABELS_KEY) is None else None
+    if refusal is None and problem is None:
+        return None
+    text = refusal or (f"the recipe's segmentation model cannot be resolved here ({problem}): its images fail in "
+                       f"a run until the model is back")
+    if problem is not None:
+        text += "; until then the images' segment stage is not compared"
+    return text
+
+
 def project_status(project) -> dict:
     """The status record of the module docstring (PLAN.md 9.3). ProjectError only when the project's recipe does
     not load (open_project names why); a model that is not on this computer is reported, never raised."""
@@ -220,9 +242,9 @@ def project_status(project) -> dict:
            "z_range": (int(zr[0]), int(zr[1])) if zr else None, "last": last, "processed": processed}
     with use_project(root):
         images = [_image(e, ctx) for e in m.get("images") or []]
-    if ctx["hashes"].problem and not any(r["needed"] and (not r["present"] or r["mismatch"]) for r in models):
-        warnings.append(f"the recipe's segmentation model cannot be resolved here ({ctx['hashes'].problem}): the "
-                        f"images' segment stage is not compared, and a run is refused until the model is back")
+        unresolved = _resolution_warning(cfg, m, models, ctx["hashes"].problem)
+    if unresolved:
+        warnings.append(unresolved)
     p = m["pack"]
     installed = _version_sort({pk.version for pk in discover().packs if pk.id == p["id"]})
     return {"format": FORMAT, "root": str(root), "name": m.get("name"), "config_hash": proj.config_hash,

@@ -403,9 +403,9 @@ segmented on and the file a run reads (a relative path joined to the project fol
 - warnings: a config hash that changed since the project was saved (with the pack version change it comes from), the
   project's copy of the pack missing or replaced, a recipe.yaml the manifest does not record, a held or stale lock,
   a model a run would refuse (missing, not the expected file, or a segmentation model the engine cannot resolve
-  on this computer, which status reports instead of failing: the images' segment stage is then not compared),
-  and an environment mix: runs that used more than one device, interpreter or engine version (git sha), whose
-  results can differ.
+  on this computer, which status reports instead of failing; when the recipe segments with that model, the
+  images' segment stage is then not compared), and an environment mix: runs that used more than one device,
+  interpreter or engine version (git sha), whose results can differ.
 
 `--json` prints the same as one JSON object, the record germquant.project.project_status returns: format, root,
 name, config_hash, expected_config_hash, edited, validated, pack, models, images (one object per image, with the
