@@ -20,8 +20,12 @@
 # with torch and torchvision as CPU wheels from the PyTorch CPU index. The macos-14 job (arm64, gate G1 of
 # docs/DESIGN_system_packs.md) installs against constraints/ci-mac-arm64-2026-10.txt, the same pins with torch
 # taken from PyPI (the macOS arm64 wheel). A test that cannot pass on macOS for an environment reason is
-# marked with the reason and listed in the PR. astral-sh/setup-uv saves the uv cache directory between runs
-# (enable-cache), keyed on pyproject.toml and the constraints files.
+# marked with the reason and listed in the PR. Every job then installs the two bioio TIFF readers
+# (bioio, bioio-base, bioio-tifffile and bioio-ome-tiff) against constraints/readers-2026-10.txt, the
+# versions of the workstation .venv, so the bioio paths of germquant.io (single-plane and OME-TIFF reads)
+# are tested on all three systems (design O4; Q3 of the Train B answers in design section 14).
+# astral-sh/setup-uv saves the uv cache directory between runs (enable-cache), keyed on pyproject.toml and
+# the constraints files.
 #
 # Budget (gate G1 of docs/DESIGN_system_packs.md): 15 minutes per job, and each PR records the CI time
 # it adds. windows-latest took 15.4 minutes on main 8eb73de (its Test step 13.9), so its tests run in
@@ -102,6 +106,7 @@ jobs:
             pyproject.toml
             constraints/ci-cpu-2026-10.txt
             constraints/ci-mac-arm64-2026-10.txt
+            constraints/readers-2026-10.txt
 
       - name: Install torch and torchvision (CPU wheels from the PyTorch index)
         # Installed first and on their own, as the Dockerfile does, so no resolver can swap in the
@@ -119,6 +124,13 @@ jobs:
         # numba is named explicitly because SpotMAX imports it at load time without declaring it (it
         # would otherwise arrive only as a dependency of skan). Everything resolves against the pins.
         run: uv pip install --system -c ${{ matrix.constraints }} -e ".[gpu,spots,sc,dev,timelapse]" numba
+
+      - name: Install the TIFF readers (bioio with its TIFF and OME-TIFF plugins, as in the workstation .venv)
+        # constraints/readers-2026-10.txt pins bioio, bioio-base, the two readers and their dependencies at
+        # the workstation .venv's versions, and the matrix constraints keep every other package at its CI
+        # pin. The tests that need these readers (single-plane and OME-TIFF reads through germquant.io, and
+        # Train B's project tests that read the test pack's OME-TIFF example) then run on every system.
+        run: uv pip install --system -c ${{ matrix.constraints }} -c constraints/readers-2026-10.txt bioio bioio-base bioio-tifffile bioio-ome-tiff
 
       - name: Record the resolved environment
         run: |
