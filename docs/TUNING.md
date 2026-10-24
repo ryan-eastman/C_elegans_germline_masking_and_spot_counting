@@ -161,9 +161,9 @@ The objective ranks the settings by the pooled object CCC rounded to 3 decimals,
 the F1 of a setting that detects nothing). Settings with the same two values keep the grid's order. This is
 the order the RAD-51 harness ranks by.
 
-When every annotated object holds the same number of points (one focus in each, say), the CCC formula is
-0 / 0. A setting whose counts equal yours then scores a CCC of 1.0, and every other setting 0.0, so the
-setting that finds exactly your counts still ranks first.
+When every annotated object holds the same number of points (one focus in each, say), the CCC formula gives
+0 / 0 for the setting that finds exactly those counts. That setting scores a CCC of 1.0 and every other setting
+0.0, so the setting that finds exactly your counts still ranks first.
 
 ## The run folder
 
@@ -186,13 +186,14 @@ germquant tune-spots --project DIR --apply tuning/<run_id> [--plugin-version V] 
 ```
 
 writes the run's `best.yaml` into the project's `recipe.yaml` through the project's recipe writer, with the
-edit origin `tuning` (`--plugin-version`, which the napari plugin passes, goes into the manifest's saved
-stamp; the search options `--points`, `--grid`, `--max-runs` and `--out` are refused here): `recipe.yaml` extends the pack's recipe (`extends: pack:<id>@<version>/<recipe>`) and
-adds the best keys. A tuning edit may set keys the pack does not offer in its parameter form (such as
-`spots.sharpen`), but only the keys of that run's grid, and only when the run tuned the backend the recipe uses
-now. The project's config hash changes, `validated` turns false and every image turns stale with the reason
-config_hash. In Python: `germquant.tune.apply_tuning(project, "tuning/<run_id>")`, which returns the new
-config hash.
+edit origin `tuning`: `recipe.yaml` extends the pack's recipe (`extends: pack:<id>@<version>/<recipe>`) and
+adds the best keys. `--plugin-version`, which the napari plugin passes, goes into the manifest's saved stamp;
+the search's options `--points`, `--grid`, `--max-runs` and `--out` are refused with `--apply`, and
+`--plugin-version` without it. A tuning edit may set keys the pack does not offer in its parameter form
+(such as `spots.sharpen`), but only the keys of that run's grid, and only when the run tuned the backend the
+recipe uses now. The project's config hash changes, `validated` turns false and every image turns stale with
+the reason config_hash. In Python: `germquant.tune.apply_tuning(project, "tuning/<run_id>")`, which returns
+the new config hash.
 
 When the recipe is no longer the config the tuning run's images were run with (an edit or another Apply
 since, as `run.json` records their config hashes), Apply still writes the best keys and warns: they were

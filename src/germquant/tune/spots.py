@@ -9,9 +9,9 @@ image's truth points (``germquant.tune.points``) inside the annotated objects, t
 one truth point:
 
 * per object, the truth count (its points) against the detected count, pooled over the objects of every
-  image: Lin's CCC (``object_ccc``). Two equal series of at least two objects count as a CCC of 1.0: the
-  formula is 0 / 0 when every annotated object holds the same count, and the set that finds exactly those
-  counts must not rank below every other set (``_ccc``);
+  image: Lin's CCC (``object_ccc``). Two equal series of at least two objects count as a CCC of 1.0: when
+  every annotated object holds the same count, the formula is 0 / 0 for the set that finds exactly those
+  counts, and that set must not rank below every other set (``_ccc``);
 * per point, a one-to-one matching of the detected spots inside those objects with the truth points inside
   an anisotropic cylinder of 0.3 um in xy and 0.4 um in z (the RAD-51 harness's tolerances; points placed on
   a projection are matched in 2D): precision, recall and F1, pooled from the summed counts (``point_f1``).
