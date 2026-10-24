@@ -24,20 +24,22 @@ from germquant import pipeline
 GONAD_SHAPE = (20, 80, 320)
 GONAD_SPACING = (0.4, 0.2, 0.2)
 GONAD_X = [*range(20, 210, 17), 280, 295, 310]
-TRUTH_RADIUS_UM = 1.4          # the planted blobs have sigma 1.6 um; 1.4 um keeps neighbours (3 um apart) apart
+# the truth radius, 1.4 um (the planted blobs have sigma 1.6 um; 1.4 um keeps neighbours 3 um apart apart), in xy
+# pixels of 0.2 um, and a z step of 0.4 um as 2 such pixels: integers, so every platform draws the same voxels
+TRUTH_RADIUS_PX = 7
+Z_STEP_PX = 2
 TEMPLATE = "{image_dir}/{image_stem}_truth_labels.tif"
 VOLATILE = ["git_sha", "run_timestamp", "pipeline_version", "file_path", "config_hash"]
 
 
-def truth_labels(shape=GONAD_SHAPE, spacing=GONAD_SPACING, xs=GONAD_X, radius_um=TRUTH_RADIUS_UM,
-                 zc: int = 10, yc: int = 40) -> np.ndarray:
-    """int32 (Z, Y, X): an ellipsoid of ``radius_um`` (micrometres, so anisotropic in voxels) around each planted
-    nucleus, ids 1..N in the order of ``xs``."""
-    zz, yy, xx = np.indices(shape, dtype=np.float32)
+def truth_labels(shape=GONAD_SHAPE, xs=GONAD_X, zc: int = 10, yc: int = 40) -> np.ndarray:
+    """int32 (Z, Y, X): a sphere of 1.4 um (an ellipsoid in voxels) around each planted nucleus, ids 1..N in the
+    order of ``xs``. Integer arithmetic, so the voxels that lie exactly on the radius are in on every CPU."""
+    zz, yy, xx = np.indices(shape)
     lab = np.zeros(shape, np.int32)
     for i, cx in enumerate(xs, 1):
-        d2 = (((zz - zc) * spacing[0]) ** 2 + ((yy - yc) * spacing[1]) ** 2 + ((xx - cx) * spacing[2]) ** 2)
-        lab[d2 <= radius_um ** 2] = i
+        d2 = (Z_STEP_PX * (zz - zc)) ** 2 + (yy - yc) ** 2 + (xx - cx) ** 2
+        lab[d2 <= TRUTH_RADIUS_PX ** 2] = i
     return lab
 
 
