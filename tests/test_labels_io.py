@@ -273,7 +273,7 @@ def test_labels_path_template(tmp_path):
     # a relative image path: {image_dir} is its absolute folder
     rel = L.labels_path(cfg, Path("some") / "g.nd2")
     assert rel.is_absolute() and rel == (Path.cwd() / "some" / "g_segm.npz")
-    # a template without {image_dir} that is relative resolves against the recipe's folder, as io.channel_map does
+    # a relative template resolves against Config.base_dir, the folder of the recipe that is run (docs/LABELS.md)
     cfg.set("segmentation.nuclei.labels_from", "truth/{image_id}.tif")
     assert L.labels_path(cfg, image) == cfg.base_dir / "truth" / "20260101_cells_001.tif"
     absolute = tmp_path / "abs" / "{image_stem}.tif"
@@ -350,3 +350,17 @@ def test_check_planar_skips_the_segmentation_backend_in_labels_runs():
     cfg.set("axis.enabled", True)
     with pytest.raises(planar.PlanarConfigError, match="the axis stage"):
         planar.check_planar(cfg, roles)
+
+
+def test_importing_the_module_is_light():
+    """In a fresh interpreter, never the suite's own process: importing germquant.io.labels loads no reader or
+    backend (tifffile and scikit-image load only when a file is read), so a light entry can import it."""
+    import subprocess
+
+    from packs_helpers import HEAVY, PYTHON, subprocess_env
+
+    heavy = (*HEAVY, "bioio", "dask.array", "tifffile", "skimage")
+    code = f"import sys\nimport germquant.io.labels\nprint([m for m in {heavy!r} if m in sys.modules])\n"
+    r = subprocess.run([PYTHON, "-c", code], capture_output=True, text=True, timeout=300, env=subprocess_env(),
+                       cwd=ROOT)
+    assert r.returncode == 0 and r.stdout.strip() == "[]", (r.stdout, r.stderr[-2000:])

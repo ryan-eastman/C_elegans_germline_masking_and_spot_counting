@@ -5,13 +5,15 @@ tranche 5 package P2c).
 image's folder, absolute), {image_stem} (its file name without the format suffix) and {image_id} (the image id,
 which for a fixed image is the stem). When it is set the segment stage reads the label image the template names
 instead of segmenting: a TIFF or OME-TIFF label image, or a Cell-ACDC ``segm.npz``. A relative result resolves
-against the recipe's folder (Config.base_dir), as io.channel_map does.
+against Config.base_dir, the folder of the recipe that is run (unlike io.channel_map, a relative template that a
+recipe inherits through extends is not anchored to its base recipe).
 
 How a file is read, here and only here:
 
 * TIFF and OME-TIFF through tifffile (never bioio), npz files with numpy and allow_pickle=False (the first array,
-  as Cell-ACDC saves it). A Cellpose ``_seg.npy`` is a pickle, so the run path never reads a .npy file: `germquant
-  import-labels --allow-pickle` converts one once (read_seg_npy is its reader).
+  as Cell-ACDC saves it). A Cellpose ``_seg.npy`` is a pickle, so the run path never reads a .npy file: its masks
+  are saved as a TIFF for labels_from, and `germquant import-labels --allow-pickle` converts one into training
+  pairs (read_seg_npy is its reader).
 * The axes: a TIFF's own axes (T, Z; a C or colour-sample axis of more than one is refused). A segm.npz has none,
   so its layout follows Cell-ACDC: (Y, X), (Z, Y, X) or (T, Z, Y, X). A 3D array without axis names, (A, Y, X), is
   a z stack when A is the image's number of planes, a series of 2D labels (T, Y, X) when the image has one plane,
@@ -47,9 +49,10 @@ TIFF_SUFFIXES = (".ome.tif", ".ome.tiff", ".tif", ".tiff")
 LABEL_SUFFIXES = (*TIFF_SUFFIXES, ".npz")
 SERIES_REFUSAL = ("segmentation.nuclei.labels_from does not work with a time series in this release: run the "
                   "image without --t (or t), or segment the series instead (docs/LABELS.md)")
-SEG_NPY_HINT = ("the run path never reads a .npy file (a Cellpose _seg.npy is a pickle): convert it once with "
-                "`germquant import-labels SRC --format cellpose-npy --allow-pickle --image IMG --pairs DIR`, or save "
-                "the masks as a TIFF, and point segmentation.nuclei.labels_from at that file (docs/LABELS.md)")
+SEG_NPY_HINT = ("the run path never reads a .npy file (a Cellpose _seg.npy is a pickle): save its masks as a TIFF "
+                "and point segmentation.nuclei.labels_from at that file (docs/LABELS.md shows how); `germquant "
+                "import-labels SRC --format cellpose-npy --allow-pickle --image IMG --pairs DIR` converts it into "
+                "training pairs instead")
 
 
 class LabelsError(ValueError):
@@ -74,8 +77,9 @@ def labels_frame(cfg) -> int:
 
 def labels_path(cfg, image_path) -> Path | None:
     """The labels file of one image: the template formatted with its {image_dir}, {image_stem} and {image_id}, a
-    relative result resolved against the recipe's folder. None when segmentation.nuclei.labels_from is unset.
-    LabelsError for a value that is not a template. The file is not opened."""
+    relative result resolved against Config.base_dir (the folder of the recipe that is run). None when
+    segmentation.nuclei.labels_from is unset. LabelsError for a value that is not a template. The file is not
+    opened."""
     template = labels_template(cfg)
     if template is None:
         return None

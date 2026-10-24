@@ -34,10 +34,25 @@ segmentation:
     labels_from: '{image_dir}/{image_stem}_masks.tif'
 ```
 
-Quote the template in YAML (a value that starts with `{` is otherwise read as a mapping). A template without
-`{image_dir}` that is a relative path is resolved against the recipe's folder, the way `io.channel_map` is. A
-template without any field names one file for every image. Any other field, a format spec such as
-`{image_id:>9}` or an unbalanced brace is refused before any stage runs; write `{{` and `}}` for a literal brace.
+Quote the template in YAML (a value that starts with `{` is otherwise read as a mapping). A relative template
+(one that does not start with `{image_dir}` or an absolute path) is resolved against the folder of the recipe that
+is run: the folder above `config/` for a file in a `config/` or `config/profiles/` folder (in this repository, the
+repository root), the file's own folder otherwise. Unlike `io.channel_map`, a relative template that a recipe
+inherits through `extends` is not anchored to the base recipe's folder, so a recipe that others extend should use
+`{image_dir}` or an absolute path. A template without any field names one file for every image. Any other field,
+a format spec such as `{image_id:>9}` or an unbalanced brace is refused before any stage runs; write `{{` and `}}`
+for a literal brace.
+
+Run it like any other recipe.
+
+Windows:
+```
+.venv\Scripts\germquant.exe run "C:\path\to\IMAGE.nd2" --config "C:\path\to\my_study.yaml" --out "C:\path\to\RESULTS_FOLDER"
+```
+Mac / Linux:
+```
+.venv/bin/germquant run /path/to/IMAGE.nd2 --config /path/to/my_study.yaml --out /path/to/RESULTS_FOLDER
+```
 
 ## Formats
 
@@ -86,7 +101,9 @@ segmentation backend records nothing either. `germquant batch` follows the same 
 `--pack` runs before a run (docs/PACKS.md) is a separate step.
 
 `germquant batch --resume` computes the segment hash per image in a labels run, with that image's labels file.
-Editing one labels file therefore reprocesses that image only; every other image is skipped as usual.
+Editing one labels file therefore reprocesses that image only; every other image is skipped as usual. The segment
+sub-hash also keeps the segment stage's usual tool versions (Cellpose and torch), although neither runs in a
+labels run: upgrading either one reprocesses labels-run images under `--resume` too.
 
 ## With the 2D settings
 
@@ -118,18 +135,24 @@ Each of these fails the image with a message, before any stage runs and before a
 ## Cellpose `_seg.npy` files
 
 The Cellpose GUI saves its masks in `<name>_seg.npy`, a pickled Python dict. A pickle can run code when it is
-loaded, so the run path never reads a `.npy` file. Convert it once instead. The training loop's import command
-(tranche 5 package P5) reads such a file only with `--allow-pickle` and writes its masks as TIFF files into a
-training-pairs folder:
-
-```
-germquant import-labels IMG_seg.npy --format cellpose-npy --allow-pickle --image IMG --pairs DIR
-```
-
-Or, for a file you trust, write the masks to a TIFF yourself and point `labels_from` at it:
+loaded, so the run path never reads a `.npy` file. For a file you trust, write its masks to a TIFF once and point
+`labels_from` at that file:
 
 ```python
 import numpy as np, tifffile
 masks = np.load("IMG_seg.npy", allow_pickle=True).item()["masks"]
 tifffile.imwrite("IMG_masks.tif", masks)
+```
+
+To train on those masks instead, the training loop's import command (tranche 5 package P5) reads such a file only
+with `--allow-pickle` and writes its masks into a training-pairs folder (image and label slices for training, not
+a labels file for `labels_from`):
+
+Windows:
+```
+.venv\Scripts\germquant.exe import-labels "C:\path\to\IMG_seg.npy" --format cellpose-npy --allow-pickle --image "C:\path\to\IMG.nd2" --pairs "C:\path\to\PAIRS_FOLDER"
+```
+Mac / Linux:
+```
+.venv/bin/germquant import-labels /path/to/IMG_seg.npy --format cellpose-npy --allow-pickle --image /path/to/IMG.nd2 --pairs /path/to/PAIRS_FOLDER
 ```
