@@ -15,9 +15,10 @@ with the segment sub-hashes a run compares (project/run.py, ResumeHashes); ``sta
 gives (reason_code config_hash, stages, geometry, planar_flag or segment_hash); ``failed`` when its marker lists
 failed stages (reason_code failed_stages) or, without results, when the last run that processed it failed (its
 error); ``unreachable`` when it is not done and its file cannot be reached (a NAS or VPN not connected);
-``excluded``; else ``missing``. ``path`` is the file a run reads (a relative manifest path joined to the project
-root, an absolute or UNC path as it is). qc_pass comes from its image summary, device_used from its stage record,
-last_run_id from the last run that processed it (done or failed).
+``excluded``; else ``missing`` (for a time series that the recipe cannot run as one, the reason adds the refusal
+every run fails it with, run.series_refusal). ``path`` is the file a run reads (a relative manifest path joined
+to the project root, an absolute or UNC path as it is). qc_pass comes from its image summary, device_used from
+its stage record, last_run_id from the last run that processed it (done or failed).
 
 ``config_hash`` is computed now (open_project); ``pack.installed`` lists the versions of the pinned pack installed
 in this environment outside the project, ``project_copy`` whether packs/<id>/<version>/ holds the project's copy.
@@ -162,7 +163,22 @@ def _image(entry: dict, ctx: dict) -> dict:
         rec.update(status="failed", reason=f"the last run failed: {last.get('error')}", error=last.get("error"))
         return rec
     rec.update(status="missing", reason="no results yet")
+    if is_series(entry):
+        refused = _series_refused(entry, path, ctx)
+        if refused:
+            rec["reason"] = f"no results yet, and a run fails it: {refused}"
     return rec
+
+
+def _series_refused(entry: dict, path, ctx: dict) -> str | None:
+    """The refusal every run fails this series with (run.series_refusal), in the run's words, or None."""
+    from .run import series_refusal, series_refusal_text
+
+    try:
+        why = series_refusal(ctx["cfg"], path)
+    except Exception:  # noqa: BLE001 - io.planar auto reads the header; a run names that error itself
+        return None
+    return series_refusal_text(entry, why) if why else None
 
 
 def project_status(project) -> dict:
@@ -199,7 +215,7 @@ def project_status(project) -> dict:
         warnings.append(mix)
     last, processed = _last_events(events)
     zr = m["run"].get("z_range")
-    ctx = {"root": root, "hashes": ResumeHashes(cfg, unresolved_ok=True),
+    ctx = {"root": root, "cfg": cfg, "hashes": ResumeHashes(cfg, unresolved_ok=True),
            "xy_stride": int(m["run"].get("xy_stride") or 1),
            "z_range": (int(zr[0]), int(zr[1])) if zr else None, "last": last, "processed": processed}
     with use_project(root):

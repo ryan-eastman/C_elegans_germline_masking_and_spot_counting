@@ -17,7 +17,15 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from packs_helpers import pack_env  # noqa: F401
 from project_helpers import BASIC_HASH, TEST_PACK_REF, project_env  # noqa: F401
-from test_project_run import _project_model, hand_edit_recipe, log_events, need_p2b, need_readers, project_with_images
+from test_project_run import (
+    _project_model,
+    hand_edit_recipe,
+    log_events,
+    need_p2b,
+    need_p2c,
+    need_readers,
+    project_with_images,
+)
 
 import germquant.project as P
 from germquant import api, cli, cli_projects
@@ -152,6 +160,25 @@ def test_status_reports_a_model_that_is_not_here(project_env, tmp_path, capsys):
     assert (rec["present"], rec["needed"]) == (False, True)
     assert [r["status"] for r in st["images"]] == ["missing"]
     assert any("training/r01/models/m1/m1" in w and "missing" in w for w in st["warnings"]), st["warnings"]
+
+
+def test_status_names_the_refusal_of_a_series(project_env, tmp_path):  # noqa: F811
+    """Before any run, a time series that the recipe cannot run as one (here labels_from, D15) reads missing with
+    the refusal every run fails it with, in the run's own words."""
+    need_p2c()
+    from test_project_run import _series_image
+
+    from germquant.io.labels import SERIES_REFUSAL
+
+    proj = project_with_images(tmp_path, names=("a",))
+    P.add_images(proj, [_series_image(proj.root / "images")])
+    hand_edit_recipe(proj, {"segmentation": {"nuclei": {"labels_from": "{image_dir}/{image_stem}_labels.tif"}}})
+    rows = {r["id"]: r for r in P.project_status(proj)["images"]}
+    assert rows["a"]["reason"] == "no results yet"                              # a fixed image: no such note
+    assert rows["movie"]["status"] == "missing" and SERIES_REFUSAL in rows["movie"]["reason"]
+    res = P.run_project(proj, images=["movie"])
+    (e,) = [e for e in log_events(res["log"]) if e["event"] == "image_failed"]
+    assert e["error"].startswith("REFUSED: a time series of 2 timepoints") and e["error"] in rows["movie"]["reason"]
 
 
 def test_edit_marks_every_image_stale_with_reason(project_env, tmp_path):  # noqa: F811

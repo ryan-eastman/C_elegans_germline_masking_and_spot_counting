@@ -169,6 +169,11 @@ def series_refusal(cfg, path) -> str | None:
     return None
 
 
+def series_refusal_text(entry: dict, why: str) -> str:
+    """The error a run logs for a series that series_refusal refuses (project_status shows it before any run)."""
+    return f"REFUSED: a time series of {int(entry['timepoints'])} timepoints: {why}"
+
+
 # ---- the digests a resume compares --------------------------------------------------------------------------
 
 class ResumeHashes:
@@ -495,8 +500,7 @@ def _run_one(entry: dict, ctx: dict) -> tuple[str, dict]:
             return finish("image_failed", error=(f"the header of this time series cannot be read (io.planar auto "
                                                  f"decides from it): {type(e).__name__}: {e}")[:4000])
         if why:
-            return finish("image_failed", error=f"REFUSED: a time series of {int(entry['timepoints'])} timepoints: "
-                                                f"{why}")
+            return finish("image_failed", error=series_refusal_text(entry, why))
         if not reachable(path):
             return finish("image_failed", error=unreachable_text(path))
         try:
