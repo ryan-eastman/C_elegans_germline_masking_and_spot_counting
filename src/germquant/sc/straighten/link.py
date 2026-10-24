@@ -197,20 +197,41 @@ def _trim_ends(P: np.ndarray, S, front: bool, back: bool, tip_um: float):
     return P[keep], (None if S is None else S[keep])
 
 
+def _past_previous(prev: np.ndarray, P: np.ndarray, n_dir: int = 6) -> int:
+    """Index of the first point of ``P`` that lies beyond the last point of ``prev`` along prev's end direction
+    (taken over its last ``n_dir`` points); len(P) when none does. Tips that met or overlapped are joined without
+    a backward step, so the assembled polyline (and its spline) never folds back."""
+    d = prev[-1] - prev[max(len(prev) - n_dir, 0)]
+    nd = float(np.linalg.norm(d))
+    if nd < 1e-9:
+        return 0
+    ahead = (P - prev[-1]) @ (d / nd) > 0
+    return int(np.argmax(ahead)) if ahead.any() else len(P)
+
+
 def _assemble(strands, seq, recs, cut_type, tip_um: float = 0.0) -> RawStrand:
     parts, strg, links = [], [], []
     members = 0
     n = len(seq)
+    all_strength = True
     for k, (j, side) in enumerate(seq):
         st = strands[j]
         P = st.points if side == 0 else st.points[::-1]
         S = None if st.strength is None else (st.strength if side == 0 else st.strength[::-1])
         P, S = _trim_ends(P, S, front=k > 0, back=k < n - 1, tip_um=tip_um)
-        parts.append(P)
-        if S is not None:
-            strg.append(S)
         links.extend(st.links)
         members += st.members
+        if parts:
+            i0 = _past_previous(parts[-1], P)
+            P = P[i0:]
+            S = None if S is None else S[i0:]
+            if len(P) < 2:
+                continue                  # the piece lies entirely within the previous one's tip
+        parts.append(P)
+        if S is None:
+            all_strength = False
+        else:
+            strg.append(S)
     links.extend({k: v for k, v in r.items() if k not in ("a", "b")} for r in recs)
     pts = np.vstack(parts)
     first_j, first_side = seq[0]
@@ -221,6 +242,6 @@ def _assemble(strands, seq, recs, cut_type, tip_um: float = 0.0) -> RawStrand:
         e0 = e1 = cut_type
     base = strands[first_j]
     return RawStrand(points=pts, end_types=[e0, e1],
-                     strength=np.concatenate(strg) if len(strg) == len(seq) else None,
+                     strength=np.concatenate(strg) if all_strength and strg else None,
                      links=links, members=members, nucleus_id=base.nucleus_id, source=base.source,
                      verified=base.verified, import_id=base.import_id)

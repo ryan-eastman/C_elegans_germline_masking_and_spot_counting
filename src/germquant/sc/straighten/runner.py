@@ -1,6 +1,7 @@
 """``germquant sc-straighten``: run the stage on finished results (inputs -> straighten_image -> new files)."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import time
@@ -41,7 +42,8 @@ def _mirror(found_folder: Path, root: Path, out: Path | None) -> Path:
     return out / rel
 
 
-def _imported_for(inp, labels, spacing, paths_from: list[str] | None, verified_default=False) -> tuple[dict, list]:
+def _imported_for(inp, labels, spacing, paths_from: list[str] | None, verified_default=False,
+                  allow_sealed: bool = False) -> tuple[dict, list]:
     """{nucleus_id: [{"points", "verified", "id"}]} from --paths-from specs, and the file records."""
     from . import imports
 
@@ -49,7 +51,7 @@ def _imported_for(inp, labels, spacing, paths_from: list[str] | None, verified_d
     recs = []
     for spec in paths_from or []:
         kind, _, path = spec.partition(":")
-        paths = imports.read_spec(kind, path, image_id=inp.image_id, spacing=spacing)
+        paths = imports.read_spec(kind, path, image_id=inp.image_id, spacing=spacing, allow_sealed=allow_sealed)
         recs.append({"spec": spec, "sha256": inputs.file_digest(path, HEAD_BYTES if kind == "ims" else None),
                      "n_paths": len(paths)})
         for ip in paths:
@@ -61,16 +63,47 @@ def _imported_for(inp, labels, spacing, paths_from: list[str] | None, verified_d
     return out, recs
 
 
+def code_digest() -> str:
+    """sha256 (12 hex) over the sources of this package (line endings normalised), so the sub-hash and every row
+    change with the code, not only with VERSION and the parameters."""
+    h = hashlib.sha256()
+    for f in sorted(Path(__file__).resolve().parent.glob("*.py")):
+        h.update(f.name.encode())
+        h.update(f.read_bytes().replace(b"\r\n", b"\n"))
+    return h.hexdigest()[:12]
+
+
+def _audit(path, rec: dict) -> None:
+    """Append one line to the sealed-run audit log (``--allow-sealed``)."""
+    import json
+
+    from ...benchmark import sc_split
+
+    line = {"utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "git_sha": provenance.git_sha(),
+            "split_sha256": sc_split.REGISTERED_SHA256, **rec}
+    p = Path(path)
+    os.makedirs(long_path(p.parent), exist_ok=True)
+    with open(long_path(p), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(line, default=str) + "\n")
+
+
 def run_results(results_root: str | Path, image_ids: list[str] | None = None, *, params: Params,
                 out: str | Path | None = None, geometry: str = "auto", paths_from: list[str] | None = None,
                 refine_imported: bool = True, ends: str = "fit", nuclei: str = "germline", nucleus_ids=None,
                 workers: int | None = None, force: bool = False, strips: bool | None = None,
-                overview: bool | None = None, source_map=None, allow_sealed: bool = False, dry_run: bool = False,
-                reader=None, echo=print, progress=None) -> list[Outcome]:
+                overview: bool | None = None, source_map=None, allow_sealed: bool = False,
+                sealed_reason: str | None = None, audit_log: str | Path | None = None, dry_run: bool = False,
+                reader=None, plane_reader=None, echo=print, progress=None) -> list[Outcome]:
     """Run sc-straighten on every finished image under ``results_root`` (or the named ones). ``reader(path, roles,
-    xy_stride, z_range)`` overrides the pixel reader (tests). Returns one Outcome per image."""
+    xy_stride, z_range)`` overrides the pixel reader and ``plane_reader`` the per-plane reader of the other roles
+    (tests). ``allow_sealed`` runs images of the sealed SC validation split; it needs ``sealed_reason`` and writes
+    a start and an end line per sealed image to ``audit_log`` (default: ``sc_straighten_sealed_runs.jsonl`` in the
+    output root). Returns one Outcome per image."""
     root = Path(results_root)
     out_root = Path(out) if out is not None else None
+    if allow_sealed and not (sealed_reason and str(sealed_reason).strip()):
+        raise ValueError("allow_sealed needs a sealed_reason (protocol section 10: every sealed run is logged)")
+    audit_log = Path(audit_log) if audit_log is not None else (out_root or root) / "sc_straighten_sealed_runs.jsonl"
     found = inputs.select(inputs.discover(root), image_ids)
     if image_ids and not found:
         echo(f"no finished image under {root} matches {image_ids}")
@@ -78,15 +111,20 @@ def run_results(results_root: str | Path, image_ids: list[str] | None = None, *,
     write_strips = bool(params["strips.write"] if strips is None else strips)
     write_overview = bool(params["overview"] if overview is None else overview)
     custom_reader = reader is not None          # a test reader brings its own pixels: no source file needed
+    if not custom_reader and plane_reader is None:
+        plane_reader = inputs.role_planes
     reader = reader or inputs.read_roles
+    code = code_digest()
     results = []
     for f in found:
         t0 = time.perf_counter()
         oc = Outcome(image_id=f.image_id, status="failed")
+        ctx = {"sealed": None}
         try:
             oc = _one(f, root, out_root, params, geometry, paths_from, refine_imported, ends, nuclei, nucleus_ids,
                       workers, force, write_strips, write_overview, source_map, allow_sealed, dry_run, reader,
-                      progress, t0, need_source=not (dry_run or custom_reader))
+                      progress, t0, need_source=not (dry_run or custom_reader), plane_reader=plane_reader,
+                      code=code, sealed_reason=sealed_reason, audit_log=audit_log, ctx=ctx)
         except inputs.InputRefused as e:
             oc = Outcome(image_id=f.image_id, status="refused", code=e.code, message=e.message,
                          line=f"{f.image_id}: REFUSED ({e.code}) {e.message}")
@@ -104,6 +142,9 @@ def run_results(results_root: str | Path, image_ids: list[str] | None = None, *,
                         "finished": provenance.run_timestamp()})
             except Exception:  # noqa: BLE001
                 pass
+        if ctx.get("sealed"):
+            _audit(audit_log, {"event": "end", "image_id": f.image_id, "role": ctx["sealed"], "status": oc.status,
+                               "code": oc.code, "reason": sealed_reason, "params_hash": params.hash})
         echo(oc.line)
         results.append(oc)
     return results
@@ -111,13 +152,16 @@ def run_results(results_root: str | Path, image_ids: list[str] | None = None, *,
 
 def _one(f, root, out_root, params, geometry, paths_from, refine_imported, ends, nuclei_mode, nucleus_ids,
          workers, force, write_strips, write_overview, source_map, allow_sealed, dry_run, reader, progress, t0,
-         need_source=True):
+         need_source=True, plane_reader=None, code="", sealed_reason=None, audit_log=None, ctx=None):
+    ctx = ctx if ctx is not None else {}
     inp = inputs.resolve(f, source_map=source_map, need_source=need_source)
     role = inputs.sealed_role(inp.image_id, inp.file_path)
     if role and not allow_sealed:
         raise inputs.InputRefused("sealed", f"{inp.image_id} is a {role} image of the sealed SC validation split "
-                                            "(docs/SC_VALIDATION_PROTOCOL.md); it runs only under --allow-sealed, "
-                                            "which only scripts/benchmark_sc.py --final passes")
+                                            "(docs/SC_VALIDATION_PROTOCOL.md); it runs only under --allow-sealed "
+                                            "with --reason, which the scoring (scripts/benchmark_sc.py zones "
+                                            "--final) passes")
+    sealed = role if (role and allow_sealed) else None
     out_dir = _mirror(inp.folder, root, out_root)
     g = inputs.golden_root(out_dir)
     if g is not None:
@@ -136,7 +180,7 @@ def _one(f, root, out_root, params, geometry, paths_from, refine_imported, ends,
                "geometry": {"xy_stride": inp.xy_stride, "z_range": inp.z_range}, "mode": geometry,
                "paths_from": list(paths_from or []), "refine_imported": bool(refine_imported), "ends": ends,
                "nuclei": nuclei_mode, "nucleus_ids": ids if nucleus_ids else None,
-               "strips": bool(write_strips)}
+               "strips": bool(write_strips), "code": code}
     sub = outputs.sub_hash(payload)
     prev = outputs.read_record(paths["record"])
     if prev and prev.get("done") and prev.get("sub_hash") == sub and not force:
@@ -146,26 +190,48 @@ def _one(f, root, out_root, params, geometry, paths_from, refine_imported, ends,
         return Outcome(image_id=inp.image_id, status="dry_run", out_dir=str(out_dir),
                        line=f"{inp.image_id}: would trace {len(ids)} nuclei -> {out_dir} (sub_hash {sub})")
     os.makedirs(long_path(out_dir), exist_ok=True)
-    # pixels: only the roles needed, one channel at a time
+    ctx["sealed"] = sealed
+    if sealed:
+        _audit(audit_log, {"event": "start", "image_id": inp.image_id, "role": sealed, "reason": sealed_reason,
+                           "params_hash": params.hash, "sub_hash": sub, "out_dir": str(out_dir)})
+    # pixels: the central_element channel whole (tracing, the noise model, the overview); the other roles only as
+    # per-nucleus crops, read plane by plane (the whole channel is never in memory)
     cmap = {k: v for k, v in inp.channel_map.items() if v is not None}
     want = ["central_element"] + [r for r in list(params["profile.roles"]) + list(params["strips.roles"])
                                   if r != "central_element"]
     roles_idx = {r: cmap[r] for r in dict.fromkeys(want) if r in cmap}
-    arrays = reader(inp.source_path, roles_idx, xy_stride=inp.xy_stride, z_range=inp.z_range)
+    arrays = reader(inp.source_path, {"central_element": roles_idx["central_element"]}, xy_stride=inp.xy_stride,
+                    z_range=inp.z_range)
     ce = arrays.pop("central_element")
     max_label = int(pd.to_numeric(inp.nuclei["nucleus_id"], errors="coerce").max())
     labels = inputs.read_labels(inp.labels_path, max_label)
     if tuple(labels.shape) != tuple(ce.shape):
         raise inputs.InputRefused("labels_mismatch", f"{inp.image_id}: labels {labels.shape} != image {ce.shape}")
+    from .crops import boxes as _boxes
+    from .crops import crop_slices
+
+    bx = _boxes(labels)
+    others = {r: i for r, i in roles_idx.items() if r != "central_element"}
+    role_crops = {}
+    if others:
+        if plane_reader is not None:
+            plane_fn = plane_reader(inp.source_path, others, xy_stride=inp.xy_stride, z_range=inp.z_range)
+        else:
+            full = reader(inp.source_path, others, xy_stride=inp.xy_stride, z_range=inp.z_range)
+
+            def plane_fn(r, z, full=full):
+                return full[r][int(z)]
+        slices = [crop_slices(bx[i], inp.spacing, params["crop_pad_um"], labels.shape) for i in ids if i in bx]
+        role_crops = inputs.crop_banks(plane_fn, list(others), labels.shape, slices)
     spots = inputs.read_spots(inp.spot_paths)
     imported, imp_recs = ({}, [])
     if geometry in ("import", "both"):
-        imported, imp_recs = _imported_for(inp, labels, inp.spacing, paths_from)
+        imported, imp_recs = _imported_for(inp, labels, inp.spacing, paths_from, allow_sealed=bool(sealed))
     det_max = inputs.detector_max(inp, ce)
-    res = straighten_image(ce, labels, inp.spacing, inp.nuclei, params=params, roles=arrays, spot_tables=spots,
-                           nucleus_ids=ids, imported=imported, geometry=geometry, refine_imported=refine_imported,
-                           ends_mode=ends, workers=workers, detector_max=det_max, image_id=inp.image_id,
-                           progress=progress)
+    res = straighten_image(ce, labels, inp.spacing, inp.nuclei, params=params, roles=role_crops,
+                           spot_tables=spots, nucleus_ids=ids, imported=imported, geometry=geometry,
+                           refine_imported=refine_imported, ends_mode=ends, workers=workers, detector_max=det_max,
+                           image_id=inp.image_id, progress=progress, label_boxes=bx)
     # outputs
     from .qc import image_flags
 
@@ -209,12 +275,13 @@ def _one(f, root, out_root, params, geometry, paths_from, refine_imported, ends,
                    "roles_read": sorted(roles_idx), "imported": imp_recs, "nuclei_mode": nuclei_mode,
                    "nucleus_ids": ids if nucleus_ids else None, "geometry": geometry,
                    "refine_imported": refine_imported, "ends": ends, "detector_max": det_max},
-        "tool_versions": outputs.tool_versions(), "git_sha": provenance.git_sha(),
+        "tool_versions": outputs.tool_versions(), "git_sha": provenance.git_sha(), "code_sha256": code,
         **{k: res.record[k] for k in ("noise_model", "null_q", "sigma_vox", "psf", "complete_median_integrated",
-                                      "complete_median_fwhm", "n_cut_across_nuclei", "counts", "nucleus_errors",
-                                      "timing")},
+                                      "complete_median_fwhm", "n_cut_across_nuclei", "n_contacts_freed", "counts",
+                                      "nucleus_errors", "timing")},
+        "role_crops_mb": round(sum(b.nbytes for b in role_crops.values()) / 2 ** 20, 1),
         "flags": flags, "elapsed_s": round(elapsed, 1), "workers": int(workers),
-        "sealed_override": bool(allow_sealed and inputs.sealed_role(inp.image_id, inp.file_path)),
+        "sealed_override": bool(sealed), "sealed_role": sealed, "sealed_reason": sealed_reason if sealed else None,
         "outputs": {k: v.name for k, v in paths.items() if v.exists() or k == "record"},
         "finished": provenance.run_timestamp(),
     }

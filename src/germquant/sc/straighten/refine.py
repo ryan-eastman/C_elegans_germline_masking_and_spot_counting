@@ -404,10 +404,8 @@ def sigma_t(psf_sigma, t_z: float) -> float:
     return float(np.sqrt(sxy ** 2 * (1 - tz2) + sz ** 2 * tz2))
 
 
-def fit_end(line: Centreline, at_start: bool, end_type: str, sampler_bg: Sampler, psf_sigma, p) -> EndFit:
-    if end_type != "free":
-        return EndFit(end_class=end_type)
-    anchor = min(float(p["ends.anchor_um"]), line.L / 3.0)
+def _fit_at(line: Centreline, at_start: bool, sampler_bg: Sampler, psf_sigma, p, anchor: float):
+    """One erf fit from ``anchor``: (EndFit, good, at_inner_bound)."""
     sg, prof, sa, out_dir, ta = end_profile(line, at_start, sampler_bg, p, anchor_um=anchor)
     st = sigma_t(psf_sigma, ta[0])
     lo_f, hi_f = (float(v) for v in p["ends.sigma_bounds"])
@@ -415,17 +413,36 @@ def fit_end(line: Centreline, at_start: bool, end_type: str, sampler_bg: Sampler
     ef = EndFit(end_class="free_unfit", anchor_arc_um=anchor, profile_s=[float(v) for v in sg],
                 profile=[float(v) if np.isfinite(v) else None for v in prof])
     if r is None:
-        return ef
+        return ef, False, False
     e, sig, b0, a, se_e, se_a, rms = r
     ef.sigma_um, ef.amp, ef.amp_se = sig, a, se_a
     ef.rel_rms = rms / a if a > 0 else float("inf")
+    ds = float(p["ends.step_um"])
     good = (a > 0 and np.isfinite(se_a) and a >= float(p["ends.fit_min_amp_se"]) * se_a
             and rms <= float(p["ends.fit_max_rel_rms"]) * a
             and e - anchor <= float(p["ends.max_extension_um"]))     # no long straight extrapolation
+    at_bound = bool(e <= float(sg[0]) + 2 * ds)
     if good:
         ef.end_class = "free_fit"
         ef.e_um = e
         ef.e_se_um = se_e if np.isfinite(se_e) else 0.0
+    return ef, bool(good), at_bound
+
+
+def fit_end(line: Centreline, at_start: bool, end_type: str, sampler_bg: Sampler, psf_sigma, p) -> EndFit:
+    if end_type != "free":
+        return EndFit(end_class=end_type)
+    anchor = min(float(p["ends.anchor_um"]), line.L / 3.0)
+    ef, good, at_bound = _fit_at(line, at_start, sampler_bg, psf_sigma, p, anchor)
+    if good and at_bound:
+        # the edge sits at the inner bound of the profile: the traced end runs past the ribbon by more than the
+        # window holds (the axial PSF tail of a steep ribbon); fit again from an anchor deeper inside, and keep
+        # the first fit when that one fails too
+        a2 = anchor + float(p["ends.inside_um"])
+        if a2 <= line.L / 3.0:
+            ef2, good2, at2 = _fit_at(line, at_start, sampler_bg, psf_sigma, p, a2)
+            if good2 and not at2:
+                return ef2
     return ef
 
 

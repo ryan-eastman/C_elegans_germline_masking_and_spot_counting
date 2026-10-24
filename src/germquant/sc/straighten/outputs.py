@@ -204,16 +204,38 @@ def _records(out_root: Path) -> list[tuple[Path, dict]]:
     return sorted(hits, key=lambda t: (str(t[0]), str(t[1].get("image_id"))))
 
 
-def collect_tables(out_root: str | Path) -> dict | None:
+def _staleness(rec: dict) -> str:
+    """"" when the record's nuclei.csv still has the recorded sha256; "stale" when it changed (the germquant run
+    was redone after sc-straighten); "unverified" when the recorded file is not there to check."""
+    inp = (rec.get("inputs") or {}).get("nuclei_csv") or {}
+    path, want = inp.get("path"), inp.get("sha256")
+    if not path or not want:
+        return "unverified"
+    if not Path(long_path(path)).is_file():
+        return "unverified"
+    h = hashlib.sha256()
+    with open(long_path(path), "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 24), b""):
+            h.update(chunk)
+    return "" if h.hexdigest() == want else "stale"
+
+
+def collect_tables(out_root: str | Path, image_ids=None) -> dict | None:
     """Stack the sc_straighten tables of every finished record under ``out_root`` into ``batch_sc_*.csv`` and
-    write ``batch_sc_straighten_summary.csv``. Returns {name: rows}, or None (and writes nothing) when the tree
-    holds no sc_straighten record."""
+    write ``batch_sc_straighten_summary.csv``. ``image_ids`` restricts the collection to a study (by the record's
+    image_id). A record whose nuclei.csv changed after sc-straighten ran is stale: its tables are not stacked and
+    its summary row says ``stale`` (``inputs_unverified`` when that file is not there to check). Returns
+    {name: rows}, or None (and writes nothing) when the tree holds no sc_straighten record."""
     out_root = Path(out_root)
     recs = _records(out_root)
+    if image_ids is not None:
+        keep = {str(i) for i in image_ids}
+        recs = [(d, r) for d, r in recs if str(r.get("image_id")) in keep]
     if not recs:
         return None
     counts = {}
-    done = [(d, r) for d, r in recs if r.get("done")]
+    state = {id(r): (_staleness(r) if r.get("done") else "") for _d, r in recs}
+    done = [(d, r) for d, r in recs if r.get("done") and state[id(r)] != "stale"]
     for t in S.COLLECTED:
         frames = []
         for d, r in done:
@@ -229,7 +251,9 @@ def collect_tables(out_root: str | Path) -> dict | None:
     rows = []
     for d, r in recs:
         c = r.get("counts", {})
-        rows.append({"image_id": r.get("image_id"), "status": r.get("status"),
+        st = state[id(r)]
+        flags = list(r.get("flags", [])) + (["inputs_unverified"] if st == "unverified" else [])
+        rows.append({"image_id": r.get("image_id"), "status": "stale" if st == "stale" else r.get("status"),
                      "sc_straighten_version": r.get("version"), "sc_straighten_hash": r.get("sub_hash"),
                      "params_hash": r.get("params_hash"), "n_nuclei": c.get("nuclei"),
                      "n_traced": c.get("status_traced", 0), "n_no_sc": c.get("status_no_sc", 0),
@@ -237,7 +261,7 @@ def collect_tables(out_root: str | Path) -> dict | None:
                      "n_strands": c.get("strands"), "n_complete": c.get("class_complete", 0),
                      "n_partial": c.get("class_partial", 0), "n_merged_suspect": c.get("class_merged_suspect", 0),
                      "n_fragment": c.get("class_fragment", 0), "n_verified": c.get("class_verified", 0),
-                     "flags": ";".join(r.get("flags", [])), "elapsed_s": r.get("elapsed_s"), "results_dir": str(d)})
+                     "flags": ";".join(flags), "elapsed_s": r.get("elapsed_s"), "results_dir": str(d)})
     pd.DataFrame(rows, columns=S.SUMMARY).to_csv(long_path(out_root / S.BATCH_NAMES["summary"]), index=False,
                                                  lineterminator="\n")
     counts["sc_straighten_summary"] = len(rows)

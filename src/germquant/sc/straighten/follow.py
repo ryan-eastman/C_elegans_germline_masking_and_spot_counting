@@ -10,8 +10,11 @@ Stops and end types: weak ridge (S < ``lo``) for more than ``weak_run_um`` (trim
 ``max_length_um`` (``max_length``); within ``stack_edge_um`` of the first or last plane (``stack_edge``).
 A claim tube (``claim_vox``) is stamped around every accepted strand; a claimed voxel never seeds.
 
-After all seeds, an end that runs into another strand's interior (a T contact) is trimmed to where it enters
-that strand's tube and becomes a ``contact`` end. Positions are um in the pipeline frame
+An end that runs into another strand's interior (a T contact) is trimmed to where it enters that strand's tube
+and becomes a ``contact`` end (``resolve_contacts``). The caller runs it after the axial shadows are removed
+(germquant.sc.straighten.trace), so a shadow that is dropped later never leaves a ``contact`` end behind, and
+``free_orphan_contacts`` turns a ``contact`` end back into a ``free`` one when no surviving strand lies within
+reach of it (its partner was removed by the accounting). Positions are um in the pipeline frame
 ((crop voxel + org) x spacing), axis order (z, y, x).
 """
 from __future__ import annotations
@@ -238,8 +241,8 @@ def follow_nucleus(F: Fields, terr: np.ndarray, spacing, org, p, *, z_planes: in
             et = [("max_length" if s == "budget" else s) for s in (s0, s1)]
             strands.append(RawStrand(points=pts, end_types=et, strength=strg))
         sid += 1
-    resolve_contacts(strands, p)
-    return [s for s in strands if s.length_um >= min_len], info
+    # T contacts are resolved by the caller after the axial shadows are removed (trace.trace_crop)
+    return strands, info
 
 
 def _scaled(points, zl):
@@ -302,3 +305,40 @@ def resolve_contacts(strands: list[RawStrand], p, end_window_um: float = 0.5, ot
             st.end_types[side] = "contact"
             trees[i] = cKDTree(_scaled(st.points, zl))
             arcs[i] = arclen(st.points)
+
+
+def orphan_contact_ends(ends: list[tuple[np.ndarray, np.ndarray]], reach_um=(0.6, 0.4)) -> list[bool]:
+    """For each (end point, other points) pair: True when no other point lies inside the ellipsoid of half axes
+    ``reach_um`` (axial, lateral) around the end point (its contact partner is gone)."""
+    ax, lat = (float(v) for v in reach_um)
+    out = []
+    for e, Q in ends:
+        Q = np.asarray(Q, float).reshape(-1, 3)
+        if not len(Q):
+            out.append(True)
+            continue
+        d = Q - np.asarray(e, float)[None, :]
+        out.append(not bool(np.any((d[:, 0] / ax) ** 2 + (d[:, 1] ** 2 + d[:, 2] ** 2) / lat ** 2 <= 1.0)))
+    return out
+
+
+def free_orphan_contacts(strands: list[RawStrand], p, others: np.ndarray | None = None) -> int:
+    """A ``contact`` end with no other strand (of ``strands``, or a point of ``others``) within
+    ``follow.contact_free_um`` (axial, lateral) becomes ``free``: the strand it stopped against was removed later
+    (an axial shadow, a duplicate, a shadowed strand), so the end rule applies to it. Returns the number freed."""
+    reach = tuple(float(v) for v in p["follow.contact_free_um"])
+    n = 0
+    for i, st in enumerate(strands):
+        sides = [s for s in (0, 1) if st.end_types[s] == "contact"]
+        if not sides or len(st.points) == 0:
+            continue
+        rest = [o.points for j, o in enumerate(strands) if j != i and len(o.points)]
+        if others is not None and len(others):
+            rest.append(np.asarray(others, float))
+        Q = np.vstack(rest) if rest else np.zeros((0, 3))
+        flags = orphan_contact_ends([(st.points[0 if s == 0 else -1], Q) for s in sides], reach)
+        for s, orphan in zip(sides, flags):
+            if orphan:
+                st.end_types[s] = "free"
+                n += 1
+    return n

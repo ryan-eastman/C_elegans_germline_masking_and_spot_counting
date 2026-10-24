@@ -218,7 +218,8 @@ def score_scene(scene, result, *, min_strand_um: float = 1.0) -> SceneScore:
                 s_ours = float(row["s_um"])
                 s_al = (L_ours - s_ours) if flip else s_ours
                 # truth s measured from the truth start; compare positions through the nearest truth point
-                p_ours = P[min(int(round(s_ours / 0.05)), len(P) - 1)] if len(P) else None
+                # a focus may sit up to 0.3 um beyond an end (s < 0 or s > L): clamp, never wrap around
+                p_ours = P[int(np.clip(int(round(s_ours / 0.05)), 0, len(P) - 1))] if len(P) else None
                 if p_ours is not None:
                     _d, k = cKDTree(T).query(p_ours)
                     s_truth_at = float(scene.ribbons[ti].s[k])
@@ -236,6 +237,14 @@ def summarise_scores(scores: list[SceneScore]) -> dict:
     fam = scores[0].family
     m_all = [m for s in scores for m in s.matches]
     if fam in ("iso", "gaps", "foci"):
+        # the length error by tilt (descriptive; the end placement over-measures tilted ribbons at real SNR)
+        out["tilt_bins"] = {}
+        for lo, hi in ((0.0, 30.0), (30.0, 60.0), (60.0, 75.0)):
+            e = np.array([m["err_um"] for m in m_all if m["matched"] and np.isfinite(m["tilt_deg"])
+                          and (lo < m["tilt_deg"] <= hi or (lo == 0.0 and m["tilt_deg"] == 0.0))], float)
+            out["tilt_bins"][f"{int(lo)}-{int(hi)}"] = {
+                "n": int(len(e)), "len_err_mean": float(np.mean(e)) if len(e) else float("nan"),
+                "len_err_sd": float(np.std(e, ddof=1)) if len(e) > 1 else float("nan")}
         flat = [m for m in m_all if not (np.isfinite(m["tilt_deg"]) and m["tilt_deg"] > 60)]
         steep = [m for m in m_all if np.isfinite(m["tilt_deg"]) and m["tilt_deg"] > 60]
         for name, ms in (("tilt_le60", flat), ("tilt_gt60", steep)):
@@ -382,6 +391,18 @@ def to_pipeline_xy(pos_xy: np.ndarray, frame: dict, v_nd2_xy) -> np.ndarray:
     return ((P - em) / vi - 0.5) * np.asarray(v_nd2_xy, float)
 
 
+def frame_disagreement(frame_a: dict, frame_b: dict, v_nd2_xy, extent_xy) -> float:
+    """The largest |difference| (um, x or y) between two frame rules over the image corners: a stage position
+    that frame_a maps to each corner of the run's xy extent is mapped again with frame_b (ExtMin and the voxel
+    both enter, so a voxel mismatch shows at the far corner)."""
+    v = np.asarray(v_nd2_xy, float)
+    em_a, vi_a = np.asarray(frame_a["ext_min_xy"], float), np.asarray(frame_a["v_imaris_xy"], float)
+    corners = np.array([[0.0, 0.0], [extent_xy[0], 0.0], [0.0, extent_xy[1]], [extent_xy[0], extent_xy[1]]])
+    stage = (corners / v + 0.5) * vi_a + em_a
+    other = to_pipeline_xy(stage, frame_b, v_nd2_xy)
+    return float(np.max(np.abs(other - corners)))
+
+
 def zone_truth(record: dict, master_path, v_nd2_xy, *, frame: dict | None = None, final: bool = False,
                split: dict | None = None) -> ZoneTruth:
     """Guarded loader: the zone polyline of one gonad in the pipeline frame and its named zone points."""
@@ -407,9 +428,14 @@ def zone_truth(record: dict, master_path, v_nd2_xy, *, frame: dict | None = None
     return ZoneTruth(gonad=record["gonad"], points_um=pts, names=names, idx=idx, s_points=s, frame=frame)
 
 
+GUARD_FRAC_REGISTERED = 0.5          # protocol 4.2: half the neighbouring point spacing on each side
+
+
 def label_nuclei(zt: ZoneTruth, nuclei: pd.DataFrame, *, x_col="centroid_x_um", y_col="centroid_y_um",
-                 off_axis_um: float = 20.0) -> pd.DataFrame:
-    """Zone label, segment, guard band and off-axis cut per nucleus (protocol 4.2)."""
+                 off_axis_um: float = 20.0, guard_frac: float = GUARD_FRAC_REGISTERED) -> pd.DataFrame:
+    """Zone label, segment, guard band and off-axis cut per nucleus (protocol 4.2). ``guard_frac`` is the guard
+    band's share of the neighbouring point spacing on each side of a boundary (the registered rule is 0.5; another
+    value is a protocol change that needs a changelog entry before it is scored)."""
     from germquant.staging.zones import project_to_polyline
 
     s, r, L = project_to_polyline(nuclei[[x_col, y_col]].to_numpy(float), zt.points_um)
@@ -431,17 +457,26 @@ def label_nuclei(zt: ZoneTruth, nuclei: pd.DataFrame, *, x_col="centroid_x_um", 
     zone[(b >= lt) & (b <= e)] = "LPfrag"
     guard = np.zeros(len(s), bool)
     bounds = []
-    for k, (before, after) in ((f, ("None", "SCfrag")), (u, ("SCfrag", "SCfull")), (lt, ("SCfull", "LPfrag"))):
+
+    def seg_zone(bb: int) -> str | None:
+        # the zone of segment bb (from point bb to point bb + 1), by the rule above; None outside the zoned
+        # segments 1 .. e - 1 (the zones end at Pachy_end)
+        if bb < 1 or bb > min(e - 1, n - 1):
+            return None
+        return "None" if bb < f else ("SCfrag" if bb < u else ("SCfull" if bb < lt else "LPfrag"))
+
+    gf = float(guard_frac)
+    for k in sorted({f, u, lt}):
         if not (1 < k < n):
             continue
-        # a point is a boundary when the zones on both sides of it exist
-        exists_before = {"None": f > 1, "SCfrag": u > f, "SCfull": lt > u}[before]
-        exists_after = {"SCfrag": u > f, "SCfull": lt > u, "LPfrag": e > lt}[after]
-        if not (exists_before and exists_after):
+        # a named point is a boundary when the zones of the segments on both sides of it exist and differ
+        # (so SC_fragstart == SC_fullstart gives a None|SCfull boundary)
+        before, after = seg_zone(k - 1), seg_zone(k)
+        if before is None or after is None or before == after:
             continue
         sk = sp[k - 1]
-        lo = sk - 0.5 * (sk - sp[k - 2])
-        hi = sk + 0.5 * (sp[k] - sk)
+        lo = sk - gf * (sk - sp[k - 2])
+        hi = sk + gf * (sp[k] - sk)
         guard |= (s > lo) & (s < hi)
         bounds.append({"k": k, "s_um": float(sk), "lo": float(lo), "hi": float(hi), "kind": f"{before}|{after}"})
     out = nuclei[["nucleus_id"]].copy()
@@ -723,6 +758,8 @@ def evaluate_s1(fams: dict) -> list[dict]:
         rows.append({"id": cid, "criterion": text, "value": value, "pass": None if ok is None else bool(ok)})
 
     iso = fams.get("iso", {}).get("tilt_le60")
+    for b_, v_ in (fams.get("iso", {}).get("tilt_bins") or {}).items():
+        add("S1a", f"iso mean length error, tilt {b_} deg (descriptive, n {v_['n']})", v_["len_err_mean"], None)
     if iso:
         loa = iso.get("loa", [float("nan")] * 2)
         add("S1a", "iso mean length error within +/-0.10 um", iso["len_err_mean"], abs(iso["len_err_mean"]) <= 0.10)
@@ -754,6 +791,10 @@ def evaluate_s1(fams: dict) -> list[dict]:
             den += v["n_complete"]
     if den:
         add("S1e", "complete precision (pooled over families) >= 0.90", num / den, num / den >= 0.90)
+    for name, v in sorted(fams.items()):
+        if isinstance(v, dict) and v.get("n_complete"):
+            add("S1e", f"{name} family: complete precision (descriptive, {v['n_complete']} complete strands)",
+                v.get("complete_precision"), None)
     n = fams.get("noise")
     if n:
         add("S1f", "noise-only nuclei with a total under 1 um >= 0.95", n["frac_total_under_1um"],

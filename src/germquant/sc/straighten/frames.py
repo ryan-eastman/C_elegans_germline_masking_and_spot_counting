@@ -152,15 +152,32 @@ class StrandFrame:
         return s, (r * n_lat).sum(1), (r * n_ax).sum(1), (r * T).sum(1)
 
 
+def beyond_end(s: float, w: float, L: float) -> float:
+    """Distance (um) along the tangent from the strand proper (s in [0, L]) to a point at local (s, w): zero for
+    a projection inside the strand, else the overshoot past the end (through the extension, where w is zero,
+    and beyond it, where s is clamped and w holds the rest)."""
+    s, w = float(s), float(w)
+    if not (np.isfinite(s) and np.isfinite(w)):
+        return float("inf")
+    if s >= L:
+        return (s - L) + max(w, 0.0)
+    if s <= 0:
+        return -s + max(-w, 0.0)
+    return abs(w)
+
+
 def to_strip(frames: list[StrandFrame], points: np.ndarray, search_um: float = 1.5):
-    """For each point the closest strand: (strand index, s, u, v, w, dist, second index, second dist).
-    Candidates are the strands with a sample within ``search_um`` (else the strand of the nearest sample).
-    -1 / NaN when ``frames`` is empty."""
+    """For each point the closest strand: (strand index, s, u, v, w, dist, second index, second dist, and the
+    second strand's local s, u, v, w). Candidates are the strands with a sample within ``search_um`` (else the strand
+    of the nearest sample). -1 / NaN when ``frames`` is empty. w is the offset along the tangent beyond the
+    (extended) centreline: zero at a projection inside it. The closest strand is the one nearest to the point by
+    its distance to the strand proper (``dist``: lateral, axial and past-the-end offsets)."""
     P = np.atleast_2d(np.asarray(points, float))
     n = len(P)
     out = {"strand": np.full(n, -1), "s": np.full(n, np.nan), "u": np.full(n, np.nan), "v": np.full(n, np.nan),
            "w": np.full(n, np.nan), "dist": np.full(n, np.inf), "second": np.full(n, -1),
-           "second_dist": np.full(n, np.inf), "second_u": np.full(n, np.nan), "second_v": np.full(n, np.nan)}
+           "second_dist": np.full(n, np.inf), "second_u": np.full(n, np.nan), "second_v": np.full(n, np.nan),
+           "second_w": np.full(n, np.nan), "second_s": np.full(n, np.nan)}
     if not frames or n == 0:
         return out
     allC = np.vstack([f.C for f in frames])
@@ -175,7 +192,9 @@ def to_strip(frames: list[StrandFrame], points: np.ndarray, search_um: float = 1
         res = []
         for j in cands:
             s, u, v, w = frames[j].to_local(P[i:i + 1])
-            d = float(np.sqrt(u[0] ** 2 + v[0] ** 2 + w[0] ** 2))
+            # the distance to the strand proper (s in [0, L]): a point beyond an end is as far as it lies past
+            # it, so the extension of a strand that ends short of a point never claims it from a strand beside it
+            d = float(np.sqrt(u[0] ** 2 + v[0] ** 2 + beyond_end(s[0], w[0], frames[j].line.L) ** 2))
             res.append((d, j, float(s[0]), float(u[0]), float(v[0]), float(w[0])))
         res.sort(key=lambda t: (t[0], t[1]))
         d, j, s, u, v, w = res[0]
@@ -185,4 +204,6 @@ def to_strip(frames: list[StrandFrame], points: np.ndarray, search_um: float = 1
             out["second_dist"][i] = res[1][0]
             out["second_u"][i] = res[1][3]
             out["second_v"][i] = res[1][4]
+            out["second_w"][i] = res[1][5]
+            out["second_s"][i] = res[1][2]
     return out

@@ -19,6 +19,7 @@ class NoiseModel:
     a: float                       # intercept (counts^2)
     b: float                       # slope (counts^2 per count)
     rel_rms: float = 0.0           # relative RMS of the fit over the bins
+    rel_rms_signal: float = float("nan")   # the same over the bins above the darkest decile (the image flag)
     n_bins: int = 0
     table: list = field(default_factory=list)   # [(mean, var, n)] per bin
     fallback: bool = False
@@ -89,6 +90,10 @@ def fit_noise_model(planes, masks=None, *, bins: int = 30, qmax: float = 0.85, v
     # relative RMS against the observed bin variances (bins near the camera offset have variances near zero)
     okb = t[:, 1] > max(var_floor, 1e-3 * float(np.max(t[:, 1])))
     rel = float(np.sqrt(np.mean(((t[okb, 1] - pred[okb]) / t[okb, 1]) ** 2))) if okb.any() else float("nan")
+    # near the camera offset a read-noise floor makes var = a + b I a poor description, and no ridge is measured
+    # there: the image flag judges the fit over the bins above the darkest decile of the sampled voxels
+    oks = okb & (t[:, 0] >= float(np.quantile(m, 0.10)))
+    rel_s = float(np.sqrt(np.mean(((t[oks, 1] - pred[oks]) / t[oks, 1]) ** 2))) if oks.any() else float("nan")
     fallback = False
     if not np.isfinite(a) or not np.isfinite(b):
         a, b, fallback = float(np.median(t[:, 1])), 0.0, True
@@ -99,7 +104,8 @@ def fit_noise_model(planes, masks=None, *, bins: int = 30, qmax: float = 0.85, v
     lo_i = float(t[:, 0].min())
     if a + b * lo_i < var_floor:
         a = var_floor - b * lo_i
-    return NoiseModel(a=float(a), b=float(b), rel_rms=rel, n_bins=len(rows), table=rows, fallback=fallback)
+    return NoiseModel(a=float(a), b=float(b), rel_rms=rel, rel_rms_signal=rel_s, n_bins=len(rows), table=rows,
+                      fallback=fallback)
 
 
 def gat(x, model: NoiseModel) -> np.ndarray:

@@ -359,9 +359,11 @@ MIN_RIBBON_SEPARATION_UM = 0.25     # two chromosomes' SCs never pass through ea
 
 
 def _shell_nucleus(rng, germ_cell: str, center, R: float, peak: float, nucleus_id: int, first_id: int,
-                   max_tries: int = 60):
-    """The ribbons of one nucleus. A ribbon that comes closer than MIN_RIBBON_SEPARATION_UM (3D) to a ribbon
-    already placed is drawn again (up to ``max_tries`` times; then the draw with the largest clearance is kept)."""
+                   max_tries: int = 60, min_separation_um: float = MIN_RIBBON_SEPARATION_UM):
+    """The ribbons of one nucleus. A ribbon that comes closer than ``min_separation_um`` (3D) to a ribbon
+    already placed is drawn again (up to ``max_tries`` times; then the draw with the largest clearance is kept).
+    ``min_separation_um=0`` is the generator as registered in protocol section 2.3 (one draw per ribbon); the
+    0.25 um clearance is protocol changelog entry 2(c)."""
     from scipy.spatial import cKDTree
 
     n_rib = 6 if germ_cell == "oocyte" else 5
@@ -379,7 +381,7 @@ def _shell_nucleus(rng, germ_cell: str, center, R: float, peak: float, nucleus_i
             d = float(placed.query(P[::4])[0].min()) if placed is not None else np.inf
             if d > best_d:
                 best, best_d = P, d
-            if d >= MIN_RIBBON_SEPARATION_UM:
+            if d >= min_separation_um:
                 break
         ribs.append(TruthRibbon(ribbon_id=first_id + k, nucleus_id=nucleus_id, points=best,
                                 peak=peak * rng.uniform(*PEAK_JITTER), kind="shell"))
@@ -534,20 +536,22 @@ def pairs_scene(seed: int, *, final: bool = False, kind: str | None = None) -> S
 
 
 def dense_scene(seed: int, *, final: bool = False, germ_cell: str | None = None, peak: float | None = None,
-                family: str = "dense") -> Scene:
+                family: str = "dense", min_separation_um: float = MIN_RIBBON_SEPARATION_UM) -> Scene:
     seed = check_seed(seed, final)
     rng = _rng(family, seed)
     gc = germ_cell or ("oocyte" if seed % 2 == 0 else "spermatocyte")
     pk = SCENE_PEAK if peak is None else float(peak)
-    return _single_nucleus_scene(family, seed, rng, lambda c, R: _shell_nucleus(rng, gc, c, R, pk, 1, 1),
-                                 germ_cell=gc, peak_info={"scene_peak": pk})
+    return _single_nucleus_scene(family, seed, rng,
+                                 lambda c, R: _shell_nucleus(rng, gc, c, R, pk, 1, 1,
+                                                             min_separation_um=min_separation_um),
+                                 germ_cell=gc, peak_info={"scene_peak": pk, "min_separation_um": min_separation_um})
 
 
-def snr_scene(seed: int, *, final: bool = False) -> Scene:
+def snr_scene(seed: int, *, final: bool = False, min_separation_um: float = MIN_RIBBON_SEPARATION_UM) -> Scene:
     seed = check_seed(seed, final)
     pk = SNR_PEAKS[seed % 4]
     gc = "oocyte" if (seed // 4) % 2 == 0 else "spermatocyte"
-    return dense_scene(seed, final=final, germ_cell=gc, peak=pk, family="snr")
+    return dense_scene(seed, final=final, germ_cell=gc, peak=pk, family="snr", min_separation_um=min_separation_um)
 
 
 def noise_scene(seed: int, *, final: bool = False) -> Scene:
@@ -597,7 +601,17 @@ FAMILY_FUNCS = {"iso": iso_scene, "dense": dense_scene, "gaps": gaps_scene, "foc
                 "pairs": pairs_scene, "noise": noise_scene, "snr": snr_scene}
 
 
-def make_scene(family: str, seed: int, *, final: bool = False, **kw) -> Scene:
+GENERATORS = ("entry2", "registered")     # with the 0.25 um dense clearance (changelog entry 2(c)), or without
+
+
+def make_scene(family: str, seed: int, *, final: bool = False, generator: str = "entry2", **kw) -> Scene:
+    """One scene of a family. ``generator="registered"`` draws the dense and snr families without the 0.25 um
+    clearance between ribbons (the generator as protocol section 2.3 registered it); other families are the same
+    under both."""
     if family not in FAMILY_FUNCS:
         raise ValueError(f"unknown family {family!r}; one of {sorted(FAMILY_FUNCS)}")
+    if generator not in GENERATORS:
+        raise ValueError(f"unknown generator {generator!r}; one of {GENERATORS}")
+    if generator == "registered" and family in ("dense", "snr"):
+        kw.setdefault("min_separation_um", 0.0)
     return FAMILY_FUNCS[family](seed, final=final, **kw)

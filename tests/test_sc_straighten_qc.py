@@ -64,6 +64,7 @@ IMAGE_POSITIVE = {
     "sc_channel_suspect": {"n_present_with_2um": 10},
     "foci_uncalibrated": {"spot_tables": ["spots"]},
     "geometry_from_manifest": {"geometry_source": "run_manifest"},
+    "geometry_from_golden_manifest": {"geometry_source": "golden_manifest"},
     "label_merged_suspect": {"n_label_merged": 3},
     "nucleus_errors": {"n_failed": 2},
 }
@@ -114,3 +115,35 @@ def test_codes_are_unique_per_scope():
 def test_docs_flag_table_matches_the_code():
     doc = (ROOT / "docs" / "SC_STRAIGHTEN.md").read_text(encoding="utf-8")
     assert qc.docs_table() in doc.replace("\r\n", "\n")
+
+
+def test_noise_flag_uses_the_signal_range_fit():
+    # the fit above the darkest decile decides; the all-bins relative RMS is only a fallback
+    assert "noise_fit_poor" not in qc.image_flags({**CLEAN_IMAGE, "noise_rel_rms": 0.3,
+                                                   "noise_rel_rms_signal": 0.1}, P)
+    assert "noise_fit_poor" in qc.image_flags({**CLEAN_IMAGE, "noise_rel_rms": 0.1, "noise_rel_rms_signal": 0.3}, P)
+
+
+def test_label_volume_reference_follows_the_gonad_axis():
+    vols = [20.0] * 10 + [60.0] * 10                   # small nuclei distally, large ones proximally
+    axs = list(range(0, 10)) + list(range(100, 110))
+    assert qc.local_volume_reference(vols, axs, 105.0, 15.0) == 60.0
+    assert qc.local_volume_reference(vols, axs, 4.0, 15.0) == 20.0
+    assert qc.local_volume_reference(vols, axs, 50.0, 15.0) == 40.0       # nobody near: the whole median
+    assert qc.local_volume_reference(vols, axs, float("nan"), 15.0) == 40.0
+    assert qc.local_volume_reference([], [], 1.0, 15.0) is None
+    # a proximal nucleus of 70 um3 is not a merged label against its neighbours (60), against the whole median
+    # (40) it would be
+    ref = qc.local_volume_reference(vols, axs, 105.0, 15.0)
+    assert "label_merged_suspect" not in qc.nucleus_flags({**CLEAN_NUCLEUS, "volume_um3": 70.0}, P, ref)
+    assert "label_merged_suspect" in qc.nucleus_flags({**CLEAN_NUCLEUS, "volume_um3": 70.0}, P, 40.0)
+
+
+def test_docs_column_tables_match_the_schema():
+    from germquant.sc.straighten import schema as S
+
+    doc = (ROOT / "docs" / "SC_STRAIGHTEN.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+    for table, cols in S.TABLES.items():
+        assert set(S.COLUMN_DOCS[table]) == set(cols), table
+        assert all(S.COLUMN_DOCS[table][c].strip() for c in cols), table
+        assert S.docs_columns_table(table) in doc, table

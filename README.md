@@ -647,7 +647,9 @@ train/val/test split of the 12 N2 gonads in `tests/golden/rad51_split.json`, wha
 and is not, the metrics, the win conditions, the competitors and the stop rule),
 `docs/COLOCALIZATION.md` (the coloc stage), `docs/PARTITION_QC.md` (the
 partition measurability columns and flag), `docs/SC_TRACING.md` (the SC
-tracer), `docs/MAC_METAL.md` (Apple Silicon), `docs/ANNOTATION.md` (annotating nuclei and
+tracer), `docs/SC_STRAIGHTEN.md` (`germquant sc-straighten`: each SC ribbon traced in 3D, straightened and
+measured on finished results, new files only; with `docs/SC_STRAIGHTEN_DESIGN.md` and the pre-registered
+`docs/SC_VALIDATION_PROTOCOL.md`), `docs/MAC_METAL.md` (Apple Silicon), `docs/ANNOTATION.md` (annotating nuclei and
 fine-tuning the Cellpose model), `docs/BACKENDS.md` (pluggable nucleus segmentation and spot detection
 backends: the contracts, `segmentation.nuclei.backend` and `spots.backend`, the experimental `log`
 baseline), `docs/GENERIC_PROFILE.md` (the generic profile for samples that are not a worm germline),

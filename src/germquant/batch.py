@@ -252,7 +252,7 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
     # the record's image_id; without one nothing is written and counts is unchanged
     from .sc.straighten.outputs import collect_tables as _collect_sc
 
-    n_sc = _collect_sc(out_root)
+    n_sc = _collect_sc(out_root, image_ids=image_ids)
     if n_sc is not None:
         counts.update(n_sc)
     rows: dict[str, dict] = {}

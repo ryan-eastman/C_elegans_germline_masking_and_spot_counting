@@ -4,13 +4,16 @@
 A spot is ``unique`` when |u| <= ``foci.max_um[1]`` (lateral) and |v| <= ``foci.max_um[0]`` (axial) and it lies
 within 0.3 um of the strand's ends along the tangent; ``ambiguous`` when a second strand's PSF-scaled distance is
 within ``foci.ambiguity_ratio`` of the first's; otherwise ``off_strand`` (``no_strand`` when the nucleus has no
-strand). s = 0 is the end with the smaller rounded (z, y, x), so folded positions and inter-focus distances do
-not depend on the orientation.
+strand). Both PSF-scaled distances count the lateral (u), axial (v) and along-tangent offsets from the strand
+proper (s in [0, L]), so a strand that ends short of a focus and only points at it is not a second candidate.
+s = 0 is the end with the smaller rounded (z, y, x), so folded positions and inter-focus distances do not depend
+on the orientation.
 """
 from __future__ import annotations
 
 import numpy as np
 
+from .frames import beyond_end as _beyond
 from .frames import to_strip
 
 FOCI_FIELDS = ["spot_table", "spot_id", "nucleus_id", "marker", "assignment", "strand_key", "s_um", "s_frac",
@@ -41,7 +44,7 @@ def assign_foci(spots: dict, frames: list, lines: list, gaps: list, psf, p, nid:
                 s, u, v, w = res["s"][i], res["u"][i], res["v"][i], res["w"][i]
                 nz = float(abs(frames[j].frame_at(s)[3][0][0]))
                 sax = float(np.sqrt(sxy ** 2 * (1 - nz ** 2) + sz ** 2 * nz ** 2))
-                d1 = float(np.hypot(u / sxy, v / sax))
+                d1 = float(np.sqrt((u / sxy) ** 2 + (v / sax) ** 2 + (_beyond(s, w, L) / sxy) ** 2))
                 r.update({"strand_key": j, "s_um": s, "s_frac": float(np.clip(s / L, 0, 1)),
                           "s_folded_frac": float(min(max(s, 0.0), max(L - s, 0.0)) / L), "u_um": u, "v_um": v,
                           "dist_um": res["dist"][i], "second_strand_key": int(res["second"][i]),
@@ -54,8 +57,11 @@ def assign_foci(spots: dict, frames: list, lines: list, gaps: list, psf, p, nid:
                     k = int(res["second"][i])
                     if k >= 0:
                         # the second strand's distance on the same PSF scale (its own frame is near-identical
-                        # at this scale)
-                        d2 = float(np.hypot(res["second_u"][i] / sxy, res["second_v"][i] / sax))
+                        # at this scale), including the distance beyond its end along its tangent: a strand
+                        # that only points at the focus is not a second candidate
+                        along2 = _beyond(res["second_s"][i], res["second_w"][i], lines[k].L)
+                        d2 = float(np.sqrt((res["second_u"][i] / sxy) ** 2 + (res["second_v"][i] / sax) ** 2
+                                           + (along2 / sxy) ** 2))
                         amb = np.isfinite(d2) and d2 <= ratio * max(d1, 1e-9)
                     r["assignment"] = "ambiguous" if amb else "unique"
             rows.append(r)

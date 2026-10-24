@@ -116,8 +116,14 @@ def stem_of(file_path: str) -> str:
         return os.path.splitext(base)[0]
 
 
+def _fold(s: str) -> str:
+    return str(s).strip().casefold()
+
+
 def sealed_role(image_id: str, file_path: str) -> str | None:
-    """'test' or 'reserved' when the image is sealed by tests/golden/sc_split.json (repo checkouts only)."""
+    """'test' or 'reserved' when the image is sealed by tests/golden/sc_split.json (repo checkouts only). Stems
+    and ids are compared case-insensitively and without surrounding white space, so a renamed copy of a sealed
+    image (``20260105_N2_HS_HERM_1``) is refused as well."""
     try:
         from ...benchmark import sc_split
 
@@ -126,14 +132,47 @@ def sealed_role(image_id: str, file_path: str) -> str | None:
         split = sc_split.load_split()
     except Exception as e:  # noqa: BLE001 - a broken split record must not open the seal
         raise InputRefused("sealed_split_unreadable", f"tests/golden/sc_split.json could not be read: {e}") from e
-    stems = sc_split.sealed_stems(split)
+    stems = {_fold(s): s for s in sc_split.sealed_stems(split)}
     for key in (stem_of(file_path), image_id):
-        if key in stems:
-            return sc_split.role_of(key, split)
+        hit = stems.get(_fold(key))
+        if hit is not None:
+            return sc_split.role_of(hit, split)
     return None
 
 
+def sealed_import(path: str) -> bool:
+    """True when ``path`` is one of the registered live Filament truth files (test truth, check S3 of the
+    protocol), by file name, case-insensitively. Silent (False) outside a repository checkout."""
+    try:
+        from ...benchmark import sc_split
+
+        if sc_split.default_path() is None:
+            return False
+        ft = sc_split.load_split().get("filament_truth", {})
+    except Exception:  # noqa: BLE001 - a broken split record must not open the seal
+        return True
+    names = {_fold(Path(str(p).replace("\\", "/")).name) for p in
+             (ft.get("ims", {}).get("path", ""), ft.get("nas_copy", "")) if p}
+    return _fold(Path(str(path).replace("\\", "/")).name) in names
+
+
 # ------------------------------------------------------------------------------------ one image
+def golden_manifest_entry(folder: str | Path, levels: int = 2) -> dict | None:
+    """The entry for ``folder`` (by its name, the golden tag) in a ``golden_manifest.json`` one or two levels up
+    (scripts/make_goldens.py records each tag's xy_stride and z_range there), else None."""
+    folder = Path(folder)
+    for d in list(folder.parents)[:levels]:
+        f = d / "golden_manifest.json"
+        if f.is_file():
+            try:
+                man = json.loads(f.read_text(encoding="utf-8"))
+            except ValueError:
+                return None
+            e = man.get(folder.name) if isinstance(man, dict) else None
+            return e if isinstance(e, dict) else None
+    return None
+
+
 def _source_mapped(file_path: str, source_map: list[tuple[str, str]]) -> str:
     fp = str(file_path)
     for old, new in source_map or []:
@@ -166,7 +205,11 @@ def resolve(found: Found, *, source_map=None, nuclei_mode: str = "germline", nuc
         m = json.loads(mf.read_text(encoding="utf-8")) if mf.is_file() else {}
         geom_src = "run_manifest"
         if "xy_stride" not in m:
-            raise InputRefused("no_run_geometry", f"{iid}: no done marker and no xy_stride in run_manifest.json")
+            gm = golden_manifest_entry(folder)
+            if gm is None or "xy_stride" not in gm:
+                raise InputRefused("no_run_geometry", f"{iid}: no done marker, no xy_stride in run_manifest.json and "
+                                                      "no entry for this folder in a parent golden_manifest.json")
+            m, geom_src = gm, "golden_manifest"
     stride = int(m.get("xy_stride", 1))
     if stride != 1:
         raise InputRefused("undersampled_xy", f"{iid}: xy_stride {stride}; sc-straighten needs full-resolution runs")
@@ -267,6 +310,77 @@ def nd2_role_arrays(path: str | Path, roles: dict, *, xy_stride: int = 1, z_rang
         darr = f.to_dask()
     darr = canonical_dask(darr, list(sizes.keys()), xy_stride=xy_stride, z_range=z_range)
     return {role: np.asarray(darr[int(ci)]) for role, ci in roles.items()}
+
+
+def nd2_role_planes(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None):
+    """``plane(role, z)`` -> one (Y, X) plane of a role's channel of an .nd2 (the dask construction of
+    germquant.io.read_stack; each call computes one frame)."""
+    import nd2
+
+    with nd2.ND2File(str(path)) as f:
+        sizes = dict(f.sizes)
+        darr = f.to_dask()
+    darr = canonical_dask(darr, list(sizes.keys()), xy_stride=xy_stride, z_range=z_range)
+
+    def plane(role: str, z: int) -> np.ndarray:
+        return np.asarray(darr[int(roles[role]), int(z)])
+
+    return plane
+
+
+def role_planes(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None):
+    """``plane(role, z)`` for any source: an .nd2 frame by frame; other formats are read once (all channels)."""
+    if str(path).lower().endswith(".nd2"):
+        return nd2_role_planes(path, roles, xy_stride=xy_stride, z_range=z_range)
+    full = read_roles(path, roles, xy_stride=xy_stride, z_range=z_range)
+    return lambda role, z: full[role][int(z)]
+
+
+class CropBank:
+    """Per-nucleus crops of one channel, keyed by the crop's slices and filled plane by plane, so the whole
+    channel is never in memory; ``bank[slices]`` returns the crop (crops.make_crop indexes a role like an
+    array). The crops are the same arrays slicing the whole channel would give."""
+
+    def __init__(self, shape):
+        self.shape = tuple(int(v) for v in shape)
+        self.crops: dict[tuple, np.ndarray] = {}
+
+    @staticmethod
+    def key(sl) -> tuple:
+        return tuple((int(s.start), int(s.stop)) for s in sl)
+
+    def __getitem__(self, sl):
+        return self.crops[self.key(sl)]
+
+    @property
+    def nbytes(self) -> int:
+        return int(sum(a.nbytes for a in self.crops.values()))
+
+
+def crop_banks(plane_fn, roles, shape, slices) -> dict:
+    """{role: CropBank} holding the given crops; ``plane_fn(role, z)`` returns one (Y, X) plane of the role."""
+    Z = int(shape[0])
+    uniq: dict[tuple, tuple] = {}
+    for sl in slices:
+        uniq.setdefault(CropBank.key(sl), sl)
+    by_z: list[list[tuple]] = [[] for _ in range(Z)]
+    for sl in uniq.values():
+        for z in range(sl[0].start, sl[0].stop):
+            by_z[z].append(sl)
+    banks = {}
+    for r in roles:
+        b = CropBank(shape)
+        for z in range(Z):
+            if not by_z[z]:
+                continue
+            plane = np.asarray(plane_fn(r, z))
+            for sl in by_z[z]:
+                k = CropBank.key(sl)
+                if k not in b.crops:
+                    b.crops[k] = np.empty(tuple(s.stop - s.start for s in sl), plane.dtype)
+                b.crops[k][z - sl[0].start] = plane[sl[1], sl[2]]
+        banks[r] = b
+    return banks
 
 
 def read_roles(path: str | Path, roles: dict, *, xy_stride: int = 1, z_range=None) -> dict:

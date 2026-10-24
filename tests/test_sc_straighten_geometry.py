@@ -58,6 +58,7 @@ def test_rmf_frames_orthonormal_and_twist_free_on_a_helix():
     line = _line_from_points(_helix())
     fr = F.StrandFrame(line, ds=0.02, extend=0.0)
     T, nl, na = fr.T, fr.n_lat, fr.n_ax
+    assert np.allclose(nl, np.cross(T, na), atol=1e-9)
     for a, b in ((T, nl), (T, na), (nl, na)):
         assert np.max(np.abs((a * b).sum(1))) < 1e-6
     for a in (T, nl, na):
@@ -73,6 +74,8 @@ def test_flat_curve_gives_axial_normal_along_z():
     line = _line_from_points(_arc_points())
     fr = F.StrandFrame(line)
     assert np.allclose(np.abs(fr.n_ax[:, 0]), 1.0, atol=1e-6)
+    assert np.all(fr.n_ax[:, 0] > 0.99)                   # toward +z (v > 0 is up the stack)
+    assert np.allclose(fr.n_lat, np.cross(fr.T, fr.n_ax), atol=1e-9)     # right-handed (t, n_lat, n_ax)
     assert np.allclose(fr.n_lat[:, 0], 0.0, atol=1e-6)
     # and the roll from the optical axis is zero there
     assert np.nanmax(np.abs(fr.roll_from_axial_deg())) < 1e-3

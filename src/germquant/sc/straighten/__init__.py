@@ -19,8 +19,12 @@ __all__ = ["VERSION", "run_results", "straighten_image"]
 
 
 def __getattr__(name):
-    if name in ("run_results", "straighten_image"):
+    if name == "straighten_image":
         from . import pipeline as _p
 
-        return getattr(_p, name)
+        return _p.straighten_image
+    if name == "run_results":
+        from . import runner as _r
+
+        return _r.run_results
     raise AttributeError(name)

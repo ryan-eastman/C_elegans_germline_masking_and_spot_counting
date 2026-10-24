@@ -225,6 +225,43 @@ def dedupe_across(recs: dict, nb_pairs: list, p) -> int:
     return changed
 
 
+def free_orphan_contacts_across(recs: dict, nb_pairs: list, p) -> int:
+    """After the accounting across nuclei: a ``contact`` end of a phase-A strand with no surviving strand of its
+    own nucleus or of a neighbouring one within ``follow.contact_free_um`` (axial, lateral) becomes ``free`` (the
+    strand it stopped against was removed), so the end rule applies to it. Returns the number freed."""
+    from .follow import orphan_contact_ends
+
+    reach = tuple(float(v) for v in p["follow.contact_free_um"])
+    nb: dict[int, set] = {}
+    for a, b in nb_pairs:
+        nb.setdefault(a, set()).add(b)
+        nb.setdefault(b, set()).add(a)
+    n = 0
+    for nid in sorted(recs):
+        rec = recs[nid]
+        if not rec or rec.get("status") != "traced":
+            continue
+        strands = rec["strands"]
+        for i, d in enumerate(strands):
+            sides = [s for s in (0, 1) if d["end_types"][s] == "contact"]
+            if not sides:
+                continue
+            rest = [np.asarray(o["samples"], float) for j, o in enumerate(strands) if j != i]
+            for m in sorted(nb.get(nid, ())):
+                rest.extend(np.asarray(o["samples"], float) for o in (recs.get(m) or {}).get("strands", []))
+            Q = np.vstack(rest) if rest else np.zeros((0, 3))
+            S = np.asarray(d["samples"], float)
+            if not len(S):
+                continue
+            flags = orphan_contact_ends([(S[0] if s == 0 else S[-1], Q) for s in sides], reach)
+            for s, orphan in zip(sides, flags):
+                if orphan:
+                    d["end_types"] = list(d["end_types"])
+                    d["end_types"][s] = "free"
+                    n += 1
+    return n
+
+
 def _neighbour_pairs(bx: dict, ids: list, spacing, pad_um) -> list[tuple[int, int]]:
     pv = pad_vox(spacing, pad_um)
     items = [(i, bx[i]) for i in ids if i in bx]
@@ -273,7 +310,7 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
                      roles: dict | None = None, spot_tables: dict | None = None, nucleus_ids=None,
                      imported: dict | None = None, geometry: str = "auto", refine_imported: bool = True,
                      ends_mode: str = "fit", workers: int = 1, detector_max: float | None = None,
-                     image_id: str = "", progress=None) -> ImageResult:
+                     image_id: str = "", progress=None, label_boxes: dict | None = None) -> ImageResult:
     t_start = time.perf_counter()
     p = params
     sp = tuple(float(v) for v in spacing)
@@ -283,7 +320,7 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
     if nucleus_ids is None:
         nucleus_ids = sorted(int(v) for v in nuc["nucleus_id"])
     ids = sorted(int(v) for v in nucleus_ids)
-    bx = boxes(labels)
+    bx = boxes(labels) if label_boxes is None else label_boxes
     noise = _fit_noise(ce, labels, [i for i in ids if i in bx], p)
     sigv = sigma_vox(p["fields.sigma_um"], sp)
     null_q = calibrate_null(sigv, float(p["fields.null_quantile"]), tuple(p["fields.null_shape"]),
@@ -308,6 +345,8 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
         recs = {r["nucleus_id"]: r for r in res_a}
         pairs = _neighbour_pairs(bx, present, sp, pad)
         n_cut = dedupe_across(recs, pairs, p)
+        n_freed = {"within": int(sum(int(r.get("n_contacts_freed", 0)) for r in res_a)),
+                   "across": free_orphan_contacts_across(recs, pairs, p)}
         stretches = [s for r in res_a for s in r.get("psf_stretches", [])]
         psf, psf_src, psf_detail = psf_from_profiles(stretches, p)
         # neighbours of each nucleus: in-strand samples of the strands of the nuclei it touches
@@ -337,11 +376,11 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
         res_b = runner.map(measure_crop, tasks_b(), len(present), progress, "measure")
     meas = {r["nucleus_id"]: r for r in res_b}
     return _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, psf_src, psf_detail,
-                   n_cut, roles, spot_tables or {}, labels.shape, t_start)
+                   n_cut, roles, spot_tables or {}, labels.shape, t_start, n_freed)
 
 
 def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, psf_src, psf_detail, n_cut,
-            roles, spot_tables, shape, t_start) -> ImageResult:
+            roles, spot_tables, shape, t_start, n_freed=None) -> ImageResult:
     ds = float(p["strips.ds_um"])
     all_strands = []                       # (nid, local index, measured strand dict)
     for nid in present:
@@ -461,7 +500,8 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
         for g in s["gaps"]:
             gap_rows.append({"strand_id": s["row"]["strand_id"], "strand_uid": s["uid"], "nucleus_id": nid,
                              **{c: g[c] for c in ("s_start_um", "s_end_um", "length_um", "depth", "z_score",
-                                                  "bridged", "mid_z_um", "mid_y_um", "mid_x_um")}})
+                                                  "bridged", "mid_z_um", "mid_y_um", "mid_x_um")},
+                             "plateau_rel": g.get("plateau_rel", np.nan)})
     for gi, g in enumerate(gap_rows, start=1):
         g["gap_id"] = gi
     gaps_df = pd.DataFrame(gap_rows)
@@ -474,7 +514,8 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
     if len(strands_df) and len(present_rows):
         mx = strands_df.groupby("nucleus_id")["length_um"].max()
         long_any = int(sum(1 for nid in present_rows["nucleus_id"] if mx.get(nid, 0.0) >= 2.0))
-    info = {"noise_rel_rms": noise.rel_rms, "noise_fallback": noise.fallback, "psf_source": psf_src,
+    info = {"noise_rel_rms": noise.rel_rms, "noise_rel_rms_signal": noise.rel_rms_signal,
+            "noise_fallback": noise.fallback, "psf_source": psf_src,
             "n_present": int(len(present_rows)), "n_present_with_2um": long_any,
             "spot_tables": sorted(k for k, v in spot_tables.items() if v is not None and len(v)),
             "n_label_merged": int(nuclei_df["qc_flags"].str.contains("label_merged_suspect").sum())
@@ -485,6 +526,7 @@ def _finish(image_id, p, sp, nuc, ids, present, recs, meas, noise, null_q, psf, 
         "noise_model": noise.as_dict(), "null_q": null_q, "sigma_vox": list(sigma_vox(p["fields.sigma_um"], sp)),
         "psf": {"sigma_z_um": psf[0], "sigma_xy_um": psf[1], "source": psf_src, **psf_detail},
         "complete_median_integrated": m_img, "complete_median_fwhm": img_ctx, "n_cut_across_nuclei": n_cut,
+        "n_contacts_freed": n_freed or {},
         "counts": {"nuclei": int(len(nuclei_df)), **{f"status_{k}": int(v) for k, v in n_status.items()},
                    "strands": int(len(strands_df)), **{f"class_{k}": int(v) for k, v in cls_counts.items()},
                    "foci": int(len(foci_df)), "gaps": int(len(gaps_df))},
@@ -548,13 +590,19 @@ def _nucleus_rows(p, nuc, ids, present, recs, meas, all_strands, sp) -> list[dic
     expected_map = dict(p["nucleus.expected"])
     min_main = float(p["classes.min_complete_um"])
     rows = []
-    vols = []
+    vols, axs = [], []
     for nid in ids:
         if nid in info.index and nid in recs and recs[nid]["status"] == "traced":
             v = info.loc[nid].get("volume_um3", np.nan) if hasattr(info.loc[nid], "get") else np.nan
+            a = info.loc[nid].get("axis_position_um", np.nan) if hasattr(info.loc[nid], "get") else np.nan
             if np.isfinite(float(v)):
                 vols.append(float(v))
-    med_vol = float(np.median(vols)) if vols else None
+                axs.append(float(a) if a is not None and not pd.isna(a) else np.nan)
+    vols_a, axs_a = np.asarray(vols, float), np.asarray(axs, float)
+    win = float(p["qc.merged_label_window_um"])
+
+    def local_median(apos) -> float | None:
+        return qc.local_volume_reference(vols_a, axs_a, apos, win)
     for nid in ids:
         r_a = recs.get(nid)
         r_b = meas.get(nid)
@@ -629,7 +677,7 @@ def _nucleus_rows(p, nuc, ids, present, recs, meas, all_strands, sp) -> list[dic
             "touches_z": bool(r_a.get("touches_z", False)) if r_a else False,
             "touches_xy": bool(r_a.get("touches_xy", False)) if r_a else False,
         }
-        flags = qc.nucleus_flags(row, p, med_vol)
+        flags = qc.nucleus_flags(row, p, local_median(row["axis_position_um"]))
         complete_nucleus = bool(expected is not None and n_complete == expected and main and all(
             r.get("strand_class") in ("complete", "verified") for r in main) and qc.status(flags, "nucleus") != "fail")
         row["complete_nucleus"] = complete_nucleus

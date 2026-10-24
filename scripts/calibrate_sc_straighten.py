@@ -3,6 +3,9 @@ seeds below 7,000,000 only; the sealed ranges are refused by germquant.sc.straig
 
     python scripts/calibrate_sc_straighten.py --out DIR [--grid follow.seed_min=2.5,3,3.5,4 follow.lo=1,1.5 ...]
            [--families iso dense gaps foci pairs noise snr] [--n 30] [--seed0 1000] [--procs 6]
+           [--generator entry2|registered]
+    python scripts/calibrate_sc_straighten.py --out DIR --final --reason TEXT --families F --n N --seed0 S
+           (sealed seeds: only through scripts/benchmark_sc.py synthetic --final, by the orchestrator)
 
 Every configuration of the grid (the cartesian product of the given values; tunable keys only, DESIGN section 8)
 runs the same development scenes of every family; one JSON line per configuration goes to DIR/calibration.jsonl
@@ -28,7 +31,7 @@ TUNABLE = PRM.TUNABLE_PREFIXES
 
 
 def _one(task):
-    fam, seed, sets = task
+    fam, seed, sets, final, generator = task
     import warnings
 
     warnings.simplefilter("ignore")
@@ -37,7 +40,7 @@ def _one(task):
     from germquant.sc.straighten.pipeline import straighten_image
 
     P = PRM.resolve(None, sets)
-    sc = synth.make_scene(fam, seed)
+    sc = synth.make_scene(fam, seed, final=final, generator=generator)
     roles = {k: v for k, v in sc.channels.items() if k != "central_element"}
     spots = {"spots": sc.spots} if len(sc.spots) else None
     t0 = time.perf_counter()
@@ -60,7 +63,14 @@ def main(argv=None) -> int:
     ap.add_argument("--procs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument("--allow-fixed", action="store_true",
                     help="also sweep keys the design fixes (an exploratory sweep; recorded as such in the output)")
+    ap.add_argument("--generator", choices=["entry2", "registered"], default="entry2",
+                    help="dense and snr phantoms with the 0.25 um ribbon clearance (protocol changelog entry 2(c)) "
+                         "or without it (the generator as registered in protocol section 2.3)")
+    ap.add_argument("--final", action="store_true", help="sealed seeds (the scoring only; needs --reason)")
+    ap.add_argument("--reason", default=None)
     a = ap.parse_args(argv)
+    if a.final and not (a.reason and a.reason.strip()):
+        raise SystemExit("--final needs --reason TEXT (docs/SC_VALIDATION_PROTOCOL.md section 10)")
     keys, vals = [], []
     for g in a.grid:
         k, v = g.split("=", 1)
@@ -71,7 +81,13 @@ def main(argv=None) -> int:
     configs = [list(a.fixed) + [f"{k}={x}" for k, x in zip(keys, combo)] for combo in itertools.product(*vals)] \
         if keys else [list(a.fixed)]
     seeds = list(range(a.seed0, a.seed0 + a.n))
-    tasks = [(fam, s, tuple(c)) for c in configs for fam in a.families for s in seeds]
+    from germquant.sc.straighten import synth
+
+    for sd in seeds:                      # refuse sealed seeds before any scene is generated
+        synth.check_seed(sd, final=a.final)
+    if a.final and (len(configs) != 1 or keys):
+        raise SystemExit("--final scores one configuration (the frozen one), not a grid")
+    tasks = [(fam, s, tuple(c), bool(a.final), a.generator) for c in configs for fam in a.families for s in seeds]
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     from germquant.benchmark import sc_ribbons as B
@@ -86,7 +102,8 @@ def main(argv=None) -> int:
     with open(out / "calibration.jsonl", "a", encoding="utf-8") as fh:
         for sets, fams in by.items():
             rec = {"sets": list(sets), "params_hash": PRM.resolve(None, list(sets)).hash, "seeds": [seeds[0], seeds[-1]],
-                   "exploratory_fixed_keys": bool(a.allow_fixed), "families": {}}
+                   "exploratory_fixed_keys": bool(a.allow_fixed), "generator": a.generator, "final": bool(a.final),
+                   "families": {}}
             for fam, scores in fams.items():
                 scores.sort(key=lambda s: s.seed)
                 rec["families"][fam] = B.summarise_scores(scores)

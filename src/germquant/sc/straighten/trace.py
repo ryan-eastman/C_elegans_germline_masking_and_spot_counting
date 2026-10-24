@@ -15,7 +15,7 @@ from scipy.spatial import cKDTree
 from .account import dedupe_within, drop_axial_ghosts, drop_shadowed, resample
 from .crops import Crop, territory
 from .fields import line_fields
-from .follow import RawStrand, follow_nucleus
+from .follow import RawStrand, follow_nucleus, free_orphan_contacts, resolve_contacts
 from .link import link_strands
 from .noise import NoiseModel, gat, nucleus_noise_sd
 from .params import Params
@@ -87,7 +87,8 @@ def trace_crop(crop: Crop, ctx: dict) -> dict:
     nid = crop.nucleus_id
     rec = {"nucleus_id": nid, "status": "traced", "error": "", "error_message": "", "strands": [],
            "psf_stretches": [], "n_seeds": 0, "budget_exceeded": False, "noise_sd": float("nan"),
-           "bg": float("nan"), "n_territory": 0, "touches_z": crop.touches_z, "touches_xy": crop.touches_xy}
+           "bg": float("nan"), "n_territory": 0, "touches_z": crop.touches_z, "touches_xy": crop.touches_xy,
+           "n_contacts_freed": 0}
     try:
         p = Params(ctx["params"])
         sp = tuple(float(v) for v in ctx["spacing"])
@@ -113,12 +114,17 @@ def trace_crop(crop: Crop, ctx: dict) -> dict:
             rec["budget_exceeded"] = bool(finfo["budget_exceeded"])
             for st in raw_strands:
                 st.nucleus_id = nid
-            # axial shadows go before the end matching (so they are never joined to the strand they stand on)
-            # and again after it
+            # axial shadows go before the T contacts and the end matching (so a shadow never trims the strand it
+            # stands on and is never joined to it) and again after them
             raw_strands, n_ghost0 = drop_axial_ghosts(raw_strands, p)
+            resolve_contacts(raw_strands, p)
+            min_len = float(p["follow.min_length_um"])
+            raw_strands = [s for s in raw_strands if s.length_um >= min_len]
             kept, n_ghost = drop_axial_ghosts(dedupe_within(link_strands(raw_strands, p), p), p)
             n_ghost += n_ghost0
             kept, n_shadow = drop_shadowed(kept, p)
+            # a contact end whose partner was removed above is a free end again (the end rule applies)
+            rec["n_contacts_freed"] = free_orphan_contacts(kept, p)
             rec["n_axial_ghosts"] = n_ghost
             rec["n_shadowed"] = n_shadow
             strands.extend(kept)

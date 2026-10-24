@@ -64,13 +64,18 @@ def _moving_median(x: np.ndarray, w: int) -> np.ndarray:
     return median_filter(x, size=w, mode="nearest")
 
 
-def find_gaps(s, integ, integ_se, clean, in_strand, L, p, ds=0.05):
+def find_gaps(s, integ, integ_se, clean, in_strand, L, p, ds=0.05, sigma_along=None):
     """Gaps of one strand. The integrated profile is smoothed over ``gaps.smooth_um``; M is its median over clean,
-    non-end samples. A dip is a run below ``gaps.q`` x M; its window extends while the profile stays below
-    ``gaps.window_frac`` x M and must not touch an end. Because blurring along the strand conserves signal, the
-    gap length is the missing signal over the window divided by M (independent of the PSF and the tilt), and the
-    gap is centred on the deficit's centroid. Kept when the length is at least ``gaps.min_um`` and the dip is
-    deeper than ``gaps.z`` standard errors. Returns (gaps, M, smoothed)."""
+    non-end samples. A candidate is a run below ``gaps.window_frac`` x M that does not touch an end. Its window is
+    widened by ``gaps.tail_sigmas`` x the PSF sigma along the strand there (``sigma_along(s)``; the blur spreads
+    the missing signal over that reach), and the dip is judged against the local plateau: a straight baseline
+    between the median profiles within ``gaps.plateau_um`` outside the widened window on either side (one median
+    when only one side has samples, M when neither has; the integrated signal of a ribbon changes along it, with
+    its brightness and with the tilt, which changes how much of the PSF the integration ellipse holds). The
+    candidate is a gap when the smoothed profile dips below ``gaps.q`` x the baseline, the dip is deeper than
+    ``gaps.z`` standard errors and the length is at least ``gaps.min_um``. Because blurring along the strand
+    conserves signal, the gap length is the missing fraction of the baseline integrated over the widened window,
+    and the gap is centred on the deficit's centroid. Returns (gaps, M, smoothed)."""
     w = max(1, int(round(float(p["gaps.smooth_um"]) / ds)) + 1)
     sm = moving_mean(np.where(in_strand, integ, np.nan), w)
     nonend = (s >= 0.3) & (s <= L - 0.3)
@@ -83,47 +88,81 @@ def find_gaps(s, integ, integ_se, clean, in_strand, L, p, ds=0.05):
         return gaps, M, sm
     q = float(p["gaps.q"])
     wf = float(p["gaps.window_frac"])
+    n_sig = float(p["gaps.tail_sigmas"])
+    pl_um = float(p["gaps.plateau_um"])
     ok = in_strand & np.isfinite(sm)
-    below = ok & (sm < q * M)
+    below = ok & (sm < wf * M)
     idx = np.nonzero(below)[0]
     if not len(idx):
         return gaps, M, sm
     br = np.nonzero(np.diff(idx) > 1)[0]
-    starts = np.r_[idx[0], idx[br + 1]]
-    stops = np.r_[idx[br], idx[-1]]
-    windows = []
-    for a, b in zip(starts, stops):
-        wa, wb = a, b
-        while wa - 1 >= 0 and ok[wa - 1] and sm[wa - 1] < wf * M:
-            wa -= 1
-        while wb + 1 < len(sm) and ok[wb + 1] and sm[wb + 1] < wf * M:
-            wb += 1
-        if windows and wa <= windows[-1][1] + 1:
-            windows[-1] = (windows[-1][0], max(wb, windows[-1][1]))
-        else:
-            windows.append((wa, wb))
+    windows = list(zip(np.r_[idx[0], idx[br + 1]], np.r_[idx[br], idx[-1]]))
     for wa, wb in windows:
         if s[wa] <= 0.1 or s[wb] >= L - 0.1 or not (ok[wa - 1] if wa > 0 else False) or \
                 not (ok[wb + 1] if wb + 1 < len(sm) else False):
             continue
-        seg = np.where(np.isfinite(integ[wa:wb + 1]), integ[wa:wb + 1], M)
-        deficit = M - seg
-        length = float(deficit.sum() * ds / M)
+        kk = wa + int(np.nanargmin(sm[wa:wb + 1]))
+        sig = float(sigma_along(float(s[kk]))) if sigma_along is not None else 0.0
+        lo = max(float(s[wa]) - n_sig * sig, 0.1)
+        hi = min(float(s[wb]) + n_sig * sig, L - 0.1)
+        win = ok & (s >= lo - 1e-9) & (s <= hi + 1e-9)
+        win[wa:wb + 1] = True
+        left = ok & (s >= lo - pl_um) & (s < lo)
+        right = ok & (s > hi) & (s <= hi + pl_um)
+        wi = np.nonzero(win)[0]
+        if left.sum() >= 3 and right.sum() >= 3:
+            # the plateau may change along the strand: a straight baseline between the two flank medians
+            pa, pb = float(np.median(sm[left])), float(np.median(sm[right]))
+            base_w = pa + (pb - pa) * (s[wi] - lo) / max(hi - lo, 1e-9)
+        elif (left | right).sum() >= 5:
+            base_w = np.full(len(wi), float(np.median(sm[left | right])))
+        else:
+            base_w = np.full(len(wi), M)
+        if not (np.all(np.isfinite(base_w)) and np.all(base_w > 0)):
+            base_w = np.full(len(wi), M)
+        P = float(np.mean(base_w))
+        Pk = float(np.interp(s[kk], s[wi], base_w))
+        dip = float(sm[kk])
+        if not dip < q * Pk:
+            continue
+        seg = np.where(np.isfinite(integ[wi]), integ[wi], base_w)
+        deficit = base_w - seg
+        length = float((deficit / base_w).sum() * ds)
         if length <= 0:
             continue
-        centre = float((s[wa:wb + 1] * np.clip(deficit, 0, None)).sum() / max(np.clip(deficit, 0, None).sum(), 1e-12))
-        k = wa + int(np.nanargmin(sm[wa:wb + 1]))
-        se = float(integ_se[k]) if np.isfinite(integ_se[k]) and integ_se[k] > 0 else float("nan")
-        z = (M - float(sm[k])) / se if np.isfinite(se) else float("nan")
+        pos = np.clip(deficit / base_w, 0, None)
+        centre = float((s[wi] * pos).sum() / max(pos.sum(), 1e-12))
+        se = float(integ_se[kk]) if np.isfinite(integ_se[kk]) and integ_se[kk] > 0 else float("nan")
+        z = (Pk - dip) / se if np.isfinite(se) else float("nan")
         if length < float(p["gaps.min_um"]) - 1e-9:
             continue
         if not (np.isfinite(z) and z > float(p["gaps.z"])):
             continue
         g0 = max(centre - 0.5 * length, 0.0)
         g1 = min(centre + 0.5 * length, L)
-        gaps.append({"s_start_um": g0, "s_end_um": g1, "length_um": length, "depth": (M - float(sm[k])) / M,
-                     "z_score": z, "i_min": int(k)})
+        gaps.append({"s_start_um": g0, "s_end_um": g1, "length_um": length, "depth": (Pk - dip) / Pk,
+                     "z_score": z, "i_min": int(kk), "plateau": P, "plateau_rel": P / M})
     return gaps, M, sm
+
+
+def section_signal(cs_ce, bg, ell_int, ring, du, dv, noise, sp, n_ax, smooth_n: int):
+    """From cross-sections of raw counts (m, nu, nv): the integrated signal above the territory background in the
+    ellipse (counts um^2), its standard error, and the same above the local background (the median of the outer
+    ring, smoothed over ``smooth_n`` samples)."""
+    valid = np.isfinite(cs_ce)
+    wi = ell_int[None] & valid
+    frac_valid = wi.sum((1, 2)) / max(ell_int.sum(), 1)
+    integ = np.nansum(np.where(wi, cs_ce - bg, 0.0), (1, 2)) * du * dv
+    integ[frac_valid < 0.7] = np.nan
+    var_sum = np.nansum(np.where(wi, noise.var(np.nan_to_num(cs_ce, nan=bg)), 0.0), (1, 2))
+    e_ax = np.abs(n_ax[:, 0]) * sp[0] + (1 - np.abs(n_ax[:, 0])) * sp[1]
+    npv = np.maximum((sp[1] / du) * (e_ax / dv), 1.0)
+    integ_se = du * dv * np.sqrt(npv * var_sum)
+    with np.errstate(invalid="ignore"):
+        b_loc = np.nanmedian(np.where(ring[None], cs_ce, np.nan).reshape(len(cs_ce), -1), axis=1)
+    b_loc = _moving_median(np.where(np.isfinite(b_loc), b_loc, bg), smooth_n)
+    integ_local = integ - (b_loc - bg) * float(ell_int.sum()) * du * dv
+    return integ, integ_se, integ_local
 
 
 def pieces_of(L: float, gaps: list) -> list[float]:
@@ -233,22 +272,13 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
                                 np.maximum(wc.sum((1, 2)), 1), np.nan)
             core = core_abs - bg
             core_se = noise.sd(np.nan_to_num(core_abs, nan=bg)) / np.sqrt(n_eff(core_lat, core_ax, sp, fr.n_ax[:, 0]))
-            wi = ell_int[None] & valid
-            frac_valid = wi.sum((1, 2)) / max(ell_int.sum(), 1)
-            integ = np.nansum(np.where(wi, cs_ce - bg, 0.0), (1, 2)) * du * dv
-            integ[frac_valid < 0.7] = np.nan
-            var_sum = np.nansum(np.where(wi, noise.var(np.nan_to_num(cs_ce, nan=bg)), 0.0), (1, 2))
-            e_ax = np.abs(fr.n_ax[:, 0]) * sp[0] + (1 - np.abs(fr.n_ax[:, 0])) * sp[1]
-            npv = np.maximum((sp[1] / du) * (e_ax / dv), 1.0)
-            integ_se = du * dv * np.sqrt(npv * var_sum)
             # the local background around the strand (an outer ring of the cross-section, |u| >= ring_um, |v| <= 0.3
             # um, median, smoothed along s): gaps are measured on the signal above it, so a nucleoplasm level
             # above the territory's percentile does not fill the gap
             ring = (np.abs(U)[:, None] >= float(p["gaps.ring_um"]) - 1e-9) & (np.abs(V)[None, :] <= 0.3 + 1e-9)
-            with np.errstate(invalid="ignore"):
-                b_loc = np.nanmedian(np.where(ring[None], cs_ce, np.nan).reshape(len(fr.s), -1), axis=1)
-            b_loc = _moving_median(np.where(np.isfinite(b_loc), b_loc, bg), max(1, int(round(0.5 / ds))) | 1)
-            integ_local = integ - (b_loc - bg) * float(ell_int.sum()) * du * dv
+            smooth_n = max(1, int(round(0.5 / ds))) | 1
+            integ, integ_se, integ_local = section_signal(cs_ce, bg, ell_int, ring, du, dv, noise, sp, fr.n_ax,
+                                                          smooth_n)
             snr = core / np.maximum(core_se, 1e-9)
             role_core = {}
             for r in prof_roles:
@@ -269,7 +299,13 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
             lineness = L_s(fr.C)
             roll = fr.roll_from_axial_deg()
             L = line.L
-            gaps, M, _sm = find_gaps(fr.s, integ_local, integ_se, ~contaminated, ins, L, p, ds)
+            psf_t = psf
+
+            def sigma_along(sv, line=line, psf_t=psf_t):
+                return sigma_t(psf_t, float(line.tangent(sv)[0][0]))
+
+            gaps, M, _sm = find_gaps(fr.s, integ_local, integ_se, ~contaminated, ins, L, p, ds,
+                                     sigma_along=sigma_along)
             in_gap = np.zeros(len(fr.s), bool)
             for g in gaps:
                 in_gap |= (fr.s >= g["s_start_um"]) & (fr.s <= g["s_end_um"])

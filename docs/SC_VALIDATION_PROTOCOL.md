@@ -517,3 +517,59 @@ Entries are appended, never edited. Each one says whether a test result had been
    along the axial PSF tail into the territory edge, or joined an axial shadow): axial shadows are also removed
    before the end matching, and a trace that reaches the territory or stack edge after its ridge has faded ends
    free (trimmed to its last strong point). Development trial 3 uses these values.
+5. 2026-10-24, the review round of the build workflow, before any result: no test result had been computed, no
+   test or reserved image was run, no test or reserved truth was read and no sealed seed was generated.
+   Development trial 3 (commit 3e88403) had been scored on the eight 2025-11-05 development gonads. A correctness
+   review and a protocol review of the branch followed; their findings were checked on development seeds and
+   development images, and these changes were made before development trial 4:
+   (a) Method, motivated by synthetic development seeds and by the trial-3 runs of the eight development images
+   (strand geometry and end types only; no zone truth motivated any of them): T contacts are resolved after the
+   axial shadows are removed, and a `contact` end with no surviving strand within `follow.contact_free_um` (a new
+   fixed-group key, [0.6, 0.4] um axial and lateral) is free again (2161 of the 6357 contact ends of the trial-3
+   runs had no partner); linked pieces whose tips overlap are joined without a backward step (835 of 23,419
+   trial-3 strands had a folded frame, 788 of them linked); an end fit whose edge sits at the inner bound of its
+   window is fitted again from an anchor `ends.inside_um` deeper, and the first fit stands when that one fails;
+   gaps: a candidate is a run below `gaps.window_frac` of the strand median, its window is widened by
+   `gaps.tail_sigmas` (new, 1.0) PSF sigmas along the strand, the dip is judged against a straight baseline
+   between the profile medians within `gaps.plateau_um` (new, 0.4 um) outside the window, and the length is the
+   missing fraction of that baseline (tilted gaps measured up to 30 percent short with the strand median as the
+   reference); foci: the closest strand and the ambiguity test use the distance to the strand proper, so a strand
+   that ends short of a focus and only points at it neither claims it nor makes it ambiguous; QC:
+   `label_merged_suspect` compares a label with the median volume of the traced nuclei within
+   `qc.merged_label_window_um` (new, 15 um) along the gonad axis, `noise_fit_poor` judges the fit over the noise
+   bins above the darkest decile of the sampled voxels, and the input fallback to a parent `golden_manifest.json`
+   for the run geometry has the image flag `geometry_from_golden_manifest`. Keys introduced in earlier rounds
+   without a changelog line are recorded here: `follow.contact_um` [0.3, 0.15], `noise.var_floor` 1.0 and
+   `refine.se_curve_um` 0.10 (a constant in place of the calibration table of DESIGN 4.10).
+   (b) Checked and not adopted: the outward end direction from a line fitted 0.6 to 1.5 um inside the end (the
+   length bias of isolated ribbons tilted 30 to 60 degrees changed by 0.01 um on development seeds); a straight or
+   Hermite bridge between the flanks of a gap as the path of the gap measurement (tilted gaps came out shorter,
+   and along the true centreline they were short as well: the cause was the reference level, fixed in (a)).
+   (c) Scoring path (code only; no rule of this protocol changed): `zones --final` uses the frozen theta_full and
+   theta_present of the freeze entry from the command line (before, it would have chosen them on the scored test
+   gonads), each gonad's registered frame rule (the eight test gonads registered with the .ims header rule would
+   have used the nd2 stage rule), the frame agreement on the image corners with the voxel included, and runs
+   sc-straighten itself on the test images; `--allow-sealed` needs a reason and logs a start and an end line per
+   sealed image; every --final run logs a start line before it touches sealed data and an end line after it; the
+   pre-flight checks 1, 3 and 5 of section 4.5 are coded; every gonad in scope gets a row, with "no output" and
+   its reason where it could not be scored, plus a pooled row; sealed synthetic scoring has a path
+   (`calibrate_sc_straighten.py --final --reason`), refused without a reason; image stems are compared with the
+   sealed stems without regard to case, and imported geometry from the registered live Filament file is refused
+   without `--allow-sealed`.
+   (d) Reporting added under rule 2 (secondary, never gating): S1a is also reported in the tilt bins 0 to 30, 30
+   to 60 and 60 to 75 degrees and S1e per family; at the sealed scoring S1b and S1e are also reported on the
+   generator as registered in section 2.3 (dense and snr ribbons without the 0.25 um clearance of entry 2(c));
+   the development S1 gates are also reported on the fresh development seeds 3000 to 3049.
+   (e) Development data added: the four 2026-01-05 heat-shock male development gonads have germquant runs
+   (germquant_golden/additions/8666f07), so development trial 4 scores them with the eight 2025-11-05 gonads
+   (section 9: every development gonad with a germquant run).
+   (f) Open, for the project lead, before the freeze: the guard bands of section 4.2 (half the neighbouring point
+   spacing) remove every nucleus of a zone one segment long, so on the eight 2025-11-05 development gonads SCfrag
+   kept no nucleus outside the guard bands in 6 of 8 and S2a was evaluable on 3; a guard of a quarter spacing
+   would make all 8 evaluable (nucleus counts only; no AUC has been computed with another guard). The scoring
+   code takes `--guard-frac` (default the registered 0.5; `--final` refuses another value unless a changelog
+   entry sets it). Also open: the population of S4 when no SNR floor exists (no scene peak met the 5 percent
+   rule of S1g on development seeds).
+   (g) The protocol file `C:/Users/ryane/sc_ribbon_work/VALIDATION_PROTOCOL.md` stays the registration snapshot
+   (sha256 d56b68859b8a500f6aad964fbb3c8cb9d96437c3108fe957fb8760dd125a2a01); this repository copy is the living
+   protocol, and its changelog is appended here.

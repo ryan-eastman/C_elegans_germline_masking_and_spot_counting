@@ -160,7 +160,15 @@ def read_paths_csv(path: str | Path, image_id: str | None = None) -> list[Import
     return out
 
 
-def read_spec(kind: str, path: str, *, image_id: str, spacing) -> list[ImportedPath]:
+def read_spec(kind: str, path: str, *, image_id: str, spacing, allow_sealed: bool = False) -> list[ImportedPath]:
+    """The paths of one ``--paths-from`` spec. The registered live Filament truth files (test truth of the SC
+    validation protocol, check S3) are refused unless ``allow_sealed`` (the scoring passes it)."""
+    from .inputs import InputRefused, sealed_import
+
+    if not allow_sealed and sealed_import(path):
+        raise InputRefused("sealed_import", f"{path} is the live Filament truth of the sealed SC validation split "
+                                            "(docs/SC_VALIDATION_PROTOCOL.md, check S3); it is read only by the "
+                                            "scoring (scripts/benchmark_sc.py filaments --final)")
     kind = kind.lower()
     if kind == "ims":
         return read_ims_filaments(path, spacing)

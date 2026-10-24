@@ -34,7 +34,7 @@ CODES: tuple[tuple[str, str, str, str, str], ...] = (
     ("verified", "strand", "info", "", "imported geometry marked verified"),
     ("error", "strand", "fail", "", "an exception while measuring the strand (error:<Type>)"),
     # nucleus scope
-    ("label_merged_suspect", "nucleus", "review", "qc.merged_label_ratio", "label volume above merged_label_ratio x the median of traced nuclei"),
+    ("label_merged_suspect", "nucleus", "review", "qc.merged_label_ratio", "label volume above merged_label_ratio x the median of the traced nuclei within merged_label_window_um along the gonad axis (the image median with fewer than 5 of them or no axis position)"),
     ("truncated_z", "nucleus", "fail", "", "the label touches the first or last plane (totals unusable)"),
     ("edge_xy", "nucleus", "review", "", "the label touches the image border"),
     ("count_low", "nucleus", "info", "nucleus.expected", "fewer main strands than expected"),
@@ -44,11 +44,12 @@ CODES: tuple[tuple[str, str, str, str, str], ...] = (
     ("error", "nucleus", "fail", "", "an exception in the nucleus (error:<Type>; status failed, no zero row)"),
     # image scope
     ("sc_straighten:uncalibrated", "image", "info", "", "always in v1, until the validation protocol has scored the method"),
-    ("noise_fit_poor", "image", "review", "noise.poor_rel_rms", "the noise model fits its bins with a relative RMS above poor_rel_rms (or fell back)"),
+    ("noise_fit_poor", "image", "review", "noise.poor_rel_rms", "the noise model fits its bins above the darkest decile of the sampled voxels with a relative RMS above poor_rel_rms (or fell back)"),
     ("psf_fallback", "image", "review", "psf.min_stretches", "fewer than min_stretches flat isolated bright stretches: the fallback PSF was used"),
     ("sc_channel_suspect", "image", "review", "qc.sc_channel_suspect_frac", "among nuclei with SC present, fewer than sc_channel_suspect_frac have a strand of 2 um or more"),
     ("foci_uncalibrated", "image", "info", "", "a spot table was used (spot detection is not calibrated for SC positions)"),
     ("geometry_from_manifest", "image", "info", "", "run geometry (xy_stride, z_range) from run_manifest.json: no done marker"),
+    ("geometry_from_golden_manifest", "image", "info", "", "run geometry from the golden_manifest.json above the results folder: no done marker and no xy_stride in run_manifest.json"),
     ("label_merged_suspect", "image", "info", "", "label_merged_suspect=N: the number of such nuclei"),
     ("nucleus_errors", "image", "info", "", "nucleus_errors=N: the number of failed nuclei"),
 )
@@ -145,6 +146,27 @@ def strand_flags(m: dict, p, image_ctx: dict | None = None) -> list[str]:
     return out
 
 
+def local_volume_reference(volumes, axis_positions, axis_position, window_um: float, min_n: int = 5) -> float | None:
+    """The reference volume of label_merged_suspect: the median volume of the traced nuclei within
+    ``window_um`` of ``axis_position`` along the gonad axis (nuclei grow along the gonad), or the median of all of
+    them with fewer than ``min_n`` there or without an axis position; None without volumes."""
+    import numpy as np
+
+    v = np.asarray(volumes, float)
+    a = np.asarray(axis_positions, float)
+    if not len(v):
+        return None
+    whole = float(np.median(v))
+    try:
+        x = float(axis_position)
+    except (TypeError, ValueError):
+        return whole
+    if not math.isfinite(x) or window_um <= 0:
+        return whole
+    sel = np.isfinite(a) & (np.abs(a - x) <= window_um)
+    return float(np.median(v[sel])) if int(sel.sum()) >= min_n else whole
+
+
 def nucleus_flags(n: dict, p, median_volume: float | None = None) -> list[str]:
     out: list[str] = []
     if median_volume and _gt(n.get("volume_um3"), float(p["qc.merged_label_ratio"]) * float(median_volume)):
@@ -172,7 +194,9 @@ def nucleus_flags(n: dict, p, median_volume: float | None = None) -> list[str]:
 
 def image_flags(info: dict, p) -> list[str]:
     out = ["sc_straighten:uncalibrated"]
-    rel = _f(info.get("noise_rel_rms"))
+    rel = _f(info.get("noise_rel_rms_signal"))
+    if not math.isfinite(rel):
+        rel = _f(info.get("noise_rel_rms"))
     if bool(info.get("noise_fallback")) or (math.isfinite(rel) and rel > float(p["noise.poor_rel_rms"])):
         out.append("noise_fit_poor")
     if info.get("psf_source") == "fallback":
@@ -185,6 +209,8 @@ def image_flags(info: dict, p) -> list[str]:
         out.append("foci_uncalibrated")
     if info.get("geometry_source") == "run_manifest":
         out.append("geometry_from_manifest")
+    elif info.get("geometry_source") == "golden_manifest":
+        out.append("geometry_from_golden_manifest")
     if int(info.get("n_label_merged", 0) or 0):
         out.append(f"label_merged_suspect={int(info['n_label_merged'])}")
     if int(info.get("n_failed", 0) or 0):

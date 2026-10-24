@@ -42,11 +42,18 @@ def pad_vox(spacing, pad_um) -> tuple[int, int, int]:
     return tuple(int(np.ceil(float(p) / float(s) - 1e-9)) for p, s in zip(pad_um, spacing))
 
 
+def crop_slices(box: tuple, spacing, pad_um, shape) -> tuple:
+    """The padded crop of a label box (``crop_pad_um``, clipped to the image)."""
+    pv = pad_vox(spacing, pad_um)
+    return tuple(slice(max(0, b.start - p), min(n, b.stop + p)) for b, p, n in zip(box, pv, shape))
+
+
 def make_crop(nid: int, box: tuple, ce: np.ndarray, labels: np.ndarray, spacing, pad_um,
               roles: dict | None = None) -> Crop:
+    """The crop of one nucleus. ``roles`` values are whole-image arrays or anything indexed by the crop's slices
+    the same way (germquant.sc.straighten.inputs.CropBank: per-nucleus crops read plane by plane)."""
     shape = labels.shape
-    pv = pad_vox(spacing, pad_um)
-    sl = tuple(slice(max(0, b.start - p), min(n, b.stop + p)) for b, p, n in zip(box, pv, shape))
+    sl = crop_slices(box, spacing, pad_um, shape)
     org = tuple(int(s.start) for s in sl)
     touches_z = box[0].start == 0 or box[0].stop == shape[0]
     touches_xy = box[1].start == 0 or box[2].start == 0 or box[1].stop == shape[1] or box[2].stop == shape[2]

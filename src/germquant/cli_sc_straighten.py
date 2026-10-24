@@ -4,7 +4,7 @@
                           [--out DIR] [--geometry auto|import|both] [--paths-from ims:F|swc:F|csv:F ...]
                           [--refine-imported on|off] [--ends fit|as_drawn] [--nuclei germline|pachytene|all]
                           [--nucleus-ids N ...] [--workers N] [--force] [--no-resume] [--no-strips] [--no-overview]
-                          [--source-map OLD=NEW ...] [--allow-sealed] [--dry-run]
+                          [--source-map OLD=NEW ...] [--allow-sealed --reason TEXT [--audit-log F]] [--dry-run]
   germquant sc-view RESULTS_DIR IMAGE_ID [--nucleus N] [--strips] [--stride K]
 
 A post-run command: it reads finished results (nuclei.csv, the label TIFF, spot tables, the run's geometry and
@@ -43,7 +43,11 @@ def add_parsers(sub) -> None:
     ps.add_argument("--source-map", nargs="*", default=[], metavar="OLD=NEW",
                     help="rewrite the recorded source path prefix OLD to NEW (moved or NAS images)")
     ps.add_argument("--allow-sealed", action="store_true",
-                    help="run images of the sealed SC validation split (only scripts/benchmark_sc.py --final)")
+                    help="run images of the sealed SC validation split (the scoring only; needs --reason, and every "
+                         "sealed image is logged to the audit log)")
+    ps.add_argument("--reason", default=None, help="why sealed images are run (required with --allow-sealed)")
+    ps.add_argument("--audit-log", default=None,
+                    help="the sealed-run audit log (default: sc_straighten_sealed_runs.jsonl in the output root)")
     ps.add_argument("--dry-run", action="store_true", help="list what would run")
 
     pv = sub.add_parser("sc-view", help="open sc-straighten outputs in napari (needs the napari-germquant environment)")
@@ -84,6 +88,9 @@ def dispatch(args) -> int:
     if args.geometry != "auto" and not args.paths_from:
         print("ERROR: --geometry import|both needs --paths-from", file=sys.stderr)
         return 2
+    if args.allow_sealed and not (args.reason and args.reason.strip()):
+        print("ERROR: --allow-sealed needs --reason TEXT (docs/SC_VALIDATION_PROTOCOL.md section 10)", file=sys.stderr)
+        return 2
     from .sc.straighten.runner import run_results
 
     nuclei = args.nuclei or params["nuclei"]
@@ -92,7 +99,8 @@ def dispatch(args) -> int:
                       ends=args.ends, nuclei=nuclei, nucleus_ids=args.nucleus_ids, workers=args.workers,
                       force=bool(args.force or args.no_resume), strips=False if args.no_strips else None,
                       overview=False if args.no_overview else None, source_map=smap,
-                      allow_sealed=args.allow_sealed, dry_run=args.dry_run)
+                      allow_sealed=args.allow_sealed, sealed_reason=args.reason, audit_log=args.audit_log,
+                      dry_run=args.dry_run)
     ok = [r for r in res if r.status in ("done", "skipped", "dry_run")]
     return 0 if ok else 1
 

@@ -9,10 +9,12 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from test_sc_straighten_cli import _copy, _run, finished_run  # noqa: F401  (fixture)
+import pandas as pd
+import pytest
+from test_sc_straighten_cli import _copy, _run, finished, finished_run  # noqa: F401  (fixture)
 
 from germquant import batch
-from germquant.sc.straighten import layers
+from germquant.sc.straighten import layers, outputs
 from germquant.sc.straighten import schema as S
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,11 +31,39 @@ def test_imports_stay_light():
     assert out.stdout.strip() == "", out.stdout
 
 
-def test_collect_writes_the_old_file_set_without_records(finished_run, tmp_path):  # noqa: F811
-    root = _copy(finished_run, tmp_path)
-    counts = batch.collect(root)
-    assert not any(k.startswith("sc_") for k in counts if k not in batch.schema.TABLES)
-    assert not [n for n in S.BATCH_NAMES.values() if (root / n).exists()]
+@pytest.fixture(scope="module")
+def finished_plain(tmp_path_factory):
+    """The same gonad under an ordinary image id (no trailing underscore), which `germquant collect` stacks."""
+    return finished(tmp_path_factory, "20251105_N2_nohs_HERM_001.nd2")
+
+
+def test_collect_writes_the_old_file_set_without_records(finished_run, finished_plain, tmp_path):  # noqa: F811
+    for fr, sub in ((finished_run, "trailing"), (finished_plain, "plain")):
+        root = _copy(fr, tmp_path / sub)
+        before = {p.name for p in root.iterdir()}
+        counts = batch.collect(root)
+        assert not any(k.startswith("sc_") for k in counts if k not in batch.schema.TABLES)
+        assert not [n for n in S.BATCH_NAMES.values() if (root / n).exists()]
+        new = {p.name for p in root.iterdir()} - before
+        assert new and all(n.startswith("batch_") for n in new)
+    # the ordinary id is stacked into the main tables (an id ending in an underscore is not: a known issue of
+    # batch.collect outside this stage)
+    assert counts["nuclei"] > 0 and len(pd.read_csv(root / "batch_summary.csv")) == 1
+
+
+def test_collect_skips_stale_records_and_follows_image_ids(finished_plain, tmp_path):
+    _r, iid, stack = finished_plain
+    root = _copy(finished_plain, tmp_path)
+    assert _run(root, stack)[0].status == "done"
+    assert outputs.collect_tables(root, image_ids={"some other image"}) is None
+    c = outputs.collect_tables(root, image_ids={iid})
+    assert c["sc_strands"] > 0
+    nuc = root / "img" / f"{iid}__nuclei.csv"
+    nuc.write_bytes(nuc.read_bytes() + b"\n")              # the germquant run changed after sc-straighten
+    c = outputs.collect_tables(root)
+    assert c["sc_strands"] == 0
+    summ = pd.read_csv(root / S.BATCH_NAMES["summary"])
+    assert list(summ["status"]) == ["stale"]
 
 
 def test_collect_stacks_the_new_tables_with_records(finished_run, tmp_path):  # noqa: F811
