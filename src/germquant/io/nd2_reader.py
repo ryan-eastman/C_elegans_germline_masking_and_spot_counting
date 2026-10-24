@@ -29,6 +29,7 @@ class Stack:
     downsample_xy: int = 1
     spacing_ok: bool = True               # False => voxel size unreadable, spacing is a guess
     t_index: int | None = None            # the timepoint read when one was asked for (read_stack(t=...)); None otherwise
+    spacing_yx: tuple[float, float] | None = None   # (dy, dx) um the bioio reader finds in a one-plane file; None otherwise
 
     @property
     def n_channels(self) -> int:

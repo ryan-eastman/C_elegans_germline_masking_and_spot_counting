@@ -158,9 +158,12 @@ def run_stage(name: str, fn: Callable[[], Any], *, flags: list[str], outcomes: d
     return result
 
 
+PLANAR_PAYLOAD_STAGES = ("read", "segment", "measure", "spots")   # the sub-hashes a single-plane run marks
+
+
 def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str = "",
                  spot_backend: dict | None = None, segment_backend: dict | None = None,
-                 labels_sha256: str | None = None) -> dict[str, str]:
+                 planar: bool = False, labels_sha256: str | None = None) -> dict[str, str]:
     """Per-stage provenance sub-hash: sha256 (12 hex) of the stage's resolved config sections, the
     channel roles it consumes, the versions of the tools it depends on, and (segment) the Cellpose model
     file digest. Lets two runs with different whole-config hashes be recognised as identical for one stage
@@ -174,6 +177,10 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
     ``labels_sha256`` is the sha256 of a labels run's labels file (segmentation.nuclei.labels_from,
     docs/LABELS.md); it enters the segment payload only in a labels run, so an edited labels file restales its
     image.
+
+    ``planar`` (False by default) is a single-plane run's (docs/PLANAR.md): it adds ``"planar": true`` to the read,
+    segment, measure and spots payloads (PLANAR_PAYLOAD_STAGES), so a planar result never satisfies a 3D resume
+    and the reverse; every other run hashes exactly as before.
 
     Portable payload (docs/DESIGN_system_packs.md, section 3.4): in a chain that went through one of the
     two new extends forms (``pack:<id>@<v>/<r>`` or a bare name under a built-in root), an inherited path
@@ -202,6 +209,8 @@ def stage_hashes(cfg, role_to_idx: dict, extras: dict[str, str], model_sha: str 
             payload["labels_sha256"] = labels_sha256
         if st.name == "spots" and spot_backend:
             payload["spot_backend"] = spot_backend
+        if planar and st.name in PLANAR_PAYLOAD_STAGES:
+            payload["planar"] = True
         out[st.name] = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:12]
     return out
 

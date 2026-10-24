@@ -19,9 +19,28 @@ ValueError, fatal like a failed read) when a 3D-only stage (Stage.planar_ok Fals
 channel roles bound, or when the segmentation backend does not declare ``planar_ok``. An index out of range
 raises before segmentation.
 
+Single-plane runs (package P2b). ``io.planar`` (false | auto | true) makes an image with one plane a 2D
+image, where every quantity is 2D. decide() takes the decision right after the read: auto is planar when the
+header has one plane (no Z axis, or Z of 1) and the stack read has one plane, so a 3D file cut to one plane
+with --z-range stays 3D; true requires one plane and refuses more, naming --z-range and
+segmentation.nuclei.project. dy and dx come from ``io.voxel_size_um``, else Stack.spacing_yx (a one-plane
+file's own xy calibration, bioio reader), else the stack's spacing when it was readable, else 1 um per pixel
+with the flag ``voxel:UNREADABLE_xy_assumed_1um``. Array code receives (PLANAR_DZ, dy, dx): the placeholder
+reaches only code whose result does not depend on dz for one plane. The object is segmented on the plane
+(segment_planar, the area gate), measured by measure_planar (volume_um3 NA, centroid_z_um 0.0, area_um2 and
+equivalent_diameter_um), its spots are detected with ``planar=True`` (only spotmax declares planar_ok) and its
+label, spot and mask images are written as YX (write_labels_yx, write_spots_yx, write_mask_yx).
+
+What a single-plane run records, and only such a run: the flag ``read:planar``, voxel_dz_um NaN in every
+table, ``planar: true`` and ``spacing_source`` in the run geometry, ``"planar": true`` in the read, segment,
+measure and spots sub-hashes and the done-marker extra ``{"planar": true}``. ``io.voxel_size_um`` applies in
+3D and projected runs too (voxel_override): spacing_source ``override`` and the flag ``voxel:override``, plus
+``voxel:override_differs_from_file`` when the file's own calibration is more than 1 percent away. Time series
+of single planes are refused in this release (PLANAR_SERIES_REFUSED).
+
 Nothing here is reachable from a frozen config: ``segmentation.nuclei.project`` is read with the code
-default ``none``, the other keys are read only in a projected run, and every existing run takes the
-existing path. Single-plane images (io.planar, package P2b) reuse segment_planar.
+default ``none``, ``io.planar`` with the code default false and ``io.voxel_size_um`` with null, the other
+keys are read only in a projected or single-plane run, and every existing run takes the existing path.
 """
 from __future__ import annotations
 
@@ -32,11 +51,22 @@ import re
 
 import numpy as np
 
+from .fsutil import long_path
+
 log = logging.getLogger(__name__)
 
 PROJECT_MODES = ("none", "max", "mean", "plane")
 PLANE_SELECTORS = ("mid", "sharpest")
 SHARPNESS_SIGMA_PX = 1.0     # the Gaussian smoothing before the Laplacian of the sharpest-plane score
+PLANAR_MODES = ("false", "auto", "true")
+PLANAR_DZ = 1.0              # the z spacing array code receives in a single-plane run; the tables write NaN
+OVERRIDE_TOLERANCE = 0.01    # voxel:override_differs_from_file: the override is more than 1 percent off the file
+UM = chr(0x00B5) + "m"       # the OME unit of length
+PLANAR_SERIES_REFUSED = (
+    "single-plane time series are refused in this release: io.planar is true, or auto on an image with one plane, "
+    "and timepoints were asked for (--t, or t=). Run the series with io.planar false, which processes each "
+    "timepoint as a stack of one plane, as before; or save the timepoints as separate single-plane images and run "
+    "those (docs/PLANAR.md, 'Time series')")
 
 
 class PlanarConfigError(ValueError):
@@ -96,6 +126,137 @@ def min_area_setting(cfg) -> float:
     if not value >= 0.0:
         raise PlanarConfigError(f"segmentation.nuclei.min_area_um2 must be 0 or more; got {value!r}")
     return value
+
+
+def planar_setting(cfg) -> str:
+    """io.planar as ``"false"`` (the code default, also for null), ``"auto"`` or ``"true"``. Any other value raises
+    PlanarConfigError (recipe_keys refuses it first, with the same rule: a quoted "true" is text)."""
+    raw = cfg.get("io.planar", None)
+    if raw is None or raw is False:
+        return "false"
+    if raw is True:
+        return "true"
+    if isinstance(raw, str) and raw == "auto":
+        return "auto"
+    raise PlanarConfigError(f"io.planar must be false, auto or true (or null for false); got {raw!r}")
+
+
+def voxel_size_setting(cfg) -> tuple[float | None, float, float] | None:
+    """io.voxel_size_um as (dz or None, dy, dx) in micrometres, the file's own voxel size before xy_stride: a
+    number is dy = dx, [dy, dx] leaves dz to the file, [dz, dy, dx] sets all three. None when the key is unset
+    (null, the code default). A malformed value raises PlanarConfigError (recipe_keys refuses it first)."""
+    raw = cfg.get("io.voxel_size_um", None)
+    if raw is None:
+        return None
+    from .recipe_keys import voxel_size_problem
+
+    problem = voxel_size_problem(raw)
+    if problem:
+        raise PlanarConfigError(problem)
+    if isinstance(raw, (list, tuple)):
+        vals = [float(v) for v in raw]
+        return (None, vals[0], vals[1]) if len(vals) == 2 else (vals[0], vals[1], vals[2])
+    return None, float(raw), float(raw)
+
+
+# ---- single-plane runs: the decision and the spacing ------------------------------------------------
+
+def one_plane_header(meta) -> bool:
+    """Whether a header (read_image_metadata) describes one plane: its sizes have no Z axis (the nd2 reader leaves
+    Z out of a 2D file) or a Z of 1 (bioio). is_2d is not used: it means "no Z axis" in one reader and "Z is 1" in
+    the other. A header without sizes is not taken for one plane."""
+    sizes = meta.get("sizes") if isinstance(meta, dict) else None
+    if not sizes:
+        return False
+    z = sizes.get("Z")
+    return z is None or int(z) == 1
+
+
+def _file_yx(stack) -> tuple[float, float] | None:
+    """The file's own (dy, dx) before xy_stride, or None when the file carries no xy calibration."""
+    s = float(getattr(stack, "downsample_xy", 1) or 1)
+    yx = getattr(stack, "spacing_yx", None)
+    if yx is not None:
+        return float(yx[0]) / s, float(yx[1]) / s
+    if stack.spacing_ok:
+        return float(stack.spacing[1]) / s, float(stack.spacing[2]) / s
+    return None
+
+
+def _differs(value: float, file_value: float) -> bool:
+    return abs(float(value) - float(file_value)) > OVERRIDE_TOLERANCE * abs(float(file_value))
+
+
+def voxel_override(cfg, stack) -> dict | None:
+    """The spacing io.voxel_size_um gives a 3D or projected run (decision D6 of the Train B plan), or None when the
+    key is unset, which is every existing run. ``{"spacing": (dz, dy, dx), "flags": [...], "spacing_source":
+    "override"}``: dy and dx are the override times xy_stride, dz the override's own or else the file's. The flags
+    are ``voxel:override``, plus ``voxel:override_differs_from_file`` when an axis the override sets is more than
+    1 percent away from the file's own calibration of it, plus today's ``voxel:UNREADABLE_assumed_isotropic_1um``
+    when dz is still the reader's 1 um guess (an override without dz on a file without a voxel size). A
+    single-plane run takes its override through decide()."""
+    setting = voxel_size_setting(cfg)
+    if setting is None:
+        return None
+    dz_o, dy_o, dx_o = setting
+    s = float(getattr(stack, "downsample_xy", 1) or 1)
+    file_yx = _file_yx(stack)
+    pairs = [] if file_yx is None else [(dy_o, file_yx[0]), (dx_o, file_yx[1])]
+    if dz_o is not None and stack.spacing_ok:
+        pairs.append((dz_o, float(stack.spacing[0])))
+    flags = ["voxel:override"]
+    if any(_differs(o, f) for o, f in pairs):
+        flags.append("voxel:override_differs_from_file")
+    if dz_o is None and not stack.spacing_ok:
+        flags.append("voxel:UNREADABLE_assumed_isotropic_1um")      # dz stays the reader's 1 um guess
+    dz = float(dz_o) if dz_o is not None else float(stack.spacing[0])
+    return {"spacing": (dz, dy_o * s, dx_o * s), "flags": flags, "spacing_source": "override"}
+
+
+def _xy_spacing(cfg, stack) -> tuple[float, float, str, list[str]]:
+    """(dy, dx, spacing_source, flags) of a single-plane run, after xy_stride (design 4.3)."""
+    s = float(getattr(stack, "downsample_xy", 1) or 1)
+    setting = voxel_size_setting(cfg)
+    if setting is not None:
+        _, dy, dx = setting                  # a dz in the override has no place in a 2D run
+        flags = ["voxel:override"]
+        file_yx = _file_yx(stack)
+        if file_yx is not None and (_differs(dy, file_yx[0]) or _differs(dx, file_yx[1])):
+            flags.append("voxel:override_differs_from_file")
+        return dy * s, dx * s, "override", flags
+    yx = getattr(stack, "spacing_yx", None)
+    if yx is not None:
+        return float(yx[0]), float(yx[1]), "file_yx", []
+    if stack.spacing_ok:
+        return float(stack.spacing[1]), float(stack.spacing[2]), "file", []
+    return s, s, "assumed", ["voxel:UNREADABLE_xy_assumed_1um"]
+
+
+def decide(cfg, meta, stack) -> dict | None:
+    """The single-plane decision, right after the read (design 4.2 and 4.3). None unless io.planar is auto or true,
+    so every existing run takes the existing path. Otherwise ``{"planar", "dy", "dx", "spacing_source", "flags"}``:
+
+    * auto: planar when the header has one plane (one_plane_header) and the stack read has one plane, so a 3D file
+      cut to one plane with --z-range stays 3D; true: planar, and more than one plane read raises
+      PlanarConfigError naming --z-range and segmentation.nuclei.project;
+    * dy, dx and spacing_source (``override``, ``file_yx``, ``file`` or ``assumed``): io.voxel_size_um (times
+      xy_stride), else Stack.spacing_yx, else stack.spacing[1:] when spacing_ok, else 1 um per file pixel;
+    * flags, for a planar decision only: ``read:planar``, then ``voxel:override`` (and
+      ``voxel:override_differs_from_file``) or ``voxel:UNREADABLE_xy_assumed_1um``. A 3D decision carries none;
+      its run records what any 3D run records."""
+    mode = planar_setting(cfg)
+    if mode == "false":
+        return None
+    nz = int(np.shape(stack.data)[1])
+    if mode == "true" and nz != 1:
+        raise PlanarConfigError(
+            f"io.planar is true but the image has {nz} planes as read, and a single-plane run needs one plane: read "
+            f"one plane with --z-range Z Z+1 (z_range), or set io.planar to false or auto and segment a projection "
+            f"of the stack with segmentation.nuclei.project (docs/PLANAR.md)")
+    planar = nz == 1 and (mode == "true" or one_plane_header(meta))
+    dy, dx, source, flags = _xy_spacing(cfg, stack)
+    return {"planar": planar, "dy": dy, "dx": dx, "spacing_source": source,
+            "flags": ["read:planar", *flags] if planar else []}
 
 
 # ---- the 2D image ------------------------------------------------------------------------------------
@@ -266,6 +427,92 @@ def projected_measurements(nuclei, labels_2d, spacing):
     return df
 
 
+def measure_planar(labels, intensity: dict, spacing):
+    """The object table of a single-plane run (design 4.6): measure_objects, unchanged, on the (1, Y, X) labels with
+    spacing (PLANAR_DZ, dy, dx), then volume_um3 NA (one plane has no volume), centroid_z_um 0.0, and area_um2
+    (the pixel count times dy * dx) and equivalent_diameter_um (the diameter of the circle of that area) added.
+    The id column keeps measure_objects' name (``label``); an empty table is returned as it is."""
+    from .measure import measure_objects
+
+    df = measure_objects(labels, intensity, spacing, compute_surface=False)
+    if df.empty or "label" not in df.columns:
+        return df
+    area, diameter = area_columns(df["label"].to_numpy(), labels, spacing)
+    df["volume_um3"] = np.nan
+    df["centroid_z_um"] = 0.0
+    df["area_um2"] = area
+    df["equivalent_diameter_um"] = diameter
+    return df
+
+
+# ---- single-plane writers (design 4.8; the 3D writers of pipeline.py are not edited) -------------------
+
+def _yx(arr) -> np.ndarray:
+    a = np.asarray(arr)
+    if a.ndim == 3 and a.shape[0] == 1:
+        a = a[0]
+    if a.ndim != 2:
+        raise ValueError(f"expected a (1, Y, X) or (Y, X) image, got shape {a.shape}")
+    return a
+
+
+def write_labels_yx(labels, path, spacing_yx) -> None:
+    """int32 label image of a single-plane run as an OME-TIFF with axes YX and PhysicalSizeX and Y only (no Z), so
+    Fiji, Imaris and bioio load it on the right grid. A failed tagged write falls back to a plain TIFF of the same
+    array, as the 3D writer does; a failure of both is logged, never fatal."""
+    try:
+        import tifffile
+
+        arr = _yx(labels).astype(np.int32)
+        dy, dx = (float(s) for s in spacing_yx)
+        try:
+            tifffile.imwrite(long_path(path), arr, compression="zlib", ome=True, resolution=(1 / dx, 1 / dy),
+                             metadata={"axes": "YX", "PhysicalSizeX": dx, "PhysicalSizeXUnit": UM,
+                                       "PhysicalSizeY": dy, "PhysicalSizeYUnit": UM})
+            return
+        except Exception as e:  # noqa: BLE001 - fall back to the untagged file, never a stub
+            log.warning("tagged label write failed (%s); writing a plain TIFF", e)
+        tifffile.imwrite(long_path(path), arr, compression="zlib")
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not save label image: %s", e)
+
+
+def write_spots_yx(spots, shape_yx, spacing_yx, path, radius_um: float = 0.3) -> None:
+    """uint16 (Y, X) image of a single-plane run with a disk of ``radius_um`` (at least one pixel) at each spot,
+    value 65535, as an ImageJ TIFF calibrated in y and x (unit um, no z step). ``spots`` needs y_um and x_um."""
+    try:
+        import tifffile
+
+        h, w = (int(s) for s in shape_yx[-2:])
+        dy, dx = (float(s) for s in spacing_yx)
+        img = np.zeros((h, w), np.uint16)
+        if spots is not None and len(spots):
+            ry, rx = max(1, int(round(radius_um / dy))), max(1, int(round(radius_um / dx)))
+            oy, ox = np.ogrid[-ry:ry + 1, -rx:rx + 1]
+            offs = np.argwhere((oy / ry) ** 2 + (ox / rx) ** 2 <= 1.0) - np.array([ry, rx])
+            yc = np.clip(np.round(spots["y_um"].to_numpy(dtype=float) / dy).astype(int), 0, h - 1)
+            xc = np.clip(np.round(spots["x_um"].to_numpy(dtype=float) / dx).astype(int), 0, w - 1)
+            for y, x in zip(yc, xc):
+                img[np.clip(y + offs[:, 0], 0, h - 1), np.clip(x + offs[:, 1], 0, w - 1)] = 65535
+        tifffile.imwrite(long_path(path), img, compression="zlib", imagej=True, resolution=(1 / dx, 1 / dy),
+                         metadata={"unit": "um", "axes": "YX"})
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not save spots image: %s", e)
+
+
+def write_mask_yx(mask, spacing_yx, path) -> None:
+    """Binary mask of a single-plane run as a uint8 (Y, X) ImageJ TIFF (0 or 255), calibrated in y and x."""
+    try:
+        import tifffile
+
+        img = (_yx(mask) > 0).astype(np.uint8) * 255
+        dy, dx = (float(s) for s in spacing_yx)
+        tifffile.imwrite(long_path(path), img, compression="zlib", imagej=True, resolution=(1 / dx, 1 / dy),
+                         metadata={"unit": "um", "axes": "YX"})
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not save mask image: %s", e)
+
+
 # ---- gating ------------------------------------------------------------------------------------------
 
 def check_planar(cfg, role_to_idx: dict, *, planar: bool = False) -> None:
@@ -342,3 +589,16 @@ def prepare_projection(cfg, stack, role_to_idx: dict) -> dict | None:
     return {"mode": settings["mode"], "plane": settings["plane"], "z": z,
             "record": {"mode": settings["mode"], "plane": settings["plane"], "z": z},
             "flag": f"segment:projected_{settings['mode']}", "min_area_um2": min_area_setting(cfg)}
+
+
+# ---- the single-plane run in process_image -----------------------------------------------------------
+
+def prepare_planar(cfg, role_to_idx: dict) -> dict:
+    """What process_image needs for a single-plane run, after decide() and before any stage runs: a
+    segmentation.nuclei.project value is still checked and is then ignored, because one plane needs no projection
+    (decision D7: the segment stage raises segment:project_ignored_planar); check_planar's refusals with
+    ``planar=True`` (also a spot backend without planar_ok, the main instance and every spots.instances entry);
+    and the area gate. ``{"min_area_um2", "project_ignored"}``."""
+    ignored = projection_settings(cfg) is not None       # raises for an unknown mode or plane selector
+    check_planar(cfg, role_to_idx, planar=True)
+    return {"min_area_um2": min_area_setting(cfg), "project_ignored": ignored}
