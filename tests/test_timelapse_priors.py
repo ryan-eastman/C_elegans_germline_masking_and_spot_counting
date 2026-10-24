@@ -20,10 +20,12 @@ import nd2
 import numpy as np
 import pandas as pd
 import pytest
+import tifffile
 from test_timelapse_register import SP, STEM_SYN, make_series, write_fake_series
 
 from germquant import schema
 from germquant.io import nd2_stage as S
+from germquant.timelapse import link_series, register_series_piecewise
 from germquant.timelapse import priors as PR
 from germquant.timelapse import register as R
 
@@ -405,3 +407,324 @@ def test_rigid_flags_from_the_record(tmp_path):
     td = R.register_series(tmp_path, max_step_um=5.0, prior="stage")["table"]
     assert list(td.loc[[3, 4], "prior_flags"]) == ["no_record", "no_record"]
     assert list(td.loc[[3, 4], "cap_um"]) == [5.0, 5.0]
+
+
+# ---- the seeded piecewise registration ----------------------------------------------------------------------------
+# A wider copy of test_timelapse_piecewise's gonad: a 240 x 48 um field, 60 nuclei in two rows (y 12 and 22 um) at x 50
+# to 166 um, the shear flow of that test (u = U s / L per step, U = 4.6 um), a whole-field move of (0, +8, +30) um into
+# t2 that the brightfield shares (a stage re-centring), and into t4 no flow but a uniform +0.25 um in x.
+
+STEM_W = "20261020_DLW93_heatshock_syp2gfp_5min_2hr_herm"
+LAB_SP = (0.4, 0.4, 0.4)                 # the label grid (um); its labels are only looked up, never registered
+LAB_SHAPE = (16, 120, 600)               # 6.4 x 48 x 240 um
+REF_K = 2
+REF_SP = (0.4, 0.8, 0.8)                 # the reference volumes: every 2nd label pixel
+REF_SHAPE = (16, 60, 300)
+X0_W = 50.0                              # the distal end
+U_W = 4.6                                # the proximal shear per step (um)
+MOVE = (0.0, 8.0, 30.0)                  # the whole-field move into MOVE_T
+MOVE_T = 2
+STILL_T = 4                              # into t4: no flow, a uniform shift of the whole field
+STILL_DX = 0.25
+NT_W = 5
+R_NUC = 1.4
+
+
+def _bases_w(seed=7):
+    rng = np.random.default_rng(seed)
+    out, amp = {}, {}
+    i = 1
+    for y in (12.0, 22.0):
+        for x in np.arange(X0_W, X0_W + 30 * 4.0, 4.0):
+            out[i] = np.array([3.2 + rng.uniform(-0.3, 0.3), y + rng.uniform(-1.0, 1.0), x + rng.uniform(-0.45, 0.45)])
+            amp[i] = rng.uniform(0.6, 1.4)
+            i += 1
+    return out, amp
+
+
+BASES_W, AMP_W = _bases_w()
+L_W = max(c[2] for c in BASES_W.values()) - X0_W
+
+
+def _field_offset(k: int) -> np.ndarray:
+    """The whole-field displacement (sample and worm) from t0 to tk."""
+    off = np.zeros(3)
+    if k >= MOVE_T:
+        off += np.asarray(MOVE, float)
+    if k >= STILL_T:
+        off += np.array([0.0, 0.0, STILL_DX])
+    return off
+
+
+def _centre_w(identity: int, k: int) -> np.ndarray:
+    n_flow = sum(1 for j in range(1, k + 1) if j != STILL_T)
+    return (BASES_W[identity] + np.array([0.0, 0.0, n_flow * U_W * (BASES_W[identity][2] - X0_W) / L_W])
+            + _field_offset(k))
+
+
+def planted_step(centre_axis_um: float, k: int) -> np.ndarray:
+    """The planted step into tk of a segment whose t0 axis centre is ``centre_axis_um``."""
+    flow = 0.0 if k == STILL_T else U_W * centre_axis_um / L_W
+    return _field_offset(k) - _field_offset(k - 1) + np.array([0.0, 0.0, flow])
+
+
+def _render_w(centres, amps, sigma=(0.6, 1.0, 1.0), level=2000.0):
+    v = np.full(REF_SHAPE, 100.0, np.float32)
+    zz, yy, xx = (np.arange(n) * s for n, s in zip(REF_SHAPE, REF_SP))
+    for c, a in zip(centres, amps):
+        gz = np.exp(-0.5 * ((zz - c[0]) / sigma[0]) ** 2)
+        gy = np.exp(-0.5 * ((yy - c[1]) / sigma[1]) ** 2)
+        gx = np.exp(-0.5 * ((xx - c[2]) / sigma[2]) ** 2)
+        v += np.float32(level * a) * (gz[:, None, None] * gy[None, :, None] * gx[None, None, :]).astype(np.float32)
+    return v
+
+
+def _brightfield_w(k: int, seed=11):
+    """The worm body: dark blobs in a bright field, moved only by the whole-field moves."""
+    rng = np.random.default_rng(seed)
+    blobs = np.column_stack([rng.uniform(1.0, 5.4, 400), rng.uniform(1.0, 47.0, 400), rng.uniform(1.0, 239.0, 400)])
+    return 3000.0 - _render_w(blobs + _field_offset(k), rng.uniform(0.2, 0.5, 400), sigma=(0.8, 1.2, 1.2)) + 100.0
+
+
+def write_moved_series(root: Path, *, n_t: int = NT_W, axis_fn=None) -> dict:
+    """The series folder, laid out as process_series lays one out (labels, reference volumes of the central_element
+    and brightfield roles, nuclei tables, image summaries, the series record). ``axis_fn(identity, centre)`` replaces
+    the origin's axis_position_um (the folded axis). Returns the folder and ids[k] = {nucleus_id: identity}."""
+    out = root / STEM_W
+    rng = np.random.default_rng(2026)
+    ids, entries = {}, []
+    r = int(np.ceil(R_NUC / LAB_SP[2])) + 1
+    for k in range(n_t):
+        idents = sorted(BASES_W)
+        order = rng.permutation(len(idents))
+        nid_of = {idents[j]: int(order[j]) + 1 for j in range(len(idents))}      # nucleus_id never the identity
+        cents = {i: _centre_w(i, k) for i in idents}
+        lab = np.zeros(LAB_SHAPE, np.int32)
+        for i in idents:
+            c = cents[i]
+            lo = [max(0, int(np.floor(c[a] / LAB_SP[a])) - r) for a in range(3)]
+            hi = [min(LAB_SHAPE[a], int(np.floor(c[a] / LAB_SP[a])) + r + 1) for a in range(3)]
+            zz, yy, xx = np.meshgrid(*[np.arange(lo[a], hi[a]) * LAB_SP[a] for a in range(3)], indexing="ij")
+            box = lab[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]
+            box[(zz - c[0]) ** 2 + (yy - c[1]) ** 2 + (xx - c[2]) ** 2 <= R_NUC ** 2] = nid_of[i]
+        sub = out / f"t{k:03d}"
+        sub.mkdir(parents=True)
+        iid = f"{STEM_W}_t{k:03d}"
+        tifffile.imwrite(sub / f"{iid}__nuclei_labels.tif", lab, compression="zlib")
+        ref = _render_w([cents[i] for i in idents], [AMP_W[i] for i in idents])
+        np.save(sub / f"{iid}__ref_stride{REF_K}.npy", np.clip(np.rint(ref), 0, 65535).astype(np.uint16))
+        np.save(sub / f"{iid}__ref_brightfield_stride{REF_K}.npy",
+                np.clip(np.rint(_brightfield_w(k)), 0, 65535).astype(np.uint16))
+        rows = []
+        for i in idents:
+            c = cents[i]
+            a = axis_fn(i, c) if (axis_fn is not None and k == 0) else c[2] - X0_W
+            rows.append({"nucleus_id": nid_of[i], "volume_um3": 4.0 / 3.0 * np.pi * R_NUC ** 3,
+                         "n_voxels": int((lab == nid_of[i]).sum()), "centroid_z_um": c[0], "centroid_y_um": c[1],
+                         "centroid_x_um": c[2], "in_germline": True, "axis_position_um": a,
+                         "axis_position_norm": a / 150.0, "n_spots": 0,
+                         "central_element_mean_intensity": 1000.0 * AMP_W[i]})
+        nuclei = pd.DataFrame(rows).sort_values("nucleus_id")
+        for col in schema.NUCLEI:
+            if col not in nuclei.columns:
+                nuclei[col] = pd.NA
+        nuclei = nuclei[list(schema.NUCLEI) + [c for c in nuclei.columns if c not in schema.NUCLEI]]
+        meta = {"image_id": iid, "file_path": "x.nd2", "genotype": "DLW93", "sex": "herm", "germ_cell": "oocyte",
+                "treatment": "heatshock", "replicate": "NA", "acquisition_date": "20261020",
+                "voxel_dz_um": LAB_SP[0], "voxel_dy_um": LAB_SP[1], "voxel_dx_um": LAB_SP[2], "n_channels": 2,
+                "dapi_present": False, "channel_map_json": json.dumps({"central_element": 1, "brightfield": 0}),
+                "pipeline_version": "0.1.0", "git_sha": "test", "config_hash": "cafe",
+                "run_timestamp": "2026-10-20T00:00:00+00:00"}
+        for c, v in meta.items():
+            nuclei[c] = v
+        nuclei.to_csv(sub / f"{iid}__nuclei.csv", index=False)
+        pd.DataFrame([{"n_nuclei": len(nuclei), "n_germline_nuclei": len(nuclei), "mean_spots": 0.0,
+                       "total_germline_length_um": 150.0, "qc_pass": True, "qc_flags": "", **meta}]).to_csv(
+            sub / f"{iid}__image_summary.csv", index=False)
+        (sub / f"{iid}__done.json").write_text(json.dumps({"image_id": iid, "config_hash": "cafe", "t_index": k,
+                                                           "t_seconds": k * 300.0, "failed_stages": []}))
+        ids[k] = {v: i for i, v in nid_of.items()}
+        entries.append({"t_index": k, "t_seconds": k * 300.0, "image_id": iid, "out_dir": sub.name, "status": "done",
+                        "reference_volumes": {"stride": REF_K, "role": "central_element", "channel_index": 1,
+                                              "role_resolved": True, "spacing_um": list(REF_SP),
+                                              "shape": list(REF_SHAPE), "dtype": "uint16",
+                                              "files": {"central_element": f"t{k:03d}/{iid}__ref_stride{REF_K}.npy",
+                                                        "brightfield": f"t{k:03d}/{iid}__ref_brightfield_stride{REF_K}.npy"}}})
+    record = {"series_id": STEM_W, "file_path": "x.nd2", "config_hash": "cafe", "pipeline_version": "0.1.0",
+              "git_sha": "test", "n_timepoints": n_t, "period_s": 300.0, "t_seconds": [k * 300.0 for k in range(n_t)],
+              "xy_stride": 1, "z_range": None, "requested": list(range(n_t)), "done": list(range(n_t)), "failed": [],
+              "timepoints": entries, "complete": True}
+    (out / f"{STEM_W}__series.json").write_text(json.dumps(record, indent=1))
+    (out / "run_manifest.json").write_text(json.dumps({"config": {"timelapse": {"register": {"piecewise_segments": 4}}}}))
+    return {"out": out, "ids": ids}
+
+
+def _identity_errors(points: pd.DataFrame, ids: dict) -> tuple[int, int]:
+    """(tracks holding more than one identity, consecutive links that join two different identities)."""
+    linked = points[points["time_track_id"].notna()].copy()
+    linked["identity"] = [ids[int(t)][int(n)] for t, n in zip(linked["t_index"], linked["nucleus_id"])]
+    mixed = int((linked.groupby("time_track_id")["identity"].nunique() > 1).sum())
+    wrong = 0
+    for _tid, g in linked.sort_values("t_index").groupby("time_track_id"):
+        idents = g["identity"].to_numpy()
+        wrong += int(np.sum(idents[1:] != idents[:-1]))
+    return mixed, wrong
+
+
+def _step_errors(table: pd.DataFrame) -> pd.DataFrame:
+    """Per segment step (t > 0): the distance to the planted step."""
+    rows = []
+    for r in table[table["t_index"] > 0].itertuples(index=False):
+        pl = planted_step(float(r.axis_centre_um), int(r.t_index))
+        st = np.array([r.step_dz_um, r.step_dy_um, r.step_dx_um], float)
+        rows.append({"t_index": int(r.t_index), "segment": int(r.segment), "err_um": float(np.linalg.norm(st - pl)),
+                     "capped": bool(r.capped), "filled": bool(r.filled)})
+    return pd.DataFrame(rows)
+
+
+SEED_COLUMNS = ["seed_dz_um", "seed_dy_um", "seed_dx_um", "seed_shift_y_vox", "seed_shift_x_vox", "mov_crop_y0",
+                "mov_crop_y1", "mov_crop_x0", "mov_crop_x1", "seed_source", "cap_basis"]
+
+
+@pytest.fixture(scope="module")
+def moved(tmp_path_factory):
+    s = write_moved_series(tmp_path_factory.mktemp("moved"))
+    rig = R.register_series(s["out"], max_step_um=0)             # the rigid table: the seed
+    s["rigid"] = rig["table"].set_index("t_index")
+    s["rigid_path"] = Path(rig["table_path"])
+    s["unseeded"] = register_series_piecewise(s["out"], max_step_um=40.0)["table"].copy()
+    res = register_series_piecewise(s["out"], max_step_um=10.0, seed="rigid")
+    s["seeded"], s["seeded_report"] = res["table"].copy(), res["report"]
+    return s
+
+
+def test_unseeded_piecewise_cannot_cross_the_move(moved):
+    err = _step_errors(moved["unseeded"])
+    at2 = err[err["t_index"] == MOVE_T]
+    # one crop box for both volumes cannot follow a 31 um move: on this fixture the four segment steps at t2 were
+    # 19.6, 28.2, 34.2 and 34.4 um off the planted step (cap 40, nothing capped or filled)
+    assert (at2["err_um"] > 2.0).all() and not at2["capped"].any()
+    assert (err.loc[err["t_index"] == 1, "err_um"] < 0.3).all()          # before the move the crops follow the shear
+    assert list(moved["unseeded"].columns) == schema.REGISTER_PIECEWISE    # no seed column without --seed
+
+
+def test_seeded_piecewise_follows_the_move_and_links_every_nucleus(moved):
+    t = moved["seeded"]
+    err = _step_errors(t)
+    assert (err["err_um"] < 0.3).all(), err.sort_values("err_um").tail(4)
+    assert not err["capped"].any() and not err["filled"].any()
+    assert list(t.columns) == schema.REGISTER_PIECEWISE + ["cap_um", "cap_source"] + SEED_COLUMNS
+    rig = moved["rigid"]
+    for r in t[t["t_index"] > 0].itertuples(index=False):
+        k, a = int(r.t_index), int(r.reference_t_index)
+        seed = rig.loc[k, ["dz_um", "dy_um", "dx_um"]].to_numpy(float) - rig.loc[a, ["dz_um", "dy_um", "dx_um"]].to_numpy(float)
+        assert [r.seed_dz_um, r.seed_dy_um, r.seed_dx_um] == pytest.approx(seed.tolist(), abs=1e-9)
+        assert r.seed_shift_y_vox == int(np.rint(seed[1] / REF_SP[1]))
+        assert r.seed_shift_x_vox == int(np.rint(seed[2] / REF_SP[2]))
+        assert (r.mov_crop_y0 - r.crop_y0, r.mov_crop_x0 - r.crop_x0) == (r.seed_shift_y_vox, r.seed_shift_x_vox)
+        assert (r.mov_crop_y1 - r.mov_crop_y0, r.mov_crop_x1 - r.mov_crop_x0) == (r.crop_y1 - r.crop_y0,
+                                                                                  r.crop_x1 - r.crop_x0)
+        assert r.seed_source == "rigid" and r.cap_basis == "departure" and r.cap_um == 10.0
+    at2 = t[t["t_index"] == MOVE_T]
+    assert (at2["seed_shift_y_vox"] == 10).all() and (at2["seed_shift_x_vox"] >= 38).all()
+    assert (t.loc[t["t_index"] == STILL_T, ["seed_shift_y_vox", "seed_shift_x_vox"]] == 0).all().all()
+    rep = moved["seeded_report"]
+    assert rep["parameters"]["seed"] == "rigid" and "seed_table" not in rep["parameters"]     # only when given
+    sb = rep["seed"]
+    assert sb["table"] == str(moved["rigid_path"]) and len(sb["sha256"]) == 64
+    assert sb["rigid_parameters"]["max_step_um"] is None and sb["rigid_parameters"]["channel_role"] == "central_element"
+    assert sb["n_seeded_gaps"] == NT_W - 1 and sb["unseeded_gaps"] == []
+    seg = rep["steps"][MOVE_T - 1]["segments"][0]
+    seed2 = rig.loc[2, ["dz_um", "dy_um", "dx_um"]].to_numpy(float) - rig.loc[1, ["dz_um", "dy_um", "dx_um"]].to_numpy(float)
+    assert seg["seed_um"] == pytest.approx(seed2.tolist(), abs=1e-6) and seed2[1] == pytest.approx(8.0, abs=0.05)
+    assert len(seg["mov_crop_yx"]) == 4 and seg["departure_um"] is not None
+    # linking in the seeded frame: every nucleus is followed through the move, no link joins two nuclei
+    pytest.importorskip("laptrack")
+    register_series_piecewise(moved["out"], max_step_um=10.0, seed="rigid")          # the folder's table is the seeded one
+    pw = link_series(moved["out"], backend="laptrack", gap=2, max_dist_um=3.0, registration="piecewise", write=False)
+    assert _identity_errors(pw["points"], moved["ids"]) == (0, 0)
+    assert pw["record"]["n_tracks"] == 60 and pw["record"]["n_full_length"] == 60
+
+
+def test_sub_voxel_seeds_give_the_unseeded_registration_exactly(moved, tmp_path):
+    """Seeds below half a reference voxel move no crop: the same displacement call on the same arrays, so with every
+    gap's seed under 0.4 um the seeded registration is the unseeded one, number for number."""
+    tab = moved["rigid"].reset_index()[["t_index", "dz_um", "dy_um", "dx_um"]].copy()
+    tab["dz_um"], tab["dy_um"], tab["dx_um"] = 0.0, -0.3 * tab["t_index"], 0.35 * tab["t_index"]
+    p = tmp_path / "tiny__register_shifts.csv"
+    tab.to_csv(p, index=False)
+    a = register_series_piecewise(moved["out"], max_step_um=40.0)["table"]
+    b = register_series_piecewise(moved["out"], max_step_um=40.0, seed="rigid", seed_table=p)["table"]
+    assert (b.loc[b["t_index"] > 0, ["seed_shift_y_vox", "seed_shift_x_vox"]] == 0).all().all()
+    pd.testing.assert_frame_equal(a, b[list(a.columns)], check_exact=True)
+    assert b.loc[b["t_index"] > 0, "seed_source"].eq("rigid").all()
+
+
+def test_the_departure_cap_clips_only_the_departure(moved):
+    res = register_series_piecewise(moved["out"], max_step_um=1.0, seed="rigid")
+    t = res["table"].set_index(["t_index", "segment"])
+    n_capped = 0
+    for st in res["report"]["steps"]:
+        for seg in st["segments"]:
+            r = t.loc[(st["t_index"], seg["segment"])]
+            step = np.array([r.step_dz_um, r.step_dy_um, r.step_dx_um])
+            sd = np.array([0.0, r.seed_dy_um, r.seed_dx_um])                  # z is recorded, never applied
+            dep = np.asarray(seg["departure_um"], float)
+            if bool(r.capped):
+                n_capped += 1
+                assert np.linalg.norm(step - sd) == pytest.approx(1.0, abs=1e-6)
+                assert step - sd == pytest.approx(dep / np.linalg.norm(dep), abs=1e-5)      # the direction is kept
+                assert np.linalg.norm(dep) > 1.0
+            else:
+                assert np.linalg.norm(dep) <= 1.0 + 1e-9
+                assert step == pytest.approx(sd + dep, abs=1e-5)
+    assert n_capped >= 4
+    at2 = t.xs(MOVE_T, level="t_index")
+    assert (at2["step_dy_um"] > 7.0).all() and (at2["step_dx_um"] > 29.0).all()      # the move stays in the step
+
+
+def test_seed_table_and_missing_rigid_steps(tmp_path):
+    s = write_moved_series(tmp_path, n_t=3)
+    with pytest.raises(ValueError, match="germquant register"):           # no rigid table: say what to run
+        register_series_piecewise(s["out"], seed="rigid")
+    with pytest.raises(ValueError, match="seed"):
+        register_series_piecewise(s["out"], seed="stage")
+    with pytest.raises(ValueError, match="--seed rigid"):
+        register_series_piecewise(s["out"], seed_table=tmp_path / "x.csv")
+    rig = R.register_series(s["out"], max_step_um=0)["table"]
+    # a table without the t2 row: the gap into t2 is unseeded and says why; t0 to t1 is seeded from that table
+    alt = rig[rig["t_index"] != 2][["t_index", "dz_um", "dy_um", "dx_um"]].copy()
+    alt.loc[alt["t_index"] == 1, "dx_um"] += 0.8                            # one voxel more than the folder's table
+    p = tmp_path / "alt__register_shifts.csv"
+    alt.to_csv(p, index=False)
+    t = register_series_piecewise(s["out"], max_step_um=40.0, seed="rigid", seed_table=p)["table"]
+    g1, g2 = t[t["t_index"] == 1], t[t["t_index"] == 2]
+    assert np.allclose(g1["seed_dx_um"], float(alt.loc[alt["t_index"] == 1, "dx_um"].iloc[0]), rtol=0, atol=1e-9)
+    assert g1["seed_source"].eq("rigid").all() and g1["cap_basis"].eq("departure").all()
+    assert g2["seed_source"].eq("none: no rigid step for t002").all() and g2["cap_basis"].eq("step").all()
+    assert g2["seed_dx_um"].isna().all() and (g2["seed_shift_x_vox"] == 0).all()
+    assert (g2["mov_crop_x0"] == g2["crop_x0"]).all()
+    err = _step_errors(t)
+    assert (err.loc[err["t_index"] == 1, "err_um"] < 0.3).all()            # the shifted seed changes the crop, not the step
+    assert (err.loc[err["t_index"] == 2, "err_um"] > 2.0).any()            # unseeded across the move: wrong again
+
+
+def test_piecewise_prior_caps_and_warns(moved, tmp_path):
+    """With --prior stage an unseeded piecewise registration warns at a stage move beyond the margin (its crops
+    cannot follow it) and counts the move in that gap's cap; the seeded one counts only the z step."""
+    write_record(moved["out"], STEM_W, NT_W, xy_moves={MOVE_T: (30.0, -8.0)}, n_planes=16, z_step=0.4)
+    un = register_series_piecewise(moved["out"], max_step_um=10.0, prior="stage")
+    t = un["table"]
+    assert list(t.columns) == schema.REGISTER_PIECEWISE + ["cap_um", "cap_source"] + list(PR.GAP_COLUMNS)
+    g2 = t[t["t_index"] == MOVE_T]
+    assert np.allclose(g2["cap_um"], 10.0 + float(np.hypot(30.0, 8.0)), rtol=0, atol=1e-9)
+    assert g2["cap_source"].eq("prior:stage").all() and np.allclose(g2["stage_dx_um"], 30.0, rtol=0, atol=1e-9)
+    assert t.loc[t["t_index"] == 1, "cap_um"].eq(10.0).all()
+    assert any("t1-t2" in w and "--seed rigid" in w for w in un["report"]["warnings"])
+    se = register_series_piecewise(moved["out"], max_step_um=10.0, prior="stage", seed="rigid")
+    ts = se["table"]
+    assert ts.loc[ts["t_index"] == MOVE_T, "cap_um"].eq(10.0).all()       # the seed carries the xy move
+    assert ts.loc[ts["t_index"] == MOVE_T, "cap_source"].eq("max_step_um").all()
+    assert not any("--seed rigid" in w for w in se["report"]["warnings"])
+    assert se["report"]["prior"]["loaded_from"] == "record file"
+    PR.stage_record_path(moved["out"], STEM_W).unlink()

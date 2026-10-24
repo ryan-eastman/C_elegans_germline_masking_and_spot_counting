@@ -34,9 +34,23 @@ frame), which does not depend on the registration.
 Writes ``<stem>__register_piecewise.csv`` and ``.parquet`` (schema.SERIES_TABLES["register_piecewise"], one row
 per timepoint per segment) and ``<stem>__register_piecewise_report.json``. The rigid ``<stem>__register_shifts``
 table is not touched. ``germquant track-link --registration piecewise`` reads the table (load_piecewise).
+
+Opt-in (docs/TIMELAPSE.md "Seeding the piecewise registration", "Per-gap caps and the acquisition record"; every
+default reproduces the registration above number for number):
+
+* ``seed="rigid"`` (key ``timelapse.register.piecewise_seed``) starts every gap from the rigid step of that gap, the
+  difference of the cumulative shifts of ``<stem>__register_shifts.csv`` (or ``seed_table``). The moving crop is the
+  reference crop moved by the seed rounded to whole reference voxels in y and x (z is never seeded: every plane and
+  the circular z estimate stay), so a segment is followed across a stage re-centring that one crop box for both
+  volumes cannot follow. The estimate is the correlation of the two crops plus that whole-voxel offset; the cap
+  applies to the departure from the seed, and when nothing is capped the step is the estimate itself. A seed below
+  half a reference voxel moves no crop, so there the estimate is the unseeded one exactly.
+* ``max_step_at`` and ``prior`` set the cap of a gap and flag it from the acquisition record as for the rigid
+  registration (timelapse.priors); a seeded step counts only the recorded z move in its cap.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -54,6 +68,7 @@ from .register import (
     _clean,
     _f,
     _l,
+    _prior_option,
     _series_meta,
     cap_step,
     collect_reference_volumes,
@@ -77,6 +92,15 @@ MIN_NUCLEI_PER_SEGMENT = 5          # a segment needs at least this many origin 
 MIN_CROP_VOXELS = 4                 # a crop narrower than this many reference voxels in y or x is not estimated
 FIXED_POINT_ITER = 25               # iterations of the registered axis position (it converges in a few)
 FIXED_POINT_TOL_UM = 1e-6
+# the opt-in keys (module docstring) and their code defaults
+SEED_MODES = ("none", "rigid")
+OPTION_DEFAULTS = {"seed": "none", "axis_guard": False, "axis_fold_ratio": 4.0}
+OPTION_KEYS = {"seed": "timelapse.register.piecewise_seed", "axis_guard": "timelapse.register.piecewise_axis_guard",
+               "axis_fold_ratio": "timelapse.register.piecewise_axis_fold_ratio"}
+RIGID_TABLE_SUFFIX = "__register_shifts.csv"
+RIGID_REPORT_SUFFIX = "__register_report.json"
+SEED_COLUMNS = ("seed_dz_um", "seed_dy_um", "seed_dx_um", "seed_shift_y_vox", "seed_shift_x_vox", "mov_crop_y0",
+                "mov_crop_y1", "mov_crop_x0", "mov_crop_x1", "seed_source", "cap_basis")
 
 
 class PiecewiseRegistrationMissing(FileNotFoundError):
@@ -101,6 +125,62 @@ def piecewise_settings(cfg=None, *, segments=None, margin_um=None, taper=None) -
     if not 0.0 <= tap <= 1.0:
         raise ValueError(f"{KEYS['taper']} must be a fraction between 0 and 1, got {out['taper']!r}")
     return {"segments": k, "margin_um": m, "taper": tap}
+
+
+def piecewise_options(cfg=None, *, seed=None, axis_guard=None, axis_fold_ratio=None) -> dict:
+    """``{"seed", "axis_guard", "axis_fold_ratio"}`` of the opt-in keys (module docstring): an explicit value wins,
+    else the timelapse.register.piecewise_* key of ``cfg``, else the code default (no seed, no guard, ratio 4).
+    ValueError for a value out of range."""
+    out = {}
+    for name, given in (("seed", seed), ("axis_guard", axis_guard), ("axis_fold_ratio", axis_fold_ratio)):
+        out[name] = given if given is not None else cfg_get(cfg, OPTION_KEYS[name], OPTION_DEFAULTS[name])
+    mode = str(out["seed"]).strip().lower()
+    if mode not in SEED_MODES:
+        raise ValueError(f"{OPTION_KEYS['seed']} (--seed) must be one of {SEED_MODES}, got {out['seed']!r}")
+    try:
+        ratio = float(out["axis_fold_ratio"])
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"{OPTION_KEYS['axis_fold_ratio']} must be a number, got {out['axis_fold_ratio']!r}") from e
+    if not ratio > 0:
+        raise ValueError(f"{OPTION_KEYS['axis_fold_ratio']} must be > 0, got {out['axis_fold_ratio']!r}")
+    return {"seed": mode, "axis_guard": _truthy(out["axis_guard"]), "axis_fold_ratio": ratio}
+
+
+def load_seed_table(series_dir: Path, stem: str, seed_table=None) -> tuple[dict[int, np.ndarray], dict]:
+    """The rigid cumulative shift per timepoint (``{t_index: (dz, dy, dx) um}``, finite rows only) of the seed table:
+    ``seed_table``, else the folder's ``<stem>__register_shifts.csv``; and its record for the report (path, sha256,
+    the parameters of its registration report when one sits next to it). ValueError naming the command to run when
+    there is none."""
+    p = Path(seed_table) if seed_table is not None else Path(series_dir) / f"{stem}{RIGID_TABLE_SUFFIX}"
+    if not p.is_file():
+        if seed_table is None:
+            raise ValueError(f"--seed rigid starts every gap from the rigid step of {p.name}, which is not in "
+                             f"{series_dir}: run `germquant register {series_dir}` first (with the cap the movie "
+                             f"needs, for example --max-step-um 15 --prior stage), or give a rigid table with --seed-table")
+        raise ValueError(f"--seed-table {p}: no such file")
+    df = pd.read_csv(long_path(p), low_memory=False)
+    cols = next((c for c in (("dz_um", "dy_um", "dx_um"), ("cum_shift_z_um", "cum_shift_y_um", "cum_shift_x_um"))
+                 if set(c) <= set(df.columns)), None)
+    if cols is None or "t_index" not in df.columns:
+        raise ValueError(f"{p.name}: not a register_shifts table (no t_index and dz_um, dy_um, dx_um columns)")
+    vals = df[list(cols)].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+    seeds = {}
+    for t, v in zip(pd.to_numeric(df["t_index"], errors="coerce"), vals):
+        if pd.notna(t) and np.all(np.isfinite(v)):
+            seeds[int(t)] = v
+    params = None
+    if p.name.endswith(RIGID_TABLE_SUFFIX):
+        rp = p.with_name(p.name[: -len(RIGID_TABLE_SUFFIX)] + RIGID_REPORT_SUFFIX)
+        try:
+            with open(long_path(rp), encoding="utf-8") as fh:
+                par = json.load(fh).get("parameters") or {}
+            params = {k: par.get(k) for k in ("reference", "max_step_um", "max_step_at", "prior", "taper",
+                                              "channel_role", "normalization", "stride")}
+        except (OSError, ValueError, AttributeError):
+            params = None
+    with open(long_path(p), "rb") as fh:
+        sha = hashlib.sha256(fh.read()).hexdigest()
+    return seeds, {"table": str(p), "sha256": sha, "rigid_parameters": params}
 
 
 # ---- the axis, the segments and the interpolation ------------------------------------------------------------
@@ -255,6 +335,13 @@ def register_series_piecewise(
     disagreement_um: float = RIGID_DEFAULTS["disagreement_um"],
     normalization: str = RIGID_DEFAULTS["normalization"],
     cfg=None,
+    max_step_at: dict | None = None,
+    prior: str | None = None,
+    nd2: str | Path | None = None,
+    seed: str | None = None,
+    seed_table: str | Path | None = None,
+    axis_guard: bool | None = None,
+    axis_fold_ratio: float | None = None,
 ) -> dict:
     """Register a finished series folder piecewise along the gonad axis (module docstring) and write the
     register_piecewise table and its report next to the series record.
@@ -264,6 +351,12 @@ def register_series_piecewise(
     ``channel`` (the role whose volume is registered; the other kept role is the per-segment cross-check),
     ``disagreement_um`` and ``normalization`` mean what they mean for ``germquant register``. The reference frame
     is always the previous registrable timepoint.
+
+    Opt-in (module docstring; piecewise_options for the keys): ``seed`` "rigid" seeds every gap with the rigid
+    step of ``seed_table`` (default the folder's ``<stem>__register_shifts.csv``) and caps the departure from it;
+    ``max_step_at``, ``prior`` and ``nd2`` as for register.register_series; ``axis_guard`` and
+    ``axis_fold_ratio`` the folded-axis guard. With any of them the table gains its columns after the declared
+    ones and the report its blocks; without them both are main's.
 
     Returns ``series_id``, ``series_dir``, ``table`` (declared columns), ``table_path`` (the CSV), ``report`` and
     ``report_path``. ReferenceVolumesMissing when the series kept no reference volumes; ValueError for a bad option
@@ -279,6 +372,13 @@ def register_series_piecewise(
         raise ValueError(f"upsample must be a positive integer, got {upsample!r}")
     cap = float(max_step_um) if max_step_um is not None else 0.0
     thr = float(disagreement_um)
+    opt = piecewise_options(cfg, seed=seed, axis_guard=axis_guard, axis_fold_ratio=axis_fold_ratio)
+    seeding = opt["seed"] == "rigid"
+    if seed_table is not None and not seeding:
+        raise ValueError("seed_table is the rigid table of the seed: give it with seed='rigid' (--seed rigid "
+                         "--seed-table PATH)")
+    pri = _prior_option(prior, nd2)
+    per_gap = bool(max_step_at) or pri is not None or seeding
 
     found = discover_series(series_dir)
     sdir, stem, record, tps = found["series_dir"], found["stem"], found["record"], found["timepoints"]
@@ -294,6 +394,19 @@ def register_series_piecewise(
         cross = main_role
     else:
         cross = None
+    if per_gap:
+        from . import priors as PR
+
+        msa = PR.check_max_step_at(max_step_at, [int(tp["t_index"]) for j, tp in enumerate(tps)
+                                                 if primary in files[j]][1:])
+        stage = (PR.load_stage_record(sdir, stem, record, nd2=nd2, t_indices=[int(tp["t_index"]) for tp in tps])
+                 if pri == "stage" else None)
+        z_range = (record or {}).get("z_range")
+        gap_rows: dict[int, dict] = {}          # t_index -> the per-gap columns of its segment rows
+        gap_list: list[dict] = []               # the registered gaps with the prior, for the report's prior block
+        seeds, seed_info = load_seed_table(sdir, stem, seed_table) if seeding else ({}, None)
+        seed_rows: dict[tuple[int, int], dict] = {}     # (t_index, segment) -> the seed columns of that row
+        unseeded_gaps: list[dict] = []
 
     n = len(tps)
     with_vol = [i for i in range(n) if primary in files[i]]
@@ -372,18 +485,36 @@ def register_series_piecewise(
             continue
         # where the segments sat in the reference frame: the origin nuclei moved by the interpolated displacement
         pos_ref = c0 + interp_displacement(cum[ref_i], centres, a0)
+        sd, sy, sx, seed_src = None, 0, 0, None     # the seed of this gap and its whole-voxel crop offset in y, x
+        cap_k = cap
+        if per_gap:
+            if seeding:
+                if ref_k in seeds and k in seeds:
+                    sd, seed_src = seeds[k] - seeds[ref_k], "rigid"
+                    sy, sx = int(np.rint(sd[1] / spacing[1])), int(np.rint(sd[2] / spacing[2]))
+                else:
+                    seed_src = f"none: no rigid step for t{(k if k not in seeds else ref_k):03d}"
+                    unseeded_gaps.append({"gap": f"t{ref_k}-t{k}", "why": seed_src})
+            gp = PR.gap_prior(stage, ref_k, k, z_range) if stage is not None else None
+            cap_k, cap_src = PR.gap_cap(k, cap, max_step_at=msa, gp=gp, seeded=sd is not None)
         raw_steps = np.full((K, 3), np.nan)
         seg_err = [""] * K
         boxes = []
         for s in range(K):
             box = crop_box(pos_ref[seg0 == s], spacing, vr.shape, margin)
+            if sy or sx:            # the reference box, clipped so that the box moved by the seed stays in the volume
+                box = (max(box[0], -sy), min(box[1], vr.shape[1] - sy), max(box[2], -sx), min(box[3], vr.shape[2] - sx))
             boxes.append(box)
             y0, y1, x0, x1 = box
             if y1 - y0 < MIN_CROP_VOXELS or x1 - x0 < MIN_CROP_VOXELS:
                 seg_err[s] = f"crop of {y1 - y0} x {x1 - x0} reference voxels (the segment left the field?)"
                 continue
             try:
-                raw_steps[s] = displacement(vr[:, y0:y1, x0:x1], vm[:, y0:y1, x0:x1], up, norm, tap) * spacing
+                if sy or sx:        # the moving crop follows the seed; the whole-voxel offset is added back
+                    raw_steps[s] = (displacement(vr[:, y0:y1, x0:x1], vm[:, y0 + sy:y1 + sy, x0 + sx:x1 + sx], up, norm,
+                                                 tap) * spacing + np.array([0.0, sy * spacing[1], sx * spacing[2]]))
+                else:
+                    raw_steps[s] = displacement(vr[:, y0:y1, x0:x1], vm[:, y0:y1, x0:x1], up, norm, tap) * spacing
             except Exception as e:  # noqa: BLE001 - one segment that cannot be estimated is filled from the others
                 seg_err[s] = f"{type(e).__name__}: {e}"
         good = [s for s in range(K) if not seg_err[s]]
@@ -396,8 +527,15 @@ def register_series_piecewise(
             continue
         steps = np.full((K, 3), np.nan)
         capped = [False] * K
+        deps = np.full((K, 3), np.nan)              # seeded: the departure of each estimate from the seed
         for s in good:
-            steps[s], capped[s] = cap_step(raw_steps[s], cap)
+            if sd is not None:      # the cap is on the departure; an uncapped step is the estimate itself
+                sd_yx = np.array([0.0, sd[1], sd[2]])
+                deps[s] = raw_steps[s] - sd_yx
+                dep, capped[s] = cap_step(deps[s], cap_k)
+                steps[s] = sd_yx + dep if capped[s] else raw_steps[s]
+            else:
+                steps[s], capped[s] = cap_step(raw_steps[s], cap_k)
         filled = [s for s in range(K) if s not in good]
         for s in filled:
             steps[s] = interp_displacement(steps[good], centres[good], [centres[s]])[0]
@@ -413,7 +551,11 @@ def register_series_piecewise(
                 if br.shape != bm.shape or y1 - y0 < MIN_CROP_VOXELS or x1 - x0 < MIN_CROP_VOXELS:
                     continue
                 try:
-                    bf_steps[s] = displacement(br[:, y0:y1, x0:x1], bm[:, y0:y1, x0:x1], up, norm, tap) * spacing
+                    if sy or sx:    # the same moving box as the primary estimate
+                        bf_steps[s] = (displacement(br[:, y0:y1, x0:x1], bm[:, y0 + sy:y1 + sy, x0 + sx:x1 + sx], up,
+                                                    norm, tap) * spacing + np.array([0.0, sy * spacing[1], sx * spacing[2]]))
+                    else:
+                        bf_steps[s] = displacement(br[:, y0:y1, x0:x1], bm[:, y0:y1, x0:x1], up, norm, tap) * spacing
                 except Exception as e:  # noqa: BLE001 - the cross-check is advisory
                     warnings.append(f"t{k:03d} segment {s}: {cross} cross-check failed: {type(e).__name__}: {e}")
             base = cum_bf.get(ref_i)
@@ -456,7 +598,37 @@ def register_series_piecewise(
                             "disagreement_um": _f(dis), "disagreement_flag": flag, "n_nuclei": q[s][0],
                             "quality_before_um": _f(q[s][1]), "quality_after_um": _f(q[s][2]),
                             "crop_yx": [int(v) for v in boxes[s]], "error": seg_err[s] or None})
+            if per_gap and seeding:
+                b = boxes[s]
+                mov = [int(b[0]) + sy, int(b[1]) + sy, int(b[2]) + sx, int(b[3]) + sx]
+                seed_rows[(k, s)] = {"seed_dz_um": sd[0] if sd is not None else np.nan,
+                                     "seed_dy_um": sd[1] if sd is not None else np.nan,
+                                     "seed_dx_um": sd[2] if sd is not None else np.nan, "seed_shift_y_vox": sy,
+                                     "seed_shift_x_vox": sx, "mov_crop_y0": mov[0], "mov_crop_y1": mov[1],
+                                     "mov_crop_x0": mov[2], "mov_crop_x1": mov[3], "seed_source": seed_src,
+                                     "cap_basis": "departure" if sd is not None else "step"}
+                seg_rep[-1].update(seed_um=_l(sd) if sd is not None else None,
+                                   departure_um=_l(deps[s]) if np.all(np.isfinite(deps[s])) else None, mov_crop_yx=mov)
         steps_rep.append({"t_index": k, "reference_t_index": ref_k, "segments": seg_rep})
+        if per_gap:
+            flags: list[str] = []
+            if stage is not None:
+                found_flags = {f for s in good for f in PR.gap_flags(raw_steps[s], gp, cap, rigid=False)}
+                flags = [f for f in PR.FLAG_ORDER if f in found_flags]
+                if sd is None and gp["recorded"] and gp["stage_xy_um"] > margin:
+                    why = ("--seed rigid has no rigid step for this gap: register the rigid table over it" if seeding
+                           else "use --seed rigid")
+                    w = (f"t{ref_k}-t{k}: the stage moved {gp['stage_xy_um']:.1f} um, more than the {margin:g} um crop "
+                         f"margin; the piecewise crops cannot follow it ({why})")
+                    warnings.append(w)
+                    log.warning("%s", w)
+            gap_rows[k] = PR.gap_row(cap_k, cap_src, gp, flags, with_prior=stage is not None)
+            steps_rep[-1].update(cap_um=_f(gap_rows[k]["cap_um"]), cap_source=cap_src)
+            if seeding:
+                steps_rep[-1]["seed_source"] = seed_src
+            if stage is not None:
+                steps_rep[-1]["prior"] = PR.gap_summary(gp, flags)
+                gap_list.append({**gp, "flags": flags, "cap_um": _f(gap_rows[k]["cap_um"]), "cap_source": cap_src})
         for key in [key for key in cache if key[0] != i]:
             del cache[key]
         last = i
@@ -468,6 +640,10 @@ def register_series_piecewise(
     df["t_seconds"] = pd.to_numeric(df["t_seconds"], errors="coerce")
     for c in ("capped", "filled", "disagreement_flag"):
         df[c] = df[c].astype(bool)
+    if per_gap:
+        PR.add_gap_columns(df, gap_rows, with_prior=stage is not None)
+        if seeding:
+            _add_seed_columns(df, seed_rows)
     table_path = write_series_table(df, TABLE, sdir, stem, _series_meta(sdir, stem, record))
 
     by_seg = []
@@ -500,6 +676,16 @@ def register_series_piecewise(
         "steps": steps_rep,
         "pipeline_version": __version__, "git_sha": provenance.git_sha(), "run_timestamp": provenance.run_timestamp(),
     }
+    if per_gap:
+        PR.add_report_options(report, msa, pri, stage, gap_list, z_range=z_range)
+        if seeding:
+            report["parameters"]["seed"] = "rigid"
+            if seed_table is not None:
+                report["parameters"]["seed_table"] = str(seed_table)
+            n_seeded = sum(1 for st_ in steps_rep if st_.get("seed_source") == "rigid")
+            report["seed"] = {**seed_info, "n_seeded_gaps": n_seeded, "unseeded_gaps": unseeded_gaps,
+                              "z": "recorded, not applied (every plane and the circular z estimate are kept)",
+                              "cap_basis": "the departure from the seed (estimate minus (0, seed_y, seed_x))"}
     report_path = sdir / f"{stem}{REPORT_SUFFIX}"
     with open(long_path(report_path), "w", encoding="utf-8") as fh:
         json.dump(_clean(report), fh, indent=1)
@@ -520,6 +706,19 @@ def _row(tp: dict, s: int, K: int, edges, centres, n0, origin_k: int, role: str,
              crop_y0=None, crop_y1=None, crop_x0=None, crop_x1=None, error=error or "", xy_stride=int(stride),
              upsample_factor=int(up), method=method, taper=float(taper), margin_um=float(margin))
     return r
+
+
+def _add_seed_columns(df: pd.DataFrame, seed_rows: dict) -> None:
+    """Append SEED_COLUMNS to the table in place (rows of the origin and error rows: NA and empty text)."""
+    keys = list(zip(df["t_index"].tolist(), df["segment"].tolist()))
+    for c in SEED_COLUMNS:
+        vals = [seed_rows.get((int(t), int(s)), {}).get(c) for t, s in keys]
+        if c in ("seed_source", "cap_basis"):
+            df[c] = ["" if v is None else str(v) for v in vals]
+        elif c.startswith(("seed_shift", "mov_crop")):
+            df[c] = pd.array([None if v is None else int(v) for v in vals], dtype="Int64")
+        else:
+            df[c] = np.asarray([np.nan if v is None else float(v) for v in vals], dtype=float)
 
 
 def _fill(row: dict, *, step, cum, capped=False, filled=False, bf_step=None, bf_cum=None,
