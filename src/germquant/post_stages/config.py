@@ -130,13 +130,29 @@ def as_declarations(declarations=None) -> tuple[dict[str, dict], dict[str, list[
 def problems_by_name(entries, decls: dict[str, dict], reasons: dict[str, list[str]] | None = None
                      ) -> list[tuple[str | None, str]]:
     """(post-stage name or None, problem) for every problem of a post-stage list against ``decls``: the shape,
-    a name listed twice, a post-stage that is not installed or not usable, an undeclared parameter, a value
-    outside its declared type or range."""
+    a name listed twice, two post-stages whose tables would share one file name, a post-stage that is not
+    installed or not usable, an undeclared parameter, a value outside its declared type or range."""
     shape = entries_problems(entries)
     if shape:
         return [(None, p) for p in shape]
     reasons = reasons or {}
     out: list[tuple[str | None, str]] = []
+    # <image_id>__post_<name>_<table>.csv is frozen, and names may hold single underscores, so post-stage a with
+    # table b_c and post-stage a_b with table c would write one file: refuse both, each alone stays valid
+    claimed: dict[str, tuple[int, str, str]] = {}      # "<name>_<table>" -> (entry, post-stage, table)
+    checked: set[str] = set()
+    for i, e in enumerate(entries):
+        name = e["name"]
+        if name in checked:
+            continue                                   # listed twice: refused below, and checked here once
+        checked.add(name)
+        for table in (decls.get(name) or {}).get("writes") or {}:
+            key = f"{name}_{table}"
+            j, other, other_table = claimed.setdefault(key, (i, name, table))
+            if other != name:
+                why = (f"post-stage {other} (entry {j}, table {other_table}) and post-stage {name} (entry {i}, "
+                       f"table {table}) would both write <image_id>__post_{key}.csv; switch on only one of them")
+                out += [(other, f"entry {j}: {why}"), (name, f"entry {i}: {why}")]
     seen: set[str] = set()
     for i, e in enumerate(entries):
         name = e["name"]

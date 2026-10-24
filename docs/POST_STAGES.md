@@ -124,7 +124,8 @@ completion marker, so it reruns neither the image nor anything but the post-stag
 
 The file is checked against the post-stages installed in the environment that runs: each entry must name a
 usable post-stage, list it once, and give only declared parameters, each of its declared type and inside its
-range. Write it with germquant, which checks it first and writes it in one canonical form (ASCII, with YAML
+range. Two post-stages whose tables would share a file name are refused together: `a` writing table `b_c` and
+`a_b` writing table `c` would both write `<image_id>__post_a_b_c.csv`. Write it with germquant, which checks it first and writes it in one canonical form (ASCII, with YAML
 escapes for any other character; LF line endings; the parameter keys sorted; float parameters as floats; an
 atomic replace). From Python, the same line works in PowerShell, cmd, bash and zsh:
 

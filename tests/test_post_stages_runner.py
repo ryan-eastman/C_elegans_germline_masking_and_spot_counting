@@ -278,6 +278,43 @@ def test_failure_recorded_image_stays_done(tmp_path):
     assert is_done(rf.out_dir, rf.image_id, rf.cfg) == (True, "done")
 
 
+def test_two_post_stages_that_would_write_one_file_are_refused(tmp_path):
+    """Review S2: the post table name <image_id>__post_<name>_<table>.csv is frozen and names may hold single
+    underscores, so post-stage a with table b_c and post-stage a_b with table c would both write
+    <image_id>__post_a_b_c.csv (the last one winning while both were recorded done, and resume then skipping
+    both). The pair is refused wherever a list is checked: validation, the writer and the runner, which fails
+    both and writes no table. Each one alone stays valid."""
+    rf = make_result_folder(tmp_path)
+    reads = {"tables": ["nuclei"]}
+    PS.register_post_stage("a", lambda i, p: {"b_c": pd.DataFrame({"who": ["a"]})},
+                           {"version": "1.0.0", "reads": reads, "writes": {"b_c": ["who"]}}, replace=True)
+    PS.register_post_stage("a_b", lambda i, p: {"c": pd.DataFrame({"who": ["a_b"]})},
+                           {"version": "1.0.0", "reads": reads, "writes": {"c": ["who"]}}, replace=True)
+    assert PS.post_table_name(rf.image_id, "a", "b_c") == PS.post_table_name(rf.image_id, "a_b", "c")
+    pair = [{"name": "a"}, {"name": "a_b"}]
+    try:
+        probs = PS.validate_post_stages(pair)
+        assert len(probs) == 2 and all("__post_a_b_c.csv" in p for p in probs), probs
+        assert probs[0].startswith("entry 0:") and probs[1].startswith("entry 1:"), probs
+        with pytest.raises(ValueError, match="__post_a_b_c.csv"):
+            PS.write_post_stages_file(tmp_path / "post_stages.yaml", pair)
+        assert not (tmp_path / "post_stages.yaml").exists()
+        before = snapshot(rf.out_dir)
+        res = _run(rf, pair)
+        assert res["failed"] == ["a", "a_b"] and res["ran"] == [], res
+        stages = post_record(rf.out_dir, rf.image_id)["stages"]
+        for name in ("a", "a_b"):
+            assert "would both write" in stages[name]["error"] and stages[name]["tables"] == [], stages[name]
+        assert set(snapshot(rf.out_dir)) - set(before) == {f"{rf.image_id}__post.json"}
+        assert len(PS.validate_post_stages([*pair, {"name": "a_b"}])) == 3, "the pair once, plus the repeat"
+        for alone in ("a", "a_b"):
+            assert PS.validate_post_stages([{"name": alone}]) == []
+            assert _run(rf, [{"name": alone}])["ran"] == [alone]
+    finally:
+        PS.unregister_post_stage("a")
+        PS.unregister_post_stage("a_b")
+
+
 def _frame(columns=T.FIXTURE_COLUMNS):
     return pd.DataFrame({c: [1] for c in columns})
 
