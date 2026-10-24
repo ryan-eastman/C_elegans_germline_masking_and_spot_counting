@@ -91,11 +91,15 @@ def _strip_paths(text: str) -> str:
     return _TEXT_PATH_RE.sub(repl, text)
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, *, lf: bool = False) -> str:
+    """sha256 of a file; ``lf``: of a text file with CRLF turned into LF (the rule for every text digest here)."""
     h = hashlib.sha256()
     with open(long_path(path), "rb") as fh:
-        for block in iter(lambda: fh.read(1 << 24), b""):
-            h.update(block)
+        if lf:
+            h.update(fh.read().replace(b"\r\n", b"\n"))
+        else:
+            for block in iter(lambda: fh.read(1 << 24), b""):
+                h.update(block)
     return h.hexdigest()
 
 
@@ -342,13 +346,13 @@ def _store_model(model: Path, spec: ModelSpec, pack_ref: str) -> dict:
     if st["state"] not in ("trusted", "verified"):
         if loc.exists():
             loc.unlink()                              # a wrong blob under this digest is discarded, never kept
-        placed = _place(model, loc, link=True)
+        placed = _place(Path(long_path(model)), loc, link=True)    # a project's training folder may be deep
         st = check_blob(spec)
         if st["state"] != "verified":
             loc.unlink(missing_ok=True)
             raise PackDeriveError(f"the model copied into the store at {loc} does not check out ({st['detail']})")
-    _save_record(spec, loc, source=None if placed == "already in the store" else f"pack derive {model.resolve()}",
-                 packs=[pack_ref], verified=st["state"] == "verified")
+    source = None if placed == "already in the store" else f"pack derive {os.path.abspath(model)}"
+    _save_record(spec, loc, source=source, packs=[pack_ref], verified=st["state"] == "verified")
     return {"path": str(loc), "state": st["state"], "placed": placed}
 
 
@@ -383,13 +387,13 @@ def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | 
 
     out = Path(os.path.abspath(out))
     model, card_path = Path(model), Path(card)
-    if not model.is_file():
+    if not os.path.isfile(long_path(model)):                   # long_path: a training folder on a deep share
         raise FileNotFoundError(f"--model {model}: no such file")
-    if not card_path.is_file():
+    if not os.path.isfile(long_path(card_path)):
         raise FileNotFoundError(f"--card {card_path}: no such file")
     _guard_out(out)
     card_data = _read_card(card_path)
-    sha, size = _sha256(model), model.stat().st_size
+    sha, size = _sha256(model), os.stat(long_path(model)).st_size
     _check_card(card_data, sha, size, card_path, model)
     base = _model_base(card_data, model)
     model_name = f"{base}@{sha[:8]}"
@@ -416,7 +420,7 @@ def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | 
         spec = ModelSpec(name=model_name, kind="cellpose", file_name=model.name, sha256=sha, size=size, sources=[],
                          card=card_rel, licence=licence)            # safe_dump writes YAML escapes for non-ASCII
         pcard["derived"] = {"pack": new_ref, "from": par.ref, "recipe": r.id,
-                            "card_sha256": _sha256(card_path), "rewritten": rewritten}
+                            "card_sha256": _sha256(card_path, lf=True), "rewritten": rewritten}
         check = validate_card(pcard, spec.as_dict(), pack_written=True)
         left = list(_machine_leaves(pcard))
         if check["problems"] or check["non_portable"] or left:

@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,6 +45,7 @@ from packs_helpers import (  # noqa: F401  (pack_env is a fixture)
 from germquant import cli, cli_packs, packs
 from germquant import models_registry as MR
 from germquant.config import load_config
+from germquant.fsutil import long_path
 from germquant.segment import backends as SB
 
 MODEL_BYTES = b"germquant test: a stand-in for a model trained in a project, not weights\n"
@@ -215,7 +218,7 @@ def test_cards_portable_ascii(trained):
         assert str(t.env.tmp) not in value and t.env.tmp.as_posix() not in value, key
     res = MR.validate_card(card, packs.load_pack(t.folder).model(MODEL_NAME).as_dict(), pack_written=True)
     assert res == {"ok": True, "problems": [], "non_portable": []}
-    src_sha = hashlib.sha256(t.card.read_bytes()).hexdigest()
+    src_sha = hashlib.sha256(t.card.read_bytes().replace(b"\r\n", b"\n")).hexdigest()     # on LF bytes
     assert card["derived"] == {"pack": f"{DERIVED}@0.1.0", "from": "test_pack@0.1.0", "recipe": "with_model",
                                "card_sha256": src_sha,
                                "rewritten": ["base_model.name", "base_model.path", "model_file", "what"]}
@@ -360,6 +363,13 @@ def test_derive_again_is_a_no_op_and_refusals_write_nothing(trained, tmp_path, c
     assert _derive(t, "--json") == 0
     assert json.loads(capsys.readouterr().out)["status"] == "already present"
     assert {p: p.read_bytes() for p in t.packs.rglob("*") if p.is_file()} == files
+    # the same card saved with the other line endings (a card copied between systems): the same pack
+    raw = t.card.read_bytes()
+    t.card.write_bytes(raw.replace(b"\r\n", b"\n") if b"\r\n" in raw else raw.replace(b"\n", b"\r\n"))
+    assert t.card.read_bytes() != raw
+    assert _derive(t, "--json") == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "already present"
+    assert {p: p.read_bytes() for p in t.packs.rglob("*") if p.is_file()} == files
     # other weights under an id and version that already hold a derived pack: refused, the copy kept
     other = tmp_path / "other_model"
     other.write_bytes(b"other weights\n")
@@ -370,6 +380,27 @@ def test_derive_again_is_a_no_op_and_refusals_write_nothing(trained, tmp_path, c
     assert _derive(t, "--id", DERIVED, model=other, card=oc) == 1
     assert "already holds" in capsys.readouterr().err
     assert {p: p.read_bytes() for p in t.packs.rglob("*") if p.is_file()} == files
+
+
+def test_a_model_past_the_windows_path_limit_derives(trained):
+    """A project's training folder can sit deep on a share: the model and its card are read through
+    fsutil.long_path (on Windows, without LongPathsEnabled, a plain path past 260 characters cannot be opened)."""
+    t = trained
+    top = t.proj / "training" / "r02"
+    deep = top / ("d" * 60) / ("e" * 60) / ("f" * 60) / "r01_nuclei"
+    assert len(str(deep / "r01_nuclei.card.json")) > 260
+    try:
+        os.makedirs(long_path(deep), exist_ok=True)
+        model, card = deep / "r01_nuclei", deep / "r01_nuclei.card.json"
+        with open(long_path(model), "wb") as fh:
+            fh.write(MODEL_BYTES)
+        with open(long_path(card), "w", encoding="utf-8") as fh:
+            json.dump(_card(model, t.env.tmp / "weights" / "base_model_file"), fh)
+        assert _derive(t, model=model, card=card) == 0
+        assert (t.env.blobs / MODEL_SHA / "r01_nuclei").read_bytes() == MODEL_BYTES
+        assert json.loads((t.folder / CARD_REL).read_bytes())["model_file"] == "r01_nuclei"
+    finally:
+        shutil.rmtree(long_path(top), ignore_errors=True)       # pytest's own cleanup cannot remove such a tree
 
 
 def test_where_the_derived_pack_goes(trained, tmp_path, capsys):
