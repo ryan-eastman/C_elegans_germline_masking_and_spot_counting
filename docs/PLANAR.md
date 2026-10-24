@@ -156,8 +156,9 @@ packs").
 
 An image with one plane (a field of cultured cells, a tissue section imaged once) is a 2D image: its objects
 have an area, not a volume, and its spots have no depth. A single-plane run treats it so, from the read to the
-written images. Every key below is read with a code default that keeps today's behaviour, so the shipped config
-files never carry them and their config hashes do not move.
+written images. Every key below is read with a code default that keeps today's behaviour, so the config files
+that existed before them never carry them and their config hashes do not move; `generic_2d.yaml` (below) is the
+first to set one.
 
 ### Switching it on
 
@@ -252,7 +253,9 @@ without a voxel size), the run also keeps today's flag `voxel:UNREADABLE_assumed
 
 ### What a single-plane run records
 
-Only a single-plane run records these; a run without the key records none of them.
+Only a single-plane run records these, except `voxel:override`, `voxel:override_differs_from_file` and
+`spacing_source` "override", which any run that sets `io.voxel_size_um` records (above); a run without either key
+records none of them.
 
 - The flag `read:planar`, and `voxel:UNREADABLE_xy_assumed_1um` or `voxel:override` (with
   `voxel:override_differs_from_file`) as above.
@@ -266,16 +269,21 @@ Only a single-plane run records these; a run without the key records none of the
 
 ### Refusals
 
-A single-plane run stops right after the read, before any pixel is processed and before any file is written,
-with a `PlanarConfigError` that lists every problem:
+A single-plane run stops right after the read, before any pixel is processed and before any file is written:
 
-- `io.planar: true` on an image with more than one plane (above);
-- everything a projected run refuses (a 3D-only stage switched on with its channel roles bound, a segmentation
-  backend without `planar_ok` such as `nuclei3d`);
-- a spot backend without `planar_ok`, for the main spots instance and for every `spots.instances` entry whose
-  role is bound: `log` and `net3d` cannot run on one plane;
-- a malformed `io.planar` or `io.voxel_size_um` (a quoted `"true"` is text, not a boolean), as for the recipe
-  keys below.
+- a malformed `io.planar` or `io.voxel_size_um` (a quoted `"true"` is text, not a boolean, and a list item
+  cannot be null) is refused first, by the recipe check: a `ValueError` naming the key, as for the recipe keys
+  below;
+- `io.planar: true` on an image with more than one plane raises a `PlanarConfigError` of its own (above);
+- so does a `segmentation.nuclei.project` value that a projected run would refuse (an unknown mode, or in mode
+  `plane` an unknown `project_plane` selector), although a single-plane run then ignores the setting (decision
+  D7);
+- the checks of stages and backends are collected into one `PlanarConfigError` that lists every problem: those
+  a projected run makes (a 3D-only stage switched on with its channel roles bound, a segmentation backend without
+  `planar_ok` such as `nuclei3d`), and a spot backend without `planar_ok`, for the main spots instance and for
+  every `spots.instances` entry whose role is bound (`log` and `net3d` cannot run on one plane).
+
+`PlanarConfigError` is a `ValueError`, so a caller that catches `ValueError` sees every refusal above.
 
 ### Time series
 

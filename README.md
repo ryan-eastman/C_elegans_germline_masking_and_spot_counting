@@ -270,9 +270,11 @@ adapt the recipe in a study profile (your channel names, spot radius, filename p
 `--profile generic_2d` is the same recipe for images with one plane: an image whose header and stack have
 one plane runs as a 2D image (objects segmented on the plane, `area_um2` instead of a volume, every spot at
 z 0, label and spot images written as YX, the pixel size taken from the file's own xy calibration), and a 3D
-stack runs as a 3D stack. The key behind it, `io.planar`, and `io.voxel_size_um` for files without a pixel
-size, are described in `docs/PLANAR.md` ("Single-plane runs"); `germquant info IMAGE` says whether an image
-has a single plane. Single-plane time series are refused in this release.
+stack runs as a 3D stack (without the z-column merge of spots, which `generic_2d` switches off, so its spot
+counts can differ from those of `--profile generic`). The key behind it, `io.planar`, and `io.voxel_size_um`
+for files without a pixel size, are described in `docs/PLANAR.md` ("Single-plane runs");
+`germquant info IMAGE` says whether an image has a single plane. Single-plane time series are refused in this
+release.
 
 ### System packs (new in 0.2)
 

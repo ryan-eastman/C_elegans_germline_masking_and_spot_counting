@@ -137,10 +137,11 @@ spots:
 `config/profiles/generic_2d.yaml` is this profile for images with one plane. It extends `generic.yaml` with
 `io.planar: auto`, so an image whose header and read stack have one plane runs as a 2D image: objects segmented
 on the plane, `area_um2` and `equivalent_diameter_um` measured with the file's own dy and dx, `volume_um3` left
-empty, every spot at `z_um` 0.0, and YX label and spot images. A 3D stack runs through the 3D path as with this
-profile, with the few settings that `generic_2d.yaml` changes: an area gate for 2D objects
-(`segmentation.nuclei.min_area_um2: 20.0`), no z-column merge of spots, the granule and coloc stages off and a
-filename regex that matches nothing. `docs/PLANAR.md` ("Single-plane runs") explains the mode, the pixel size
+empty, every spot at `z_um` 0.0, and YX label and spot images. A 3D stack runs through the 3D path as with
+`generic.yaml`, except for what `generic_2d.yaml` changes for every image: no z-column merge of spots, the
+granule and coloc stages off and a filename regex that matches nothing. Its area gate
+(`segmentation.nuclei.min_area_um2: 20.0`) applies to 2D objects only; a 3D stack keeps the volume gate,
+`segmentation.nuclei.min_volume_um3`. `docs/PLANAR.md` ("Single-plane runs") explains the mode, the pixel size
 it uses (`io.voxel_size_um` sets it for an uncalibrated file), what it records and what it refuses (time
 series, and the 3D-only stages and backends).
 
@@ -153,6 +154,12 @@ Mac / Linux:
 .venv/bin/germquant run /path/to/YOUR_IMAGE.ome.tif --profile generic_2d --out /path/to/RESULTS_FOLDER
 ```
 
+A thin stack (a few planes) is a 3D stack as far as the pipeline is concerned and runs today,
+with the caveat that Cellpose's 3D flows and the z-column merge are meant for a well-sampled z.
+Such a stack can instead be segmented on one 2D image (a projection, or the sharpest plane) with the
+objects copied through z and the spots still counted in 3D: `segmentation.nuclei.project` in a study
+profile, described in `docs/PLANAR.md`.
+
 ### The stock Cellpose model
 
 Both profiles name the nucleus model `cpsam`, the stock Cellpose-SAM. Since Cellpose 4.2.0 that bare name runs
@@ -160,9 +167,3 @@ the cpsam_v2 weights (this installation has Cellpose 4.2.1.1), and `run_manifest
 "absent", so a generic run does not say which weights it used. The name stays as it is, because changing it
 would change the masks of every generic run (`docs/DESIGN_system_packs.md`, section 15, finding a); a system pack
 pins its weights by name and digest instead (`docs/PACKS.md`).
-
-A thin stack (a few planes) is a 3D stack as far as the pipeline is concerned and runs today,
-with the caveat that Cellpose's 3D flows and the z-column merge are meant for a well-sampled z.
-Such a stack can instead be segmented on one 2D image (a projection, or the sharpest plane) with the
-objects copied through z and the spots still counted in 3D: `segmentation.nuclei.project` in a study
-profile, described in `docs/PLANAR.md`.
