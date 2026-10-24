@@ -242,8 +242,9 @@ without a voxel size), the run also keeps today's flag `voxel:UNREADABLE_assumed
 4. Spots: SpotMAX runs on the plane (`docs/BACKENDS.md`): radii (`PLANAR_RZ_PX`, r / dy, r / dx), the Gaussian
    sigma over the smaller of dy and dx, and no z-split merge. Every `z_um` is 0.0. When the recipe asks for the
    merge (`spots.merge_z_columns: true`, as `config.yaml` sets it), the flag `spots:z_merge_off_planar` (or
-   `spots_<name>:z_merge_off_planar` for a spot instance) says that it did not run. Only `spotmax` can detect
-   spots on one plane.
+   `spots_<name>:z_merge_off_planar` for a spot instance) says that it did not run. `spots.remove_hot_pixels` and
+   `spots.sharpen` apply as in 3D; `spots.spot_radius_z_um` has no meaning on one plane and is ignored, with a
+   warning in the log. Only `spotmax` can detect spots on one plane.
 5. Write: `<image_id>__nuclei_labels.tif` is an int32 OME-TIFF with axes YX and PhysicalSizeX and Y only (no Z),
    `<image_id>__spots.tif` a YX image with a disk at each spot, and masks are YX too. The two 2D columns appear
    in the nuclei table only.
