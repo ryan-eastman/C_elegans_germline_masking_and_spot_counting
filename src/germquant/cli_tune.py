@@ -6,9 +6,11 @@
 
 The first form runs the search and writes tuning/<run_id>/ (grid.yaml, trials.jsonl, ranked.csv, best.yaml
 and run.json); the second writes the run's best.yaml into the project's recipe.yaml. Exit codes: 0 done,
-1 the search ran but nothing could be scored, or a detection (or the write of --apply) failed, 2 refused
-before any detection (the project, the grid, --max-runs, an image without a finished run, a truth-point file
-that cannot be read, no truth point in an object of its run, two annotators for one image).
+1 the search ran but nothing could be scored, or a detection failed, or the write of --apply failed (also one
+that stopped part way: the same command run again finishes it), 2 refused before any detection or write (the
+project, the grid, --max-runs, an image without a finished run, a truth-point file that cannot be read, no
+truth point in an object of its run, two annotators for one image; for --apply a run without best.yaml, keys
+outside the run's grid, another backend, the project's lock held by another command).
 """
 from __future__ import annotations
 
@@ -94,6 +96,7 @@ def dispatch(args) -> int:
     if args.apply is not None:
         import warnings
 
+        from .project import ProjectError
         from .tune import TuningWarning, apply_tuning
 
         try:
@@ -101,6 +104,10 @@ def dispatch(args) -> int:
                 warnings.simplefilter("always", TuningWarning)
                 config_hash = apply_tuning(project, args.apply, plugin_version=args.plugin_version)
         except (TuneRefused, FileNotFoundError, ValueError) as e:
+            if isinstance(e, ProjectError) and isinstance(e.__cause__, OSError):
+                # germquant.project's write stopped part way (its message names what was written): a failed
+                # write, exit 1, so that a caller knows the project may have changed (9.4 #7)
+                return _failed("tune-spots --apply", e)
             print(f"ERROR: {e}", file=sys.stderr)
             return 2
         except Exception as e:  # noqa: BLE001 - a failed write: exit 1, the traceback through logging

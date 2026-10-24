@@ -727,3 +727,34 @@ def test_tune_spots_on_a_real_project(planted, tmp_path, monkeypatch):
     H.write_truth(Path(project.root) / "annotations" / f"{iid}__points_ryan.csv", planted.truth["planted_a"], rd, iid)
     res = S.tune_spots(project, grid={"spots.log.min_snr": [2.0, 3.0]})
     assert res["best"]["keys"] == {"spots.log.min_snr": 3.0} and Path(res["run_dir"]).parent.name == "tuning"
+
+
+def test_apply_that_stops_part_way_exits_1(planted, tmp_path, monkeypatch, capsys):
+    """A write the real project stops part way (recipe.yaml replaced, then the manifest's os.replace refused
+    after its retries, as a virus scanner can on Windows) is a failed write: exit 1, with the ERROR line naming
+    what was written (9.4 #7; review P5-TUNE-sync S1). The same command run again finishes the write."""
+    from packs_helpers import use_fixture_packs
+
+    from germquant import project as P
+    from germquant.project import manifest as M
+
+    use_fixture_packs(monkeypatch)
+    project = P.new_project(tmp_path / "proj", "test_pack")
+    root = Path(project.root)
+    shutil.copytree(planted.log["run_dir"], root / "tuning" / "r1")
+    apply = ["tune-spots", "--project", str(root), "--apply", "tuning/r1"]
+    real_replace = M._replace
+
+    def replace(src, dst):
+        if Path(str(dst)).name == M.MANIFEST_NAME:
+            raise PermissionError(13, "held by a scanner", str(dst))
+        return real_replace(src, dst)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(M, "_replace", replace)
+        mp.setattr(M, "_sleep", lambda s: None)
+        assert cli.main(apply) == 1
+    assert "the write stopped part way (wrote recipe.yaml)" in capsys.readouterr().err
+    assert (root / "recipe.yaml").is_file() and P.open_project(root).manifest["recipe"]["origins"] == {}
+    assert cli.main(apply) == 0                                        # run again: the write finishes
+    assert P.open_project(root).manifest["recipe"]["origins"] == {"spots.log.min_snr": "tuning"}

@@ -200,6 +200,11 @@ since, as `run.json` records their config hashes), Apply still writes the best k
 searched on those runs' spot settings and now sit on top of the recipe as it is. In Python the warning is a
 `germquant.tune.TuningWarning`; `--json` prints `config_hash`, `run_dir` and `warnings`.
 
+Exit codes: 0 done; 2 refused before anything was written (a run without `best.yaml`, keys outside the run's
+grid, a run that tuned another backend, another germquant command holding the project's lock, a recipe file
+the manifest does not record); 1 the write failed, also when it stopped part way: the `ERROR:` line names what
+was written, and the same command run again finishes the write.
+
 ## Python
 
 ```python
