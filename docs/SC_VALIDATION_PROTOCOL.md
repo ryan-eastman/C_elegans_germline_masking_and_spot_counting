@@ -752,3 +752,55 @@ Entries are appended, never edited. Each one says whether a test result had been
    states that the intensity comparator measures the amount of SYP, not its continuity (entry 10).
    (h) The package VERSION becomes 2.0. The method under test of 5.1 is the configuration named by the freeze entry;
    no test result exists for any version, so its scoring is the first of section 10.
+12. 2026-10-24, the v2 development round (per-image PSF), written before any number of this change was computed (no
+   test result had been computed, no test or reserved image was run, no test or reserved truth was read and no
+   sealed seed was generated). Motivated by development results (entry 9 and the trial-4 records): the PSF of 10 of
+   the 12 development images fell back to sigma_z 0.365 um (0 to 15 flat isolated bright stretches against
+   psf.min_stretches 20; 83 and 97 stretches on the two images with an estimate, 0.3675 and 0.3825 um), while the
+   compact RAD-51 foci of the runs' spot tables, scaled from 595 to 511 nm, gave 0.380, 0.428 and 0.464 um by
+   session.
+   Method. (a) The flat-stretch estimate of v1 (DESIGN 4.9) with psf.min_stretches N_s. (b) A foci estimate: every
+   focus of the run's `spots` table (RAD-51) in a nucleus that phase A processed is fitted, in the foci channel, by
+   weighted least squares with a 3D Gaussian of diagonal covariance (axes z, y, x) plus a constant (amplitude A,
+   constant B, centre, sigma_z, sigma_y, sigma_x; the centre within 0.4 um axially and 0.3 um laterally of the spot,
+   sigma_z in [0.08, 2.0] um, the lateral sigmas in [0.05, 1.0] um), the weights 1 / var(I) of the image's noise
+   model at the observed counts (floored at 25 counts^2, as in the diagnostics of entry 9), on the raw counts of the
+   window of +/-psf.foci_window_um (1.2 um axial, 0.54 um lateral, rounded to whole voxels) around the spot's voxel.
+   A fit is kept when the window lies inside the nucleus crop (crop_pad_um around the label, inside the stack), no
+   other spot of the table lies within psf.foci_isolation_um (1.0 um, 3D), both lateral sigmas are at most
+   psf.foci_max_sigma_xy_um (0.25 um) and their ratio at most psf.foci_max_ratio (1.5), sigma_z lies more than 1
+   percent inside its bounds, the relative residual RMS (the RMS of the unweighted residuals over A) is at most
+   psf.foci_max_rel_rms (0.2) and A is at least psf.foci_min_snr (8) times its standard error (the fit covariance
+   scaled by the reduced chi-square). With at least psf.foci_min kept fits (N_f) and both emission wavelengths (the
+   central_element and foci channels of the source metadata; without both there is no foci estimate) the foci
+   estimate is the median of the kept sigma_z and the median of the kept sqrt(sigma_y sigma_x), each times the ratio
+   of the central_element to the foci emission wavelength. (c) The variance of each estimate is that of a bootstrap
+   over its items (stretches, or kept fits; 200 resamples, numpy seed 0); with both estimates the PSF is, for each
+   axis, their inverse-variance weighted mean (source both), with one it is that one (source stretches or foci),
+   with none it is the fallback with the image flag psf_fallback as in v1 (source fallback). One PSF per image, no
+   depth dependence. With psf.foci "off" the record and every output are those of v1 (sources estimated and
+   fallback). The record gives both estimates with their item counts and standard errors, the kept and rejected foci
+   by reason, the wavelengths and the source; new image flag psf_from_foci (info) when the foci enter the PSF. New
+   keys (fixed group): psf.foci ("on"), psf.foci_min (N_f), psf.foci_window_um [1.2, 0.54], psf.foci_isolation_um
+   1.0, psf.foci_max_sigma_xy_um 0.25, psf.foci_max_ratio 1.5, psf.foci_max_rel_rms 0.2, psf.foci_min_snr 8;
+   psf.min_stretches becomes N_s. The package VERSION becomes 2.0 with this change (entry 11 (h)).
+   Development family psf_check (not registered; its own family code; seeds as entry 11 (a)): one image of six dense
+   nuclei of 2.3 in a row (oocyte and spermatocyte alternating, the 0.25 um clearance of entry 2 (c)) and three
+   isolated arcs as in the iso family but tilted U(30, 75) degrees, each in its own enclosing nucleus; the SYP
+   channel is rendered with the PSF of the scene, sigma_z 0.33, 0.38, 0.43 or 0.48 um (seed modulo 4) and sigma_xy
+   U(0.135, 0.165) um, and the nucleoplasm is blurred with it; a foci channel holds RAD-51-like point spots in the
+   dense nuclei, a Poisson number of mean 0.15 per um3 of the nucleus, uniform in its sphere, peak U(150, 450)
+   counts above the nucleoplasm, rendered with the scene PSF times 595/511 in every axis; the spot table is the
+   truth with the localisation noise of 4.4; the wavelengths are 511 nm (central_element) and 595 nm (foci);
+   everything else as in 2.3. N_s and N_f are chosen on psf_check at the tuning seeds: the items of each source (the
+   flat stretches, the kept foci fits) are pooled over the scenes of one sigma_z level, and for n in {5, 8, 12, 20}
+   (stretches) and {15, 25, 40, 60} (foci) 500 random draws of n items without replacement (numpy seed 0) give the
+   estimate of that source alone and its relative error of sigma_z against the level; N_s and N_f are the smallest n
+   at which at every level the median of the relative error lies within +/-3 percent and the 90th percentile of its
+   absolute value is at most 8 percent, else the largest n of the set. Targeted metrics, at the tuning and then once
+   at the confirmation seeds: (i) the same error criterion for the combined estimate (N_s stretches and N_f foci
+   drawn together, 500 draws, combined as in (c)) at every level; (ii) on the arcs of the psf_check scenes at
+   sigma_z 0.43 and 0.48 um the mean length error lies closer to 0 with this change than with the configuration
+   before it (psf.foci "off", psf.min_stretches 20). The change is adopted when (i) and (ii) hold at the
+   confirmation seeds and the rules of entry 11 (b) hold. Reported, choosing nothing: the estimates, sources and
+   standard errors of the twelve development images at Z1, and the difference of the two sources where both exist.
