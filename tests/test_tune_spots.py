@@ -489,6 +489,13 @@ def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
     assert cli.main(["tune-spots", "--project", str(tmp_path / "nowhere"), "--json"]) == 2
     assert "cannot open the project" in capsys.readouterr().err
 
+    def broken_config(p):
+        raise ValueError("the pinned pack version is not installed")
+
+    monkeypatch.setattr(S, "_project_api", lambda: (api[0], broken_config))
+    assert cli.main(["tune-spots", "--project", str(root)]) == 2              # refused, before any detection
+    assert "the project's recipe cannot be loaded" in capsys.readouterr().err
+
 
 def test_apply_tuning_checks_the_run(planted, tmp_path, monkeypatch):
     root = tmp_path / "proj"

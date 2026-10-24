@@ -156,7 +156,10 @@ def tune_spots(project, points="annotations", grid=None, *, out=None, max_runs=M
     open_project, project_config = _project_api()
     if isinstance(project, (str, os.PathLike)):
         project = open_project(project)
-    cfg = project_config(project)
+    try:
+        cfg = project_config(project)
+    except (ValueError, FileNotFoundError) as e:        # germquant.project's ProjectError is a ValueError
+        raise TuneRefused(f"the project's recipe cannot be loaded: {e}") from e
     root = Path(project.root)
     backend = str(cfg.get("spots.backend", "spotmax"))
     if grid is None:
