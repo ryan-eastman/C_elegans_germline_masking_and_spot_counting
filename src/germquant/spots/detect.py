@@ -45,9 +45,10 @@ SPOTMAX_OPTIONAL_KEYS = ("spot_radius_z_um", "remove_hot_pixels", "sharpen")
 # one plane, as SpotMAX 1.3.1's own core sets it when SizeZ is 1. tests/test_planar_spots.py shows the tables
 # for 0.5, 1.0 and 2.0; it is read when a call runs, never captured as a default
 PLANAR_RZ_PX = 1.0
-# the stage flag of a single-plane SpotMAX call: the z-split merge never runs on one plane. A planar call
-# returns it in attrs["stage_flags"] of both tables, and the calling stage raises each stage flag under its own
-# prefix (spots:z_merge_off_planar for the main instance)
+# the stage flag of a single-plane SpotMAX call that asks for the z-split merge (merge_z_columns true), which
+# never runs on one plane. A planar call returns its stage flags in attrs["stage_flags"] of both tables (a list,
+# empty when there is none), and the calling stage raises each under its own prefix: spots:z_merge_off_planar
+# for the main instance, spots_<name>:z_merge_off_planar for a spots instance
 _Z_MERGE_OFF_PLANAR = "z_merge_off_planar"
 
 
@@ -90,8 +91,8 @@ def detect_spots(
     receive: spotmax does; log and net3d do not, and planar.check_planar refuses them before any pixel is
     read, so the PlanarConfigError raised here is a second guard. The tables of a planar call may carry
     ``attrs["stage_flags"]``, flags for the calling stage to raise under its own prefix (spotmax:
-    ``z_merge_off_planar``). planar False, the default, calls every backend exactly as before, without the
-    keyword."""
+    ``z_merge_off_planar`` when the call asks for the z-split merge). planar False, the default, calls every
+    backend exactly as before, without the keyword."""
     # precedence: an explicit keyword (not None) wins; else the section's own value; else the SpotMAX default.
     # A caller that passes the shared keys only in cfg_section is therefore not silently overridden.
     section = dict(cfg_section or {})
@@ -162,9 +163,10 @@ def detect_spots_spotmax(
 
     ``planar`` (single-plane runs, docs/PLANAR.md; design 4.7) takes the first branch at the top: one (1, Y, X)
     plane through the same options chain with radii (PLANAR_RZ_PX, r / dy, r / dx), the Gaussian sigma over
-    min(dy, dx), the features spacing (1.0, dy, dx) whatever dz is passed, and no z-split merge, which the stage
-    flag ``z_merge_off_planar`` in attrs["stage_flags"] of both tables records. remove_hot_pixels and sharpen
-    apply as in 3D; spot_radius_z_um has no meaning on one plane and is ignored, with a warning.
+    min(dy, dx), the features spacing (1.0, dy, dx) whatever dz is passed, and no z-split merge: when
+    merge_z_columns asks for one, the stage flag ``z_merge_off_planar`` in attrs["stage_flags"] of both tables
+    says that it did not run (the list is empty otherwise). remove_hot_pixels and sharpen apply as in 3D;
+    spot_radius_z_um has no meaning on one plane and is ignored, with a warning.
 
     Return (per_spot_df, per_nucleus_df). Spots are assigned to the nucleus whose mask they fall
     in; `effect_size_min` (>0) drops spots below that spot-vs-background effect size.
@@ -191,8 +193,9 @@ def detect_spots_spotmax(
             effect_size_min=effect_size_min, merge_z_columns=merge_z_columns, z_merge_gap_um=z_merge_gap_um,
             z_merge_valley_frac=z_merge_valley_frac, max_spot_candidates=max_spot_candidates,
             spot_radius_z_um=spot_radius_z_um, remove_hot_pixels=remove_hot_pixels, sharpen=sharpen, planar=True)
+        stage_flags = [_Z_MERGE_OFF_PLANAR] if merge_z_columns else []
         for table in (per_spot, per_nuc):
-            table.attrs["stage_flags"] = [_Z_MERGE_OFF_PLANAR]
+            table.attrs["stage_flags"] = list(stage_flags)
         return per_spot, per_nuc
     if spot_radius_z_um is not None or remove_hot_pixels is not None or sharpen is not None:
         from .spotmax_options import spotmax_chain_with_options

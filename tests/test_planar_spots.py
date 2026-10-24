@@ -4,9 +4,10 @@ section 4.7, docs/PLANAR.md):
 * without planar, detect_spots makes exactly today's SpotMAX calls and today's z-split merge call (a spy on
   every spotmax.pipe call and on _merge_z_columns, as in tests/test_pack_knobs.py);
 * the planar branch of detect_spots_spotmax: radii (PLANAR_RZ_PX, r / dy, r / dx), the Gaussian sigma over
-  min(dy, dx), the features spacing (1.0, dy, dx) whatever dz the caller passes, no z-split merge, and the stage
-  flag z_merge_off_planar in the attrs of both tables (the spots stage raises it as spots:z_merge_off_planar);
-  the optional keys of a pack recipe still apply, except the z radius, which has no meaning on one plane;
+  min(dy, dx), the features spacing (1.0, dy, dx) whatever dz the caller passes, no z-split merge, and, when
+  the call asks for the merge, the stage flag z_merge_off_planar in the attrs of both tables (the spots stage
+  raises it as spots:z_merge_off_planar); the optional keys of a pack recipe still apply, except the z radius,
+  which has no meaning on one plane;
 * planar=True reaches only a backend that declares planar_ok: spotmax does, log and net3d do not, and
   detect_spots refuses them (a second guard: planar.check_planar refuses them first, before any pixel);
 * the PLANAR_RZ_PX table: one synthetic plane through the real SpotMAX at 0.5, 1.0 and 2.0, printed for
@@ -201,7 +202,8 @@ def test_default_spotmax_call_unchanged(fake_spotmax, merge_spy):
 def test_planar_branch_arguments(fake_spotmax, merge_spy, monkeypatch):
     """detect_spots(planar=True) on one plane: radii (PLANAR_RZ_PX, r / dy, r / dx), the Gaussian sigma over
     min(dy, dx), the features spacing (1.0, dy, dx) whatever dz the caller passes, the z-split merge off although
-    merge_z_columns is true, and the stage flag z_merge_off_planar on both tables."""
+    merge_z_columns is true, and the stage flag z_merge_off_planar on both tables, which says that the merge the
+    call asked for did not run (no flag when merge_z_columns is false)."""
     assert SD.PLANAR_RZ_PX == 1.0
     fake_spotmax.zs = [0, 0]
     img, labels = _two_nuclei(nz=1)
@@ -226,6 +228,16 @@ def test_planar_branch_arguments(fake_spotmax, merge_spy, monkeypatch):
     for per_spot, per_nuc in tables[1:]:
         pd.testing.assert_frame_equal(per_spot, tables[0][0])
         pd.testing.assert_frame_equal(per_nuc, tables[0][1])
+
+    # a call that asks for no merge has none to report: the tables are the same, without the flag
+    fake_spotmax.clear()
+    per_spot, per_nuc = detect_spots(img, labels, (1.0, 0.1, 0.125), marker="RAD-51", cfg_section=_spots_section(),
+                                     planar=True, **{**PIPELINE_SPOT_ARGS, "merge_z_columns": False})
+    _check_spotmax_calls(fake_spotmax, img, labels, radii=radii, gauss=0.08 / 0.1,
+                         features_spacing=(1.0, 0.1, 0.125))
+    assert merge_spy == [] and per_spot.attrs["stage_flags"] == [] and per_nuc.attrs["stage_flags"] == []
+    pd.testing.assert_frame_equal(per_spot, tables[0][0])
+    pd.testing.assert_frame_equal(per_nuc, tables[0][1])
 
     # the pipeline passes (PLANAR_DZ = 1.0, dy, dx): the sigma is over min(dy, dx), never over the placeholder
     # dz, so a coarse plane (pixels above 1 um) is smoothed by its own pixel size
