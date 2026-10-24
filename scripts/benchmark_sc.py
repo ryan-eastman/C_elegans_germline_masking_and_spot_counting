@@ -157,6 +157,7 @@ def cmd_zones(a) -> int:
         sc_nuc = pd.read_csv(folder / f"{iid}__sc_strand_nuclei.csv", low_memory=False)
         v_nd2 = (float(nuc_run["voxel_dx_um"].iloc[0]), float(nuc_run["voxel_dy_um"].iloc[0]))
         fr = _frames(g)
+        d = float("nan")
         if "ims" in fr and "nd2" in fr:
             d = float(np.max(np.abs(np.asarray(fr["ims"]["ext_min_xy"]) - np.asarray(fr["nd2"]["ext_min_xy"]))))
             if d > 0.05:
@@ -183,7 +184,8 @@ def cmd_zones(a) -> int:
         aucs["central_element_mean_intensity"] = B.gonad_aucs(
             lab, nuc_run.set_index("nucleus_id")["central_element_mean_intensity"])
         row = {"gonad": g["gonad"], "rad51_tag": g.get("rad51_tag"), "condition": g["condition"], "sex": g["sex"],
-               "image_id": iid, "frame": frame["source"], "n_analysis": int(lab["in_analysis"].sum()),
+               "image_id": iid, "frame": frame["source"], "frame_rules_max_diff_um": d,
+               "n_analysis": int(lab["in_analysis"].sum()),
                "n_failed": n_failed, "failed_frac": n_failed / max(len(germ), 1),
                **{f"{c}__{k}": v for c, d in aucs.items() for k, v in d.items()}}
         per.append(row)

@@ -169,3 +169,24 @@ def test_synthetic_ribbons_obey_the_curvature_bound():
         assert np.max(k) <= 1.0 + 1e-3
     with pytest.raises(synth.SealedSeedError):
         synth.dense_scene(7_200_000)
+
+
+def test_axial_ghosts_and_shadowed_strands_are_dropped():
+    from germquant.sc.straighten.account import drop_axial_ghosts, drop_shadowed
+
+    def seg(a, b, n=60):
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        return RawStrand(points=a + np.linspace(0, 1, n)[:, None] * (b - a), end_types=["free", "free"])
+
+    main = seg((2, 2, 2), (2, 2, 6))
+    ghost = seg((2.05, 2, 6.0), (3.0, 2, 6.05))            # steep, standing on the main strand's end
+    lone = seg((2, 8, 8), (3.0, 8, 8))                      # steep but alone
+    def has(lst, x):
+        return any(k is x for k in lst)
+
+    kept, n = drop_axial_ghosts([main, ghost, lone], P)
+    assert n == 1 and not has(kept, ghost) and has(kept, lone) and has(kept, main)
+    near = seg((2, 2.2, 2.2), (2, 2.2, 5.8))                # 0.2 um beside the main strand
+    far = seg((2, 2.6, 2.2), (2, 2.6, 5.8))                 # 0.6 um beside: resolvable
+    kept, n = drop_shadowed([main, near, far], P)
+    assert n == 1 and not has(kept, near) and has(kept, far)
