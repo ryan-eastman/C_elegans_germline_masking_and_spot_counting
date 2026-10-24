@@ -1,17 +1,20 @@
-"""The nucleus training loop (docs/TIMELAPSE.md, "Segmenting without DAPI: the training loop").
+"""The nucleus training loop (docs/TRAINING.md; docs/DESIGN_system_packs.md section 10).
 
-Three commands share this module:
+These commands share this module:
 
 * ``germquant export-training RESULTS_DIR --out PAIRS`` (``export_training_pairs``): for every finished run
   under RESULTS_DIR (one results folder, a time-lapse series folder with its ``t<NNN>/`` subfolders, or a
   batch tree) the stack is re-read from the source file at the stride, z range and timepoint recorded in
-  that run's ``run_manifest.json``, the channel the segment stage segmented is sliced in xy, xz and yz
-  together with the run's own nucleus labels, and the pairs are written as ``image/<id>_<orient>_<index>.tif``
-  (uint16) and ``labels/<id>_<orient>_<index>.tif`` (int32) with a ``manifest.csv``. The xz and yz slices
-  are resampled along z to the xy pixel size (linear interpolation for the image, nearest neighbour for the
-  labels), so every exported slice is isotropic and a 2D model trained on them applies in 3D with
-  ``anisotropy = dz / dy``, which is how the segment stage runs Cellpose. A person corrects the labels in
-  napari or the Cellpose GUI and saves them back under the same name.
+  that run's ``run_manifest.json``, and the pairs are written as ``image/<id>_<orient>_<index>.tif``
+  (uint16) and ``labels/<id>_<orient>_<index>.tif`` (int32) with a ``manifest.csv``. What is exported
+  follows the run's geometry (``--orientations auto``, the default): a 3D run's segmented channel is sliced
+  in xy, xz and yz together with the run's own nucleus labels, and the xz and yz slices are resampled along
+  z to the xy pixel size (linear interpolation for the image, nearest neighbour for the labels), so every
+  exported slice is isotropic and a 2D model trained on them applies in 3D with ``anisotropy = dz / dy``,
+  which is how the segment stage runs Cellpose; a projected run (segmentation.nuclei.project) gives one pair
+  of orientation ``proj``, the 2D image its segmenter saw (the recorded plane, or the max or mean projection)
+  with its 2D labels. A person corrects the labels in napari or the Cellpose GUI and saves them back under
+  the same name.
 * ``germquant train-nuclei --pairs PAIRS --out MODELDIR`` (``train_nuclei``): ``cellpose.train.train_seg``
   in process, as scripts/train_nucleus_model_combined.py ran it (AdamW, learning rate 1e-5, weight decay
   0.1, batch 8), with the pairs split by source image or by series and never by slice, so no slice of a
@@ -45,10 +48,11 @@ from ..fsutil import long_path
 
 log = logging.getLogger(__name__)
 
-ORIENTATIONS = ("xy", "xz", "yz")
+ORIENTATIONS = ("xy", "xz", "yz")          # the slices of a 3D run; an explicit --orientations list names these
+PROJ = "proj"                              # the one 2D image of a projected run (design section 10, step 2)
 _AXIS = {"xy": 0, "xz": 1, "yz": 2}        # the array axis a slice index runs along (labels are (Z, Y, X))
 _T_SUFFIX = re.compile(r"_t(\d{3})$")
-_PAIR_NAME = re.compile(r"^(?P<id>.+)_(?P<orient>xy|xz|yz)_(?P<index>\d+)$")
+_PAIR_NAME = re.compile(r"^(?P<id>.+)_(?P<orient>xy|xz|yz|proj)_(?P<index>\d+)$")
 MANIFEST_COLS = ["image_id", "series_id", "t_index", "orientation", "slice_index", "n_labels", "zone",
                  "image", "labels", "source_file", "xy_stride", "z_range", "channel_role", "channel_index",
                  "pixel_um", "z_zoom", "height", "width"]
@@ -154,6 +158,34 @@ def _run_ref(folder: Path, iid: str, labels_path: Path, summary_path: Path) -> R
                   nuclei_path=str(nuclei) if nuclei.exists() else None)
 
 
+def _read_json(path: str | Path) -> dict:
+    with open(long_path(path), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _run_record(folder: str | Path, image_id: str) -> dict:
+    """The record a finished run's geometry is read from, the file find_runs reads: the folder's
+    ``run_manifest.json``, else the run's ``<id>__stages.json`` (a batch writes its manifest at the batch root
+    only). Keys a stage record nests under run_geometry or geometry are lifted to the top when absent there."""
+    folder = Path(folder)
+    man = folder / "run_manifest.json"
+    rec = _read_json(man if man.exists() else folder / f"{image_id}__stages.json")
+    for nested in ("run_geometry", "geometry"):
+        if isinstance(rec.get(nested), dict):
+            for k, v in rec[nested].items():
+                rec.setdefault(k, v)
+    return rec
+
+
+def _geometry(record: dict) -> tuple[str, dict | None]:
+    """``("projected", {mode, plane, z})`` for a run whose record holds segment_projection (a projected run,
+    docs/PLANAR.md), else ``("3d", None)``: every other run exports its xy, xz and yz slices."""
+    proj = record.get("segment_projection")
+    if isinstance(proj, dict):
+        return "projected", dict(proj)
+    return "3d", None
+
+
 # ---- slicing ---------------------------------------------------------------------------------------------
 
 def slice_counts(labels: np.ndarray, orientation: str) -> list[int]:
@@ -224,38 +256,106 @@ def _rng_for(seed: int, image_id: str) -> np.random.Generator:
 
 # ---- export ----------------------------------------------------------------------------------------------
 
-def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orientations=ORIENTATIONS,
+def _listed_orientations(orientations) -> tuple[str, ...] | None:
+    """None for ``auto`` (None or the text "auto"); else the normalised list (a sequence, or a text with
+    commas), which names slices of 3D runs and keeps its order: the order decides the seeded draw."""
+    if orientations is None:
+        return None
+    if isinstance(orientations, str):
+        if orientations.strip().lower() == "auto":
+            return None
+        orientations = orientations.split(",")
+    listed = tuple(str(o).strip().lower() for o in orientations if str(o).strip())
+    bad = [o for o in listed if o not in ORIENTATIONS]
+    if bad or not listed:
+        raise ValueError(f"orientations must be 'auto' or a list among {ORIENTATIONS} (the slices of 3D runs; a "
+                         f"projected run always gives its {PROJ} pair), got {listed}")
+    return listed
+
+
+def _projected_pair(run: RunRef, projection: dict | None, img: np.ndarray, labels: np.ndarray, spacing,
+                    channel_index: int, zones: dict, out_dir: Path, slices_per_image: int):
+    """The one pair of a projected run: the 2D image its segmenter saw (planar.project_image on the re-read
+    channel, with the recorded plane z in mode plane) and its 2D labels, labels[0] (the labels are copied
+    through every plane). Written as ``<id>_proj_<z>`` (mode plane) or ``<id>_proj_0000`` (max, mean), uint16
+    like every exported image and unresampled: the image as the model saw it. ``(row, bytes)``, or None when
+    the labels hold no object or ``slices_per_image`` is below 1."""
+    import tifffile
+
+    from .. import planar
+
+    projection = projection or {}
+    mode = str(projection.get("mode") or "").strip().lower()
+    if mode not in ("max", "mean", "plane"):
+        raise ValueError(f"{run.image_id}: the run's segment_projection {projection!r} names no projection mode "
+                         f"(max, mean or plane)")
+    z = None
+    if mode == "plane":
+        z = projection.get("z")
+        if z is None:                     # every projected run records z; resolve it as the run did otherwise
+            z = planar.resolve_plane(img, projection.get("plane") if projection.get("plane") is not None else "mid")
+        z = int(z)
+    img2d = planar.project_image(img, mode, z)
+    lab2d = np.asarray(labels[0]).astype(np.int32)
+    ids = np.unique(lab2d)
+    ids = ids[ids > 0]
+    if int(slices_per_image) < 1 or not ids.size:
+        return None
+    index = z if mode == "plane" else 0
+    stem = f"{run.image_id}_{PROJ}_{index:04d}.tif"
+    p_im, p_lab = out_dir / "image" / stem, out_dir / "labels" / stem
+    tifffile.imwrite(long_path(p_im), _to_uint16(img2d), compression="zlib")
+    tifffile.imwrite(long_path(p_lab), lab2d, compression="zlib")
+    row = {"image_id": run.image_id, "series_id": run.series_id, "t_index": run.t_index, "orientation": PROJ,
+           "slice_index": int(index), "n_labels": int(ids.size), "zone": _mode_zone(zones, ids),
+           "image": f"image/{stem}", "labels": f"labels/{stem}", "source_file": run.source_file,
+           "xy_stride": run.xy_stride, "z_range": json.dumps(run.z_range) if run.z_range else "",
+           "channel_role": run.channel_role, "channel_index": int(channel_index), "pixel_um": float(spacing[1]),
+           "z_zoom": 1.0, "height": int(lab2d.shape[0]), "width": int(lab2d.shape[1])}
+    return row, p_im.stat().st_size + p_lab.stat().st_size
+
+
+def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orientations=None,
                           slices_per_image: int = 3, seed: int = 0, zone_column: str | None = "zone",
                           min_labels: int = 3, max_bytes: float = 2e9) -> pd.DataFrame:
-    """Write paired 2D training slices from every finished run under ``results_dir`` (module docstring).
+    """Write paired 2D training images from every finished run under ``results_dir`` (module docstring).
 
-    Per run and orientation, ``slices_per_image`` slices are drawn at random (seeded per image) from those
-    that cut at least ``min_labels`` nuclei; each is written as ``image/<id>_<orient>_<index>.tif`` (uint16,
-    the raw intensities) and ``labels/<id>_<orient>_<index>.tif`` (int32, the run's labels, resampled with
-    the image). ``zone_column`` names the nuclei-table column (the staging stage's ``zone``) whose most
-    frequent value among the nuclei in a slice becomes the slice's zone tag; absent column, empty tag.
-    The export stops with a warning once ``max_bytes`` have been written (a 56 GB series must not become a
-    56 GB training folder). ``manifest.csv`` (MANIFEST_COLS) is merged with an existing one in ``out_dir``:
-    rows of the images exported now replace their old rows, other rows stay. Returns the manifest."""
+    What a run gives follows its geometry (``orientations`` None or "auto", the default; docs/TRAINING.md):
+
+    * a 3D run: per orientation, ``slices_per_image`` slices drawn at random (seeded per image) from those
+      that cut at least ``min_labels`` nuclei; each is written as ``image/<id>_<orient>_<index>.tif`` (uint16,
+      the raw intensities) and ``labels/<id>_<orient>_<index>.tif`` (int32, the run's labels, resampled with
+      the image). The orientations are xy, xz and yz, or the ones an explicit ``orientations`` list names,
+      in its order;
+    * a projected run (its record holds segment_projection): one pair of orientation ``proj``, the 2D image
+      the segmenter saw and the run's 2D labels (``_projected_pair``), whatever an explicit list names.
+
+    ``zone_column`` names the nuclei-table column (the staging stage's ``zone``) whose most frequent value
+    among the nuclei in a pair becomes its zone tag; absent column, empty tag. The export stops with a
+    warning once ``max_bytes`` have been written (a 56 GB series must not become a 56 GB training folder).
+    ``manifest.csv`` (MANIFEST_COLS) is merged with an existing one in ``out_dir``: rows of the images
+    exported now replace their old rows, other rows stay. ``export.json`` records the settings and the runs;
+    its ``orientations`` is the union over the runs (the slice list, then ``proj``), and only when a run is
+    not 3D, ``run_orientations`` gives each run's geometry and orientations, in the order of ``runs``.
+    Returns the manifest."""
     import tifffile
 
     from .. import pipeline
 
-    orientations = tuple(str(o).strip().lower() for o in orientations if str(o).strip())
-    bad = [o for o in orientations if o not in ORIENTATIONS]
-    if bad or not orientations:
-        raise ValueError(f"orientations must be among {ORIENTATIONS}, got {orientations}")
+    listed = _listed_orientations(orientations)
+    orientations = ORIENTATIONS if listed is None else listed       # the slices of the 3D runs
     runs = find_runs(results_dir)
     if not runs:
         raise FileNotFoundError(f"no finished run (run_manifest.json + <id>__nuclei_labels.tif + "
                                 f"<id>__image_summary.csv) under {results_dir}")
+    geometry = [_geometry(_run_record(r.folder, r.image_id)) for r in runs]
     out_dir = Path(out_dir)
     for sub in ("image", "labels"):
         os.makedirs(long_path(out_dir / sub), exist_ok=True)
     rows: list[dict] = []
     written = 0
     stopped = False
-    for run in runs:
+    for run, (kind, projection) in zip(runs, geometry):
         _meta, stack = pipeline._read_input(Path(run.source_file), xy_stride=run.xy_stride,
                                             z_range=tuple(run.z_range) if run.z_range else None, t=run.t_index)
         labels = np.asarray(tifffile.imread(long_path(run.labels_path)))
@@ -276,7 +376,15 @@ def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orien
                 z = nuc[["nucleus_id", zone_column]].dropna()
                 zones = {int(k): str(v) for k, v in zip(z["nucleus_id"], z[zone_column])}
         rng = _rng_for(seed, run.image_id)
-        for orient in orientations:
+        slice_orients = orientations if kind == "3d" else ()        # a projected run is not sliced
+        if kind == "projected":
+            pair = _projected_pair(run, projection, img, labels, stack.spacing, int(idx), zones, out_dir,
+                                   slices_per_image)
+            if pair is not None:
+                rows.append(pair[0])
+                written += pair[1]
+                stopped = written > float(max_bytes)
+        for orient in slice_orients:
             counts = slice_counts(labels, orient)
             for i in choose_slices(counts, slices_per_image, min_labels, rng):
                 im2, lab2, px, z_zoom = isotropic_slice(img, labels, orient, i, stack.spacing)
@@ -316,8 +424,18 @@ def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orien
                 old[c] = pd.NA
         new = pd.concat([old[MANIFEST_COLS], new], ignore_index=True)
     new.to_csv(long_path(manifest_path), index=False)
+    kinds = {kind for kind, _ in geometry}
+    # the union over the runs: the slice list as given (a 3D-only tree records exactly that), then proj
+    resolved = (list(orientations) if "3d" in kinds else []) + ([PROJ] if "projected" in kinds else [])
+    per_run = {}
+    if kinds != {"3d"}:
+        # each run's geometry and orientations, in the order of "runs"; written only when a run is not 3D
+        per_run["run_orientations"] = [
+            {"image_id": r.image_id, "geometry": kind, "orientations": list(orientations) if kind == "3d" else [PROJ],
+             **({"segment_projection": projection} if projection is not None else {})}
+            for r, (kind, projection) in zip(runs, geometry)]
     with open(long_path(out_dir / "export.json"), "w", encoding="utf-8") as fh:
-        json.dump({"results_dir": str(results_dir), "orientations": list(orientations),
+        json.dump({"results_dir": str(results_dir), "orientations": resolved, **per_run,
                    "slices_per_image": int(slices_per_image), "seed": int(seed), "zone_column": zone_column,
                    "min_labels": int(min_labels), "max_bytes": float(max_bytes), "bytes_written": int(written),
                    "stopped_at_cap": stopped, "runs": [asdict(r) for r in runs], "germquant_version": __version__,
@@ -331,8 +449,8 @@ def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orien
 def load_pairs(pairs_dir: str | Path) -> list[dict]:
     """The slice pairs in a training folder: from ``manifest.csv`` when present (pairs whose files were
     deleted are skipped with a log line), else every ``image/*.tif`` with a ``labels/`` file of the same
-    name, the id, orientation and index parsed from the name. Each pair: ``image``, ``labels`` (absolute
-    paths), ``image_id``, ``series_id``, ``orientation``, ``slice_index``, ``zone``."""
+    name, the id, orientation (xy, xz, yz or proj) and index parsed from the name. Each pair: ``image``,
+    ``labels`` (absolute paths), ``image_id``, ``series_id``, ``orientation``, ``slice_index``, ``zone``."""
     pairs_dir = Path(pairs_dir)
     manifest = pairs_dir / "manifest.csv"
     pairs: list[dict] = []

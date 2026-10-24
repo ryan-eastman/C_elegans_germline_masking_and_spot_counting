@@ -262,15 +262,17 @@ def main(argv: list[str] | None = None) -> int:
                           "the spot-sources record. It must be the registered split file (its pinned digests)")
 
     pe = sub.add_parser("export-training",
-                        help="write paired 2D training slices (image/ and labels/ TIFs plus manifest.csv) from the "
-                             "nucleus labels of every finished run under a results or series folder, for correction "
-                             "in napari or the Cellpose GUI (docs/TIMELAPSE.md)")
+                        help="write paired 2D training images (image/ and labels/ TIFs plus manifest.csv) from the "
+                             "nucleus labels of every finished run under a results or series folder, by the run's "
+                             "geometry, for correction in napari or the Cellpose GUI (docs/TRAINING.md)")
     pe.add_argument("results_dir", help="a results folder, a time-lapse series folder (its t<NNN>/ subfolders are "
                                         "the runs) or a batch tree")
     pe.add_argument("--out", required=True, help="the training folder: image/, labels/, manifest.csv, export.json")
-    pe.add_argument("--orientations", default="xy,xz,yz",
-                    help="comma-separated subset of xy,xz,yz; xz and yz slices are resampled along z to the xy "
-                         "pixel size so every slice is isotropic (default: all three)")
+    pe.add_argument("--orientations", default="auto",
+                    help="auto (the default): by the run's geometry, xy, xz and yz slices of a 3D run and one proj "
+                         "pair of a projected run (the 2D image its segmenter saw); or a comma-separated subset of "
+                         "xy,xz,yz for the 3D runs. xz and yz slices are resampled along z to the xy pixel size so "
+                         "every slice is isotropic (docs/TRAINING.md)")
     pe.add_argument("--slices-per-image", type=int, default=3, metavar="N",
                     help="slices per run and orientation, drawn at random (seeded) from slices that cut at least "
                          "--min-labels nuclei (default 3)")
@@ -1097,8 +1099,7 @@ def _get_model(args) -> int:
 def _export_training(args) -> int:
     from .segment.training import export_training_pairs
 
-    orientations = tuple(o.strip() for o in str(args.orientations).split(",") if o.strip())
-    manifest = export_training_pairs(args.results_dir, args.out, orientations=orientations,
+    manifest = export_training_pairs(args.results_dir, args.out, orientations=str(args.orientations),
                                      slices_per_image=args.slices_per_image, seed=args.seed,
                                      zone_column=args.zone_column or None, min_labels=args.min_labels,
                                      max_bytes=float(args.max_gb) * 1e9)
