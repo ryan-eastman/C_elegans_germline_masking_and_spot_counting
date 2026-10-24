@@ -83,9 +83,11 @@ germquant tune-spots --project DIR [--points annotations/] [--grid FILE] [--max-
   overwrites another.
 - `--json`: print the result (`run_dir`, `best`, `ranked`, `warnings`) as JSON.
 
-Exit codes: 0 done; 1 the search ran but no setting could be scored, or a detection failed; 2 refused before
-any detection (the project, the grid, `--max-runs`, an image without a finished run or without points in any
-of its objects, two annotators for one image).
+Exit codes: 0 done; 1 the search ran but no setting could be scored, or a detection failed (one `ERROR:`
+line names the error); 2 refused before any detection (the project, the grid, `--max-runs`, an image without a
+finished run, a truth-point file that cannot be read, such as a `projected` cell that is neither true nor false
+or a repeated `point_id`, two annotators for one image, or no truth point in an object of any image). An image
+none of whose points lies in an object of its run only gets a warning: it adds nothing to the scores.
 
 Each annotated image needs a finished run in `results/<image_id>/` with its label image (the default
 `output.write_label_images: true`). The search runs only the spot detection again, on that run's labels and at

@@ -382,12 +382,17 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
         _check_planar_support(image_id)
         _check_planar_backend(image_id, backend)
     pts = item["points"]
-    if isinstance(pts, pd.DataFrame):
-        points_path = None
-        pts = check_points(pts.copy(), f"the points of {image_id}")
-    else:
-        points_path = Path(os.fspath(pts))
-        pts = read_points(points_path)
+    try:
+        if isinstance(pts, pd.DataFrame):
+            points_path = None
+            pts = check_points(pts.copy(), f"the points of {image_id}")
+        else:
+            points_path = Path(os.fspath(pts))
+            pts = read_points(points_path)
+    except FileNotFoundError:
+        raise
+    except (ValueError, OSError) as e:      # a malformed cell (pandas' ParserError is a ValueError), a locked file
+        raise TuneRefused(f"{image_id}: {e}") from None
     frame = to_run_frame(pts, shape=labels.shape, spacing=spacing, xy_stride=xy_stride, z_range=z_range)
     inside = frame["inside"]
     obj = np.zeros(len(pts), np.int64)

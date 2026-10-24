@@ -6,8 +6,9 @@
 
 The first form runs the search and writes tuning/<run_id>/ (grid.yaml, trials.jsonl, ranked.csv, best.yaml
 and run.json); the second writes the run's best.yaml into the project's recipe.yaml. Exit codes: 0 done,
-1 the search ran but nothing could be scored or a detection failed, 2 refused before any detection (the
-project, the grid, --max-runs, an image without a finished run or without truth points).
+1 the search ran but nothing could be scored, or a detection (or the write of --apply) failed, 2 refused
+before any detection (the project, the grid, --max-runs, an image without a finished run, a truth-point file
+that cannot be read, no truth point in an object of its run, two annotators for one image).
 """
 from __future__ import annotations
 
@@ -53,6 +54,15 @@ def _clean(obj):
     return obj
 
 
+def _failed(what: str, e: BaseException) -> int:
+    """Exit 1 for a failure after the checks: the traceback through logging, then one ERROR line."""
+    import logging
+
+    logging.getLogger("germquant.tune").error("%s failed", what, exc_info=e)
+    print(f"ERROR: {type(e).__name__}: {e}", file=sys.stderr)
+    return 1
+
+
 def dispatch(args) -> int:
     from .tune.apply import _project_api as apply_api
     from .tune.grid import TuneRefused
@@ -80,6 +90,8 @@ def dispatch(args) -> int:
         except (TuneRefused, FileNotFoundError, ValueError) as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return 2
+        except Exception as e:  # noqa: BLE001 - a failed write: exit 1, the traceback through logging
+            return _failed("tune-spots --apply", e)
         if args.json:
             print(json.dumps({"config_hash": config_hash, "run_dir": args.apply}, indent=1))
         else:
@@ -90,12 +102,11 @@ def dispatch(args) -> int:
 
     try:
         res = tune_spots(project, points=args.points, grid=args.grid, out=args.out, max_runs=args.max_runs)
-    except TuneRefused as e:
+    except (TuneRefused, FileNotFoundError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
-    except FileNotFoundError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        return 2
+    except Exception as e:  # noqa: BLE001 - a detection failed after the search started: exit 1
+        return _failed("tune-spots", e)
     for w in res.get("warnings") or []:
         print(f"WARNING: {w}", file=sys.stderr)
     if args.json:

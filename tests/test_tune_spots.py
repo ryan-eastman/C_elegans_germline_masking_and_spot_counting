@@ -310,6 +310,15 @@ def test_refusals_before_any_detection(planted, tmp_path):
         nowhere = pd.read_csv(items[0]["points"]).assign(x_um=500.0)
         with pytest.raises(TuneRefused, match="nothing can be scored"):
             S.tune_grid([{**items[0], "points": nowhere}], LOG_GRID, backend="log", out_dir=tmp_path / "a")
+        # a malformed points table or file is a refusal too, naming the image and the row (review P5-TUNE S2)
+        maybe = pd.read_csv(items[0]["points"], dtype={"projected": str}).assign(projected="maybe")
+        with pytest.raises(TuneRefused, match=r"planted_a: the points of planted_a: projected must be true or false"):
+            S.tune_grid([{**items[0], "points": maybe}], LOG_GRID, backend="log", out_dir=tmp_path / "a")
+        bad = tmp_path / "planted_a__points_bad.csv"
+        bad.write_text(Path(items[0]["points"]).read_text(encoding="ascii") + "0,1,2,3,4,5,6,7,false\n",
+                       encoding="ascii")
+        with pytest.raises(TuneRefused, match="point_id 0 appears twice"):
+            S.tune_grid([{**items[0], "points": bad}], LOG_GRID, backend="log", out_dir=tmp_path / "a")
     assert calls == []
 
 
@@ -551,6 +560,24 @@ def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(S, "_project_api", lambda: (api[0], broken_config))
     assert cli.main(["tune-spots", "--project", str(root)]) == 2              # refused, before any detection
     assert "the project's recipe cannot be loaded" in capsys.readouterr().err
+    # a malformed truth-point file is a refusal naming its row (exit 2); a failing detection exits 1 with one
+    # ERROR line (review P5-TUNE S2)
+    monkeypatch.setattr(S, "_project_api", lambda: api[:2])
+    pfile = root / "annotations" / "planted_a__points_ryan.csv"
+    good = pfile.read_text(encoding="ascii")
+    pfile.write_text(good.replace(",false\n", ",maybe\n", 1), encoding="ascii")
+    assert cli.main(["tune-spots", "--project", str(root), "--grid", "g.yaml"]) == 2
+    assert "projected must be true or false (row 1: 'maybe')" in capsys.readouterr().err
+    pfile.write_text(good, encoding="ascii")
+
+    def crash(*a, **k):
+        raise RuntimeError("the backend crashed")
+
+    monkeypatch.setattr(S, "_detect", crash)
+    with pytest.MonkeyPatch.context() as mp:
+        H.patch_planted_reader(mp, planted.stacks)
+        assert cli.main(["tune-spots", "--project", str(root), "--grid", "g.yaml"]) == 1
+    assert "ERROR: RuntimeError: the backend crashed" in capsys.readouterr().err
 
 
 def test_apply_tuning_checks_the_run(planted, tmp_path, monkeypatch):
