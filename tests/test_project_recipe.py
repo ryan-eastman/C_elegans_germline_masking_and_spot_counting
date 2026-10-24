@@ -418,6 +418,22 @@ def test_edit_dry_run_writes_nothing_and_prints_what_preview_roles_returns(proje
     assert snapshot(proj.root) == before
 
 
+def test_edit_role_adds_to_the_recorded_role_choices(project_env, tmp_path, capsys):  # noqa: F811
+    """`project edit --role` adds to the role choices the manifest records (the plugin's runner relies on it), and
+    ROLE= drops one."""
+    img = write_ome_tiff(tmp_path / "in" / "a.ome.tif", names=("Hoechst 405", "Cy3 RAD-51"))
+    proj = new_test_project(tmp_path / "p", images=[img])
+    for argv in (["--role", "dna=Hoechst 405"], ["--role", "foci=Cy3 RAD-51"]):
+        assert cli_projects.main(["edit", str(proj.root), *argv, "--json"]) == 0
+    capsys.readouterr()
+    assert read_manifest_file(proj.root)["recipe"]["roles"] == {"dna": "Hoechst 405", "foci": "Cy3 RAD-51"}
+    cfg = project_config(open_project(proj.root))
+    assert cfg.channel_map.resolve(["Hoechst 405", "Cy3 RAD-51"]) == ({"dna": 0, "foci": 1}, [])
+    assert cfg.channel_map.roles["dna"].names == ["Hoechst 405"] and cfg.channel_map.roles["foci"].names == ["Cy3 RAD-51"]
+    assert cli_projects.main(["edit", str(proj.root), "--role", "dna=", "--json"]) == 0
+    assert read_manifest_file(proj.root)["recipe"]["roles"] == {"foci": "Cy3 RAD-51"}
+
+
 def test_edit_writes_the_provenance_options(project_env, tmp_path, capsys):  # noqa: F811
     """D42: --z-range, --runner and --interpreter RECIPE=PYTHON write run.z_range, run.runner and
     run.interpreters; --device, --xy-stride, --samples and --no-<stage> write the rest of the manifest."""
@@ -450,7 +466,8 @@ def test_edit_writes_the_provenance_options(project_env, tmp_path, capsys):  # n
     assert m["run"] == {"xy_stride": 2, "z_range": None, "device": None, "runner": None, "interpreters": {}}
     assert m["samples"] is None and m["recipe"]["overrides"] == {} and m["recipe"]["expected_config_hash"] == BASIC_HASH
     capsys.readouterr()
-    for argv, needle in ((["--z-range", "3", "1"], "z range"), (["--xy-stride", "0"], "stride"),
+    for argv, needle in ((["--z-range", "3", "1"], "z range"), (["--z-range", "2", "2"], "z range"),
+                         (["--xy-stride", "0"], "stride"),
                          (["--interpreter", f"nope={sys.executable}"], "recipe"),
                          (["--interpreter", f"basic={tmp_path / 'no_python.exe'}"], "interpreter"),
                          (["--samples", str(tmp_path / "elsewhere.csv")], "samples"),

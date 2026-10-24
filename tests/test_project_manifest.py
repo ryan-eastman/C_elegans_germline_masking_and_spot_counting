@@ -447,6 +447,11 @@ def test_headers_are_read_without_bioio_and_agree_with_the_run_reader(tmp_path, 
                      metadata={"axes": "ZCYX", "spacing": 0.5, "unit": "um"})
     hij = read_header(ij)
     assert hij["channel_names"] == ["Channel:0:0", "Channel:0:1"] and tuple(hij["spacing"]) == (0.5, 0.2, 0.2)
+    noname = tmp_path / "noname.ome.tif"                  # OME channels without a Name: their IDs, as bioio reads them
+    with tifffile.TiffWriter(noname, ome=True) as tw:
+        tw.write(np.zeros((2, 3, 8, 8), np.uint16), metadata={"axes": "CZYX", "PhysicalSizeX": 0.2,
+                                                              "PhysicalSizeY": 0.2, "PhysicalSizeZ": 0.5})
+    assert read_header(noname)["channel_names"] == ["Channel:0:0", "Channel:0:1"]
     fake_nd2_headers(monkeypatch, {"x.nd2": {"sizes": {"P": 2, "Z": 1, "C": 3, "Y": 8, "X": 8},
                                              "channel_names": ["a", "b", "c"]}})
     hn = read_header(tmp_path / "x.nd2")
@@ -457,7 +462,7 @@ def test_headers_are_read_without_bioio_and_agree_with_the_run_reader(tmp_path, 
     import germquant.pipeline  # noqa: F401  (torch before the readers' dask can load CuPy, rule R5)
     from germquant.io import read_image_metadata
 
-    for f in (yx, EXAMPLE, two, plain, ij):
+    for f in (yx, EXAMPLE, two, plain, ij, noname):
         light, full = read_header(f), read_image_metadata(f)
         assert light["channel_names"] == full["channel_names"], f
         assert light["sizes"] == full["sizes"], f
