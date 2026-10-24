@@ -17,9 +17,12 @@ against its grid); ``model`` edits segmentation.nuclei.cellpose_model only (use_
 channel map (``roles=``). An edit that sets a key to the pack recipe's own value is no edit, and once no edit is
 left recipe.yaml (and channel_map.yaml) are removed, so the project hashes as the pack recipe again.
 
-Every change is computed first (plan_change: the new files are loaded through load_config in a temporary folder,
-so the hash is the one the project will have), then written under the project lock: channel_map.yaml, then
-recipe.yaml, then the manifest, each atomically. A dry run computes and writes nothing.
+Every change is computed first, then written under the project lock: channel_map.yaml, then recipe.yaml, then the
+manifest, each atomically. plan_change loads new recipe files through load_config in a temporary folder (with a
+channel map that recipe.yaml names by hand copied next to them), so the hash is the one the project will have; a
+change that keeps the recipe files loads them where they are, as a run does. A recipe file the manifest does not
+record (put there by hand) is never removed, and a change that would replace it is refused (project/__init__.py,
+_apply). A dry run computes and writes nothing.
 """
 from __future__ import annotations
 
@@ -379,9 +382,12 @@ def interpreter_record(python: str) -> dict:
 
 # ---- planning a change ---------------------------------------------------------------------------------------
 
-def staged_config(root, pack, recipe, recipe_bytes: bytes | None, cm_bytes: bytes | None, overrides: dict):
+def staged_config(root, pack, recipe, recipe_bytes: bytes | None, cm_bytes: bytes | None, overrides: dict, *,
+                  hand_map=None):
     """The Config the project will have with these files: loaded through load_config from a temporary folder
-    (the hash reads the text only, never the folder), with the project's packs/ searched first."""
+    (the hash reads the text only, never the folder), with the project's packs/ searched first. ``hand_map``: the
+    channel map that recipe.yaml names by a hand edit of io.channel_map, copied from the project into that folder
+    when ``cm_bytes`` (the role editor's map) is None."""
     from ..config import load_config
     from ..packs import recipe_profile_path, use_project
 
@@ -394,7 +400,43 @@ def staged_config(root, pack, recipe, recipe_bytes: bytes | None, cm_bytes: byte
                 (t / RECIPE_NAME).write_bytes(recipe_bytes)
                 if cm_bytes is not None:
                     (t / CHANNEL_MAP_NAME).write_bytes(cm_bytes)
+                elif hand_map is not None:
+                    _stage_hand_map(root, hand_map, t)
                 cfg = load_config(t / RECIPE_NAME)
+    for key, value in sorted(overrides.items()):
+        cfg.set(key, value)
+    return cfg
+
+
+def _stage_hand_map(root, hand_map, folder: Path) -> None:
+    """Copy the channel map recipe.yaml names by hand (io.channel_map: a lab's own map, several tokens per role or
+    match_by index, which the role editor does not write) from the project into the staging folder, at the same
+    relative path, so the staged recipe loads as the project's own does. An absolute path loads where it is; a
+    relative path that leaves the project folder is refused."""
+    if not isinstance(hand_map, str) or not hand_map.strip() or Path(hand_map).is_absolute() or Path(hand_map).anchor:
+        return
+    parts = Path(os.path.normpath(hand_map)).parts
+    if not parts or parts[0] == os.pardir:
+        raise ProjectError(f"{RECIPE_NAME} names its channel map {hand_map} (io.channel_map) by a path that leaves the "
+                           f"project folder: name it by its absolute path, or copy it into the project")
+    data = _file_bytes(root, hand_map)
+    if data is None:
+        raise ProjectError(f"{RECIPE_NAME} names its channel map {hand_map} (io.channel_map), which is not in the "
+                           f"project folder ({Path(root) / hand_map})")
+    dst = folder / hand_map
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(data)
+
+
+def files_config(root, pack, recipe, overrides: dict, *, recipe_file: bool):
+    """The Config of the project's recipe files as they are in its folder: recipe.yaml (with the channel map it
+    names, the role editor's or a hand-written one) when ``recipe_file``, else the pack recipe file; then the
+    stage switches. This is what project_config loads for a run."""
+    from ..config import load_config
+    from ..packs import recipe_profile_path, use_project
+
+    with use_project(root):
+        cfg = load_config(Path(root) / RECIPE_NAME) if recipe_file else load_config(recipe_profile_path(pack, recipe))
     for key, value in sorted(overrides.items()):
         cfg.set(key, value)
     return cfg
@@ -458,8 +500,8 @@ def plan_change(root, manifest: dict, *, edits=None, unset=(), roles=None, origi
     """The result of a change, computed on a copy of ``manifest`` and never written: ``{"manifest", "recipe_bytes",
     "channel_map_bytes", "recipe_text", "channel_map_text", "config", "preview", "problems", "warnings"}``
     (None for a file the project then lacks). A change that touches no recipe edit (run settings, stage switches)
-    keeps recipe.yaml and channel_map.yaml byte for byte. ``preview`` (with ``roles``) is what preview_roles
-    returns."""
+    keeps recipe.yaml and channel_map.yaml byte for byte and loads them where they are. ``preview`` (with
+    ``roles``) is what preview_roles returns."""
     m = copy.deepcopy(manifest)
     pack, recipe = resolve_pack(root, m)
     base = pack_recipe_config(root, pack, recipe)
@@ -518,10 +560,12 @@ def plan_change(root, manifest: dict, *, edits=None, unset=(), roles=None, origi
         recipe_text = render_recipe(m, cur, bool(cur_roles))
         recipe_bytes = None if recipe_text is None else recipe_text.encode("ascii")
         cm_bytes = None if cm_text is None else cm_text.encode("ascii")
+        hand_map = cur.get(CHANNEL_MAP_KEY) if recipe_bytes is not None and cm_bytes is None else None
+        cfg = staged_config(root, pack, recipe, recipe_bytes, cm_bytes, overrides, hand_map=hand_map)
     else:                       # the recipe files stay exactly as they are (a run setting never rewrites them)
         recipe_bytes = _file_bytes(root, RECIPE_NAME) if m["recipe"].get("file") else None
         cm_bytes = _file_bytes(root, CHANNEL_MAP_NAME) if recipe_bytes is not None and cur_roles else None
-    cfg = staged_config(root, pack, recipe, recipe_bytes, cm_bytes, overrides)
+        cfg = files_config(root, pack, recipe, overrides, recipe_file=recipe_bytes is not None)
     preview, warnings = None, []
     if roles is not None:
         b, role_problems, warnings = bindings(root, m, cfg.channel_map, image_id=image_id)

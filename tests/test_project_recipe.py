@@ -277,6 +277,34 @@ def test_recipe_files_the_manifest_does_not_record_are_kept(project_env, tmp_pat
     assert cm.read_bytes() == own and not mine.exists()
 
 
+def test_a_channel_map_written_by_hand_is_used_and_kept(project_env, tmp_path):  # noqa: F811
+    """A lab's own channel map (several tokens per role, which the role editor cannot write), named in recipe.yaml
+    by a hand edit of io.channel_map: run settings and recipe edits keep working with it (the hash is the run's),
+    no change removes it, a role edit is refused rather than replace it, and a path out of the project is refused."""
+    from germquant.project import save_project
+
+    proj = new_test_project(tmp_path / "p")
+    write_recipe(proj, edits={"spots.log.min_snr": 3.0})
+    cm, rp = proj.root / "channel_map.yaml", proj.root / "recipe.yaml"
+    own = (b"match_by: name\nroles:\n  dna: {names: [DAPI, Hoechst, '405'], index: 0, required: true, marker: DNA}\n"
+           b"  foci: {names: [RAD-51, Cy3], index: 1, required: false, marker: foci}\n")
+    cm.write_bytes(own)
+    rp.write_bytes(rp.read_bytes() + b"io:\n  channel_map: channel_map.yaml\n")
+    h = project_config(open_project(proj.root)).hash
+    assert h != BASIC_HASH and project_config(proj).channel_map.roles["foci"].names == ["RAD-51", "Cy3"]
+    save_project(proj, device="cpu")                                     # a run setting: the files as they are
+    assert read_manifest_file(proj.root)["recipe"]["expected_config_hash"] == h and cm.read_bytes() == own
+    h2 = write_recipe(proj, edits={"spots.log.min_snr": 4.0})            # a recipe edit stages the map
+    assert h2 == project_config(open_project(proj.root)).hash not in (h, BASIC_HASH)
+    assert _recipe(proj.root)["io"] == {"channel_map": "channel_map.yaml"} and cm.read_bytes() == own
+    with pytest.raises(ProjectError, match="role editor"):
+        write_recipe(proj, roles={"foci": "Cy3 RAD-51"}, origin="roles")
+    rp.write_bytes(rp.read_bytes().replace(b"channel_map: channel_map.yaml", b"channel_map: ../elsewhere.yaml"))
+    with pytest.raises(ProjectError, match="leaves the project folder"):
+        write_recipe(proj, edits={"spots.log.min_snr": 3.0})
+    assert revert_recipe(proj) == BASIC_HASH and not rp.exists() and cm.read_bytes() == own
+
+
 def test_a_yaml_error_in_a_hand_edited_recipe_file_is_a_refusal(project_env, tmp_path, capsys):  # noqa: F811
     """A typo in a hand edit of recipe.yaml or of channel_map.yaml: exit 2 with {"error", "kind"} naming the way
     back, never a traceback and exit 1; nothing is written, and --revert still goes back to the pack recipe."""
