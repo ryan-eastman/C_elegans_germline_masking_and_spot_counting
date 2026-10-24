@@ -824,3 +824,20 @@ Entries are appended, never edited. Each one says whether a test result had been
    entry 12; its sigma_xy stays psf.fallback_sigma_um[1], the combination of entry 12 (c) is that of sigma_z alone,
    and the lateral estimates of both sources are recorded and choose nothing. The flag psf_from_foci, the sources,
    N_s and N_f, the selection on the tuning seeds and the targeted metrics of entry 12 are unchanged.
+14. 2026-10-24, the v2 development round (per-image PSF, revision 1 of entries 12 and 13), written before any number
+   of this revision was computed (no test result had been computed, no test or reserved image was run, no test or
+   reserved truth was read and no sealed seed was generated). N_s and N_f were chosen by the rule of entry 12 on the
+   psf_check tuning seeds (10000 to 10099, commit b0cf9ac;
+   C:/Users/ryane/sc_ribbon_work/v2/logs/step1_psf_select_b0cf9ac_tuning.json): the stretch estimate alone had a
+   median error of sigma_z of +2.1 to +5.3 percent at every n (+4.5 to +5.3 percent at sigma_z 0.33 um, +3.3 percent
+   at 0.38 um), so the rule was met at no n and N_s is 20 (the largest of the set); the foci estimate met the rule
+   at every level from n = 15 (medians -1.8 to +2.8 percent, 90th percentiles of the absolute error at most 5.6
+   percent), so N_f is 15; the combined estimate of entry 12 (c) with N_s 20 and N_f 15 failed targeted metric (i)
+   at sigma_z 0.33 um (median +4.2 percent) and met it at the other levels. Targeted metric (ii) was not computed.
+   Revision 1, motivated by these tuning-seed results: the image PSF takes sigma_z from the foci estimate when it
+   exists (source foci), else from the stretch estimate (source stretches), else the fallback (source fallback); the
+   inverse-variance combination of entry 12 (c) is dropped, and both estimates are still recorded with their
+   difference where both exist. psf.min_stretches is 20 and psf.foci_min 15; everything else of entries 12 and 13 is
+   unchanged. Targeted metric (i) is now the error criterion of entry 12 for the image PSF this rule makes from N_s
+   stretches and N_f foci drawn together (500 draws) at every level, and (ii) is unchanged; the adoption rule of
+   entry 12 holds for this revision, on the tuning and then once on the confirmation seeds.
