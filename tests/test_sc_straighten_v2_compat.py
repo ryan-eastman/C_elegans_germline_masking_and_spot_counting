@@ -47,6 +47,14 @@ def test_synthetic_tables_equal_v1(case):
     _check(got, GOLDEN["synthetic"][case], case)
 
 
+@pytest.mark.parametrize("case", ["dense/entry2/2000", "pairs/entry2/2001", "gaps/entry2/2002"])
+def test_defaults_reproduce_v1(case):
+    # protocol changelog entry 25: no change of the v2 round was adopted, so the defaults give the tables of v1
+    fam, gen, seed = case.split("/")
+    got = C.synthetic_digests(fam, gen, int(seed), sets=[], cols=GOLDEN["columns"])
+    _check(got, GOLDEN["synthetic"][case], case + " (defaults)")
+
+
 @pytest.mark.parametrize("case", sorted(GOLDEN["scenes"]))
 def test_registered_scenes_are_unchanged(case):
     fam, gen, seed = case.split("/")

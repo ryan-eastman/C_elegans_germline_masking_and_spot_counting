@@ -1,6 +1,6 @@
 """Decomposition changes of sc_straighten v2 (protocol changelog entries 20 on): the contact stop against the
-claiming strand's tangent (entry 20, withdrawn by entry 21: a switch, off by default) and the end matching (entries
-21 and 22; the chain bound of entry 21 is a switch, off by default)."""
+claiming strand's tangent (entry 20, withdrawn by entry 21), the end matching (entries 21 and 22, withdrawn by entry
+23) and the complete guard (entries 23 and 24, withdrawn by entry 25): switches, off by default."""
 from __future__ import annotations
 
 import numpy as np
@@ -144,7 +144,7 @@ def _line(a, b, n=None):
 def test_complete_guard_rules():
     from germquant.sc.straighten.pipeline import complete_guard
 
-    P = params.resolve()
+    P = params.resolve(None, ["classes.complete_guard=true", "classes.complete_guard_fwhm=1.5"])   # off by default (entry 25)
     psf = (0.365, 0.15)
 
     def run(*strands):
@@ -162,5 +162,5 @@ def test_complete_guard_rules():
     assert run(bar, spur)[0] == "end_along_strand"
     stem = _fake(_line((2, 0.3, 3.0), (2, 3.0, 3.0)))                                  # a T stem: the bar stays
     assert run(bar, stem) == ["", "end_near_strand"]
-    off = params.resolve(None, ["classes.complete_guard=false"])
+    off = params.resolve()
     assert complete_guard([(1, 0, a[2]), (2, 0, b[2])], off, psf) == {}
