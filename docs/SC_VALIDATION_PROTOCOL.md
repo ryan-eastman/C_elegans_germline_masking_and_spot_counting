@@ -861,3 +861,66 @@ Entries are appended, never edited. Each one says whether a test result had been
    seeds decide alone: the change is adopted when (i) and the tolerances hold there (once, seeds 11000 to 11099) and
    the cost rule holds on n2rad51_noHS_herm_000; otherwise it is withdrawn (psf.foci off) and the round continues
    with the PSF of v1. No further revision of the per-image PSF is made in this round.
+16. 2026-10-24, the v2 development round (puncta), written before any number of this change was computed (no test
+   result had been computed, no test or reserved image was run, no test or reserved truth was read and no sealed
+   seed was generated). The per-image PSF of entries 12 to 15 was withdrawn by the rule of entry 15: on the
+   confirmation seeds (11000 to 11099, commit b58f6d3;
+   C:/Users/ryane/sc_ribbon_work/v2/logs/step1_b58f6d3_confirm.json and step1_b58f6d3_confirm_psf_errors.json) the
+   image PSF of the psf_check scenes had median relative errors of sigma_z of +3.4, +0.9, -0.4 and -1.8 percent at
+   sigma_z 0.33, 0.38, 0.43 and 0.48 um (90th percentiles of the absolute error 5.8, 2.9, 1.7 and 3.3 percent; the
+   fallback of v1 +10.6, -4.0, -15.1 and -24.0 percent), so the restated targeted metric (i) failed at 0.33 um; the
+   criteria of 8.1 on the registered families were identical, and the cost rule held on n2rad51_noHS_herm_000
+   (median time per nucleus 0.172 s against 0.173 s, 3.0 GB; there the foci gave sigma_z 0.363 um and the flat
+   stretches of v1 0.3675 um). psf.foci is off from commit 4cd1452, which keeps the code behind the switch: the
+   image PSF is that of v1. The hold-out of entry 11 (e): the germquant run of 20251021_n2_nohs_HERM_2 (the session
+   channel map of v2/channel_maps, SC on 545) finished and passed the completion and channel checks (central_element
+   is the nd2 channel 545; Cellpose segmentation, 935 nuclei), but its process peaked at 42.6 GB against the 8 GB
+   per-process budget of the shared workstation, so the germquant runs of the other five hold-out gonads were not
+   made; H1 will run on the hold-out gonads that have a germquant run and, with fewer than three evaluable, is
+   reported and decides nothing.
+   Motivated by development results (entries 8 and 9): on development phantoms v1 makes a strand of 85 percent of
+   isolated PSF-blurred point puncta (99 percent of them steep) and of 81 percent of aggregates of 0.25 to 0.8 um,
+   and dense nuclei with 6 puncta gain 14 percent of total length; rule B1 at 1.3 times sigma_z with length_xy_um <=
+   0.5 um removed 83 to 86 percent of the point puncta, 72 to 73 percent of the aggregates and 69 percent of the
+   dense-nucleus puncta, none of 60 tilted arcs of 1.5 to 6 um, 1 of 45 steep arcs of 0.9 to 1.2 um and none of 33
+   of 1.2 to 1.5 um (29 of 42 of 0.6 to 0.9 um); on the twelve development images B1s removed 6.6 to 29.7 percent of
+   the strands of a gonad. No S1 gate and no S2 metric has been computed with these rules.
+   Method (B1s as registered in entries 8 and 9, with the image's sigma_z of the PSF of v1 (the per-image PSF being
+   withdrawn)): after measurement, a traced strand with frac_steep60 > 0.5 and length_xy_um <= punctum.max_xy_um
+   whose core profile over s from -0.5 um to length_um + 0.5 um (every 0.05 um), fitted by least squares with a
+   Gaussian plus a constant, has sigma times tz_abs_mean at most punctum.sigma_ratio times the image's sigma_z gets
+   strand_class punctum and the strand flag punctum (info); the class order is verified, punctum, fragment,
+   merged_suspect, complete, partial. Punctum strands stay in the strand, sample and strip outputs and are left out
+   of total_length_um, total_length_xy_um, n_strands, n_main, n_fragments, n_complete, n_merged_suspect,
+   count_status, complete_nucleus, the pieces and their columns (n_pieces, mean_piece_um, longest_piece_um,
+   piece_lw_mean_um), n_gaps, gaps_per_10um, gap_fraction, multiplicity_frac, the multiplicity reference of the
+   nucleus and the image-level references of the multiplicity and of double_width, the strand tubes of
+   on_strand_frac and coverage_proxy (their voxels count as territory) and the foci assignment; the PSF stretches
+   never hold one (a stretch is flat over 1 um). They still count as neighbours in the contamination of other
+   strands and in the nucleus's snr_core_median, as in v1. New nucleus columns: n_puncta; puncta_signal_frac (the
+   SYP above background inside the punctum tubes and outside the strand tubes over that in the territory, so that
+   on_strand_frac + puncta_signal_frac <= 1); steep_length_frac (the share of total_length_um steeper than 60
+   degrees to the image plane). New strand column punctum_sigma_z_um (the fitted sigma times tz_abs_mean; NaN where
+   the rule does not apply). New keys (fixed group): punctum.enabled (true; false gives v1), punctum.exclude (true;
+   false keeps the class and the flag and returns punctum strands to every column above as in v1: the fallback of
+   entry 11 (c) at Z1), punctum.max_xy_um 0.5, punctum.sigma_ratio 1.3. The S1 scoring
+   (germquant.benchmark.sc_ribbons.score_scene) scores the strands the nucleus tier counts: under punctum.exclude
+   the punctum strands are left out of the totals, the coverage, the off-truth length and the matching (v1 has no
+   such class, so no v1 score changes).
+   New development families, not registered, with the family codes of the entry-8 generator
+   (v2/scripts/steep_phantoms.py, so that a seed gives the same scene there): puncta_pt and puncta_agg (a nucleus of
+   2.3 holding 8 PSF-blurred points, or spheres of diameter U(0.25, 0.8) um, at least 1.2 um apart, and no ribbon)
+   and dense_puncta (the dense nucleus of 2.3 plus 6 points at least 0.6 um from every ribbon), puncta peaks
+   log-uniform in [100, 1500] counts above the nucleoplasm; dense_puncta_clean is each dense_puncta scene with the
+   same draws and the same noise but without the puncta. A strand belongs to a punctum when half or more of its
+   in-strand samples lie within 1.5 um axially and 0.4 um laterally of the punctum's centre and under half within
+   the protocol tolerance of a ribbon (the attribution of entry 8). Targeted metrics, on the tuning and then once on
+   the confirmation seeds, against the configuration before this change (punctum.enabled false) on the same scenes:
+   (a) the excess of the dense_puncta nucleus total (total_length_um) over that of dense_puncta_clean, the mean over
+   the scene pairs, falls by at least 60 percent (confirmation: by at least 30 percent); (b) at least 80 percent of
+   the point puncta and 65 percent of the aggregates leave no strand outside the punctum class (confirmation: the
+   same levels); (c) on the registered families no strand lying half or more within the tolerance of an iso, gaps or
+   foci ribbon becomes punctum, and punctum strands lying on dense ribbons hold at most 0.5 percent of the dense
+   truth length (confirmation: the same). Adopted when (a) to (c) and the rules of entry 11 (b) hold. Reported,
+   choosing nothing: the share of puncta inside a strand of two or more members (0.3 um of its samples within the
+   punctum's ellipsoid). Z1 (entry 11 (c)) follows this entry.
