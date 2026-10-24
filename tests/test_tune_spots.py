@@ -14,7 +14,7 @@ On the planted examples of tests/tune_helpers.py, finished runs of the test pack
 * the synthetic_tune golden: ranked.csv and best.yaml of the LoG grid, values to 3 decimals, with its
   config-hash sentinel (tests/golden/synthetic_tune/; GERMQUANT_UPDATE_GOLDEN=1 rewrites it);
 * tune_spots on a project, `germquant tune-spots` and apply_tuning, through a stand-in of germquant.project, and
-  once more through the real germquant.project when package P5-PRJ is merged (until then those two skip).
+  once more through the real germquant.project (package P5-PRJ, in feat/t5-p5 since 709ca12).
 """
 from __future__ import annotations
 
@@ -686,25 +686,15 @@ def test_apply_tuning_checks_the_run(planted, tmp_path, monkeypatch):
 
 
 # ------------------------------------------------------------------------------ with germquant.project (P5-PRJ)
-def _project_module():
-    try:
-        from germquant import project as P
-    except ImportError:
-        pytest.skip("needs package P5-PRJ (germquant.project); runs once P5-PRJ is merged into feat/t5-p5")
-    return P
-
-
 def test_apply_tuning_writes_recipe_yaml_with_origin_tuning(planted, tmp_path, monkeypatch):
     """apply_tuning through the real project API: recipe.yaml extends the pack's recipe with the best keys,
     the config hash moves and the project reads the tuned value."""
     from packs_helpers import use_fixture_packs
 
-    P = _project_module()
+    from germquant import project as P
+
     use_fixture_packs(monkeypatch)
-    try:
-        project = P.new_project(tmp_path / "proj", "test_pack")
-    except NotImplementedError as e:
-        pytest.skip(f"needs package P5-PRJ (germquant.project is a stub: {e})")
+    project = P.new_project(tmp_path / "proj", "test_pack")
     before = P.project_config(project).hash
     assert before == "02bb83cf74f9" and not (project.root / "recipe.yaml").exists()
     shutil.copytree(planted.log["run_dir"], Path(project.root) / "tuning" / "r1")
@@ -721,15 +711,13 @@ def test_tune_spots_on_a_real_project(planted, tmp_path, monkeypatch):
     results/<id>/ (the layout run_project writes)."""
     from packs_helpers import use_fixture_packs
 
-    P = _project_module()
-    pytest.importorskip("bioio")
+    from germquant import project as P
+
+    pytest.importorskip("bioio")                      # the OME-TIFF run reads through bioio (the readers extra)
     use_fixture_packs(monkeypatch)
     pix = H.planted_pixels(H.FIELD_A, 1)[0]
     image = H.write_ome_tiff(tmp_path / "data" / "planted_a.ome.tif", pix)
-    try:
-        project = P.new_project(tmp_path / "proj", "test_pack", images=[image])
-    except NotImplementedError as e:
-        pytest.skip(f"needs package P5-PRJ (germquant.project is a stub: {e})")
+    project = P.new_project(tmp_path / "proj", "test_pack", images=[image])
     iid = project.images[0]["id"]
     rd = Path(project.root) / "results" / iid
     H.finished_run(image, P.project_config(project), rd)
