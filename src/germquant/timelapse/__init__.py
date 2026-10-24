@@ -7,9 +7,10 @@ the registration report) and its piecewise variant along the gonad axis in ``pie
 (register_series_piecewise, ``germquant register --mode piecewise``: the register_piecewise table, read back by
 load_piecewise); ``layout`` reads a finished series folder back (timepoints, label images, nuclei tables, the
 shift table, registered coordinates); ``track`` is the tracking exchange (the Cell-ACDC export, the overlap /
-laptrack / none linking backends with the rigid or the piecewise registration, the TrackMate / Imaris / Cell-ACDC
-importers, the track_points and tracks tables, the strips) and ``track_validate`` the biologist validation (the
-stratified pick of hand-followed nuclei and ``germquant track-validate``).
+laptrack / none / laptrack_flow linking backends with the rigid or the piecewise registration, the TrackMate /
+Imaris / Cell-ACDC importers, the track_points and tracks tables, the strips), ``flowlink`` the flow prior of the
+laptrack_flow backend (each nucleus matched at the position its neighbours' motion predicts) and ``track_validate``
+the biologist validation (the stratified pick of hand-followed nuclei and ``germquant track-validate``).
 """
 from .layout import SeriesLayout, SeriesLayoutError, find_series, load_shifts, object_table
 from .piecewise import PiecewiseRegistrationMissing, load_piecewise, register_series_piecewise
