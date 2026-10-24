@@ -206,6 +206,9 @@ def test_run_once_then_filter_equals_direct_runs(planted, planted_spotmax):
         pd.testing.assert_frame_equal(sm.tables[(i, 0)][1], direct[j][1])
     assert len({len(direct[j][0]) for j in direct}) >= 3                  # the minima filtered different spots
     shortcut_trials = _trials(Path(sm.res["run_dir"]))
+    record = {name: json.loads((Path(r["run_dir"]) / "run.json").read_text(encoding="ascii"))["shortcut"]
+              for name, r in (("shortcut", sm.res), ("direct", res))}
+    assert record == {"shortcut": "run once, then filter", "direct": "one detection per set"}   # review N1
     for j, t in enumerate(_trials(Path(res["run_dir"]))):
         s = shortcut_trials[KEEP[j]]
         assert s["params"] == t["params"] and s["shared_detection"] == {ES_KEY: 0.0} and t["shared_detection"] is None
@@ -264,12 +267,42 @@ def test_run_folder_matches_section_9(planted):
     run = json.loads((run_dir / "run.json").read_text(encoding="ascii"))
     assert run["backend"] == "log" and run["n_runs"] == 12 and run["grid"] == LOG_GRID
     assert run["match"] == {"tol_xy_um": 0.3, "tol_z_um": 0.4, "scored": "annotated objects"}
+    assert run["shortcut"] == "one detection per set"                        # review P5-TUNE N1
     import hashlib
 
+    def lf(path):                                     # digests are taken on LF-normalised bytes (review P5-TUNE N2)
+        return hashlib.sha256(Path(path).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
     for it, rec in zip(planted.items, run["items"]):
-        assert rec["points_sha256"] == hashlib.sha256(Path(it["points"]).read_bytes()).hexdigest()
-        assert rec["done_sha256"] == hashlib.sha256((it["result_dir"] / f"{it['image_id']}__done.json").read_bytes()).hexdigest()
+        assert rec["points_sha256"] == lf(it["points"])
+        assert rec["done_sha256"] == lf(it["result_dir"] / f"{it['image_id']}__done.json")
         assert rec["config_hash"] == "02bb83cf74f9" and rec["n_points_outside_run"] == 0
+
+
+def test_digests_ignore_line_endings(planted, tmp_path):
+    """A points file re-saved with CRLF (Excel) keeps its digest in run.json, as does a done marker written on
+    Windows (review P5-TUNE N2)."""
+    src = Path(planted.items[0]["points"])
+    crlf = tmp_path / src.name
+    crlf.write_bytes(src.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    assert crlf.read_bytes() != src.read_bytes().replace(b"\r\n", b"\n")
+    assert S._lf_sha256(crlf) == S._lf_sha256(src)
+
+
+def test_a_nested_batch_folder_finds_its_manifest(planted, tmp_path):
+    """`germquant batch` writes <out>/<rel>/<id>/ for images in subfolders and one run_manifest.json at <out>: the
+    tuner takes the nearest manifest above a run, and refuses one of another config (review P5-TUNE N3)."""
+    item = planted.items[0]
+    out = tmp_path / "out"
+    rd = out / "sub" / "deeper" / item["image_id"]
+    shutil.copytree(item["result_dir"], rd)
+    (rd / "run_manifest.json").replace(out / "run_manifest.json")
+    assert S._prepare({**item, "result_dir": rd}, 0, "log", [], None)["manifest_path"] == out / "run_manifest.json"
+    other = json.loads((out / "run_manifest.json").read_text(encoding="utf-8"))
+    other["config_hash"] = "000000000000"
+    (out / "sub" / "run_manifest.json").write_text(json.dumps(other), encoding="utf-8")
+    with pytest.raises(TuneRefused, match="the manifest is not this run's"):
+        S._prepare({**item, "result_dir": rd}, 0, "log", [], None)
 
 
 def test_max_runs_refuses_an_oversized_grid(planted, tmp_path):

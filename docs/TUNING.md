@@ -173,7 +173,7 @@ A search writes `tuning/<run_id>/` (the run id is the UTC time and 8 hex digits,
 | `trials.jsonl` | one line per setting: `trial`, `params`, `backend`, `split`, `shared_detection` (the SpotMAX run it was filtered from), `objective`, `rank`, `pooled` (object_ccc, point_f1, point_precision, point_recall and the counts of objects, points, matches and detections) and `images` (the same per image, with the time of the detection) |
 | `ranked.csv` | `rank`, `objective`, `objective_value`, `tie_break`, `tie_break_value`, then one column per grid key, best first; values to 3 decimals |
 | `best.yaml` | `objective` (the text), `backend` and `keys` ({dotted key: value}): what `--apply` writes. Not written when no setting could be scored |
-| `run.json` | what the search read: each finished run (config hash, done-marker sha256, stride, z range, voxel size), each point file with its sha256 and how many of its points were scored, the tolerances, the grid, the number of detections, the engine version and git sha, and the warnings |
+| `run.json` | what the search read: each finished run (config hash, done-marker sha256, stride, z range, voxel size), each point file with its sha256 and how many of its points were scored, the tolerances, the grid, the number of detections and how they were made (`shortcut`: run once, then filter, or one detection per set), the engine version and git sha, and the warnings. The sha256 digests are taken with CRLF turned into LF, so a file re-saved with Windows line endings keeps its digest |
 
 Every file is ASCII with LF line endings, written atomically.
 
@@ -202,7 +202,8 @@ print(res["best"], res["ranked"][:5], res["warnings"])
 tune.apply_tuning(project, res["run_dir"])
 ```
 
-The tuners themselves work on any finished runs, outside a project too (the benchmark tune splits use them):
+The tuners themselves work on any finished runs, outside a project too (the benchmark tune splits use them),
+also on the runs of `germquant batch`, whose `run_manifest.json` sits at the top of its output folder:
 
 ```python
 items = [{"image_id": "img_01", "image": "data/img_01.nd2", "result_dir": "results/img_01",

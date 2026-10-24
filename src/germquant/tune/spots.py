@@ -34,8 +34,8 @@ in the --grid format, so the search can be repeated), trials.jsonl (one line per
 per-image and pooled scores and the point and object counts), ranked.csv (rank, objective, objective_value,
 tie_break, tie_break_value, then one column per grid key; values to 3 decimals), best.yaml ({objective,
 backend, keys}; not written when no set could be scored) and run.json (what the run read: the finished runs,
-their config hashes and done-marker digests, the point files and their digests, the tolerances, the engine
-version). Every file is ASCII with LF line endings, written atomically.
+their config hashes and done-marker digests, the point files and their digests, taken on LF-normalised bytes,
+the tolerances, the engine version). Every file is ASCII with LF line endings, written atomically.
 
 Imports (plan D28): the module imports nothing heavy. Every tuner imports germquant.pipeline (torch) before
 it reads an image or loads a backend, so torch claims cuBLAS before SpotMAX or CuPy can (``import spotmax.pipe``
@@ -326,8 +326,9 @@ def _tune(items, grid, objective, split, *, backend, out_dir, max_runs, shortcut
     else:
         warnings.append("no parameter set could be scored (fewer than two annotated objects and no matched point): "
                         "no best.yaml was written")
+    filtered = shortcut and any(len(m) > 1 for m in groups.values())      # a set was filtered from a shared run
     run = _run_record(run_id, ctxs, grid, backend, split, (primary, tie), max_runs, n_done, warnings, root,
-                      time.time() - t_start)
+                      time.time() - t_start, filtered)
     _write_run(out_dir, grid, trials, ranked, best, run)
     return {"run_dir": str(out_dir), "best": best, "ranked": ranked, "n_runs": n_done, "warnings": warnings}
 
@@ -358,7 +359,8 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
                           f"images in this release")
     manifest, manifest_path = _run_manifest(result_dir)
     if manifest is None or not isinstance(manifest.get("config"), dict):
-        raise TuneRefused(f"{image_id}: no run_manifest.json with the run's config in {result_dir} or its parent")
+        raise TuneRefused(f"{image_id}: no run_manifest.json with the run's config in {result_dir} or a folder "
+                          f"above it")
     if manifest.get("config_hash") != marker.get("config_hash"):
         raise TuneRefused(f"{image_id}: {manifest_path} records config {manifest.get('config_hash')}, the run's "
                           f"done marker {marker.get('config_hash')}: the manifest is not this run's")
@@ -422,7 +424,7 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
         "k": k, "image_id": image_id, "image": image, "result_dir": result_dir, "marker": marker,
         "manifest_path": manifest_path, "config_hash": marker.get("config_hash"), "base": base, "planar": planar,
         "labels_shape": tuple(labels.shape), "roles": roles, "spacing": spacing, "xy_stride": xy_stride, "z_range": z_range,
-        "points_path": points_path, "points_sha256": _sha256_file(points_path) if points_path else None,
+        "points_path": points_path, "points_sha256": _lf_sha256(points_path) if points_path else None,
         "n_points": int(len(pts)), "n_outside_run": int((~inside).sum()),
         "n_outside_objects": int((inside & (obj == 0)).sum()), "objects": objects, "truth_n": truth_n,
         "truth_xyz": truth_xyz, "projected": bool(flags.any()), "backend": backend,
@@ -430,8 +432,11 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
 
 
 def _run_manifest(result_dir: Path) -> tuple[dict | None, Path | None]:
-    """run_manifest.json of a results folder, or of its parent (a batch writes one for the whole folder)."""
-    for p in (result_dir / "run_manifest.json", result_dir.parent / "run_manifest.json"):
+    """run_manifest.json of a results folder, or of the nearest folder above it that has one: `germquant batch`
+    writes one manifest for its whole output folder, also for the images of subfolders (<out>/<rel>/<id>/).
+    The caller checks that the manifest's config hash is the run's."""
+    folder = Path(os.path.abspath(result_dir))
+    for p in (d / "run_manifest.json" for d in (folder, *folder.parents)):
         try:
             with open(long_path(p), encoding="utf-8") as fh:
                 return json.load(fh), p
@@ -695,16 +700,15 @@ def _ranked_row(trial: dict, grid: dict) -> dict:
 
 
 # ------------------------------------------------------------------------------ the run folder
-def _sha256_file(path) -> str | None:
+def _lf_sha256(path) -> str | None:
+    """sha256 of a text file with CRLF turned into LF (as germquant.packs.format.lf_sha256), so a points file
+    re-saved by Excel and a done marker written on Windows give the digest they give on Linux."""
     import hashlib
 
     if path is None:
         return None
-    h = hashlib.sha256()
     with open(long_path(path), "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
+        return hashlib.sha256(fh.read().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _rel(path, root) -> str:
@@ -720,14 +724,15 @@ def _rel(path, root) -> str:
     return str(p)
 
 
-def _run_record(run_id, ctxs, grid, backend, split, objective, max_runs, n_done, warnings, root, elapsed) -> dict:
+def _run_record(run_id, ctxs, grid, backend, split, objective, max_runs, n_done, warnings, root, elapsed,
+                filtered) -> dict:
     from germquant import __version__, provenance
 
     items = []
     for c in ctxs:
         items.append({"image_id": c["image_id"], "image": _rel(c["image"], root), "result_dir": _rel(c["result_dir"], root),
                       "config_hash": c["config_hash"],
-                      "done_sha256": _sha256_file(c["result_dir"] / f"{c['image_id']}__done.json"),
+                      "done_sha256": _lf_sha256(c["result_dir"] / f"{c['image_id']}__done.json"),
                       "xy_stride": c["xy_stride"], "z_range": list(c["z_range"]) if c["z_range"] else None,
                       "spacing_um": list(c["spacing"]), "planar": c["planar"],
                       "points": _rel(c["points_path"], root), "points_sha256": c["points_sha256"],
@@ -737,7 +742,8 @@ def _run_record(run_id, ctxs, grid, backend, split, objective, max_runs, n_done,
     return {"format": 1, "run_id": run_id, "created": provenance.run_timestamp(), "germquant": __version__,
             "git_sha": provenance.git_sha(), "backend": backend, "split": split,
             "objective": objective_text(objective), "objective_metrics": list(objective),
-            "objective_decimals": CCC_DECIMALS, "shortcut": "run once, then filter" if backend == "spotmax" else None,
+            "objective_decimals": CCC_DECIMALS,
+            "shortcut": "run once, then filter" if filtered else "one detection per set",
             "match": {"tol_xy_um": TOL_XY_UM, "tol_z_um": TOL_Z_UM, "scored": "annotated objects"},
             "grid": grid, "n_sets": len(parameter_sets(grid)), "n_runs": n_done, "max_runs": max_runs,
             "base_spots": ctxs[0]["base"], "items": items, "warnings": list(warnings), "elapsed_s": round(elapsed, 1)}
