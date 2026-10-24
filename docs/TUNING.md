@@ -30,7 +30,8 @@ same command through the engine (design 8.7).
    ```
 
    That writes `recipe.yaml`: the project's config hash changes, the project reads `validated: false`,
-   and every image becomes stale until it is run again.
+   and every image becomes stale until it is run again. When the recipe already holds the best setting,
+   the hash stays as it is and the command says so.
 
 ## Truth points
 
@@ -192,8 +193,12 @@ the search's options `--points`, `--grid`, `--max-runs` and `--out` are refused 
 `--plugin-version` without it. A tuning edit may set keys the pack does not offer in its parameter form
 (such as `spots.sharpen`), but only the keys of that run's grid, and only when the run tuned the backend the
 recipe uses now. The project's config hash changes, `validated` turns false and every image turns stale with
-the reason config_hash. In Python: `germquant.tune.apply_tuning(project, "tuning/<run_id>")`, which returns
-the new config hash.
+the reason config_hash; the command prints the new hash, then the old one. A best value equal to the pack
+recipe's own is no edit (docs/PROJECTS.md): that key leaves `recipe.yaml`, which is removed once no edit is
+left, and the project then hashes (and reads `validated`) as the pack recipe again; when the recipe already
+holds the best setting, the hash stays as it is and the command says so. In Python:
+`germquant.tune.apply_tuning(project, "tuning/<run_id>")`, which returns the project's config hash after the
+write.
 
 When the recipe is no longer the config the tuning run's images were run with (an edit or another Apply
 since, as `run.json` records their config hashes), Apply still writes the best keys and warns: they were

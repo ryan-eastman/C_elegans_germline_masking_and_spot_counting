@@ -608,7 +608,7 @@ def test_tune_spots_command_and_apply(planted, tmp_path, monkeypatch, capsys):
     # the plugin's Apply records its version in the saved stamp (D39, D42; review P5-TUNE S3)
     assert cli.main(["tune-spots", "--project", str(root), "--apply", rel, "--plugin-version", "0.2.0.dev1"]) == 0
     assert edits[-1] == {"edits": {"spots.log.min_snr": 3.0}, "origin": "tuning", "plugin_version": "0.2.0.dev1"}
-    capsys.readouterr()
+    assert capsys.readouterr().out == f"applied {rel}: config_hash c0ffee000000\n"    # no hash at open: no change said
     assert cli.main(["tune-spots", "--project", str(root), "--plugin-version", "0.2.0.dev1"]) == 2
     assert "--plugin-version goes with --apply" in capsys.readouterr().err
     # --apply takes none of the search's options, however they are spelled (review P5-TUNE N5)
@@ -758,3 +758,43 @@ def test_apply_that_stops_part_way_exits_1(planted, tmp_path, monkeypatch, capsy
     assert (root / "recipe.yaml").is_file() and P.open_project(root).manifest["recipe"]["origins"] == {}
     assert cli.main(apply) == 0                                        # run again: the write finishes
     assert P.open_project(root).manifest["recipe"]["origins"] == {"spots.log.min_snr": "tuning"}
+
+
+def test_apply_reports_the_hash_it_leaves(planted, tmp_path, monkeypatch, capsys):
+    """Without --json, --apply prints the project's hash after the write first on its line (the napari plugin's
+    runner reads it there) and says what changed. A best value equal to the pack recipe's own is no edit
+    (docs/PROJECTS.md): on a fresh project nothing changes, and after a tuning edit it drops that edit, so
+    recipe.yaml goes and the project hashes as the pack recipe again (review P5-TUNE-sync N1)."""
+    import re
+
+    from packs_helpers import use_fixture_packs
+
+    from germquant import project as P
+
+    use_fixture_packs(monkeypatch)
+    project = P.new_project(tmp_path / "proj", "test_pack")
+    root = Path(project.root)
+    pack_hash = project.config_hash                              # test_pack basic sets spots.log.min_snr 2.0
+    for name, value in (("r3", 3.0), ("r2", 2.0)):
+        run = root / "tuning" / name
+        shutil.copytree(planted.log["run_dir"], run)
+        best = yaml.safe_load((run / "best.yaml").read_text(encoding="ascii"))
+        (run / "best.yaml").write_text(yaml.safe_dump({**best, "keys": {"spots.log.min_snr": value}}),
+                                       encoding="ascii")
+
+    def apply(name):
+        assert cli.main(["tune-spots", "--project", str(root), "--apply", f"tuning/{name}"]) == 0
+        captured = capsys.readouterr()
+        now = P.open_project(root).config_hash
+        # the plugin's reading (napari_germquant/_runner.py, tune_apply): the first such match in the merged output
+        assert re.search(r"config_hash\W+([0-9a-f]{12})\b", captured.err + captured.out).group(1) == now
+        return captured.out, now
+
+    out, h = apply("r2")                                         # the pack's own value on a fresh project
+    assert h == pack_hash and "unchanged: the recipe already holds this setting" in out
+    assert not (root / "recipe.yaml").exists()
+    out, tuned = apply("r3")
+    assert tuned != pack_hash and f"(was {pack_hash})" in out and "stale until they are run again" in out
+    out, h = apply("r2")                                         # back to the pack's value: the last edit goes
+    assert h == pack_hash and f"(was {tuned})" in out and not (root / "recipe.yaml").exists()
+    assert P.open_project(root).manifest["recipe"]["origins"] == {}

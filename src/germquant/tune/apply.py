@@ -3,9 +3,10 @@ plan D19 and section 9; ``germquant tune-spots --project DIR --apply tuning/<run
 
 The keys of best.yaml go to germquant.project.write_recipe with origin "tuning", so recipe.yaml gains them
 on top of the pack's recipe (``extends: pack:<id>@<version>/<recipe>``), the config hash changes and the
-project reads validated: false, as after any edit. Only the keys of the run's grid are written (D19: a tuning
-edit sets the grid's keys, which may be keys the pack does not declare as tunables, such as
-spots.spot_radius_z_um or spots.sharpen), and the run must have tuned the backend the recipe uses now. When
+project reads validated: false, as after any edit (a value equal to the pack recipe's own is no edit:
+docs/PROJECTS.md). Only the keys of the run's grid are written (D19: a tuning edit sets the grid's keys,
+which may be keys the pack does not declare as tunables, such as spots.spot_radius_z_um or spots.sharpen),
+and the run must have tuned the backend the recipe uses now. When
 the recipe is no longer the config the run's images were made with (run.json), apply_tuning warns with a
 TuningWarning and still writes. Nothing heavy is imported.
 """
@@ -25,10 +26,10 @@ from .spots import FILES, read_best
 def apply_tuning(project, run_dir, *, plugin_version=None) -> str:
     """Write the best parameter set of the tuning run ``run_dir`` (relative to the project, for example
     tuning/<run_id>) into the project's recipe.yaml, through write_recipe with origin "tuning", and return the
-    project's new config hash. ``project`` is a germquant.project.Project or its folder; ``plugin_version``
-    goes into the manifest's saved stamp. TuneRefused for a run without best.yaml, keys outside the run's
-    grid, or a run that tuned another backend than the recipe's; a TuningWarning when the recipe changed after
-    the run's images were run."""
+    project's config hash after the write. ``project`` is a germquant.project.Project or its folder;
+    ``plugin_version`` goes into the manifest's saved stamp. TuneRefused for a run without best.yaml, keys
+    outside the run's grid, or a run that tuned another backend than the recipe's; a TuningWarning when the
+    recipe changed after the run's images were run."""
     open_project, project_config, write_recipe = _project_api()
     if isinstance(project, (str, os.PathLike)):
         project = open_project(project)

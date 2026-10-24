@@ -99,6 +99,7 @@ def dispatch(args) -> int:
         from .project import ProjectError
         from .tune import TuningWarning, apply_tuning
 
+        before = getattr(project, "config_hash", None)          # germquant.project: the hash at open
         try:
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always", TuningWarning)
@@ -120,11 +121,19 @@ def dispatch(args) -> int:
                 warnings.showwarning(w.message, w.category, w.filename, w.lineno)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
+        # without --json, "config_hash <the hash after the write>" comes first on the line in every form: the
+        # napari plugin's runner reads the project's new hash there (review P5-TUNE-sync N1)
         if args.json:
             print(json.dumps({"config_hash": config_hash, "run_dir": args.apply, "warnings": notes}, indent=1,
                              ensure_ascii=True))
+        elif before is not None and config_hash == before:
+            print(f"applied {args.apply}: config_hash {config_hash}, unchanged: the recipe already holds this "
+                  f"setting, so no image turns stale")
+        elif before is not None:
+            print(f"applied {args.apply}: config_hash {config_hash} (was {before}); the images run with {before} "
+                  f"are stale until they are run again")
         else:
-            print(f"applied {args.apply}: recipe.yaml written, config_hash {config_hash} (validated: false)")
+            print(f"applied {args.apply}: config_hash {config_hash}")
         return 0
 
     import contextlib
