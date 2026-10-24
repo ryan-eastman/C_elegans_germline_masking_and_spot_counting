@@ -272,13 +272,14 @@ def _tune(items, grid, objective, split, *, backend, out_dir, max_runs, shortcut
     shared: list[dict | None] = [None] * len(sets)
     n_done = 0
     for k, ctx in enumerate(ctxs):
-        stack = _read_stack(ctx)
-        for gi, members in enumerate(groups.values()):
+        labels = _read_labels(ctx["result_dir"], ctx["image_id"])     # one image's labels and pixels at a time
+        stack = _read_stack(ctx, labels)
+        for members in groups.values():
             if shortcut and len(members) > 1:
                 base = {p: v for p, v in sets[members[0]].items() if p != EFFECT_SIZE_KEY}
                 base[EFFECT_SIZE_KEY] = 0.0
                 t = time.time()
-                ps0, pn0 = _detect(ctx, stack, _section(ctx["base"], base, backend))
+                ps0, pn0 = _detect(ctx, stack, labels, _section(ctx["base"], base, backend))
                 dt = time.time() - t
                 n_done += 1
                 log.info("tune: %s (%d/%d), shared %s run %s: %d spots before the effect-size filter (%.1f s)",
@@ -293,7 +294,7 @@ def _tune(items, grid, objective, split, *, backend, out_dir, max_runs, shortcut
             else:
                 for i in members:
                     t = time.time()
-                    ps, pn = _detect(ctx, stack, _section(ctx["base"], sets[i], backend))
+                    ps, pn = _detect(ctx, stack, labels, _section(ctx["base"], sets[i], backend))
                     dt = time.time() - t
                     n_done += 1
                     if on_tables is not None:
@@ -301,7 +302,7 @@ def _tune(items, grid, objective, split, *, backend, out_dir, max_runs, shortcut
                     scores[i][k] = {**_score(ctx, ps), "detect_s": round(dt, 2)}
                     log.info("tune: %s (%d/%d), set %d of %d %s: %d spots (%.1f s)", ctx["image_id"], k + 1,
                              len(ctxs), i + 1, len(sets), json.dumps(sets[i], sort_keys=True), len(ps), dt)
-        del stack
+        del stack, labels
 
     trials = [_trial(i, sets[i], scores[i], ctxs, backend, split, shared[i], (primary, tie)) for i in range(len(sets))]
     order = sorted(range(len(sets)), key=lambda i: _rank_key(trials[i]), reverse=True)
@@ -324,8 +325,9 @@ def _tune(items, grid, objective, split, *, backend, out_dir, max_runs, shortcut
 # ------------------------------------------------------------------------------ one finished run
 def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
     """What a search needs of one item, read before any pixel of its image: the done marker, the config the
-    run was made with, the geometry, the labels, the channel of the spots stage, the spacing the stage used,
-    and the truth points on the run's grid with their objects in the run's labels."""
+    run was made with, the geometry, the shape of the labels, the channel of the spots stage, the spacing the
+    stage used, and the truth points on the run's grid with their objects in the run's labels (the labels
+    themselves are read again when the item's detections run, so one image's labels are in memory at a time)."""
     from germquant import provenance
     from germquant.benchmark.spots import label_at_points
 
@@ -400,7 +402,7 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
     return {
         "k": k, "image_id": image_id, "image": image, "result_dir": result_dir, "marker": marker,
         "manifest_path": manifest_path, "config_hash": marker.get("config_hash"), "base": base, "planar": planar,
-        "labels": labels, "roles": roles, "spacing": spacing, "xy_stride": xy_stride, "z_range": z_range,
+        "labels_shape": tuple(labels.shape), "roles": roles, "spacing": spacing, "xy_stride": xy_stride, "z_range": z_range,
         "points_path": points_path, "points_sha256": _sha256_file(points_path) if points_path else None,
         "n_points": int(len(pts)), "n_outside_run": int((~inside).sum()),
         "n_outside_objects": int((inside & (obj == 0)).sum()), "objects": objects, "truth_n": truth_n,
@@ -494,7 +496,7 @@ def _same_base(ctxs: list[dict]) -> None:
                               f"run them with one recipe before tuning them together")
 
 
-def _read_stack(ctx: dict):
+def _read_stack(ctx: dict, labels: np.ndarray):
     """The image at the run's geometry, through the reader process_image uses (pipeline._read_input), checked
     against the run's labels."""
     from germquant import pipeline
@@ -505,9 +507,9 @@ def _read_stack(ctx: dict):
         raise ValueError(f"{ctx['image_id']}: {ctx['image']} has {stack.n_channels} channel(s); its run read the "
                          f"foci channel at index {foci}")
     shape = tuple(stack.data[foci].shape)
-    if shape != tuple(ctx["labels"].shape):
+    if shape != tuple(labels.shape) or shape != ctx["labels_shape"]:
         raise ValueError(f"{ctx['image_id']}: {ctx['image']} reads as {shape} at the run's geometry, its labels are "
-                         f"{tuple(ctx['labels'].shape)}: the image is not the one the run read")
+                         f"{tuple(labels.shape)}: the image is not the one the run read")
     return stack
 
 
@@ -549,7 +551,7 @@ def stage_kwargs(section: dict) -> dict:
     )
 
 
-def _detect(ctx: dict, stack, section: dict):
+def _detect(ctx: dict, stack, labels: np.ndarray, section: dict):
     """One detection on the run's labels with the spots: section ``section``, as the spots stage makes it."""
     from germquant import pipeline
     from germquant.spots import detect as D
@@ -558,8 +560,7 @@ def _detect(ctx: dict, stack, section: dict):
     extra = pipeline.spot_backend_channels(kw["backend"], ctx["roles"], stack)   # {} for spotmax and log
     if ctx["planar"]:
         extra["planar"] = True
-    return D.detect_spots(stack.data[ctx["roles"]["foci"]], ctx["labels"], ctx["spacing"], marker="foci", **kw,
-                          **extra)
+    return D.detect_spots(stack.data[ctx["roles"]["foci"]], labels, ctx["spacing"], marker="foci", **kw, **extra)
 
 
 # ------------------------------------------------------------------------------ scores
