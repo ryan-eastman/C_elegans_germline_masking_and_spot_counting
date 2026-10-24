@@ -322,7 +322,10 @@ On another computer the weights are not in the pack. Copy the model file there a
 `pack lint` on a derived pack reports what the outside-recipe rules ask of a recipe written by hand, because
 those rules count only the keys set inside the pack folder: no recipe golden (the parent's recipe golden runs
 the classical segmenter, which never loads this model), and the worm stage switches and the segmentation method,
-which the parent's files set. It reports no ASCII, dash, machine-path or unversioned `pack:` problem.
+which the parent's files set. A parent whose recipes are the engine's own files (celegans_germline, `root:
+checkout`) adds the outside rules those frozen files were never meant to meet: the neutral file-name regex, the
+framing check, `qc.min_nuclei`, `require_channel` and a chain that reaches config/config.yaml. It reports no
+ASCII, dash, machine-path or unversioned `pack:` problem.
 
 ## Versions and features
 

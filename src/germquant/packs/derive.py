@@ -399,17 +399,17 @@ def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | 
         par = _find_parent(parent, out)
         r, pcfg = _parent_recipe(par, recipe)
         inside = _inside(par.folder, out)              # the parent already sits in DIR: nothing to copy
-        bad = ([] if inside else verify_sums(par.folder)) + engine_files_problems(par)
+        bad = verify_sums(par.folder) + engine_files_problems(par)
         if bad:
-            raise PackDeriveError(f"pack {par.ref} cannot be copied beside the derived pack: " + "; ".join(bad))
+            raise PackDeriveError(f"pack {par.ref} cannot be used as the parent: " + "; ".join(bad))
         new_id = _derived_id(par, sha, pack_id)
         new_ref = f"{new_id}@{DERIVED_VERSION}"
         if any(p.source == ROOT_BUILTIN and p.id == new_id for p in discover().packs):
             raise PackDeriveError(f"--id {new_id!r} is a built-in pack's id; a derived pack needs an id of its own")
         old_value = pcfg.get(MODEL_KEY)
         kept = [m for m in r.need("models") if not _replaced(m, par.model(m), old_value)]
-        kept_specs = [par.model(m) for m in kept]
-        if any(s is not None and s.card == card_rel for s in kept_specs):
+        kept_specs = [par.model(m) for m in kept]      # declared: a pack whose needs name others is refused above
+        if any(s.card == card_rel for s in kept_specs):
             raise PackDeriveError(f"the parent's model card {card_rel} has the new model's card name; rename the model")
         pcard, rewritten = portable_card(card_data, name=base, file_name=model.name, sha256=sha, size=size)
         licence = str(pcard.get("licence") or pcard.get("licence_note") or "see the model card")
@@ -430,7 +430,7 @@ def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | 
                 sort_keys=False, allow_unicode=False))
             _write(stage / card_rel, json.dumps(pcard, indent=1, ensure_ascii=True) + "\n")
             for s in kept_specs:                       # the parent's other models keep their cards
-                if s is not None and s.card and (par.folder / s.card).is_file():
+                if s.card and (par.folder / s.card).is_file():
                     (stage / s.card).parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(long_path(par.folder / s.card), long_path(stage / s.card))
             post = par.folder / "post_stages" / f"{r.id}.yaml"
@@ -469,7 +469,7 @@ def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | 
                 "id": r.id, "title": f"{r.title or r.id} (model {model_name})", "profile": recipe_rel, "dims": r.dims,
                 "default": True, "status": DERIVED_STATUS, "expected_config_hash": dcfg.hash, "needs": needs,
                 "tunables": list(r.tunables or []), "validation": None}]
-            manifest["models"] = [spec.as_dict(), *(s.as_dict() for s in kept_specs if s is not None)]
+            manifest["models"] = [spec.as_dict(), *(s.as_dict() for s in kept_specs)]
             head = (f"# A derived pack, made with germquant pack derive: the recipe {r.id} of {par.ref} with the "
                     f"model {model_name}.\n")
             _write(stage / MANIFEST, head + yaml.safe_dump(manifest, sort_keys=False, allow_unicode=False, width=110))
