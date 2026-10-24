@@ -2171,9 +2171,10 @@ The six decisions that change this design's text, signed off with Q6 (plan secti
   file replaces segment_planar's output: a 2D file (or one plane) is copied through z, and the projected measure and
   records stay (volume_um3 NA; area_um2 and equivalent_diameter_um from the 2D labels; the flag
   segment:projected_<mode> and the segment_projection record), with segment:labels_from_file added. The projection
-  itself is computed only for the montage's base plane, when the segmentation channel exists, and a labels file with
-  more than one plane is refused. With io.planar a 2D labels file is used, and check_planar does not test the
-  segmentation backend in labels runs. Labels runs have no size gate: min_volume_um3 and min_area_um2 do not apply.
+  itself is computed only for the montage's base plane, when the segmentation channel exists, and in a projected run
+  a labels file with more than one plane is refused. With io.planar a 2D labels file is used, and check_planar does
+  not test the segmentation backend in labels runs. Labels runs have no size gate: min_volume_um3 and min_area_um2
+  do not apply.
 - D16 (7.8 and 3.13): the project API is new_project, open_project and the rest of 7.8. create_project, which 3.13
   lists, is not added, not even as an alias.
 - D22 (section 10, step 6): train-curve scores each model on the held-out pairs with the existing holdout_metrics and
