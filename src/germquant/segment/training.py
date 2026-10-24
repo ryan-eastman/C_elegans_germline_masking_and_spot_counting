@@ -31,6 +31,7 @@ Nothing here touches the per-image tables or the fixed-image path.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -745,14 +746,16 @@ def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None 
       from their results folders); None for runs without a pack, and None with ``pack_note`` when the runs
       differ or are unknown;
     * ``segmented_role``: the role the runs segmented (the manifest's channel_role), like pixel_um;
-    * ``dataset`` (_dataset_record) only when ``dataset`` is given; ``source_url`` None (a local model).
+    * ``dataset`` (_dataset_record, or a record made before) only when ``dataset`` is given; ``source_url``
+      None (a local model).
 
     ValueError for an unknown ``kind`` or a malformed ``dataset`` id, before anything is trained."""
     from ..packs.format import OBJECT_KINDS
 
     if kind is not None and str(kind) not in OBJECT_KINDS:
         raise ValueError(f"kind {kind!r} is not an object kind {OBJECT_KINDS} (what one label of the model is)")
-    data = _dataset_record(dataset) if dataset is not None else None
+    data = dict(dataset) if isinstance(dataset, dict) else (_dataset_record(dataset) if dataset is not None
+                                                           else None)
     pairs_dir = Path(pairs_dir)
     sources = _source_runs(pairs_dir) if sources is None else sources
     rows = _manifest_rows(pairs_dir)
@@ -951,3 +954,226 @@ def _train_model(pairs_dir: Path, out_dir: Path, name: str, pairs: list[dict], t
     return {"name": name, "model_path": str(dest), "model_sha256": model_sha, "card_path": str(card_path),
             "log_path": str(out_dir / "training_log.json"), "split": split, "metrics": metrics,
             "device": device, "base_model": base_info, "card": card}
+
+
+# ---- learning curves (docs/TRAINING.md, step 6; design section 10, step 6; decision D22) -----------------
+
+KEEP_MODELS = ("none", "best")
+DEFAULT_SCORER = "holdout_metrics"       # the hold-out metrics train-nuclei computes; the score is overall F1
+CURVE_TRAIN_KEYS = ("epochs", "split_by", "val_frac", "cpu", "learning_rate", "weight_decay", "batch_size",
+                    "min_train_masks", "system", "kind", "dataset")
+CURVE_COLS = ["size", "size_label", "repeat", "n_groups", "groups", "n_train", "n_val", "score", "f1", "precision",
+              "recall", "miss_rate", "mean_matched_iou", "model_sha256", "model_size", "weights_kept", "model",
+              "card", "elapsed_s", "status", "error"]
+
+
+def parse_sizes(sizes) -> list:
+    """The curve sizes, counted in training groups: whole numbers of at least 1 and "all" (every training
+    group), from a list or a text with commas such as "1,2,4,8,16,all". Duplicates are dropped, the order is
+    kept. ValueError naming the entry that is neither."""
+    items = sizes.split(",") if isinstance(sizes, str) else list(sizes)
+    out: list = []
+    for s in items:
+        if isinstance(s, str) and not s.strip():
+            continue
+        text = s.strip().lower() if isinstance(s, str) else None
+        if text == "all":
+            v = "all"
+        elif text is not None and re.fullmatch(r"[0-9]+", text):
+            v = int(text)
+        elif text is None and isinstance(s, (int, np.integer)) and not isinstance(s, bool):
+            v = int(s)
+        else:
+            raise ValueError(f"sizes: {s!r} is neither a whole number of training groups nor 'all'")
+        if v != "all" and v < 1:
+            raise ValueError(f"sizes: {s!r} is below 1 (a size counts training groups)")
+        if v not in out:
+            out.append(v)
+    if not out:
+        raise ValueError("sizes: no size given")
+    return out
+
+
+def _scorer_name(scorer) -> str:
+    if scorer is None:
+        return DEFAULT_SCORER
+    name = getattr(scorer, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    qual = getattr(scorer, "__qualname__", type(scorer).__qualname__)
+    return f"{getattr(scorer, '__module__', '') or ''}.{qual}"
+
+
+def _finite(v) -> float | None:
+    """A float, or None for a missing or non-finite value (curve.csv and curve.json hold no NaN)."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if np.isfinite(f) else None
+
+
+def _write_curve(out_dir: Path, record: dict) -> None:
+    pd.DataFrame(record["models"], columns=CURVE_COLS).to_csv(long_path(out_dir / "curve.csv"), index=False)
+    with open(long_path(out_dir / "curve.json"), "w", encoding="utf-8") as fh:
+        json.dump(record, fh, indent=1, default=str)
+
+
+def _set_card_curve(card_path: Path, curve: dict) -> None:
+    card = _read_json(card_path)
+    card["curve"] = curve
+    with open(long_path(card_path), "w", encoding="utf-8") as fh:
+        json.dump(card, fh, indent=1, default=str)
+
+
+def _drop_weights(path: Path) -> None:
+    if path.exists():
+        os.remove(long_path(path))
+
+
+def train_curve(pairs: str | Path, out: str | Path, *, sizes, repeats: int, seed: int, base: str,
+                keep_models: str = "none", scorer=None, **train) -> dict:
+    """A learning curve (design section 10, step 6; decision D22): train-nuclei on nested, seeded subsets of
+    the training groups of the pairs folder ``pairs``, every model scored on the same held-out pairs.
+
+    * The split is split_pairs(by=split_by, val_frac, seed), the split train-nuclei makes with that seed; its
+      val groups are held out from every model, so a curve needs at least two groups.
+    * The subsets: per repeat r, the training groups (series or images, the split's key) in the order of
+      numpy.random.default_rng([seed, r]); the subset of size k is the first k of that order, so within a
+      repeat every subset holds the smaller ones. ``sizes`` counts groups (parse_sizes; "all" is every
+      training group); a size above the number of training groups is skipped and recorded.
+    * Each model trains from ``base`` (resolved once) into ``out/models/n<kkk>_r<r>/`` as train-nuclei
+      trains, and is scored on the val pairs right after: by default with the hold-out metrics train-nuclei
+      computes (score = overall F1 at IoU 0.5, scorer "holdout_metrics"); a ``scorer`` callable,
+      ``scorer(model_path, val_pairs, *, device) -> {"score": float, "metrics": dict}`` with the higher score
+      the better, replaces it and its ``name`` attribute (else its qualified name) is recorded. P7's
+      end-to-end runner plugs in there.
+    * ``keep_models`` "none" (default) deletes each model's weights once it is scored; "best" keeps only the
+      model with the highest score so far (ties keep the earlier, smaller one), so at most two weight files
+      exist at a time. Every card (with a ``curve`` record), training_log.json, metric and digest stays.
+    * ``curve.csv`` (CURVE_COLS, one row per model) and ``curve.json`` (sizes, subsets, val groups, scorer,
+      settings, the rows and the best) are rewritten after every model.
+
+    ``train`` passes train-nuclei's settings on (CURVE_TRAIN_KEYS: epochs, split_by, val_frac, cpu,
+    learning_rate, weight_decay, batch_size, min_train_masks, system, kind, dataset), with train-nuclei's
+    defaults. A subset whose every slice is too thin for Cellpose is recorded as failed, and the curve goes
+    on. Returns curve.json's record plus ``out``, ``curve_csv`` and ``curve_json``."""
+    from ..device import select_device
+
+    unknown = sorted(set(train) - set(CURVE_TRAIN_KEYS))
+    if unknown:
+        raise TypeError(f"train_curve got unexpected keyword argument(s) {', '.join(unknown)}; it passes on "
+                        f"{', '.join(CURVE_TRAIN_KEYS)}")
+    keep = str(keep_models).strip().lower()
+    if keep not in KEEP_MODELS:
+        raise ValueError(f"keep_models must be one of {KEEP_MODELS}, got {keep_models!r}")
+    asked = parse_sizes(sizes)
+    if isinstance(repeats, bool) or not isinstance(repeats, (int, np.integer)) or int(repeats) < 1:
+        raise ValueError(f"repeats must be a whole number of at least 1, got {repeats!r}")
+    repeats, seed = int(repeats), int(seed)
+    params = inspect.signature(train_nuclei).parameters
+    opts = {**{k: params[k].default for k in CURVE_TRAIN_KEYS}, **train}
+    pairs_dir, out_dir = Path(pairs), Path(out)
+    all_pairs = load_pairs(pairs_dir)
+    if not all_pairs:
+        raise FileNotFoundError(f"no slice pairs (image/*.tif with labels/*.tif) under {pairs_dir}")
+    pool_pairs, val, split = split_pairs(all_pairs, by=opts["split_by"], val_frac=opts["val_frac"], seed=seed)
+    if not val:
+        raise ValueError(f"a learning curve scores every model on pairs held out from all of them, but the pairs "
+                         f"under {pairs_dir} form a single {split['by']} group: nothing can be held out")
+    pool = list(split["train_groups"])
+    n = len(pool)
+    resolved = sorted({n if s == "all" else s for s in asked if s == "all" or s <= n})
+    skipped = sorted(s for s in asked if s != "all" and s > n)
+    if not resolved:
+        raise ValueError(f"sizes {asked}: none fits the {n} training group(s) under {pairs_dir}")
+    sources = _source_runs(pairs_dir)
+    # a bad kind or dataset id is refused here, before anything trains; the dataset record is made once
+    data = _card_fields(pairs_dir, all_pairs, sources, system=opts["system"], kind=opts["kind"],
+                        dataset=opts["dataset"]).get("dataset")
+    key = split["key"]
+    subsets = {}
+    for r in range(repeats):
+        order = [pool[i] for i in np.random.default_rng([seed, r]).permutation(n)]
+        subsets[f"r{r}"] = {str(k): sorted(order[:k]) for k in resolved}
+    device = "cpu" if opts["cpu"] else select_device()
+    base_info = _resolve_base(base)
+    scorer_name = _scorer_name(scorer)
+    os.makedirs(long_path(out_dir / "models"), exist_ok=True)
+    record = {"format": 1, "pairs": str(pairs_dir), "sizes_requested": asked, "sizes": resolved,
+              "skipped_sizes": skipped, "repeats": repeats, "seed": seed, "keep_models": keep,
+              "scorer": scorer_name, "base_model": base_info, "device": device, "split": split,
+              "val_groups": split["val_groups"], "train_pool": pool, "subsets": subsets,
+              "settings": {k: opts[k] for k in ("epochs", "learning_rate", "weight_decay", "batch_size",
+                                                "min_train_masks", "split_by", "val_frac")},
+              "models": [], "best": None, "germquant_version": __version__,
+              "started": datetime.now(timezone.utc).isoformat(), "finished": None}
+    rows, best = record["models"], None
+    log.info("learning curve: sizes %s of %d training %s group(s), %d repeat(s), %d pair(s) held out -> %s",
+             resolved, n, split["by"], repeats, len(val), out_dir)
+    for k in resolved:
+        for r in range(repeats):
+            groups = subsets[f"r{r}"][str(k)]
+            chosen = set(groups)
+            train_pairs = [p for p in pool_pairs if str(p[key]) in chosen]
+            name = f"n{k:03d}_r{r}"
+            row = {c: None for c in CURVE_COLS}
+            row.update(size=k, size_label="all" if k == n else str(k), repeat=r, n_groups=len(groups),
+                       groups=";".join(groups), n_train=len(train_pairs), n_val=len(val), weights_kept=False,
+                       model=f"models/{name}/{name}", card=f"models/{name}/{name}.card.json")
+            t0 = time.perf_counter()
+            try:
+                fields = _card_fields(pairs_dir, train_pairs + val, sources, system=opts["system"],
+                                      kind=opts["kind"], dataset=data)
+                res = _train_model(pairs_dir, out_dir / "models" / name, name, train_pairs + val, train_pairs, val,
+                                   {**split, "train_groups": groups, "n_train": len(train_pairs)}, base=base_info,
+                                   device=device, fields=fields, epochs=opts["epochs"],
+                                   learning_rate=opts["learning_rate"], weight_decay=opts["weight_decay"],
+                                   batch_size=opts["batch_size"], min_train_masks=opts["min_train_masks"],
+                                   val_frac=opts["val_frac"], seed=seed)
+            except ValueError as e:      # every slice of this subset too thin to train: recorded, the curve goes on
+                log.warning("%s: not trained (%s)", name, e)
+                row.update(status="failed", error=str(e), elapsed_s=round(time.perf_counter() - t0, 1))
+                rows.append(row)
+                _write_curve(out_dir, record)
+                continue
+            overall = res["metrics"].get("overall") or {}
+            extra = None
+            if scorer is None:
+                score = _finite(overall.get("f1"))
+            else:
+                got = scorer(Path(res["model_path"]), list(val), device=device)
+                if not isinstance(got, dict) or "score" not in got:
+                    raise TypeError(f"the scorer {scorer_name} must return a dict with a 'score', got {got!r}")
+                score, extra = _finite(got["score"]), got.get("metrics")
+            better = score is not None and (best is None or score > best["score"])
+            keep_this = keep == "best" and better
+            if keep_this and best is not None and best["weights_kept"]:
+                _drop_weights(out_dir / best["model"])
+                best["weights_kept"] = False
+                card = _read_json(out_dir / best["card"])
+                _set_card_curve(out_dir / best["card"], {**card["curve"], "weights_kept": False})
+            if not keep_this:
+                _drop_weights(Path(res["model_path"]))
+            row.update(score=score, f1=_finite(overall.get("f1")), precision=_finite(overall.get("precision")),
+                       recall=_finite(overall.get("recall")), miss_rate=_finite(overall.get("miss_rate")),
+                       mean_matched_iou=_finite(overall.get("mean_matched_iou")), model_sha256=res["model_sha256"],
+                       model_size=int(res["card"]["model_size"]), weights_kept=keep_this,
+                       elapsed_s=round(time.perf_counter() - t0, 1),
+                       status="scored" if score is not None else "unscored", error=res["metrics"].get("error"))
+            curve = {"size": k, "size_label": row["size_label"], "repeat": r, "groups": groups,
+                     "scorer": scorer_name, "score": score, "weights_kept": keep_this, "curve": "curve.json"}
+            if extra is not None:
+                curve["metrics"] = extra
+            _set_card_curve(Path(res["card_path"]), curve)
+            if better:
+                best = row
+            rows.append(row)
+            record["best"] = best
+            _write_curve(out_dir, record)
+            log.info("%s: score %s (%s)%s", name, "n/a" if score is None else f"{score:.3f}", scorer_name,
+                     "; weights kept" if keep_this else "")
+    record["finished"] = datetime.now(timezone.utc).isoformat()
+    _write_curve(out_dir, record)
+    return {**record, "out": str(out_dir), "curve_csv": str(out_dir / "curve.csv"),
+            "curve_json": str(out_dir / "curve.json")}

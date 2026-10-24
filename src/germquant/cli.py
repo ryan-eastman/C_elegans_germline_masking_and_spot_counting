@@ -438,10 +438,11 @@ def main(argv: list[str] | None = None) -> int:
     prm.add_argument("--name", help="registry name (default: the card's name, else the file name)")
 
     _add_track_parsers(sub)
-    from . import cli_assemble, cli_packs
+    from . import cli_assemble, cli_packs, cli_training
 
     cli_packs.add_parsers(sub)                     # germquant pack ... (docs/PACKS.md)
     cli_assemble.add_parsers(sub)                  # germquant assemble (one TIFF per channel -> one OME-TIFF)
+    cli_training.add_parsers(sub)                  # germquant train-curve (docs/TRAINING.md)
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
@@ -450,6 +451,7 @@ def main(argv: list[str] | None = None) -> int:
     return {
         "pack": lambda: cli_packs.dispatch(args),
         "assemble": lambda: cli_assemble.dispatch(args),
+        **dict.fromkeys(cli_training.COMMANDS, lambda: cli_training.dispatch(args)),
         "info": lambda: _info(args.nd2),
         "run": lambda: _run(args),
         "batch": lambda: _batch(args),

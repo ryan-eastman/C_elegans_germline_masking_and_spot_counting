@@ -192,6 +192,185 @@ def test_card_dims_pixel_size_and_role_from_the_pairs(tmp_path, fake_cellpose): 
     assert "pixel_um_values" not in c3 and c3["object_kind"] == "nucleus"
 
 
+# ---- the learning curve ---------------------------------------------------------------------------------------
+
+@pytest.fixture
+def curve_seams(monkeypatch):
+    """Cellpose replaced: a model file that names its training size, and a predictor that finds one object per
+    two training pairs (all of them from 8 pairs on), so a larger subset scores higher."""
+    state: dict = {"lookup": {}, "written": {}, "trained": [], "present_at_train": []}
+
+    def build(base, device):
+        return "net"
+
+    def train_seg(net, **kw):
+        out = Path(kw["save_path"])
+        state["present_at_train"].append(sum(1 for p in out.parent.glob("*/*") if p.is_file() and p.suffix == ""
+                                             and p.name == p.parent.name))
+        p = out / "models" / kw["model_name"]
+        p.parent.mkdir(parents=True, exist_ok=True)
+        content = f"{kw['model_name']} n={len(kw['train_data'])}\n".encode("ascii") * 4
+        p.write_bytes(content)
+        state["written"][kw["model_name"]] = hashlib.sha256(content).hexdigest()
+        state["trained"].append((kw["model_name"], len(kw["train_data"]), len(kw["test_data"] or [])))
+        n = int(kw["n_epochs"])
+        return p, np.linspace(1.0, 0.5, n), np.linspace(0.9, 0.6, n)
+
+    def predict(model_path, images, device):
+        n = int(Path(model_path).read_bytes().split(b"n=")[1].split(b"\n")[0])
+        out = []
+        for img in images:
+            key = hashlib.sha256(np.ascontiguousarray(img, dtype=np.float32).tobytes()).hexdigest()
+            lab = state["lookup"][key].copy()
+            lab[lab > n // 2] = 0
+            out.append(lab)
+        return out
+
+    monkeypatch.setattr(TR, "_build_net", build)
+    monkeypatch.setattr(TR, "_train_seg", train_seg)
+    monkeypatch.setattr(TR, "_predict", predict)
+    return state
+
+
+GROUPS = [f"img{k}" for k in range(6)]
+
+
+def _curve(pairs, out, **kw):
+    args = {"sizes": [1, 2, 3, "all", 16], "repeats": 2, "seed": 5, "base": "none", "epochs": 1, "cpu": True,
+            "split_by": "image", "val_frac": 0.34, "min_train_masks": 1}
+    args.update(kw)
+    return TR.train_curve(pairs, out, **args)
+
+
+def test_subsets_nested_and_deterministic(tmp_path, curve_seams):
+    pairs = _write_pairs(tmp_path / "pairs", GROUPS, lookup=curve_seams["lookup"])
+    res = _curve(pairs, tmp_path / "curve")
+    curve = json.loads((tmp_path / "curve" / "curve.json").read_text(encoding="utf-8"))
+    _, val, split = TR.split_pairs(TR.load_pairs(pairs), by="image", val_frac=0.34, seed=5)
+    assert curve["val_groups"] == split["val_groups"] == res["val_groups"] and len(split["val_groups"]) == 2
+    pool = split["train_groups"]
+    assert curve["train_pool"] == pool and len(pool) == 4
+    assert curve["sizes"] == [1, 2, 3, 4] and curve["skipped_sizes"] == [16] and curve["repeats"] == 2
+    subsets = curve["subsets"]
+    assert sorted(subsets) == ["r0", "r1"]
+    for r in ("r0", "r1"):
+        s = subsets[r]
+        assert sorted(s) == ["1", "2", "3", "4"] and s["4"] == pool
+        for a, b in (("1", "2"), ("2", "3"), ("3", "4")):
+            assert set(s[a]) < set(s[b]) and len(s[a]) == int(a)          # nested: each subset holds the smaller
+    # every model trained on exactly its subset's pairs and was scored on the one validation set
+    rows = pd.read_csv(tmp_path / "curve" / "curve.csv", float_precision="round_trip")
+    assert len(rows) == 8 and list(rows[["size", "repeat"]].itertuples(index=False, name=None)) == \
+        [(k, r) for k in (1, 2, 3, 4) for r in (0, 1)]
+    assert list(rows["size_label"].astype(str)) == ["1", "1", "2", "2", "3", "3", "all", "all"]
+    val_files = sorted(Path(p["image"]).name for p in val)
+    for row in rows.to_dict("records"):
+        folder = tmp_path / "curve" / Path(row["card"]).parent
+        log = json.loads((folder / "training_log.json").read_text(encoding="utf-8"))
+        groups = subsets[f"r{row['repeat']}"][str(row["size"])]
+        assert row["groups"] == ";".join(groups) and row["n_groups"] == len(groups)
+        assert sorted({f.split("_xy_")[0] for f in log["train_files"]}) == groups
+        assert sorted(log["val_files"]) == val_files and row["n_val"] == len(val_files)
+        assert row["n_train"] == 2 * len(groups) and row["status"] == "scored"
+    assert [t[1:] for t in curve_seams["trained"]] == [(2 * k, 4) for k in (1, 2, 3, 4) for _r in (0, 1)]
+    assert rows["score"].is_monotonic_increasing and rows["score"].iloc[-1] == 1.0
+    # deterministic: the same seed gives the same subsets, scores and digests; the defaults keep no weights
+    _curve(pairs, tmp_path / "again")
+    again = json.loads((tmp_path / "again" / "curve.json").read_text(encoding="utf-8"))
+    assert again["subsets"] == subsets and again["val_groups"] == curve["val_groups"]
+    rows2 = pd.read_csv(tmp_path / "again" / "curve.csv", float_precision="round_trip")
+    for col in ("size", "repeat", "groups", "score", "f1"):
+        assert list(rows2[col]) == list(rows[col]), col
+    assert res["keep_models"] == "none" and res["scorer"] == "holdout_metrics"
+    # a curve needs a validation set and a size that fits the pool
+    one = _write_pairs(tmp_path / "one", ["solo"], lookup=curve_seams["lookup"])
+    with pytest.raises(ValueError, match="held out"):
+        _curve(one, tmp_path / "c1")
+    with pytest.raises(ValueError, match="sizes"):
+        _curve(pairs, tmp_path / "c2", sizes=[16, 32])
+    for bad in ([0], ["most"], [1.5]):
+        with pytest.raises(ValueError, match="sizes"):
+            _curve(pairs, tmp_path / "c3", sizes=bad)
+    with pytest.raises(ValueError, match="repeats"):
+        _curve(pairs, tmp_path / "c4", repeats=0)
+    with pytest.raises(ValueError, match="keep_models"):
+        _curve(pairs, tmp_path / "c5", keep_models="all")
+    with pytest.raises(TypeError, match="sizes_per_image"):
+        _curve(pairs, tmp_path / "c6", sizes_per_image=3)
+
+
+def test_keep_models_none_and_best(tmp_path, curve_seams):
+    pairs = _write_pairs(tmp_path / "pairs", GROUPS, lookup=curve_seams["lookup"])
+    res = _curve(pairs, tmp_path / "none", sizes=[1, "all"], keep_models="none")
+    rows = pd.read_csv(tmp_path / "none" / "curve.csv", float_precision="round_trip")
+    assert len(rows) == 4 and not rows["weights_kept"].any()
+    for row in rows.to_dict("records"):
+        card_path = tmp_path / "none" / row["card"]
+        card = _card(card_path)
+        name = card["name"]
+        assert not (tmp_path / "none" / row["model"]).exists()          # no weights
+        assert (card_path.parent / "training_log.json").is_file()        # the log and the card stay
+        assert card["model_sha256"] == row["model_sha256"] == curve_seams["written"][name]
+        assert card["model_size"] == row["model_size"] > 0
+        assert card["holdout_metrics"]["overall"]["f1"] == row["f1"] == row["score"]
+        assert card["curve"] == {"size": row["size"], "size_label": str(row["size_label"]), "repeat": row["repeat"],
+                                 "groups": row["groups"].split(";"), "scorer": "holdout_metrics",
+                                 "score": row["score"], "weights_kept": False, "curve": "curve.json"}
+    assert res["best"]["size"] == 4 and res["best"]["repeat"] == 0 and res["best"]["weights_kept"] is False
+    # best: one model stays, the highest score (ties keep the earlier model), never more than two on disk
+    curve_seams["present_at_train"].clear()
+    res = _curve(pairs, tmp_path / "best", sizes=[1, 2, "all"], keep_models="best")
+    rows = pd.read_csv(tmp_path / "best" / "curve.csv", float_precision="round_trip")
+    kept = rows[rows["weights_kept"]]
+    assert len(kept) == 1 and (kept["size"].iloc[0], kept["repeat"].iloc[0]) == (4, 0)
+    weights = [p for p in (tmp_path / "best" / "models").glob("*/*") if p.name == p.parent.name]
+    assert [p.parent.name for p in weights] == [kept["model"].iloc[0].split("/")[1]]
+    assert _sha(weights[0]) == kept["model_sha256"].iloc[0]
+    for row in rows.to_dict("records"):
+        assert _card(tmp_path / "best" / row["card"])["curve"]["weights_kept"] is bool(row["weights_kept"])
+    assert max(curve_seams["present_at_train"]) <= 1
+    assert res["best"]["model"] == kept["model"].iloc[0] and res["best"]["weights_kept"] is True
+    # a scorer seam decides instead, and its name is recorded (P7's end-to-end scorer plugs in here)
+    seen = []
+
+    def smallest_first(model_path, val, *, device):
+        seen.append((Path(model_path).name, len(val), device))
+        n = int(Path(model_path).read_bytes().split(b"n=")[1].split(b"\n")[0])
+        return {"score": -float(n), "metrics": {"n_train_pairs": n}}
+
+    smallest_first.name = "smallest_first"
+    res = _curve(pairs, tmp_path / "scored", sizes=[1, "all"], repeats=1, keep_models="best", scorer=smallest_first)
+    assert res["scorer"] == "smallest_first" and [s[1:] for s in seen] == [(4, "cpu"), (4, "cpu")]
+    rows = pd.read_csv(tmp_path / "scored" / "curve.csv", float_precision="round_trip")
+    assert list(rows["score"]) == [-2.0, -8.0] and list(rows["weights_kept"]) == [True, False]
+    card = _card(tmp_path / "scored" / rows["card"].iloc[0])
+    assert card["curve"]["scorer"] == "smallest_first" and card["curve"]["metrics"] == {"n_train_pairs": 2}
+    assert json.loads((tmp_path / "scored" / "curve.json").read_text(encoding="utf-8"))["scorer"] == "smallest_first"
+
+
+def test_train_curve_command(tmp_path, curve_seams, capsys):
+    # six objects per pair: the command trains with train-nuclei's defaults (min_train_masks 5)
+    pairs = _write_pairs(tmp_path / "pairs", GROUPS, n_objects=6, lookup=curve_seams["lookup"])
+    capsys.readouterr()
+    assert cli.main(["train-curve", "--pairs", str(pairs), "--out", str(tmp_path / "c"), "--sizes", "1,all",
+                     "--repeats", "1", "--seed", "3", "--base", "none", "--keep-models", "best", "--json"]) == 0
+    rec = json.loads(capsys.readouterr().out)
+    assert [m["size_label"] for m in rec["models"]] == ["1", "all"] and rec["keep_models"] == "best"
+    assert rec["curve_csv"] == str(tmp_path / "c" / "curve.csv") and Path(rec["curve_json"]).is_file()
+    assert sum(bool(m["weights_kept"]) for m in rec["models"]) == 1
+    assert cli.main(["train-curve", "--pairs", str(pairs), "--out", str(tmp_path / "d"), "--sizes", "1",
+                     "--repeats", "1", "--base", "none"]) == 0
+    text = capsys.readouterr().out
+    assert "curve.csv" in text and "size 1" in text
+    one = _write_pairs(tmp_path / "one", ["solo"], n_objects=6, lookup=curve_seams["lookup"])
+    assert cli.main(["train-curve", "--pairs", str(one), "--out", str(tmp_path / "e"), "--base", "none"]) == 2
+    assert "held out" in capsys.readouterr().err
+    assert cli.main(["train-curve", "--pairs", str(pairs), "--out", str(tmp_path / "f"), "--sizes", "1,x",
+                     "--base", "none"]) == 2
+    with pytest.raises(SystemExit):
+        cli.main(["train-curve", "--pairs", str(pairs), "--out", str(tmp_path / "g"), "--keep-models", "all"])
+
+
 # ---- the real base, once on the workstation ------------------------------------------------------------------
 
 @pytest.mark.skipif(not os.environ.get("GERMQUANT_TRAIN_CARD_BASE"),
