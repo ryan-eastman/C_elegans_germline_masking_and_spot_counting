@@ -36,6 +36,7 @@ from packs_helpers import (  # noqa: F401  (pack_env is a fixture)
     TEST_PACK,
     TINYNET,
     TINYNET_BYTES,
+    copy_pack,
     pack_env,
     patch_nd2_reader,
     small_stack,
@@ -46,6 +47,7 @@ from germquant import cli, cli_packs, packs
 from germquant import models_registry as MR
 from germquant.config import load_config
 from germquant.fsutil import long_path
+from germquant.packs import install as PI
 from germquant.segment import backends as SB
 
 MODEL_BYTES = b"germquant test: a stand-in for a model trained in a project, not weights\n"
@@ -329,7 +331,7 @@ def test_project_option_on_list_show_check_and_fetch_models(trained, capsys):
 
 # ---- refusals and a second derive -----------------------------------------------------------------------------
 
-def test_derive_again_is_a_no_op_and_refusals_write_nothing(trained, tmp_path, capsys):
+def test_derive_again_is_a_no_op_and_refusals_write_nothing(trained, tmp_path, monkeypatch, capsys):
     t = trained
     base = ["pack", "derive", "--model", str(t.model), "--card", str(t.card), "--out", str(t.packs)]
 
@@ -350,6 +352,28 @@ def test_derive_again_is_a_no_op_and_refusals_write_nothing(trained, tmp_path, c
              "--card", str(wrong), "--out", str(t.packs)], "model_sha256")
     refused([*base[:-1], str(ROOT / "packs"), "--from", "test_pack@0.1.0", "--recipe", "with_model"],
             "the engine's own packs folder")
+    # an install check that refuses the derived pack only: derive puts its staged pack through every install
+    # check before it writes, so neither the parent's copy nor the blob is left behind
+    check = PI.check_installable
+
+    def picky(folder):
+        pack = check(folder)
+        if pack.id == DERIVED:
+            raise packs.PackInstallError("simulated install refusal")
+        return pack
+
+    monkeypatch.setattr(PI, "check_installable", picky)
+    refused([*base, "--from", "test_pack@0.1.0", "--recipe", "with_model"], "would not install: simulated")
+    monkeypatch.setattr(PI, "check_installable", check)
+    # a folder where the parent's copy would go that holds something else: vendor would refuse it after the
+    # blob was placed, so derive refuses it first
+    odd = tmp_path / "odd"
+    (odd / "test_pack" / "0.1.0").mkdir(parents=True)
+    (odd / "test_pack" / "0.1.0" / "notes.txt").write_text("not a pack\n", encoding="ascii")
+    refused([*base[:-1], str(odd), "--from", "test_pack@0.1.0", "--recipe", "with_model"],
+            "holds something other than a copy of test_pack@0.1.0")
+    assert sorted(p.relative_to(odd).as_posix() for p in odd.rglob("*")) == [
+        "test_pack", "test_pack/0.1.0", "test_pack/0.1.0/notes.txt"]
     assert not t.packs.exists() and not t.env.blobs.exists()                  # nothing was written
     assert not (ROOT / "packs" / DERIVED).exists()
     capsys.readouterr()
@@ -403,7 +427,7 @@ def test_a_model_past_the_windows_path_limit_derives(trained):
         shutil.rmtree(long_path(top), ignore_errors=True)       # pytest's own cleanup cannot remove such a tree
 
 
-def test_where_the_derived_pack_goes(trained, tmp_path, capsys):
+def test_where_the_derived_pack_goes(trained, tmp_path, monkeypatch, capsys):
     t = trained
     # the per-user folder, which discovery always searches (it is named packs, like a project's folder)
     assert _derive(t, "--json", out=packs.user_packs_dir()) == 0
@@ -417,6 +441,19 @@ def test_where_the_derived_pack_goes(trained, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "warning:" in out and "is not a folder this engine searches for packs" in out
     assert packs.verify_pack(tmp_path / "somewhere" / DERIVED / "0.1.0") == []
+    # a $GERMQUANT_PACKS folder named packs, holding the parent as a pack under development (<root>/<id>/
+    # pack.yaml, which a project's folder would not list): searched as what it is, so the parent is found there
+    lab = tmp_path / "lab" / "packs"
+    copy_pack(TEST_PACK, lab / "test_pack")
+    monkeypatch.setenv("GERMQUANT_PACKS", str(lab))
+    packs.refresh()
+    assert packs.find_pack("test_pack@0.1.0").folder == lab / "test_pack"
+    assert _derive(t, "--json", out=lab) == 0
+    rec = json.loads(capsys.readouterr().out)
+    assert rec["where"] == "searched" and Path(rec["folder"]) == lab / DERIVED / "0.1.0"
+    assert rec["parent"] == {"pack": "test_pack@0.1.0", "folder": str(lab / "test_pack"), "copied": False}
+    found = [p for p in packs.list_packs() if p["id"] == DERIVED]       # $GERMQUANT_PACKS before the user folder
+    assert Path(found[0]["folder"]) == lab / DERIVED / "0.1.0" and found[0]["source"] == "GERMQUANT_PACKS"
 
 
 # ---- the version features (I4) --------------------------------------------------------------------------------

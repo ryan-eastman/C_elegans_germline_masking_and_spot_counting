@@ -23,19 +23,23 @@ discovery reads (``<project>/packs/``, a $GERMQUANT_PACKS folder or the per-user
 
 The parent version is copied beside the derived pack (packs.vendor, as a new project copies it), so the derived
 recipe keeps resolving after an engine update moves the parent's built-in version (section 3.8). The model goes
-into the model store at ``models_dir()/blobs/<sha256>/<file_name>`` (hard-linked when the disk allows), with its
-verification record, where the pack-model lookup and the pin check find it. The pack is built in a staging
-folder and installed through packs.install_pack, so it passes the install checks or is not written; the same
-inputs give the same bytes, so deriving again is a no-op. Nothing is written before every check has passed.
+into the model store at ``models_dir()/blobs/<sha256>/<file_name>``, with its verification record, where the
+pack-model lookup and the pin check find it; the store's copy is a hard link to the training file when the disk
+allows, so that file is to be replaced, never overwritten in place. The pack is built in a staging folder, put
+through every check of packs.install_pack (install.check_installable), and installed through it; the same
+inputs give the same bytes, so deriving again is a no-op. Nothing is written before every check has passed. If
+a write itself fails (a full disk, a path too long for Windows), the model in the store and the parent's copy
+may stay; the next derive reuses them.
 
 Refused: a parent recipe that never runs a Cellpose model (segmentation.nuclei.method classical, labels from
 files, or another segmentation backend); a parent recipe that does not load or no longer hashes to its expected
 value; a card whose model_sha256 or model_size is not the file's; an id that breaks the pack id pattern or is
-the parent's; a DIR that already holds the id and version with other content; a DIR inside the engine's own
-packs folder or inside a pack.
+the parent's; a DIR that already holds the id and version, or the parent's, with other content or damaged; a
+DIR inside the engine's own packs folder or inside a pack.
 
-While deriving, a DIR named ``packs`` is searched first, as a project's packs folder is while the project is
-open (packs.use_project on its parent folder), so a parent that only the project holds is found there.
+While deriving, a DIR named ``packs`` that discovery does not search anyway (not a $GERMQUANT_PACKS folder or
+the per-user folder) is searched first, as a project's packs folder is while the project is open
+(packs.use_project on its parent folder), so a parent that only the project holds is found there.
 
 Torch-free (gate G6): this module reads YAML and JSON, hashes and copies files, and loads configs, like the rest
 of germquant.packs.
@@ -224,10 +228,18 @@ def _guard_out(out: Path) -> None:
                                   f"(<project>/packs, for example)")
 
 
+def _named_packs(out: Path) -> bool:
+    """Whether DIR is named ``packs``, as a project's packs folder is (case-blind on Windows, as os.path.normcase
+    is there)."""
+    return os.path.normcase(out.name) == "packs"
+
+
 @contextlib.contextmanager
 def _searching(out: Path):
-    """Discovery searches DIR first while deriving when DIR is named ``packs`` (a project's packs folder)."""
-    if out.name.lower() == "packs":
+    """Discovery searches DIR first while deriving when DIR is a project's packs folder: named ``packs`` and not
+    a folder discovery searches anyway ($GERMQUANT_PACKS or the per-user folder, whose packs under development,
+    ``DIR/<id>/pack.yaml``, a project's folder would not list)."""
+    if _named_packs(out) and _where(out) != "searched":
         from .discovery import use_project
 
         with use_project(out.parent):
@@ -335,7 +347,10 @@ def _readme(new_ref: str, parent: Pack, recipe_id: str, model_name: str, sha: st
 
 def _store_model(model: Path, spec: ModelSpec, pack_ref: str) -> dict:
     """Put the model into the store at its blob path (a hard link when the disk allows, else a copy), check it,
-    and record it; a blob already there and verified is kept. The verification record only saves a re-hash, so
+    and record it; a blob already there and verified is kept. A hard link shares its bytes with the training
+    file, which saves the model's size on disk (about 1.2 GB for a Cellpose-SAM fine-tune): train-nuclei
+    replaces its file (os.replace), and docs/PACKS.md says never to overwrite that file in place, since the pin
+    check would then refuse the store's copy too. The verification record only saves a re-hash, so
     a store that cannot keep it (read-only, or a path past Windows' length limit) costs that and nothing else,
     as for fetch-models (blobs._save_record)."""
     from .blobs import _place, _save_record, check_blob, model_location
@@ -364,7 +379,7 @@ def _where(out: Path) -> str:
     real = os.path.realpath(out)
     if any(os.path.realpath(r) == real for kind, r in pack_roots() if kind != "project"):
         return "searched"
-    return "project" if out.name.lower() == "packs" else "not searched"
+    return "project" if _named_packs(out) else "not searched"
 
 
 def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | Path, out: str | Path, *,
@@ -380,10 +395,9 @@ def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | 
     from ..models_registry import validate_card
     from .discovery import ROOT_BUILTIN, discover, refresh
     from .format import build_sums_text
-    from .install import install_pack, vendor
+    from .install import PackInstallError, check_installable, install_pack, vendor
     from .lint import _inside
     from .status import engine_files_problems
-    from .validate import validate_pack
 
     out = Path(os.path.abspath(out))
     model, card_path = Path(model), Path(card)
@@ -480,9 +494,10 @@ def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | 
             _write(stage / "README.md", _readme(new_ref, par, r.id, model_name, sha, size, card_rel, dcfg.hash,
                                                 licence, kept))
             _write(stage / SUMS_FILE, build_sums_text(stage))
-            faults = validate_pack(load_pack_folder(stage, source="path"))
-            if faults:
-                raise PackDeriveError("the derived pack has faults: " + "; ".join(faults))
+            try:
+                check_installable(stage)          # every install check (validate_pack too), before any write
+            except PackInstallError as e:
+                raise PackDeriveError(f"the derived pack would not install: {e}") from e
             dest = out / new_id / DERIVED_VERSION
             present = dest.exists()
             if present and sums_sha256(dest) != sums_sha256(stage):
@@ -491,6 +506,14 @@ def derive_pack(parent: str, recipe: str | None, model: str | Path, card: str | 
             if present and verify_sums(dest):
                 raise PackDeriveError(f"the copy of {new_ref} at {dest} no longer matches its SHA256SUMS "
                                       f"({verify_sums(dest)[0]}): remove it and derive again")
+            here = out / par.id / par.version          # where vendor copies the parent, unless DIR holds it
+            if not inside and here.exists():           # vendor's install checks, before any write
+                if sums_sha256(here) != sums_sha256(par.folder):
+                    raise PackDeriveError(f"{here} holds something other than a copy of {par.ref}: move it away, or "
+                                          f"derive into another folder")
+                if verify_sums(here):
+                    raise PackDeriveError(f"the copy of {par.ref} at {here} no longer matches its SHA256SUMS "
+                                          f"({verify_sums(here)[0]}): remove it and derive again")
             # every check passed: the model, the parent's copy, then the derived pack
             stored = _store_model(model, spec, new_ref)
             parent_folder = par.folder if inside else vendor(par.id, par.version, out)

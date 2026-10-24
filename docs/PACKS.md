@@ -295,10 +295,13 @@ model's sha256 (`--id NEW_ID` names it instead):
 
 A copy of the parent version is written beside it (`PROJECT/packs/test_pack/0.1.0/`), as a new project copies
 it, so the derived recipe still resolves after an engine update moves the parent's built-in version. The model
-goes into the model store, `models_dir()/blobs/<sha256>/<file>` (hard-linked when the disk allows), with its
-verification record, where a run of the derived recipe finds it and checks its pin. Nothing is written before
-every check has passed, the pack goes in through the same checks as `pack install`, and deriving again with
-the same inputs changes nothing.
+goes into the model store, `models_dir()/blobs/<sha256>/<file>`, with its verification record, where a run of
+the derived recipe finds it and checks its pin. When the disk allows, the store's copy is a hard link to the
+training file: replace that file, never overwrite it in place (`germquant train-nuclei` replaces it; a `cp` or
+`rsync --inplace` onto it would change the store's copy too, and the pin check would then refuse it). The
+pack goes through the same checks as `pack install`, and nothing is written before every check has passed. If
+a write itself fails (a full disk, a path too long for Windows), the model in the store and the parent's copy
+may stay; the next derive reuses them. Deriving again with the same inputs changes nothing.
 
 `--out` is a folder of packs: a project's `packs/` (searched while the project is open or running, and with
 `--project PROJECT`), a `$GERMQUANT_PACKS` folder or the per-user folder (always searched). For any other folder
@@ -306,8 +309,9 @@ the command warns that nothing searches it. The engine's own packs/ folder and a
 refused. So are, each with the reason and the fix: a parent recipe that never runs a Cellpose model
 (`segmentation.nuclei.method: classical`, labels from files, or another segmentation backend), a parent recipe
 that does not load or no longer hashes to its expected value, a card whose model_sha256 or model_size is not the
-file's, an id that is not a pack id or is the parent's or a built-in pack's, and a folder that already holds the
-id and version with other content (derive with another `--id`). A refusal exits with code 1.
+file's, an id that is not a pack id or is the parent's or a built-in pack's, a folder that already holds the
+id and version with other content (derive with another `--id`), and a folder whose copy of the parent version
+holds other content or no longer matches its SHA256SUMS. A refusal exits with code 1.
 
 `--json` prints the record: `ok`, `status` (derived, or already present), `pack`, `id`, `version`, `folder`,
 `recipe`, `extends`, `config_hash`, `parent` {pack, folder, copied}, `model` {name, file_name, sha256, size, blob,
