@@ -52,12 +52,13 @@ def dispatch(args) -> int:
 
 
 def _train_curve(args) -> int:
+    from .models_registry import ModelPinError
     from .segment.training import parse_sizes, train_curve
 
     try:
         res = train_curve(args.pairs, args.out, sizes=parse_sizes(args.sizes), repeats=args.repeats,
                           seed=args.seed, base=args.base, keep_models=args.keep_models)
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, ModelPinError) as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
     if args.json:

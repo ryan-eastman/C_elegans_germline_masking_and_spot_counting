@@ -181,8 +181,8 @@ Mac:
   scorer, settings), every row and the best model.
 - Every model is a full training (150 epochs). The command uses train-nuclei's defaults; from Python,
   `train_curve(..., epochs=..., split_by=..., val_frac=..., cpu=..., min_train_masks=...)` changes them.
-- It exits with code 2, and trains nothing, when the pairs cannot make a curve (a single group, no size that fits,
-  an unknown base).
+- It exits with code 2, and trains nothing, when the pairs cannot make a curve (a single group, no size that fits)
+  or the base cannot be used (an unknown base, or a pinned base whose weights fail the pin check).
 
 ## 7. Use the model in the project
 

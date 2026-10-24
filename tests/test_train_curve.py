@@ -1,16 +1,18 @@
 """The model card fields and the learning curve (docs/TRAINING.md, steps 5 and 6; design sections 3.6 and 10;
 P5 acceptance 10, the card and curve half).
 
-* train-nuclei's card adds kind, dims, pixel_um, object_kind, system, pack {id, version, recipe}, segmented_role,
-  source_url and, with --dataset, dataset {id, licence, split_sha256}. The CI card test trains with --base
-  tinynet@f5055f8a, the test pack's 64-byte stand-in, resolved through the blob store as
+* train-nuclei's card adds kind, dims, pixel_um, object_kind, system, pack {id, version, recipe} (with edited
+  true for a project's edited recipe), segmented_role, source_url and, with --dataset, dataset {id, licence,
+  split_sha256}; the command passes the three card options on only when they are given (D40). The CI card test
+  trains with --base tinynet@f5055f8a, the test pack's 64-byte stand-in, resolved through the blob store as
   tests/test_packs_models.py::test_train_base_resolves_a_pack_model does; the pairs come from two test pack runs.
   The same seamed command with --base cpsam_v2@0f1cc3f7 and the workstation's model store is opt-in
   (GERMQUANT_TRAIN_CARD_BASE), because CI cannot hold the 1.2 GB blob.
 * train-curve holds one validation set out, trains nested, seeded subsets of the remaining groups (sizes by
   group, repeats with their own seeded order), scores each model on the held-out pairs right after training
   (the hold-out metrics, or a scorer= seam) and keeps cards, metrics and digests; --keep-models none keeps no
-  weights, best keeps one model.
+  weights, best keeps one model. A subset too thin to train is recorded as failed and the curve goes on; a base
+  whose weights fail their pin is refused with exit 2.
 
 The Cellpose seams (_build_net, _train_seg, _predict) are replaced throughout, as tests/test_training_loop.py does.
 """
@@ -440,3 +442,69 @@ def test_card_pack_and_object_kind_from_the_run_records(tmp_path, pack_env, monk
     records(lambda i, p: {**p, **cell, "recipe": "cells"} if i == 0 else {**p, "id": "test_pack", "recipe": "basic",
                                                                          "object_kind": "nucleus"})
     assert card("mixed")["object_kind"] == "nucleus"
+
+
+def test_the_command_passes_the_card_options_only_when_given(tmp_path, monkeypatch, capsys):
+    """D40: train-nuclei hands --system, --kind and --dataset to train_nuclei only when they are given, so a call
+    without them is the call the command made before. Its summary line says what the card says, every value
+    when the pairs differ."""
+    calls = []
+    card = {"dims": "2d+3d", "object_kind": "cell", "pixel_um": None, "pixel_um_values": [0.25, 0.5],
+            "segmented_role": None, "segmented_roles": ["dna", "nuclei"],
+            "pack": {"id": "p", "version": "0.1.0", "recipe": "r", "edited": True}}
+
+    def fake(pairs, out, **kw):
+        calls.append(kw)
+        return {"name": "m", "split": {"n_train": 2, "train_groups": ["a"], "by": "image", "n_val": 1,
+                                       "val_groups": ["b"]},
+                "device": "cpu", "metrics": {}, "model_path": str(tmp_path / "m"), "model_sha256": "0" * 64,
+                "card_path": str(tmp_path / "m.card.json"), "card": card}
+
+    monkeypatch.setattr(TR, "train_nuclei", fake)
+    argv = ["train-nuclei", "--pairs", str(tmp_path), "--out", str(tmp_path / "m")]
+    assert cli.main(argv) == 0
+    assert set(calls[0]) == {"base", "name", "epochs", "split_by", "val_frac", "seed", "cpu", "learning_rate",
+                             "batch_size", "min_train_masks"}
+    assert cli.main(argv + ["--system", "budding yeast", "--kind", "cell", "--dataset", "ds1"]) == 0
+    assert {k: calls[1][k] for k in ("system", "kind", "dataset")} == {"system": "budding yeast", "kind": "cell",
+                                                                        "dataset": "ds1"}
+    out = capsys.readouterr().out
+    assert "card says: 2d+3d cell model, pixel [0.25, 0.5] um, segmented role ['dna', 'nuclei'], pack " \
+           "p@0.1.0/r (edited)" in out
+
+
+# ---- the curve: a subset too thin to train; a base that fails its pin --------------------------------------------
+
+def test_a_subset_too_thin_to_train_is_recorded_and_the_curve_goes_on(tmp_path, curve_seams):
+    pairs = _write_pairs(tmp_path / "pairs", GROUPS, n_objects=6, lookup=curve_seams["lookup"])
+    _, _, split = TR.split_pairs(TR.load_pairs(pairs), by="image", val_frac=0.34, seed=5)
+    rich = split["train_groups"][0]
+    for p in TR.load_pairs(pairs):              # every other training group: one object per pair, below 5
+        if p["image_id"] in split["train_groups"] and p["image_id"] != rich:
+            tifffile.imwrite(p["labels"], _square_labels((24, 24), 1))
+    res = _curve(pairs, tmp_path / "c", sizes=[1, "all"], repeats=3, keep_models="best", min_train_masks=5)
+    rows = res["models"]
+    failed = [m for m in rows if m["status"] == "failed"]
+    assert failed and all(m["size_label"] == "1" and "min_train_masks=5" in m["error"] for m in failed)
+    assert len(rows) == 6 and all(m["status"] == "scored" for m in rows if m["size_label"] == "all")
+    assert all(m["weights_kept"] is False and not (tmp_path / "c" / m["model"]).exists() for m in failed)
+    csv = pd.read_csv(tmp_path / "c" / "curve.csv")
+    assert list(csv["status"]) == [m["status"] for m in rows]
+
+
+def test_a_base_whose_weights_fail_the_pin_is_refused_with_exit_2(tmp_path, pack_env, monkeypatch, curve_seams,  # noqa: F811
+                                                                   capsys):
+    use_fixture_packs(monkeypatch)
+    good = tmp_path / "t.bin"
+    good.write_bytes(TINYNET_BYTES)
+    packs.fetch_pack_models("test_pack", "with_model", {TINYNET: good})
+    blob = pack_env.blobs / TINYNET_SHA / "tinynet"
+    os.chmod(blob, 0o644)
+    blob.write_bytes(TINYNET_BYTES[::-1])                     # other weights of the same size: not the pinned model
+    pairs = _write_pairs(tmp_path / "pairs", GROUPS, n_objects=6, lookup=curve_seams["lookup"])
+    capsys.readouterr()
+    assert cli.main(["train-curve", "--pairs", str(pairs), "--out", str(tmp_path / "c"), "--sizes", "1",
+                     "--repeats", "1", "--base", TINYNET]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("REFUSED: ") and "pin" in err
+    assert curve_seams["trained"] == [] and not (tmp_path / "c").exists()       # nothing trained or written

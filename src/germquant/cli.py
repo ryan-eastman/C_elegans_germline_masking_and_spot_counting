@@ -1134,8 +1134,9 @@ def _train_nuclei(args) -> int:
     res = train_nuclei(args.pairs, args.out, base=args.base, name=args.name, epochs=args.epochs,
                        split_by=args.split_by, val_frac=args.val_frac, seed=args.seed, cpu=args.cpu,
                        learning_rate=args.learning_rate, batch_size=args.batch_size,
-                       min_train_masks=args.min_train_masks, system=args.system, kind=args.kind,
-                       dataset=args.dataset)
+                       min_train_masks=args.min_train_masks,
+                       **{k: v for k, v in (("system", args.system), ("kind", args.kind), ("dataset", args.dataset))
+                          if v is not None})                # the card options only when given (D40)
     sp = res["split"]
     print(f"\n{res['name']}: trained on {sp['n_train']} slice(s) from {len(sp['train_groups'])} {sp['by']} group(s), "
           f"{sp['n_val']} held out from {len(sp['val_groups'])}, device {res['device']}")
@@ -1152,9 +1153,13 @@ def _train_nuclei(args) -> int:
     print(f"  card  -> {res['card_path']}")
     card = res["card"]
     pack = card.get("pack")
-    pack_text = f"{pack['id']}@{pack['version']}/{pack['recipe']}" if pack else "none"
-    print(f"  card says: {card.get('dims')} {card.get('object_kind')} model, pixel {card.get('pixel_um')} um, "
-          f"segmented role {card.get('segmented_role')}, pack {pack_text}")
+    pack_text = "none" if not pack else (f"{pack['id']}@{pack['version']}/{pack['recipe']}"
+                                         + (" (edited)" if pack.get("edited") else ""))
+    # one value, or every value when the pairs differ (the card's pixel_um_values and segmented_roles)
+    pixel = card.get("pixel_um") if card.get("pixel_um") is not None else card.get("pixel_um_values")
+    role = card.get("segmented_role") if card.get("segmented_role") is not None else card.get("segmented_roles")
+    print(f"  card says: {card.get('dims')} {card.get('object_kind')} model, pixel {pixel} um, "
+          f"segmented role {role}, pack {pack_text}")
     print(f"  register it:  germquant register-model --model \"{res['model_path']}\" --card \"{res['card_path']}\"")
     return 0
 
