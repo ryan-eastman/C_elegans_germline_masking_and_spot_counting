@@ -1172,3 +1172,32 @@ Entries are appended, never edited. Each one says whether a test result had been
    entry 11 (b). No length, continuity or intensity column changes: the class of a strand that fails the guard
    becomes partial instead of complete, and with it n_complete and n_partial, complete_nucleus and
    total_length_complete_um; no input of S2 depends on the class.
+24. 2026-10-24, the v2 development round (complete guard choice; junction re-pairing), written before any
+   confirmation number of the complete guard was computed (no test result had been computed, no test or reserved
+   image was run, no test or reserved truth was read and no sealed seed was generated). The rule of entry 23 on the
+   tuning seeds (commit 5a3481b, every registered family;
+   C:/Users/ryane/sc_ribbon_work/v2/logs/step7_5a3481b_tuning_s7_f10.json, _f15.json and _f20.json): pooled S1e
+   precision 0.893 in v1 and 0.925, 0.939 and 0.943 with classes.complete_guard_fwhm 1.0, 1.5 and 2.0; dense
+   precision 0.649 and 0.696, 0.674 and 0.643; no value reaches 0.85 on dense, so the rule sets 2.0. Complete recall
+   at 2.0 against v1: iso 0.95 and 0.95, gaps 0.28 and 0.28, foci 1.00 and 1.00, pairs 0.585 and 0.33, dense 0.091
+   and 0.033, snr 0.082 and 0.040; the tolerances of entry 11 (b) held at every value. The junction re-pairing of
+   PLAN_V2.md step 8 (the trigger holds: dense S1b SD 8.59 percent and CCC 0.535 on the tuning seeds) was
+   implemented as the plan states it, with three additions that keep the traced strands where the pairing agrees
+   with them (a pair that restores the traced continuation keeps the traced points of the zone; an unpaired branch
+   where the strand itself ended in the zone keeps its traced end; any other unpaired branch runs straight on along
+   its direction to the point closest to the other strands of the zone and ends contact), and run on the design
+   seeds (2000 to 2049 and 3000 to 3049, the dense family) with code that was never committed
+   (C:/Users/ryane/sc_ribbon_work/v2/logs/dev/): with link.turn_cost_per_deg 1.0 and link.offset_cost 40, turns and
+   end-to-end joins went from 2.34 and 2.44 to 2.36 and 2.64 per nucleus (at least 30 percent fewer required), the
+   dense S1b SD from 8.09 and 9.02 to 7.98 and 8.62 percent and the CCC from 0.579 and 0.594 to 0.555 and 0.603; at
+   the corners of the grid (1.5 and 80, 0.75 and 20) and with the turn of a pair limited to 50 or 30 degrees, turns
+   and joins changed by -1 to +13 percent. The re-pairing joined pieces across zones (breaks before the end matching
+   4.06 and 4.16 to 3.68 and 3.60 per nucleus) but made switches there (through-switches before the end matching
+   0.58 and 0.66 to 0.96 and 1.10), and the turns and joins of the final strands are mostly made after it, by the
+   end matching. The junction re-pairing is therefore not proposed and no entry of the round carries it. The
+   configuration proposed for this round is therefore v1 with the complete guard at 2.0 FWHM, every other v2 switch
+   at its v1 value; the guard is confirmed once now, on the confirmation seeds (11000 to 11099, every registered
+   family) against v1, by the targeted metrics and tolerances of entry 23, with the cost rule on
+   n2rad51_noHS_herm_000. Z2 is not run: no decomposition change was adopted and no input of S2 depends on the
+   strand class, so the S2 inputs of the proposed configuration are those of development trial 4. Step 9 does not
+   apply (entry 20: no probe feature reproduced a real symptom), so Z3 is not run either.
