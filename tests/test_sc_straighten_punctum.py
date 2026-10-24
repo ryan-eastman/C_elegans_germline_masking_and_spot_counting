@@ -180,3 +180,18 @@ def test_real_dense_calibration_argument_and_a_draw_without_ribbons():
     assert np.array_equal(t.labels, b.labels)
     with pytest.raises(ValueError):
         synth_dev.real_dense_scene(2003, calib={"nonsense": 1.0})
+
+
+def test_recalibrated_real_dense_families():
+    # protocol changelog entry 28 (d): the scenes of entry 19 with the recalibrated features; the base is the same
+    # scene, and a latent texture of 0 leaves the texture variant equal to it
+    assert synth_dev.REAL_DENSE_CALIB_R2["texture_rel_excess_var"] == 0.0
+    base = synth_dev.make_scene("real_dense_base", 2002).channels["central_element"]
+    assert np.array_equal(synth_dev.make_scene("real_dense_r2_base", 2002).channels["central_element"], base)
+    assert np.array_equal(synth_dev.make_scene("real_dense_r2_texture", 2002).channels["central_element"], base)
+    b1 = synth_dev.make_scene("real_dense_brightness", 2002).channels["central_element"]
+    b2 = synth_dev.make_scene("real_dense_r2_brightness", 2002)
+    assert not np.array_equal(b2.channels["central_element"], b1)
+    assert b2.info["calib"]["brightness_var_log"] == synth_dev.REAL_DENSE_CALIB_R2["brightness_var_log"]
+    with pytest.raises(synth.SealedSeedError):
+        synth_dev.make_scene("real_dense_r2", 7_000_000)

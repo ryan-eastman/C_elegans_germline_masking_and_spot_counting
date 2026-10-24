@@ -21,6 +21,9 @@ entry 27): these families have no sealed seeds.
   ``real_dense`` has all four; ``real_dense_base``, ``real_dense_psf``, ``real_dense_brightness``,
   ``real_dense_texture`` and ``real_dense_puncta`` have none or one. Each feature draws from its own random
   stream, so the geometry, the noise draws and the other features do not depend on which features are on.
+* ``real_dense_r2`` and ``real_dense_r2_base``, ``_psf``, ``_brightness``, ``_texture``, ``_puncta`` (protocol
+  changelog entry 28): the same scenes with the features recalibrated so that the phantoms show the real
+  statistics after the PSF and the measurement (REAL_DENSE_CALIB_R2).
 """
 from __future__ import annotations
 
@@ -42,6 +45,15 @@ REAL_DENSE_CALIB = {
     "puncta_mean_by_tercile": (1.0690, 0.8690, 0.6342),     # lowest, middle, highest SYP brightness
 }
 REAL_PEAKS = (200.0, 300.0, 430.0, 700.0)
+# entry 28 (d): the probe recalibrated so that its features show the real statistics after the PSF and the
+# measurement (C:/Users/ryane/sc_ribbon_work/v2/logs/realism_recal_[abc]_9726612_tuning.json): brightness by
+# entry 28 (a), texture by entry 28 (b) (its phantom statistic without texture, 0.141, already exceeds the real
+# 0.108, so the latent texture is 0), puncta by entry 28 (c); the PSF feature is that of entry 19
+REAL_DENSE_CALIB_R2 = {**REAL_DENSE_CALIB,
+                       "brightness_var_log": 0.5,
+                       "brightness_corr_length_um": 0.1,
+                       "texture_rel_excess_var": 0.0,
+                       "puncta_mean_by_tercile": (3.4613, 2.8639, 2.099)}
 REAL_FEATURES = ("psf", "brightness", "texture", "puncta")
 PSF_LEVELS = (0.33, 0.38, 0.43, 0.48)
 WAVELENGTHS = {"central_element": 511.0, "foci": 595.0}
@@ -357,7 +369,11 @@ def _dense_puncta_clean(seed, *, final=False):
 FAMILY_FUNCS = {"psf_check": psf_check_scene, "puncta_pt": _puncta("puncta_pt"), "puncta_agg": _puncta("puncta_agg"),
                 "dense_puncta": _puncta("dense_puncta"), "dense_puncta_clean": _dense_puncta_clean,
                 "real_dense": _real("real_dense", REAL_FEATURES), "real_dense_base": _real("real_dense_base", ()),
-                **{f"real_dense_{k}": _real(f"real_dense_{k}", (k,)) for k in REAL_FEATURES}}
+                **{f"real_dense_{k}": _real(f"real_dense_{k}", (k,)) for k in REAL_FEATURES},
+                # entry 28 (d): the same scenes with the recalibrated features
+                "real_dense_r2": _real("real_dense_r2", REAL_FEATURES, REAL_DENSE_CALIB_R2),
+                "real_dense_r2_base": _real("real_dense_r2_base", (), REAL_DENSE_CALIB_R2),
+                **{f"real_dense_r2_{k}": _real(f"real_dense_r2_{k}", (k,), REAL_DENSE_CALIB_R2) for k in REAL_FEATURES}}
 
 
 def make_scene(family: str, seed: int, *, final: bool = False, **kw) -> S.Scene:
