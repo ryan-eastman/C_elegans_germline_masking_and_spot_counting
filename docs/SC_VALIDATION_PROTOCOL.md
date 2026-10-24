@@ -680,3 +680,17 @@ Entries are appended, never edited. Each one says whether a test result had been
    511 nm, give 0.380 um (2025-11-05 no heat shock), 0.428 um (2025-11-05 heat shock) and 0.464 um (2026-01-05).
    B1s, fixed now and reported like B1 (development diagnostics only, choosing nothing scored): B1 with sigma_z the
    session value above in place of the record's, at 1.3 and 1.5 times, with length_xy_um <= 0.5 um.
+10. 2026-10-24, the v2 development round, the results of entry 7 (no test result had been computed, no test or
+   reserved image was run, no test or reserved truth was read and no sealed seed was generated). Computed as entry 7
+   fixed it (C:/Users/ryane/sc_ribbon_work/v2/logs/cont_zone_analysis.log and .json): S2a under the registered
+   guard, 7 evaluable gonads, R0 0.828 (0.671 to 0.933), C1 0.802, C2 0.745, C3 0.776, intensity 0.965; paired
+   differences against R0 C1 -0.026 (-0.058 to -0.000), C2 -0.082 (-0.136 to -0.035), C3 -0.052 (-0.091 to -0.012);
+   with guard_frac 0.25, 12 evaluable, R0 0.802 (0.728 to 0.859), C1 0.789, C2 0.779, C3 0.752, intensity 0.910;
+   with 0, R0 0.776 and intensity 0.874. No candidate met rule 7 (d): piece_lw_mean_um stays the S2a statistic and
+   no method or metric changed; the candidates are three lines of dev_trials.jsonl. The AUCs with guard_frac 0.25
+   and 0 were seen on development gonads before decision 1. Explanatory checks made after entry 7, choosing nothing:
+   axis profiles and strand end classes of the development gonads; SYP projections of random nuclei of
+   20251105_N2_nohs_MALE_1 and 20251105_N2_nohs_MALE_3; development phantoms that are not registered families (seeds
+   2000 to 2049, scene peaks 200 to 700 counts, the dense nucleus of each seed with continuous ribbons and the same
+   nucleus with every ribbon cut into pieces of 1 to 2 um by gaps of 0.4 to 0.8 um), where R0 separated continuous
+   from cut ribbons with AUC 0.99 to 1.00 at every peak and the mean intensity over the label with 0.55 to 0.61.
