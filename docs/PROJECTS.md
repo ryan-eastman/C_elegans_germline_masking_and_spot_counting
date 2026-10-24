@@ -326,6 +326,10 @@ Each shard writes only its own run log and its own images' results folders, neve
 write the same file; `germquant project status` merges their logs. Collect the tables (below) once every shard
 has finished. `germquant project export-commands STUDY --shards 3` writes these lines for you.
 
+Each shard takes its slice from the manifest when it starts, so add or exclude images only while no shard is
+queued or running: a change in between can give an image to two shards, which may then run it at the same
+time, or to none. `germquant project status` shows what is left to run.
+
 ## Snakemake
 
     snakemake -s workflow/Snakefile --config project=/path/to/STUDY --cores 1
@@ -378,7 +382,7 @@ that was stopped: readers use its complete lines.
 | status | meaning | reason_code |
 |---|---|---|
 | done | its results match the project's recipe and run settings; a run skips it | |
-| stale | its results were made with another recipe or setting; a run makes them again | config_hash (the recipe changed: an edit, or another pack version), stages (a stage was switched on or off), geometry (the xy stride, z range or timepoint), planar_flag (a single-plane result, while the recipe no longer runs single-plane images), segment_hash (the segmentation model, Cellpose or the labels file changed) |
+| stale | its results were made with another recipe or setting; a run makes them again | config_hash (the recipe changed: an edit, or another pack version), stages (a stage was switched on or off), geometry (the xy stride, z range or timepoint), planar_flag (a single-plane result checked without its single-plane segment hash; it runs again), segment_hash (the segmentation model, Cellpose or the labels file changed) |
 | failed | a stage failed last time (failed_stages), or the last run of it failed (its error) | failed_stages, or none |
 | missing | no results yet | |
 | unreachable | not done, and its file cannot be reached: is the NAS or VPN connected? | |
@@ -398,8 +402,10 @@ segmented on and the file a run reads (a relative path joined to the project fol
   one, or is still running elsewhere) is shown as interrupted, with finished false;
 - warnings: a config hash that changed since the project was saved (with the pack version change it comes from), the
   project's copy of the pack missing or replaced, a recipe.yaml the manifest does not record, a held or stale lock,
-  a model a run would refuse, and an environment mix: runs that used more than one device, interpreter or engine
-  version (git sha), whose results can differ.
+  a model a run would refuse (missing, not the expected file, or a segmentation model the engine cannot resolve
+  on this computer, which status reports instead of failing: the images' segment stage is then not compared),
+  and an environment mix: runs that used more than one device, interpreter or engine version (git sha), whose
+  results can differ.
 
 `--json` prints the same as one JSON object, the record germquant.project.project_status returns: format, root,
 name, config_hash, expected_config_hash, edited, validated, pack, models, images (one object per image, with the
