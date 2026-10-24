@@ -804,3 +804,23 @@ Entries are appended, never edited. Each one says whether a test result had been
    before it (psf.foci "off", psf.min_stretches 20). The change is adopted when (i) and (ii) hold at the
    confirmation seeds and the rules of entry 11 (b) hold. Reported, choosing nothing: the estimates, sources and
    standard errors of the twelve development images at Z1, and the difference of the two sources where both exist.
+13. 2026-10-24, the v2 development round (per-image PSF, departures from entry 12), written before any tuning or
+   confirmation number of entry 12 was computed (no test result had been computed, no test or reserved image was
+   run, no test or reserved truth was read and no sealed seed was generated). Motivated by the design seeds of
+   psf_check (2000 to 2049, entry 11 (a); C:/Users/ryane/sc_ribbon_work/v2/design/ and scripts/design_psf*.py), with
+   the code of entry 12 before its commit:
+   (a) With the constant background of entry 12 (b), 55 to 73 percent of the isolated foci whose window lay inside
+   the crop failed the lateral-sigma rule, and the pooled median sigma_z of the kept fits was 2.6 to 5.9 percent
+   above the scene PSF at the four levels. Most foci lie within 1 um of the blurred edge of the nucleoplasm, which a
+   constant cannot absorb: fits of isolated foci on a flat background (60 per case, two PSFs, peaks 150 to 450) were
+   within 1.5 percent and all compact, and joint fits of the neighbouring spots inside the window (sharing the
+   sigmas) changed nothing. The fit of entry 12 (b) therefore has a planar background, B plus a gradient in z, y and
+   x over the window (three more parameters), and is otherwise unchanged; on the design seeds 87 to 96 percent of
+   those foci then pass and the pooled median sigma_z of the kept fits lies within -1.8 to +3.0 percent of the scene
+   PSF.
+   (b) Both sources over-estimate the lateral sigma on the design seeds (the stretches by 7 to 10 percent, the foci
+   with the planar background by 6 to 11 percent), while the fallback lateral sigma (0.15 um) is the mean of the
+   psf_check range and the value rendered in 2.3. The image PSF therefore takes only sigma_z from the estimates of
+   entry 12; its sigma_xy stays psf.fallback_sigma_um[1], the combination of entry 12 (c) is that of sigma_z alone,
+   and the lateral estimates of both sources are recorded and choose nothing. The flag psf_from_foci, the sources,
+   N_s and N_f, the selection on the tuning seeds and the targeted metrics of entry 12 are unchanged.
