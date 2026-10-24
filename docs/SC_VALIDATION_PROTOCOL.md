@@ -512,3 +512,8 @@ Entries are appended, never edited. Each one says whether a test result had been
    matched by their collinearity, and accounting drops strands that lie for at least dedupe.shadow_frac (0.8, a new
    fixed-group key) of their length inside the contamination reach of a longer strand. Development trial 2 uses
    these values.
+4. 2026-10-23, the build workflow, before any result. Development trial 2 (commit f7dc9a3) scored. Then, motivated
+   by synthetic development seeds 2000 to 2049 (isolated ribbons over-measured by 1 to 3 um where the trace ran
+   along the axial PSF tail into the territory edge, or joined an axial shadow): axial shadows are also removed
+   before the end matching, and a trace that reaches the territory or stack edge after its ridge has faded ends
+   free (trimmed to its last strong point). Development trial 3 uses these values.

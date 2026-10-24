@@ -186,6 +186,9 @@ def follow_nucleus(F: Fields, terr: np.ndarray, spacing, org, p, *, z_planes: in
             q0, q1, q2 = a0, a1, a2
         else:
             stop = "max_length"
+        if stop in ("territory_edge", "stack_edge") and weak > 0:
+            # the ridge had already faded when the trace reached the edge: the signal ended inside, a free end
+            stop = "free"
         if stop == "free":
             pts = pts[: last_strong + 1]
             strg = strg[: last_strong + 1]

@@ -201,8 +201,12 @@ scored once, later, by the orchestrator. Development results are kept under
   by their collinearity; two `contact` ends facing each other may link across up to 1.5 um (a strand that crosses
   between them); an unlinked end costs 60 (development calibration: curved ribbons broken at sub-micron gaps
   were left unlinked at 40).
-* Accounting also removes axial shadows (short steep strands standing on another strand inside the axial PSF)
-  and shadowed strands (at least 80 percent of the length inside the contamination reach of a longer strand).
+* Accounting also removes axial shadows (short steep strands standing on another strand inside the axial PSF;
+  before the end matching, so they are never joined to that strand, and again after it) and shadowed strands (at
+  least 80 percent of the length inside the contamination reach of a longer strand).
+* A trace that reaches the territory or stack edge after its ridge has already faded ends `free` (trimmed to its
+  last strong point, so the end rule applies); before, a bright steep ribbon's axial PSF tail could carry the trace
+  1 um or more past the true end.
 * The tracer follows by pure prediction while inside another strand's claim tube (crossings pass through).
 * Gap length is the missing integrated signal over the dip divided by the median (blur-independent), detected
   below 0.6 of the median; the design's 0.35 threshold missed most sub-micron gaps of tilted ribbons.

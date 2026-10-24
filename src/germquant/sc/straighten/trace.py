@@ -113,7 +113,11 @@ def trace_crop(crop: Crop, ctx: dict) -> dict:
             rec["budget_exceeded"] = bool(finfo["budget_exceeded"])
             for st in raw_strands:
                 st.nucleus_id = nid
+            # axial shadows go before the end matching (so they are never joined to the strand they stand on)
+            # and again after it
+            raw_strands, n_ghost0 = drop_axial_ghosts(raw_strands, p)
             kept, n_ghost = drop_axial_ghosts(dedupe_within(link_strands(raw_strands, p), p), p)
+            n_ghost += n_ghost0
             kept, n_shadow = drop_shadowed(kept, p)
             rec["n_axial_ghosts"] = n_ghost
             rec["n_shadowed"] = n_shadow
