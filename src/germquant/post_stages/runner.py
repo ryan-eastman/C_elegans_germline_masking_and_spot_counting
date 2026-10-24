@@ -36,6 +36,7 @@ import json
 import logging
 import math
 import os
+import stat
 import time
 from pathlib import Path
 
@@ -279,12 +280,25 @@ def input_digests(out_dir: Path, image_id: str, declaration: dict, marker: dict,
 # ---- one stage ---------------------------------------------------------------------------------------------
 
 def _listing(folder: Path) -> dict[str, tuple[int, int]]:
-    out = {}
-    with os.scandir(long_path(folder)) as it:
-        for e in it:
-            if e.is_file():
-                st = e.stat()
-                out[e.name] = (st.st_size, st.st_mtime_ns)
+    """The tree of a results folder: {relative path: (size, mtime_ns)} for every file at any depth, and
+    {relative path + "/": (-1, 0)} for every subfolder, so a post-stage that writes anywhere in the folder, a
+    subfolder included, is caught (results folders are flat, so this is one scandir as a rule). A folder is
+    compared by name only, since its mtime also moves with entries that come and go; a link or junction is
+    listed, never walked."""
+    out: dict[str, tuple[int, int]] = {}
+    pending = [("", long_path(folder))]
+    while pending:
+        prefix, path = pending.pop()
+        with os.scandir(path) as it:
+            for e in it:
+                rel = prefix + e.name
+                st = e.stat(follow_symlinks=False)
+                if e.is_dir(follow_symlinks=False):
+                    out[rel + "/"] = (-1, 0)
+                    if not getattr(st, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+                        pending.append((rel + "/", e.path))
+                else:
+                    out[rel] = (st.st_size, st.st_mtime_ns)
     return out
 
 
@@ -459,7 +473,7 @@ def run_post_stages(out_dir, image_id: str, entries, *, cfg, image_path, stack=N
         given = dict(entry.get("params") or {})
         decl = decls.get(name)
         rec = {"version": decl["version"] if decl else None, "params": given, "sub_hash": None, "done": False,
-               "error": None, "tables": [], "finished": None}
+               "error": None, "tables": [], "finished": None, "inputs": None}   # inputs: None when refused
         why = refused or ("; ".join(problems[name]) if name in problems else None)
         if why is None:
             params = resolve_params(decl, given)

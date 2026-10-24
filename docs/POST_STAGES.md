@@ -103,7 +103,7 @@ without `labels: true`) raises an error, which fails that post-stage.
 
 The function returns one DataFrame per declared table, with exactly the declared columns (any order; they are
 written in the declared order). germquant writes the files; the function must not write into the results folder
-itself. It should import numpy, pandas or anything heavy inside the function, not at the top of its module, so
+itself, nor into a subfolder of it. It should import numpy, pandas or anything heavy inside the function, not at the top of its module, so
 that importing the package stays cheap.
 
 ## Switching post-stages on: post_stages.yaml
@@ -205,9 +205,11 @@ record gets none.
 
 A failure is written into the record with `done: false` and the reason in `error`, and the other post-stages
 still run: a post-stage that is not installed, a parameter outside its range, an exception from the function, a
-table or column outside the declaration, or a function that wrote into the results folder itself. Nothing of the
-main run changes either way: its tables, label images, stage record and completion marker stay byte for byte as
-they were, and the image stays done.
+table or column outside the declaration, or a function that wrote into the results folder itself (a subfolder
+included). Nothing of the main run changes either way: its tables, label images, stage record and completion
+marker stay byte for byte as they were, and the image stays done. Every stage record holds the same keys; `inputs`
+is null for a post-stage that was refused before it could run (not installed, a parameter outside its range, a
+folder the runner refuses).
 
 ## From the command line
 

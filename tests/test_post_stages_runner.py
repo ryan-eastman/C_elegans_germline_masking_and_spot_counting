@@ -79,7 +79,7 @@ def test_the_fixture_writes_only_its_declared_table_and_the_record(tmp_path):
     assert rec["post_stages_file_sha256"] == PS.post_stages_sha256([{"name": N}])
     assert set(rec["stages"]) == {N}
     st = rec["stages"][N]
-    assert {"version", "params", "sub_hash", "done", "error", "tables", "finished"} <= set(st)
+    assert set(st) == {"version", "params", "sub_hash", "done", "error", "tables", "finished", "inputs"}
     assert st["version"] == T.FIXTURE_VERSION and st["done"] is True and st["error"] is None
     assert st["params"] == {"factor": 1.0, "min_voxels": 0, "statistic": "mean", "fail": False}
     assert HEX12.fullmatch(st["sub_hash"]) and st["tables"] == [_table_file(rf.image_id)] and st["finished"]
@@ -405,6 +405,50 @@ def test_a_post_stage_that_breaks_the_contract_fails_alone(tmp_path):
     finally:
         for name in names:
             PS.unregister_post_stage(name)
+
+
+def test_a_post_stage_that_writes_into_a_subfolder_fails(tmp_path):
+    """Review N2: the folder guard compares the whole tree of the results folder, so a post-stage that writes a
+    subfolder of its own fails, and so does the retry that writes into the subfolder the first call left."""
+    rf = make_result_folder(tmp_path)
+    sizes = iter(range(1, 10))
+
+    def debug_mask(inputs, params):
+        sub = inputs.out_dir / "debug"
+        sub.mkdir(exist_ok=True)
+        (sub / "mask.tif").write_bytes(b"x" * next(sizes))
+        return {T.FIXTURE_TABLE: _frame()}
+
+    PS.register_post_stage("debug_mask", debug_mask, T.fixture_declaration(), replace=True)
+    try:
+        for call in ("first", "retry"):
+            res = _run(rf, [{"name": "debug_mask"}])
+            assert res["failed"] == ["debug_mask"] and res["ran"] == [], (call, res)
+            error = post_record(rf.out_dir, rf.image_id)["stages"]["debug_mask"]["error"]
+            assert "changed the results folder" in error and "debug/mask.tif" in error, (call, error)
+            assert not (rf.out_dir / _table_file(rf.image_id, "debug_mask")).exists(), call
+    finally:
+        PS.unregister_post_stage("debug_mask")
+
+
+@pytest.mark.usefixtures("fixture_post_stage")
+def test_every_stage_record_has_the_same_keys(tmp_path):
+    """Review N4: a stage refused before it could run (here: not installed, a parameter out of range) carries
+    the same keys as one that ran, with inputs null, so a reader of __post.json never meets a missing key."""
+    rf = make_result_folder(tmp_path)
+    PS.register_post_stage("out_of_range", T.fixture_function(), T.fixture_declaration(), replace=True)
+    try:
+        res = _run(rf, [{"name": N}, {"name": "not_installed"},
+                        {"name": "out_of_range", "params": {"factor": 99.0}}])
+    finally:
+        PS.unregister_post_stage("out_of_range")
+    assert res["ran"] == [N] and res["failed"] == ["not_installed", "out_of_range"], res
+    stages = res["post"]["stages"]
+    keys = {"version", "params", "sub_hash", "done", "error", "tables", "finished", "inputs"}
+    assert all(set(rec) == keys for rec in stages.values()), {k: sorted(v) for k, v in stages.items()}
+    assert stages[N]["inputs"]["read_sub_hash"] == "0123456789ab"
+    assert stages["not_installed"]["inputs"] is None and stages["out_of_range"]["inputs"] is None
+    assert post_record(rf.out_dir, rf.image_id) == res["post"]
 
 
 @pytest.mark.usefixtures("fixture_post_stage")
