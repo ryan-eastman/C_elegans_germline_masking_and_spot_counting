@@ -1201,3 +1201,24 @@ Entries are appended, never edited. Each one says whether a test result had been
    n2rad51_noHS_herm_000. Z2 is not run: no decomposition change was adopted and no input of S2 depends on the
    strand class, so the S2 inputs of the proposed configuration are those of development trial 4. Step 9 does not
    apply (entry 20: no probe feature reproduced a real symptom), so Z3 is not run either.
+25. 2026-10-24, the v2 development round (the configuration proposed for the freeze), written before any snapshot,
+   flag-rate or hold-out number of this configuration was computed (no test result had been computed, no test or
+   reserved image was run, no test or reserved truth was read and no sealed seed was generated). The complete guard
+   of entries 23 and 24 (commit a540680, classes.complete_guard_fwhm 2.0) on the confirmation seeds (11000 to 11099,
+   every registered family) against v1 (C:/Users/ryane/sc_ribbon_work/v2/logs/step7_a540680_confirm.json): pooled
+   S1e precision 0.883 to 0.938 (at least 0.90 required; met), dense S1e precision 0.672 to 0.741 (at least 0.80
+   required; failed), iso complete recall 0.91 and 0.91 (met), and the tolerances of entry 11 (b) held; complete
+   recall fell on pairs (0.595 to 0.33), dense (0.078 to 0.036) and snr (0.101 to 0.063). The cost rule held on
+   n2rad51_noHS_herm_000 (median time per nucleus 0.154 s against 0.158 s, peak 3.0 GB; complete strands 228 against
+   471). The guard is withdrawn by the rule of entry 23: classes.complete_guard is false by default (the switch and
+   its tests stay). No change of the round is adopted. The configuration proposed for the freeze is therefore that
+   of v1: every v2 switch at the value that gives v1 (V1_VALUES of germquant/sc/straighten/params.py: psf.foci off,
+   punctum.enabled false, follow.contact_test local, link.junction_dirs false, link.max_chain_um null,
+   classes.complete_guard false), with the package VERSION 2.0 of entry 11 (h); the nucleus columns n_puncta,
+   puncta_signal_frac (both 0 with the punctum class off) and steep_length_frac are added, and every v1 column
+   equals that of v1 (tests/test_sc_straighten_v2_compat.py). Step 10 of PLAN_V2.md follows with this configuration:
+   the snapshot on seeds 12000 to 12099 (this configuration and v1, by their switches, on the same scenes), the flag
+   rates of the twelve development gonads (truth-free), the cost and peak memory on the largest 2026-01-05 stack,
+   and H1 on the hold-out gonad that has a germquant run (20251021_n2_nohs_HERM_2; theta_full 2.0 um and
+   theta_present 10.0 um, those of development trial 4 on the twelve, since the S2 inputs of this configuration are
+   those of trial 4), which with one gonad is reported and decides nothing; then the results entry.
