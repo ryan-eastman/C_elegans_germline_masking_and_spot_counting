@@ -5,7 +5,9 @@ other than ``.nd2`` lands here and comes out as the same (C, Z, Y, X) Stack the 
 voxel size (dz, dy, dx) in microns as the file reports it (``spacing_ok`` False and a 1 um isotropic guess
 when the file carries no usable voxel size, the rule the nd2 reader applies), the channel names as the
 file reports them, and ``xy_stride`` / ``z_range`` applied on the lazy array before anything is loaded,
-exactly as read_stack does.
+exactly as read_stack does. A file with one plane also carries its own xy calibration in Stack.spacing_yx (and
+the header key ``spacing_yx_um``), which only a single-plane run reads (io.planar, docs/PLANAR.md); the voxel
+size keeps the rule above, so a one-plane file without a z step still reads as the 1 um guess.
 
 The packages are optional and are imported only when a non-nd2 file is read: install the ``readers``
 extra (``pip install "germquant[readers]"``), or bioio plus the plugin for the format at hand (the
@@ -119,6 +121,52 @@ def _spacing(img) -> tuple[tuple[float, float, float], bool]:
     return (out[0], out[1], out[2]), True
 
 
+def _spacing_yx(img, path: Path | None = None) -> tuple[float, float] | None:
+    """(dy, dx) in microns from the file's own xy calibration when the file has ONE plane (Z is 1), else None; also
+    None when dy or dx is missing, non-finite or not positive (design 4.10, docs/PLANAR.md). _spacing above is not
+    changed: it still gives a one-plane file without a z step the (1, 1, 1) guess with spacing_ok False, so an
+    existing Z=1 run keeps its numbers, and only a single-plane run (io.planar) reads this value. A TIFF whose
+    resolution unit is none (what tifffile writes without a calibration) holds an aspect ratio, not a length, and
+    bioio-tifffile reports it as 1 um, so it gives None too, as does an ImageJ TIFF in pixel units."""
+    try:
+        if int(getattr(img.dims, "Z", 1) or 1) != 1:
+            return None
+        pps = img.physical_pixel_sizes
+        raw = (pps.Y, pps.X)
+    except Exception:  # noqa: BLE001 - as in _spacing: a plugin failing on its metadata reads as no calibration
+        return None
+    out = []
+    for s in raw:
+        try:
+            v = float(s)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(v) or v <= 0:
+            return None
+        out.append(v)
+    if path is not None and _tiff_without_length_unit(img, path):
+        return None
+    return out[0], out[1]
+
+
+def _tiff_without_length_unit(img, path: Path) -> bool:
+    """True for a file that bioio-tifffile read and whose resolution is not a length: an ImageJ TIFF without a
+    unit or in pixels, or a plain TIFF whose ResolutionUnit is none (1). False for every other reader."""
+    if type(getattr(img, "reader", img)).__module__.split(".")[0] != "bioio_tifffile":
+        return False
+    try:
+        import tifffile
+
+        with tifffile.TiffFile(str(path)) as tif:
+            if tif.is_imagej:
+                unit = (tif.imagej_metadata or {}).get("unit")
+                return unit is None or str(unit).strip().lower() in ("", "pixel", "pixels")
+            tag = tif.pages[0].tags.get("ResolutionUnit")
+            return tag is not None and int(tag.value) == 1
+    except Exception:  # noqa: BLE001 - the tags are unreadable: keep what bioio reported
+        return False
+
+
 def _channel_names(img) -> list[str]:
     try:
         return [str(c) for c in (img.channel_names or [])]
@@ -168,11 +216,14 @@ def read_bioio(
     t = _check_single(img, path, t)
     (dz, dy, dx), spacing_ok = _spacing(img)
     names = _channel_names(img)
+    yx = _spacing_yx(img, path)            # None unless the file has one plane with an xy calibration
 
     data = _load_czyx(img, path, xy_stride, z_range, t)
     if xy_stride > 1:
         dy *= xy_stride
         dx *= xy_stride
+        if yx is not None:
+            yx = (yx[0] * xy_stride, yx[1] * xy_stride)
     if as_float:
         data = data.astype(np.float32)
 
@@ -184,6 +235,7 @@ def read_bioio(
         downsample_xy=xy_stride,
         spacing_ok=spacing_ok,
         t_index=t,
+        spacing_yx=yx,
     )
 
 
@@ -191,7 +243,9 @@ def read_bioio_metadata(path: str | Path, *, t: int | None = None) -> dict:
     """Header read, no pixels: the keys read_nd2_metadata returns (sizes, spacing, spacing_ok,
     channel_names, dtype, is_2d, n_timepoints, period_s, t_seconds) plus ``n_scenes`` and ``reader`` (the
     bioio plugin that opened it). ``period_s`` and ``t_seconds`` are None here: the interval and the time
-    stamps are not read from these formats yet. ``t`` only checks that the timepoint exists."""
+    stamps are not read from these formats yet. ``t`` only checks that the timepoint exists. A file with one
+    plane (Z is 1) also gets ``spacing_yx_um``, its own (dy, dx) in microns or None (_spacing_yx); the header of
+    a 3D file is unchanged."""
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"image not found: {path}")
@@ -207,7 +261,7 @@ def read_bioio_metadata(path: str | Path, *, t: int | None = None) -> dict:
     except (AttributeError, TypeError, ValueError):
         dtype = "unknown"
     reader = type(getattr(img, "reader", img)).__module__.split(".")[0]
-    return {
+    meta = {
         "sizes": sizes,
         "spacing": sp,
         "spacing_ok": ok,
@@ -220,3 +274,6 @@ def read_bioio_metadata(path: str | Path, *, t: int | None = None) -> dict:
         "period_s": None,
         "t_seconds": None,
     }
+    if sizes.get("Z", 1) == 1:             # one plane: the file's own xy calibration (design 4.10, D11)
+        meta["spacing_yx_um"] = _spacing_yx(img, path)
+    return meta

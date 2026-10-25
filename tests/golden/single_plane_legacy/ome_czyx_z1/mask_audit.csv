@@ -1,0 +1,1 @@
+kind,object_id,vol_um3,z_um,y_um,x_um,cov_germ_label,cov_any_label,cov_envelope,ring_shell,ring_inside,ring_ratio,shell_over_thr,no_envelope,image_id,genotype,sex,germ_cell,treatment,replicate,acquisition_date,voxel_dz_um,voxel_dy_um,voxel_dx_um,n_channels,dapi_present,channel_map_json
