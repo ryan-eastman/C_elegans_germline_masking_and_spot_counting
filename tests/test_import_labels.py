@@ -390,6 +390,7 @@ def test_refusals_before_anything_is_written(images, tmp_path, capsys):
     img3 = images.add("stack_001.nd2", _pixels(lab3, 2), SP3, two_d=False)
     tif2 = _write_labels(tmp_path / "l" / "m2.tif", "tiff", lab2)
     npz3 = _write_labels(tmp_path / "l" / "m3.npz", "npz", lab3)
+    flat3 = _write_labels(tmp_path / "l" / "m3_plane.tif", "tiff", lab3[2])   # one plane on the stack's own grid
     zyx = tmp_path / "l" / "m3.ome.tif"                       # a z stack by its axes, for an image of one plane
     tifffile.imwrite(zyx, lab3, ome=True, metadata={"axes": "ZYX"})
     pairs = tmp_path / "pairs"
@@ -397,7 +398,7 @@ def test_refusals_before_anything_is_written(images, tmp_path, capsys):
         (dict(src=tif2, fmt="jpeg", image=img2), ValueError, "format"),
         (dict(src=tif2, fmt="png", image=img2), ImportLabelsError, "png"),                 # the name says TIFF
         (dict(src=npz3, fmt="tiff", image=img3), ImportLabelsError, "tiff"),
-        (dict(src=tif2, fmt="tiff", image=img3), ImportLabelsError, "one plane"),          # 2D labels, 6 planes
+        (dict(src=flat3, fmt="tiff", image=img3), ImportLabelsError, r"holds one plane \(2D labels\)"),
         (dict(src=zyx, fmt="tiff", image=img2), LABELS.LabelsError, "planes"),              # 6 planes, image 1
         (dict(src=tif2, fmt="tiff", image=img2, frame=1), LABELS.LabelsError, "frame"),     # no T axis
         (dict(src=tif2, fmt="tiff", image=img2, tool="my tool"), ValueError, "tool"),
@@ -410,15 +411,19 @@ def test_refusals_before_anything_is_written(images, tmp_path, capsys):
         with pytest.raises(exc, match=text):
             import_labels(kw.pop("src"), kw.pop("fmt"), kw.pop("image"), pairs, **kw)
         assert not pairs.exists(), (exc, text)
-    # labels on another grid than the image
+    # labels on another grid than the image; labels without any object
     small = _write_labels(tmp_path / "l" / "small.tif", "tiff", lab2[:90, :100])
     with pytest.raises(ImportLabelsError, match=r"\(90, 100\)"):
         import_labels(small, "tiff", img2, pairs)
+    empty = _write_labels(tmp_path / "l" / "empty.tif", "tiff", np.zeros_like(lab2))
+    with pytest.raises(ImportLabelsError, match="no object"):
+        import_labels(empty, "tiff", img2, pairs)
+    assert not pairs.exists()
     # the command: exit 2 and one REFUSED line; with --json the error and its kind
-    argv = ["import-labels", str(tif2), "--format", "tiff", "--image", str(img3), "--pairs", str(pairs)]
+    argv = ["import-labels", str(flat3), "--format", "tiff", "--image", str(img3), "--pairs", str(pairs)]
     assert cli.main(argv) == 2
     refused = [ln for ln in capsys.readouterr().err.splitlines() if ln.startswith("REFUSED:")]
-    assert len(refused) == 1 and "one plane" in refused[0]
+    assert len(refused) == 1 and "holds one plane (2D labels)" in refused[0]
     assert cli.main(argv + ["--json"]) == 2
     assert json.loads(capsys.readouterr().out)["kind"] == "ImportLabelsError"
     assert not pairs.exists()
