@@ -447,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     cli_assemble.add_parsers(sub)                  # germquant assemble (one TIFF per channel -> one OME-TIFF)
     from . import cli_projects                     # germquant project ... (docs/PROJECTS.md)
     cli_projects.add_parsers(sub)
-    cli_training.add_parsers(sub)                  # germquant train-curve (docs/TRAINING.md)
+    cli_training.add_parsers(sub)                  # germquant train-curve, import-labels (docs/TRAINING.md)
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
