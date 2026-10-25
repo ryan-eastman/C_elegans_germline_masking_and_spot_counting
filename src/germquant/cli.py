@@ -114,6 +114,11 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--resume", action="store_true",
                     help="with --t: skip timepoints whose completion marker matches this config, geometry and "
                          "segment stage (an interrupted series picks up where it stopped)")
+    pr.add_argument("--samples", default=None, metavar="FILE",
+                    help="a sample sheet (a CSV naming each image by image_id or file, with any of genotype, sex, "
+                         "germ_cell, treatment, replicate and acquisition_date): this image's row gives its design "
+                         "columns instead of the file name; without a row the file name's are kept and the image is "
+                         "flagged metadata:not_in_sample_sheet (docs/PROJECTS.md, \"Sample sheet\"). Refused with --t")
     _add_stage_switches(pr)
 
     pb = sub.add_parser("batch", help="process every .nd2 under a folder, mirroring the tree")
@@ -124,11 +129,19 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("--resume", action="store_true",
                     help="skip images whose results folder holds a completion marker written with the "
                          "same config and the same stages (an interrupted batch picks up where it stopped)")
+    pb.add_argument("--samples", default=None, metavar="FILE",
+                    help="a sample sheet: each image's row gives its design columns instead of the file name; an "
+                         "image without a row keeps the file name's and is flagged metadata:not_in_sample_sheet; "
+                         "--resume reruns an image whose row changed, and joins the sheet's own columns into the "
+                         "batch tables (docs/PROJECTS.md, \"Sample sheet\")")
     _add_stage_switches(pb)
 
     pc = sub.add_parser("collect", help="stack the per-image tables under a results folder into batch_<table>.csv "
                                         "and rebuild batch_summary.csv (safe to rerun any time)")
     pc.add_argument("results_root")
+    pc.add_argument("--samples", default=None, metavar="FILE",
+                    help="a sample sheet whose own columns (neither the key nor a design column) are joined into "
+                         "every batch_<table>.csv by image id (docs/PROJECTS.md, \"Sample sheet\")")
 
     prg = sub.add_parser("register", help="time-lapse drift as a shift table: phase correlation of the reference "
                                           "volumes `run --t` kept per timepoint, accumulated to the first timepoint, "
@@ -770,9 +783,11 @@ def _run(args) -> int:
         return _run_series(args, cfg)
     if getattr(args, "resume", False):
         raise SystemExit("--resume applies to a time series: give --t as well (for example --t all)")
+    sheet = _sample_sheet(args)           # --samples FILE: this image's row (None without the option)
+    kw = {} if sheet is None else {"sample": _sheet_row(sheet, Path(args.nd2))}
     # germquant.api.run is the one path to a results folder: a GUI or a notebook calling it with the same
     # settings writes the same files (process_image writes run_manifest.json itself)
-    res = run(args.nd2, config=cfg, out=args.out, xy_stride=args.xy_stride, z_range=args.z_range)
+    res = run(args.nd2, config=cfg, out=args.out, xy_stride=args.xy_stride, z_range=args.z_range, **kw)
     mark = "✓" if res["qc_pass"] else "⚠"
     print(f"\n{mark} {res['image_id']}: {res['n_nuclei']} nuclei, qc_pass={res['qc_pass']}")
     if res["qc_flags"]:
@@ -790,7 +805,7 @@ def _run_series(args, cfg) -> int:
     timepoint (_series_refusal)."""
     from .timelapse import process_series
 
-    refused = _series_refusal(cfg, args.nd2)
+    refused = _series_refusal(cfg, args.nd2, samples=getattr(args, "samples", None))
     if refused:
         print(f"REFUSED: {refused}", file=sys.stderr)       # one prefix for every series refusal (D45)
         return 2
@@ -808,11 +823,12 @@ def _run_series(args, cfg) -> int:
     return 0 if n_done else 1
 
 
-def _series_refusal(cfg, path) -> str | None:
+def _series_refusal(cfg, path, *, samples=None) -> str | None:
     """Why ``run --t`` cannot run this series in this release, or None; _run_series prints it as "REFUSED:
     <message>" (D45). A labels recipe (segmentation.nuclei.labels_from, D15, docs/LABELS.md) is refused first,
     with no header read; then a single-plane run (io.planar true, or auto on a file whose header has one plane;
-    D9, docs/PLANAR.md). process_image refuses each such timepoint as well."""
+    D9, docs/PLANAR.md); then a sample sheet (``samples``, the --samples file, which is not read: the series loop
+    gives its timepoints no sample row, D21, docs/PROJECTS.md). process_image refuses each such timepoint as well."""
     if cfg.get("segmentation.nuclei.labels_from") is not None:
         from .io.labels import SERIES_REFUSAL
 
@@ -830,13 +846,52 @@ def _series_refusal(cfg, path) -> str | None:
 
         if planar.one_plane_header(read_input_metadata(path)):
             return planar.PLANAR_SERIES_REFUSED
+    if samples:
+        from .io.sample_sheet import SERIES_REFUSAL as SHEET_SERIES_REFUSAL
+
+        return SHEET_SERIES_REFUSAL
     return None
+
+
+def _sample_sheet(args):
+    """The sample sheet of ``--samples FILE`` (germquant.io.sample_sheet), or None without the option. Its warnings
+    (a cp1252 file, a non-ISO date) are printed; a sheet that cannot be read is refused before any image, with
+    "REFUSED:" and exit 2 (D49)."""
+    path = getattr(args, "samples", None)
+    if not path:
+        return None
+    import warnings
+
+    from .io.sample_sheet import SampleSheetError, SampleSheetWarning, read_sample_sheet
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SampleSheetWarning)      # printed below, once, as the CLI prints
+            sheet = read_sample_sheet(path)
+    except (SampleSheetError, OSError) as e:
+        print(f"REFUSED: sample sheet {path}: {e}" if isinstance(e, OSError) else f"REFUSED: {e}", file=sys.stderr)
+        raise SystemExit(2) from None
+    for w in sheet.warnings:
+        print(f"warning: {w}")
+    return sheet
+
+
+def _sheet_row(sheet, path: Path, indent: str = ""):
+    """The image's row of the sheet (a SampleRow), saying so when the sheet has none for it."""
+    from .io.formats import image_stem
+
+    row = sheet.row(image_stem(path), path)
+    if row.row_sha256 is None:
+        print(f"{indent}not in the sample sheet {sheet.path.name}: the design columns come from the file name "
+              f"(flag metadata:not_in_sample_sheet)")
+    return row
 
 
 def _batch(args) -> int:
     import pandas as pd
 
     from . import batch as B
+    from .io.formats import image_stem
     from .pipeline import process_image
 
     cfg = _pack_config(args)               # --pack ID[@VER] [--recipe R]: None for --config / --profile
@@ -848,13 +903,22 @@ def _batch(args) -> int:
     glob = cfg.get("io.input_glob", "**/*.nd2")
     excludes = cfg.get("io.exclude_patterns", [])
     exclusions = B.load_exclusions(cfg.get("qc.exclusions_file"), cfg.base_dir)
+    # batch formats (io.input_suffixes, docs/DESIGN_system_packs.md 7.8): {} for a recipe that does not set the key,
+    # so a default batch discovers the .nd2 files it always has (D20); a malformed value is refused here
+    try:
+        formats_kw = B.discover_options(cfg, out_root)
+    except ValueError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+    sheet = _sample_sheet(args)            # --samples FILE (docs/PROJECTS.md, "Sample sheet"); None without it
 
-    files, dropped = B.discover_files(root, glob, excludes, exclusions)
+    files, dropped = B.discover_files(root, glob, excludes, exclusions, **formats_kw)
     for f, why in dropped:
         if why.startswith("exclusions_file"):
             print(f"excluded by {why}: {f.name}")
     if not files:
-        print(f"No .nd2 files matched {glob} under {root}", file=sys.stderr)
+        what = f"files with the suffixes {', '.join(formats_kw['suffixes'])}" if formats_kw else ".nd2 files"
+        print(f"No {what} matched {glob} under {root}", file=sys.stderr)
         return 1
 
     # image-independent provenance, computed once per batch: the segment sub-hash lets --resume notice a
@@ -893,12 +957,17 @@ def _batch(args) -> int:
         batch_extra["runtime"] = runtime_record(cfg.get("segmentation.nuclei.device"))
     prov = provenance.write_manifest(out_root, config_hash=cfg.hash, config=cfg.as_dict(), extra=batch_extra)
     print(f"Processing {len(files)} files -> {out_root}")
+    if sheet is not None:
+        n_rows = sum(1 for f in files if sheet.row(image_stem(f), f).row_sha256 is not None)
+        print(f"Sample sheet {sheet.source}: a row for {n_rows} of the {len(files)} images")
     summaries = []
     resume = bool(getattr(args, "resume", False))
     for i, f in enumerate(files, 1):
         rel = f.relative_to(root).parent
-        out_dir = out_root / rel / f.stem
+        image_id = image_stem(f)           # the image id: Path.stem for an .nd2, x for x.ome.tif (io.formats)
+        out_dir = out_root / rel / image_id
         print(f"[{i}/{len(files)}] {f.name}")
+        row = _sheet_row(sheet, f, indent="    ") if sheet is not None else None
         if resume:
             seg, seg_kw = segment_hash, planar_kw
             if labels_run:
@@ -909,14 +978,18 @@ def _batch(args) -> int:
                 seg_kw = {} if seg_planar is None else {"segment_hash_planar": seg_planar}
                 if problem:
                     print(f"    {problem}")
-            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=seg, **seg_kw)
+            # the image's sample sheet row, compared only for a row the sheet has (D40, D44's call shape)
+            row_kw = {} if row is None or row.row_sha256 is None else {"sample_row_sha256": row.row_sha256}
+            done, why = B.is_done(out_dir, image_id, cfg, xy_stride=args.xy_stride, segment_hash=seg, **seg_kw,
+                                  **row_kw)
             if done:
                 print("    already done (completion marker matches); skipping")
                 continue
             if why != "no completion marker":
                 print(f"    reprocessing: {why}")
         try:
-            res = process_image(f, cfg, out_dir, xy_stride=args.xy_stride, prov=prov)
+            kw = {} if row is None else {"sample": row}      # a sheet run only (D40)
+            res = process_image(f, cfg, out_dir, xy_stride=args.xy_stride, prov=prov, **kw)
             isum = res["tables"]["image_summary"]
             n_germ = int(isum["n_germline_nuclei"].iloc[0]) if "n_germline_nuclei" in isum else 0
             summaries.append({"image_id": res["image_id"], "n_nuclei": res["n_nuclei"],
@@ -924,7 +997,7 @@ def _batch(args) -> int:
                               "qc_flags": ";".join(res["qc_flags"]), "out_dir": res["out_dir"]})
         except Exception as e:  # noqa: BLE001
             logging.exception("FAILED %s", f.name)
-            summaries.append({"image_id": f.stem, "n_nuclei": 0, "n_germline": 0, "qc_pass": False,
+            summaries.append({"image_id": image_id, "n_nuclei": 0, "n_germline": 0, "qc_pass": False,
                               "qc_flags": f"EXCEPTION:{e}", "out_dir": str(out_dir)})
 
     # Framing QC: flag images whose germline count is a strong outlier vs the batch median (a robust,
@@ -936,13 +1009,17 @@ def _batch(args) -> int:
     if resume:
         # a resumed batch: every completed folder of THIS study on disk, plus this pass's failures
         failed = [s for s in summaries if not s["qc_pass"] and str(s["qc_flags"]).startswith("EXCEPTION")]
-        counts = B.collect(out_root, image_ids={f.stem for f in files}, extra_rows=failed, outlier_factor=factor)
+        counts = B.collect(out_root, image_ids={image_stem(f) for f in files}, extra_rows=failed, outlier_factor=factor,
+                           **({} if sheet is None else {"sample_sheet": sheet}))
         print(f"\nDone. Resumed batch collected: {counts}. Summary -> {out_root / 'batch_summary.csv'}")
         return 0
     summaries = B.apply_framing_qc(summaries, factor)
     pd.DataFrame(summaries, columns=B.SUMMARY_COLS).to_csv(long_path(out_root / "batch_summary.csv"), index=False)
     n_pass = sum(s["qc_pass"] for s in summaries)
     print(f"\nDone. {n_pass}/{len(files)} passed QC. Summary -> {out_root / 'batch_summary.csv'}")
+    if sheet is not None and sheet.extra_columns:
+        print(f"  the sheet's own columns ({', '.join(sheet.extra_columns)}) are joined into the batch tables by "
+              f"`germquant collect {out_root} --samples {args.samples}`")
     return 0
 
 
@@ -1082,9 +1159,13 @@ def _register_piecewise(args) -> int:
 def _collect(args) -> int:
     from . import batch as B
 
-    counts = B.collect(args.results_root)
+    sheet = _sample_sheet(args)            # --samples FILE: its own columns are joined into every batch table
+    counts = B.collect(args.results_root, **({} if sheet is None else {"sample_sheet": sheet}))
     for k, v in counts.items():
         print(f"  {k}: {v} rows")
+    if sheet is not None:
+        joined = ", ".join(sheet.extra_columns) or "none: the sheet has no column of its own"
+        print(f"  sample sheet {sheet.source}: columns joined: {joined}")
     print(f"  -> {Path(args.results_root) / 'batch_<table>.csv'} and batch_summary.csv")
     return 0
 
