@@ -1208,7 +1208,7 @@ time: a run-time key would change the config hash, and `--resume` would then seg
 The prior of a gap, between two registrable timepoints (not always consecutive): the stage xy step in stage
 coordinates (never mapped to image axes: at the three re-centrings the GFP image moved 0.86 to 0.91 times the recorded
 step, 1.9 to 5.3 degrees off (dy, dx) = (-stage y, +stage x), and the brightfield 0.90 to 0.95 times it, 0.4 to 2.7
-degrees off; a scope fact the prior does not need), the move of the stack's centre in Z Coord, the depth both stacks
+degrees off; a scope fact the prior does not need. The project lead confirmed on 2026-10-24 that the pixel size of these movies is correct, 0.108333 x 0.108333 x 0.2 um, and that the stage record is the approximate part on this scope, so the scale is the record's and no germquant number depends on it), the move of the stack's centre in Z Coord, the depth both stacks
 share (within the run's `z_range`), the refocus pauses (events whose description holds "Refocus") and the stack
 depth.
 
