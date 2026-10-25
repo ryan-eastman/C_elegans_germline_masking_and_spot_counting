@@ -5,10 +5,13 @@ registration and the folded-axis guard.
 
 The reader is exercised against a fake ND2File (the surface read_stage_record uses: loop_indices, the reader's
 _custom_tags(), events(), frame_metadata() and experiment) for a 3 T x 2 P x 4 Z movie with a stage move into t2 and a
-refocus pause in the gap t0 to t1; only position 0 may be read. The registrations run on the synthetic series of
-test_timelapse_register (a planted jump) and on a wider copy of the piecewise gonad of test_timelapse_piecewise with a
-planted whole-field move of (0, +8, +30) um into t2, the brightfield moving with it (a stage re-centring), on top of
-the shear flow; the folded axis is that gonad's origin axis turned back at its middle.
+refocus pause in the gap t0 to t1; only position 0 may be read, an nd2 of another length or with other frame times is
+not the series' movie, and a file nd2 cannot open is refused with the reason. The registrations run on the synthetic
+series of test_timelapse_register (a planted jump) and on a wider copy of the piecewise gonad of
+test_timelapse_piecewise with a planted whole-field move of (0, +8, +30) um into t2, the brightfield moving with it (a
+stage re-centring), on top of the shear flow; the folded axis is that gonad's origin axis turned back at its middle.
+The review fixes are covered too: the focus allowance of a cap spent on z only, the lock rule of the mismatch flags,
+a capped or foreign seed table, the piecewise --max-step-at and record flags, and the guard's PC1 fit.
 """
 from __future__ import annotations
 
@@ -206,12 +209,29 @@ def test_gap_prior_and_the_cap_rule(fake_nd2):
     assert PR.gap_cap(2, 5.0, max_step_at={1: 3.0}) == (5.0, "max_step_um")
     base = 5.0
     assert PR.gap_cap(1, base)[0] is base                                    # the same float when nothing raises it
+    # the stack z term is what the estimate's own z uses of it, min(|stack dz|, |estimate dz|): no xy allowance
+    assert PR.gap_cap(2, 5.0, gp=g12, est_dz_um=0.25) == (pytest.approx(25.25), "prior:stage")
+    assert PR.gap_cap(2, 5.0, gp=g12, est_dz_um=-3.0) == (pytest.approx(26.0), "prior:stage")
+    refocus = dict(g12, stage_xy_um=0.0, stage_dz_um=-8.3)                    # a focus step, no stage move
+    assert PR.gap_cap(2, 5.0, gp=refocus, est_dz_um=0.4) == (pytest.approx(5.4), "prior:stage")
+    assert PR.gap_cap(2, 5.0, gp=refocus, est_dz_um=-9.0) == (pytest.approx(13.3), "prior:stage")
+    assert PR.gap_cap(2, 5.0, gp=edge, est_dz_um=0.2) == (pytest.approx(6.2), "prior:stage")
+    assert PR.gap_cap(2, 5.0, gp=small, est_dz_um=3.0) == (5.0, "max_step_um")              # under both floors
     # the flags
     assert PR.gap_flags([0.0, 0.0, 19.0], g12, 5.0, rigid=True) == []
     assert PR.gap_flags([0.0, 0.0, 0.3], g12, 5.0, rigid=True) == ["stage_step_mismatch"]
     assert PR.gap_flags([0.0, 0.0, 0.3], g12, 5.0, rigid=False) == []          # rigid only
     assert PR.gap_flags([0.0, 0.0, 0.3], g12, 0.0, rigid=True) == ["stage_step_mismatch"]   # 5 um without a base
     assert PR.gap_flags([0.0, 0.0, 15.2], g12, 0.0, rigid=True) == []
+    # at a stage move of 5 um or more an xy length under half the stage step is flagged at any base (a lock), where
+    # the length rule alone goes blind once the base reaches the stage step; lengths only, not the direction
+    assert PR.gap_flags([0.0, 0.0, 0.0], g12, 20.0, rigid=True) == ["stage_step_mismatch"]
+    assert PR.gap_flags([0.0, 0.0, 9.9], g12, 20.0, rigid=True) == ["stage_step_mismatch"]
+    assert PR.gap_flags([0.0, 0.0, 10.1], g12, 20.0, rigid=True) == []
+    assert PR.gap_flags([0.0, 0.0, -17.4], g12, 20.0, rigid=True) == []
+    assert PR.gap_flags([0.0, 0.0, 0.0], dict(g12, stage_xy_um=3.0), 5.0, rigid=True) == []      # under 5 um: length only
+    assert PR.xy_mismatch(0.0, g12, 20.0) and not PR.xy_mismatch(17.4, g12, 20.0)
+    assert not PR.xy_mismatch(0.0, g13, 5.0)                                  # no record, no mismatch
     assert PR.gap_flags([3.6, 0.0, 19.5], g12, 5.0, rigid=True) == ["z_beyond_record"]      # 3.6 > 1.0 + 2.5
     assert PR.gap_flags([3.4, 0.0, 19.5], g12, 5.0, rigid=True) == []
     deep = dict(g12, stack_overlap_um=-0.4)
@@ -230,6 +250,58 @@ def test_an_nd2_of_another_length_is_refused(fake_nd2, tmp_path):
             PR.load_stage_record(sdir, "movie", record, nd2=nd2_arg)
     assert not PR.stage_record_path(sdir, "movie").exists()
     assert PR.load_stage_record(sdir, "movie", dict(record, n_timepoints=3))["loaded_from"].startswith("nd2")
+
+
+def test_an_nd2_with_other_frame_times_is_refused(fake_nd2, tmp_path):
+    """Two movies of one protocol have the same timepoint count; their frame times differ (herm and herm001 of
+    20261013 by up to 0.155 s), while the series record's t_seconds are the run's own nd2's to the bit."""
+    paths = fake_nd2({"three.nd2": _FakeStageND2()})
+    sdir = tmp_path / "series"
+    sdir.mkdir()
+    times = [0.358, 300.358, 600.358]                  # the fake's first frame of each timepoint
+
+    def record(dt=(0.0, 0.0, 0.0), with_times=True):
+        tps = [dict({"t_index": k}, **({"t_seconds": times[k] + dt[k]} if with_times else {})) for k in range(3)]
+        return {"series_id": "movie", "file_path": str(paths["three.nd2"]), "n_timepoints": 3, "timepoints": tps}
+
+    assert PR.load_stage_record(sdir, "movie", record())["loaded_from"].startswith("nd2")      # the same movie
+    f = PR.stage_record_path(sdir, "movie")
+    f.unlink()
+    for nd2_arg in (paths["three.nd2"], None):          # given with --nd2, and found through the series record
+        with pytest.raises(ValueError, match="frame time of t001") as e:
+            PR.load_stage_record(sdir, "movie", record(dt=(0.0, 0.155, 0.0)), nd2=nd2_arg)
+        assert "not the movie this series was run from" in str(e.value)
+    assert not f.exists()
+    assert PR.load_stage_record(sdir, "movie", record(dt=(0.0004, 0.0, -0.0004)))["loaded_from"].startswith("nd2")
+    assert PR.load_stage_record(sdir, "movie", record(with_times=False))["loaded_from"].startswith("nd2")
+    # a record file of another series (a copy renamed to this stem) is refused
+    body = json.loads(f.read_text(encoding="utf-8"))
+    PR.stage_record_path(sdir, "other").write_text(json.dumps(body), encoding="utf-8")
+    with pytest.raises(ValueError, match="stage record of 'movie'"):
+        PR.load_stage_record(sdir, "other", {"series_id": "other", "file_path": "gone.nd2",
+                                             "timepoints": [{"t_index": 1}, {"t_index": 2}]})
+
+
+def test_an_nd2_that_cannot_be_opened(monkeypatch, tmp_path):
+    p = tmp_path / "broken.nd2"
+    p.write_bytes(b"not an nd2")
+
+    def broken(path):
+        raise OSError("bad file header")
+
+    monkeypatch.setattr(nd2, "ND2File", broken)
+    with pytest.raises(S.StageRecordUnavailable, match="could not be opened") as e:
+        S.read_stage_record(p)
+    assert nd2.__version__ in str(e.value) and "bad file header" in str(e.value)
+
+    class _Breaks(_FakeStageND2):
+        @property
+        def loop_indices(self):
+            raise RuntimeError("chunk map unreadable")
+
+    monkeypatch.setattr(nd2, "ND2File", lambda path: _Breaks())
+    with pytest.raises(S.StageRecordUnavailable, match="chunk map unreadable"):
+        S.read_stage_record(p)
 
 
 def test_parse_and_check_max_step_at():
@@ -369,7 +441,8 @@ def test_rigid_prior_raises_the_cap_where_the_stage_moved(jump_series):
     assert rep["parameters"]["prior"] == "stage" and "max_step_at" not in rep["parameters"]
     blk = rep["prior"]
     assert blk["loaded_from"] == "record file" and blk["record_file"].endswith(f"{STEM_SYN}__stage_record.json")
-    assert blk["constants"] == {"stage_floor_um": 1.0, "z_floor_um": 0.5, "z_excess_um": 2.5, "mismatch_no_cap_um": 5.0}
+    assert blk["constants"] == {"stage_floor_um": 1.0, "z_floor_um": 0.5, "z_excess_um": 2.5, "mismatch_no_cap_um": 5.0,
+                                "lock_fraction": 0.5, "frame_time_tolerance_s": 0.001}
     assert [g["gap"] for g in blk["gaps_with_a_move_or_refocus"]] == ["t1-t2", "t2-t3"]
     assert blk["flags"] == {}
     s3 = rep["steps"][2]
@@ -420,11 +493,35 @@ def test_rigid_flags_from_the_record(tmp_path):
         assert np.array_equal(t[f"step_d{ax}_um"].to_numpy(), plain[f"step_d{ax}_um"].to_numpy())
     assert res["report"]["prior"]["flags"] == {"t0-t1": ["stage_step_mismatch"], "t1-t2": ["z_beyond_record"],
                                                "t3-t4": ["no_shared_depth"]}
-    # with a base cap the mismatch tolerance is the base: 8 - 0.35 is above 5 and below 9
+    # with a base cap the length tolerance is the base (8 - 0.35 is above 5); at a base of 9 the length rule alone
+    # would pass it, and the lock rule flags it (0.35 um is under half the 8 um stage step)
     t5 = R.register_series(tmp_path, max_step_um=5.0, prior="stage")["table"]
     assert t5.loc[1, "prior_flags"] == "stage_step_mismatch" and t5.loc[1, "cap_um"] == pytest.approx(13.0)
     t9 = R.register_series(tmp_path, max_step_um=9.0, prior="stage")["table"]
-    assert t9.loc[1, "prior_flags"] == ""
+    assert t9.loc[1, "prior_flags"] == "stage_step_mismatch"
+    # a recorded focus step the image did follow (the 3 um z jump into t2): its z term is the step's own z, so it is
+    # not capped at base 1 and not flagged
+    write_record(tmp_path, STEM_SYN, 5, z_moves={2: 3.0})
+    tz = R.register_series(tmp_path, max_step_um=1.0, prior="stage")
+    raw_dz = float(plain.loc[2, "step_dz_um"])
+    assert not tz["table"].loc[2, "capped"] and tz["table"].loc[2, "prior_flags"] == ""
+    assert tz["table"].loc[2, "cap_um"] == pytest.approx(1.0 + min(3.0, abs(raw_dz)), abs=1e-12)
+    assert tz["table"].loc[2, "cap_um"] > 3.8                                # the jump's own z is allowed
+
+
+def test_rigid_focus_allowance_is_not_spent_on_xy(tmp_path):
+    """A recorded 5 um focus step into t3 while the image moved 1.6 um in x and hardly in z: the z term is the
+    estimate's own |dz| (about 0.12 um), so the 1 um base still caps the step; the full focus step would have let it
+    through."""
+    write_fake_series(tmp_path, make_series(jump=(3, 0.0, 0.0, 15.0)), 4)
+    write_record(tmp_path, STEM_SYN, 5, z_moves={3: 5.0})
+    res = R.register_series(tmp_path, max_step_um=1.0, prior="stage")
+    t, st = res["table"], res["report"]["steps"][2]
+    assert st["t_index"] == 3 and st["capped"] and abs(st["raw_step_um"][0]) < 0.5
+    assert t.loc[3, "cap_source"] == "prior:stage" and t.loc[3, "stage_dz_um"] == pytest.approx(5.0)
+    assert t.loc[3, "cap_um"] == pytest.approx(1.0 + abs(st["raw_step_um"][0]), abs=1e-6)     # the report rounds
+    assert np.linalg.norm(st["step_um"]) == pytest.approx(t.loc[3, "cap_um"])
+    assert res["report"]["capped"] == [3]
     # a timepoint the record lacks keeps the base cap and says so
     write_record(tmp_path, STEM_SYN, 5, xy_moves={1: (8.0, 0.0)}, drop=(3,))
     td = R.register_series(tmp_path, max_step_um=5.0, prior="stage")["table"]
@@ -736,21 +833,102 @@ def test_piecewise_prior_caps_and_warns(moved, tmp_path):
     """With --prior stage an unseeded piecewise registration warns at a stage move beyond the margin (its crops
     cannot follow it) and counts the move in that gap's cap; the seeded one counts only the z step."""
     write_record(moved["out"], STEM_W, NT_W, xy_moves={MOVE_T: (30.0, -8.0)}, n_planes=16, z_step=0.4)
-    un = register_series_piecewise(moved["out"], max_step_um=10.0, prior="stage")
-    t = un["table"]
-    assert list(t.columns) == schema.REGISTER_PIECEWISE + ["cap_um", "cap_source"] + list(PR.GAP_COLUMNS)
+    try:
+        un = register_series_piecewise(moved["out"], max_step_um=10.0, prior="stage")
+        t = un["table"]
+        assert list(t.columns) == schema.REGISTER_PIECEWISE + ["cap_um", "cap_source"] + list(PR.GAP_COLUMNS)
+        g2 = t[t["t_index"] == MOVE_T]
+        assert np.allclose(g2["cap_um"], 10.0 + float(np.hypot(30.0, 8.0)), rtol=0, atol=1e-9)
+        assert g2["cap_source"].eq("prior:stage").all() and np.allclose(g2["stage_dx_um"], 30.0, rtol=0, atol=1e-9)
+        assert t.loc[t["t_index"] == 1, "cap_um"].eq(10.0).all()
+        assert any("t1-t2" in w and "--seed rigid" in w for w in un["report"]["warnings"])
+        se = register_series_piecewise(moved["out"], max_step_um=10.0, prior="stage", seed="rigid")
+        ts = se["table"]
+        assert ts.loc[ts["t_index"] == MOVE_T, "cap_um"].eq(10.0).all()       # the seed carries the xy move
+        assert ts.loc[ts["t_index"] == MOVE_T, "cap_source"].eq("max_step_um").all()
+        assert ts["prior_flags"].fillna("").eq("").all()                     # the uncapped seed matches the stage step
+        assert not any("--seed rigid" in w for w in se["report"]["warnings"])
+        assert se["report"]["prior"]["loaded_from"] == "record file"
+    finally:
+        PR.stage_record_path(moved["out"], STEM_W).unlink(missing_ok=True)
+
+
+def test_piecewise_max_step_at_and_the_record_flags(moved, monkeypatch):
+    """--max-step-at and the record's flags in the piecewise registration: one gap's cap set (0 = none, or a
+    departure cap with --seed rigid), a timepoint without a gap refused, and (seeded, so every segment follows the
+    move) with every estimate 3 um deeper than the record (a planted z offset of the correlation), z_beyond_record
+    where the record has no focus step, nothing where it recorded that step, no_shared_depth where the stack moved
+    deeper than it is, and the z term of each cap the estimates' own z."""
+    out = moved["out"]
+    t = register_series_piecewise(out, max_step_um=10.0, max_step_at={MOVE_T: 0})["table"]
     g2 = t[t["t_index"] == MOVE_T]
-    assert np.allclose(g2["cap_um"], 10.0 + float(np.hypot(30.0, 8.0)), rtol=0, atol=1e-9)
-    assert g2["cap_source"].eq("prior:stage").all() and np.allclose(g2["stage_dx_um"], 30.0, rtol=0, atol=1e-9)
-    assert t.loc[t["t_index"] == 1, "cap_um"].eq(10.0).all()
-    assert any("t1-t2" in w and "--seed rigid" in w for w in un["report"]["warnings"])
-    se = register_series_piecewise(moved["out"], max_step_um=10.0, prior="stage", seed="rigid")
-    ts = se["table"]
-    assert ts.loc[ts["t_index"] == MOVE_T, "cap_um"].eq(10.0).all()       # the seed carries the xy move
-    assert ts.loc[ts["t_index"] == MOVE_T, "cap_source"].eq("max_step_um").all()
-    assert not any("--seed rigid" in w for w in se["report"]["warnings"])
-    assert se["report"]["prior"]["loaded_from"] == "record file"
-    PR.stage_record_path(moved["out"], STEM_W).unlink()
+    assert g2["cap_um"].isna().all() and g2["cap_source"].eq("max_step_at").all() and not g2["capped"].any()
+    later = t[t["t_index"] > 0]
+    assert later.loc[later["t_index"] != MOVE_T, "cap_um"].eq(10.0).all()
+    assert list(t.columns) == schema.REGISTER_PIECEWISE + ["cap_um", "cap_source"]           # no prior columns
+    se = register_series_piecewise(out, max_step_um=10.0, seed="rigid", max_step_at={MOVE_T: 1.0})["table"]
+    s2 = se[se["t_index"] == MOVE_T]
+    assert s2["cap_um"].eq(1.0).all() and s2["cap_basis"].eq("departure").all()
+    for r in s2.itertuples(index=False):
+        dep = np.array([r.step_dz_um, r.step_dy_um - r.seed_dy_um, r.step_dx_um - r.seed_dx_um])
+        assert np.linalg.norm(dep) <= 1.0 + 1e-9
+    with pytest.raises(ValueError, match="not a registrable timepoint"):
+        register_series_piecewise(out, max_step_um=10.0, max_step_at={0: 1.0})
+    write_record(out, STEM_W, NT_W, z_moves={3: 3.0, 4: 8.0}, n_planes=16, z_step=0.4)
+    real = PW.displacement
+
+    def deeper(*a, **k):
+        return real(*a, **k) + np.array([3.0 / REF_SP[0], 0.0, 0.0])
+
+    monkeypatch.setattr(PW, "displacement", deeper)
+    try:
+        res = register_series_piecewise(out, max_step_um=10.0, prior="stage", seed="rigid")
+        tp = res["table"]
+        assert not tp["capped"].any() and not tp["filled"].any()
+        flags = tp[tp["t_index"] > 0].groupby("t_index")["prior_flags"].agg(lambda v: sorted(set(v)))
+        assert flags.to_dict() == {1: ["z_beyond_record"], 2: ["z_beyond_record"], 3: [""], 4: ["no_shared_depth"]}
+        raw_dz = tp.groupby("t_index")["step_dz_um"].agg(lambda v: float(np.max(np.abs(v))))
+        caps = tp[tp["t_index"] > 0].groupby("t_index")["cap_um"].first()
+        assert caps[1] == 10.0 and caps[2] == 10.0                            # no focus step recorded there
+        assert caps[3] == pytest.approx(10.0 + min(3.0, raw_dz[3]), abs=1e-9)
+        assert caps[4] == pytest.approx(10.0 + min(8.0, raw_dz[4]), abs=1e-9) and caps[4] < 13.2   # not 18
+        assert res["report"]["prior"]["flags"] == {"t0-t1": ["z_beyond_record"], "t1-t2": ["z_beyond_record"],
+                                                   "t3-t4": ["no_shared_depth"]}
+    finally:
+        PR.stage_record_path(out, STEM_W).unlink(missing_ok=True)
+
+
+def test_a_capped_or_foreign_seed_table(tmp_path, capsys):
+    """A rigid table registered at the default 5 um cap clips the 31 um move into t2, so its seed is a shortened
+    step: the gap says so (seed_source), the report and the console warn with the command to run, and with the
+    record the gap is flagged seed_step_mismatch. A rigid table of another series is refused."""
+    s = write_moved_series(tmp_path, n_t=3)
+    out = s["out"]
+    assert R.register_series(out, max_step_um=5.0)["report"]["capped"] == [MOVE_T]
+    write_record(out, STEM_W, 3, xy_moves={MOVE_T: (30.0, -8.0)}, n_planes=16, z_step=0.4)
+    res = register_series_piecewise(out, max_step_um=10.0, seed="rigid", prior="stage")
+    t, rep = res["table"], res["report"]
+    g1, g2 = t[t["t_index"] == 1], t[t["t_index"] == MOVE_T]
+    assert g2["seed_source"].eq("rigid, capped in the seed table").all() and g2["cap_basis"].eq("departure").all()
+    assert g2["prior_flags"].eq("seed_step_mismatch").all()
+    assert g1["seed_source"].eq("rigid").all() and g1["prior_flags"].eq("").all()
+    sb = rep["seed"]
+    assert sb["n_seeded_gaps"] == 2 and sb["capped_t_indices"] == [MOVE_T]
+    assert len(sb["warnings"]) == 1 and "t1-t2" in sb["warnings"][0] and sb["warnings"][0] in rep["warnings"]
+    assert "--max-step-um 15 --prior stage" in sb["warnings"][0]
+    assert rep["prior"]["flags"] == {"t1-t2": ["seed_step_mismatch"]}
+    assert rep["steps"][MOVE_T - 1]["seed_source"] == "rigid, capped in the seed table"
+    capsys.readouterr()
+    assert cli.main(["register", str(out), "--mode", "piecewise", "--seed", "rigid", "--max-step-um", "10"]) == 0
+    printed = capsys.readouterr().out
+    assert "warning: t1-t2: the seed table capped" in printed and "2 of 2 gap(s) seeded" in printed
+    # the rigid table of another series (its series_id column) is refused, before anything is registered
+    other = pd.read_csv(out / f"{STEM_W}__register_shifts.csv", low_memory=False)
+    other["series_id"] = "20261005_DLW93_nohs_gfpsyp2_5min_2hr_herm"
+    p = tmp_path / "other__register_shifts.csv"
+    other.to_csv(p, index=False)
+    with pytest.raises(ValueError, match="20261005_DLW93_nohs_gfpsyp2_5min_2hr_herm"):
+        register_series_piecewise(out, max_step_um=10.0, seed="rigid", seed_table=p)
 
 
 # ---- the folded-axis guard ------------------------------------------------------------------------------------------
@@ -817,6 +995,7 @@ def test_guard_on_uses_the_straight_axis_and_track_link_rebuilds_it(folded):
     assert g["axis_before"] == "axis_position_um" and len(g["segment_spans_before_um"]) == 4
     pc1 = g["pc1"]
     assert abs(pc1["vx"]) > 0.99 and pc1["sign_rule"].startswith("spearman")        # the gonad runs along x
+    assert g["pc1_variance_fraction"] > 0.98 and g["warning"] is None      # two rows 8 um apart along 116 um: 0.987
     assert [pc1["vy"], pc1["vx"], pc1["cy_um"], pc1["cx_um"], pc1["offset_um"]] == [
         t[c].iloc[0] for c in AXIS_COLUMNS[1:]]
     # each segment is a stretch of the straight gonad again: its step is the shear at its nuclei's median x
@@ -853,12 +1032,33 @@ def test_guard_on_a_straight_axis_changes_nothing(tmp_path):
     on = register_series_piecewise(s["out"], max_step_um=6.0, axis_guard=True)
     g = on["report"]["axis_guard"]
     assert g["tripped"] is False and g["axis_used"] == "axis_position_um" and g["pc1"] is None
-    assert g["spread_ratio"] < 1.5
+    assert g["spread_ratio"] < 1.5 and g["pc1_variance_fraction"] > 0.98 and g["warning"] is None
     assert list(on["table"].columns) == schema.REGISTER_PIECEWISE + ["axis_source"]
     assert on["table"]["axis_source"].eq("axis_position_um").all()
     pd.testing.assert_frame_equal(off["table"], on["table"][list(off["table"].columns)], check_exact=True)
     pw = load_piecewise(find_series(s["out"]))                       # not pc1: the axis is rebuilt as on main
     assert pw.axis_source == "axis_position_um"
+
+
+def test_guard_warns_when_pc1_does_not_fit_the_origin():
+    """PC1 always reads well on the guard's own measure, so the guard also records how much of the origin's yx
+    variance PC1 explains and warns below 0.85: an L-shaped origin (two equal limbs at a right angle, about 0.8) whose
+    axis folds the second limb back onto the first trips the guard, and the straight axis it falls back on is a poor
+    fit there."""
+    x1 = np.arange(0.0, 101.0, 2.0)
+    y2 = np.arange(2.0, 101.0, 2.0)
+    yx = np.vstack([np.column_stack([np.zeros_like(x1), x1]), np.column_stack([y2, np.full_like(y2, 100.0)])])
+    a0 = np.concatenate([x1, 100.0 - y2])                    # the second limb runs back along the axis
+    pts = pd.DataFrame({"t_index": 0, "nucleus_id": np.arange(1, len(yx) + 1, dtype=float), "zr_um": 3.0,
+                        "yr_um": yx[:, 0], "xr_um": yx[:, 1], "in_germline": True, "axis_position_um": a0})
+    c0 = pts[["zr_um", "yr_um", "xr_um"]].to_numpy(float)
+    axis, source, a_used, g = PW.guard_origin_axis(pts, c0, a0, None, "axis_position_um", 4, 4.0)
+    assert g["tripped"] and source == "pc1" and g["spread_ratio"] > 4.0
+    assert g["pc1_variance_fraction"] == pytest.approx(0.8, abs=0.03)
+    assert "0.8" in g["warning"] and "PC1" in g["warning"]
+    straight = PW.guard_origin_axis(pts.iloc[: len(x1)], c0[: len(x1)], a0[: len(x1)], None, "axis_position_um", 4,
+                                    4.0)[3]
+    assert straight["pc1_variance_fraction"] > 0.99 and straight["warning"] is None
 
 
 def test_guard_keys_and_threshold(folded):
@@ -876,7 +1076,7 @@ def test_guard_keys_and_threshold(folded):
 
 # ---- the command line -------------------------------------------------------------------------------------------------
 
-def test_cli_rigid_caps_prior_and_refusals(jump_series, capsys):
+def test_cli_rigid_caps_prior_and_refusals(jump_series, capsys, monkeypatch):
     sd = str(jump_series)
     assert cli.main(["register", sd, "--max-step-um", "1.0", "--prior", "stage"]) == 0
     out = capsys.readouterr().out
@@ -900,6 +1100,17 @@ def test_cli_rigid_caps_prior_and_refusals(jump_series, capsys):
     PR.stage_record_path(jump_series, STEM_SYN).unlink()
     assert cli.main(["register", sd, "--prior", "stage"]) == 1
     assert "--nd2" in capsys.readouterr().err
+    # an nd2 that nd2 cannot open: exit 1 with the reason, not a traceback
+    bad = jump_series / "broken.nd2"
+    bad.write_bytes(b"not an nd2")
+
+    def broken(path):
+        raise OSError("bad file header")
+
+    monkeypatch.setattr(nd2, "ND2File", broken)
+    assert cli.main(["register", sd, "--prior", "stage", "--nd2", str(bad)]) == 1
+    err = capsys.readouterr().err
+    assert "could not be opened" in err and "bad file header" in err
 
 
 def test_cli_passes_none_without_the_new_flags(jump_series, monkeypatch):
@@ -937,6 +1148,7 @@ def test_cli_piecewise_seed_and_guard(tmp_path, capsys):
     assert cli.main(["register", sd, "--mode", "piecewise", "--seed", "rigid", "--max-step-um", "10"]) == 0
     out = capsys.readouterr().out
     assert "seed rigid: 2 of 2 gap(s) seeded from" in out and "largest seed" in out and "t1-t2" in out
+    assert "per-gap caps" not in out and "warning" not in out           # no cap option given; the seed is uncapped
     t = pd.read_csv(s["out"] / f"{STEM_W}__register_piecewise.csv")
     assert t.loc[t["t_index"] == 2, "seed_shift_y_vox"].eq(10).all() and t["cap_basis"].fillna("").isin(
         ["", "departure"]).all()
@@ -961,3 +1173,9 @@ def test_cli_piecewise_seed_and_guard(tmp_path, capsys):
         "piecewise_axis_guard": True, "piecewise_axis_fold_ratio": 8.0}}}}))
     assert cli.main(["register", str(f["out"]), "--mode", "piecewise", "--max-step-um", "6"]) == 0
     assert "spread ratio 7.39 (threshold 8): not tripped" in capsys.readouterr().out
+    # --no-axis-guard turns off a guard the manifest key turned on; the rigid mode refuses it as it refuses --axis-guard
+    assert cli.main(["register", str(f["out"]), "--mode", "piecewise", "--max-step-um", "6", "--no-axis-guard"]) == 0
+    assert "axis guard" not in capsys.readouterr().out
+    assert "axis_source" not in pd.read_csv(f["out"] / f"{PW_STEM}__register_piecewise.csv", nrows=1).columns
+    assert cli.main(["register", str(f["out"]), "--no-axis-guard"]) == 1
+    assert "--axis-guard applies to --mode piecewise only" in capsys.readouterr().err

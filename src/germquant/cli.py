@@ -179,7 +179,8 @@ def main(argv: list[str] | None = None) -> int:
                           "acquisition record')")
     prg.add_argument("--nd2", default=None, metavar="PATH",
                      help="with --prior stage: the movie the record is read from (default: the series record's nd2, "
-                          "else <stem>__stage_record.json next to the series record)")
+                          "else <stem>__stage_record.json next to the series record); refused when its timepoint "
+                          "count or frame times differ from the series record's")
     prg.add_argument("--seed", choices=["none", "rigid"], default=None,
                      help="piecewise: start every gap from the rigid step of <stem>__register_shifts.csv, the moving "
                           "crop following it, so one registration crosses a stage re-centring (default: the "
@@ -187,11 +188,12 @@ def main(argv: list[str] | None = None) -> int:
     prg.add_argument("--seed-table", default=None, metavar="PATH",
                      help="piecewise, with --seed rigid: the rigid table to seed from instead of the folder's own, "
                           "for example one registered with --taper 0.25")
-    prg.add_argument("--axis-guard", action="store_const", const=True, default=None,
+    prg.add_argument("--axis-guard", action=argparse.BooleanOptionalAction, default=None,
                      help="piecewise: when the origin's axis folds (a segment's nuclei spread along the gonad more "
                           "than timelapse.register.piecewise_axis_fold_ratio, code default 4, times its axis span), "
                           "use the straight principal axis of the origin's nuclei (default: the "
-                          "timelapse.register.piecewise_axis_guard key, code default off)")
+                          "timelapse.register.piecewise_axis_guard key, code default off; --no-axis-guard overrides "
+                          "the key)")
     gcfg = prg.add_mutually_exclusive_group(required=False)
     gcfg.add_argument("--config", help="config yaml for the timelapse.register.* keys (default: the series' run_manifest.json)")
     gcfg.add_argument("--profile", help="profile name instead of --config")

@@ -18,7 +18,8 @@ Why a private call. nd2's public API (0.11.3, pinned in constraints/) gives no p
 lab's files, so it returns one frame row plus the events), and ``frame_metadata(i).channels[0].position`` is the same
 for every frame. The per-frame X, Y, Z and ZDrive columns come from the reader's ``_custom_tags()``, the one private
 call here. It is guarded: StageRecordUnavailable (a ValueError) names the nd2 version when the method is missing, or
-when the X, Y or Z column is absent or shorter than the frame count. Columns are found by their description prefix
+when the X, Y or Z column is absent or shorter than the frame count; a file nd2 cannot open, or whose metadata it
+cannot decode, is the same error with nd2's reason. Columns are found by their description prefix
 ("X Coord", "Y Coord", "Z Coord", "Ti2 ZDrive"), because the unit suffix decodes as mojibake on these files. The
 event list and the frame time stamps come through the public ``events()`` and ``frame_metadata()``.
 """
@@ -116,11 +117,27 @@ def _stack(f, frames_per_t: int) -> dict:
 
 def read_stage_record(path: str | Path) -> dict:
     """The acquisition record of the nd2 time series at ``path`` (module docstring), metadata only.
-    StageRecordUnavailable (a ValueError) when the per-frame stage columns cannot be read."""
+    StageRecordUnavailable (a ValueError) when the per-frame stage columns cannot be read, and when nd2 cannot open
+    the file or read its metadata (the reason and the nd2 version in the message)."""
     import nd2
 
     p = Path(path)
-    with nd2.ND2File(str(p)) as f:
+    try:
+        f = nd2.ND2File(str(p))
+    except Exception as e:  # noqa: BLE001 - not an nd2, a damaged or locked file: the command says why and exits 1
+        raise StageRecordUnavailable(f"{p.name}: could not be opened by nd2 {_nd2_version()}: {type(e).__name__}: "
+                                     f"{e}") from e
+    try:
+        return _read(f, p)
+    except StageRecordUnavailable:
+        raise
+    except Exception as e:  # noqa: BLE001 - a metadata chunk nd2 cannot decode
+        raise StageRecordUnavailable(f"{p.name}: the metadata could not be read (nd2 {_nd2_version()}): "
+                                     f"{type(e).__name__}: {e}") from e
+
+
+def _read(f, p: Path) -> dict:
+    with f:
         rdr = getattr(f, "_rdr", None)
         tags_fn = getattr(rdr, "_custom_tags", None)
         if not callable(tags_fn):

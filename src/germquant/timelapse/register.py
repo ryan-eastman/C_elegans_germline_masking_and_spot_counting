@@ -35,8 +35,9 @@ a good registration what remains is the real flow of the nuclei plus segmentatio
 
 Per-gap caps and the acquisition record (opt-in; timelapse.priors, docs/TIMELAPSE.md "Per-gap caps and the
 acquisition record"). ``max_step_at`` sets the cap of single gaps and ``prior="stage"`` raises each gap's cap by
-the stage and focus moves the nd2 recorded in that gap, and flags gaps the record cannot explain. Without either
-the registration runs main's statements in main's order: the same table columns and the same report keys.
+the stage and focus moves the nd2 recorded in that gap (the focus move as far as the estimate's own z uses it), and
+flags gaps the record cannot explain. Without either the registration runs main's statements in main's order: the
+same table columns and the same report keys.
 """
 from __future__ import annotations
 
@@ -354,8 +355,9 @@ def register_series(
     Opt-in (module docstring): ``max_step_at`` ``{T: um}`` caps the gap into timepoint T at that length instead
     (0: no cap there; T must be a registrable timepoint after the first). ``prior="stage"`` reads the series'
     acquisition record (priors.load_stage_record: ``nd2``, else the series record's nd2, else
-    ``<stem>__stage_record.json``), raises each gap's cap by the recorded stage xy and stack z moves
-    (priors.gap_cap) and flags the gaps the record cannot explain (priors.gap_flags; advisory). With either, the
+    ``<stem>__stage_record.json``), raises each gap's cap by the recorded stage xy move and by as much of the stack
+    z move as the step's own z uses (priors.gap_cap) and flags the gaps the record cannot explain (priors.gap_flags;
+    advisory). With either, the
     table gains ``cap_um`` and ``cap_source`` (and, with the prior, the gap prior's columns) after the declared
     ones, each ``steps`` entry its cap and gap prior, and the report the given options and a ``prior`` block.
 
@@ -471,7 +473,7 @@ def register_series(
         cap_k = cap
         if per_gap:              # the gap from the last registrable frame: its own cap (priors.gap_cap)
             gp = PR.gap_prior(stage, int(tps[last]["t_index"]), k, z_range) if stage is not None else None
-            cap_k, cap_src = PR.gap_cap(k, cap, max_step_at=msa, gp=gp)
+            cap_k, cap_src = PR.gap_cap(k, cap, max_step_at=msa, gp=gp, est_dz_um=float(raw_step[0]))
         step, capped = cap_step(raw_step, cap_k)
         base = cum[ref_i] if mode == "previous" else cum[last]
         cum_i = base + step

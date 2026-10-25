@@ -44,9 +44,15 @@ default reproduces the registration above number for number):
   the circular z estimate stay), so a segment is followed across a stage re-centring that one crop box for both
   volumes cannot follow. The estimate is the correlation of the two crops plus that whole-voxel offset; the cap
   applies to the departure from the seed, and when nothing is capped the step is the estimate itself. A seed below
-  half a reference voxel moves no crop, so there the estimate is the unseeded one exactly.
+  half a reference voxel moves no crop, so there the estimate is the unseeded one exactly. A seed table whose
+  ``series_id`` names another series is refused; a gap whose rigid step the seed table capped is seeded with that
+  shortened step and says so (``seed_source`` "rigid, capped in the seed table", a warning with the command to run).
 * ``max_step_at`` and ``prior`` set the cap of a gap and flag it from the acquisition record as for the rigid
-  registration (timelapse.priors); a seeded step counts only the recorded z move in its cap.
+  registration (timelapse.priors); a seeded step counts only the recorded z move in its cap, and a seed that does not
+  fit the recorded stage step is flagged ``seed_step_mismatch``.
+* ``axis_guard`` (key ``timelapse.register.piecewise_axis_guard``) replaces a folded origin axis by the straight PC1
+  axis of the origin's germline (guard_origin_axis), and warns when PC1 explains under PC1_MIN_VARIANCE_FRACTION of
+  their yx variance.
 """
 from __future__ import annotations
 
@@ -149,8 +155,9 @@ def piecewise_options(cfg=None, *, seed=None, axis_guard=None, axis_fold_ratio=N
 def load_seed_table(series_dir: Path, stem: str, seed_table=None) -> tuple[dict[int, np.ndarray], dict]:
     """The rigid cumulative shift per timepoint (``{t_index: (dz, dy, dx) um}``, finite rows only) of the seed table:
     ``seed_table``, else the folder's ``<stem>__register_shifts.csv``; and its record for the report (path, sha256,
-    the parameters of its registration report when one sits next to it). ValueError naming the command to run when
-    there is none."""
+    the parameters of its registration report when one sits next to it, ``capped_t_indices``: the timepoints whose
+    rigid step that registration capped, so their seeds are shortened steps). ValueError naming the command to run
+    when there is none, and for a table whose ``series_id`` column names another series."""
     p = Path(seed_table) if seed_table is not None else Path(series_dir) / f"{stem}{RIGID_TABLE_SUFFIX}"
     if not p.is_file():
         if seed_table is None:
@@ -163,11 +170,20 @@ def load_seed_table(series_dir: Path, stem: str, seed_table=None) -> tuple[dict[
                  if set(c) <= set(df.columns)), None)
     if cols is None or "t_index" not in df.columns:
         raise ValueError(f"{p.name}: not a register_shifts table (no t_index and dz_um, dy_um, dx_um columns)")
+    if "series_id" in df.columns:
+        others = sorted({str(v) for v in df["series_id"].dropna()} - {str(stem)})
+        if others:
+            raise ValueError(f"--seed-table {p.name} is the rigid table of {', '.join(others)}, not of {stem}: seed "
+                             f"from this series' own rigid table (`germquant register {series_dir}`)")
     vals = df[list(cols)].apply(pd.to_numeric, errors="coerce").to_numpy(float)
     seeds = {}
     for t, v in zip(pd.to_numeric(df["t_index"], errors="coerce"), vals):
         if pd.notna(t) and np.all(np.isfinite(v)):
             seeds[int(t)] = v
+    capped = []
+    if "capped" in df.columns:
+        capped = sorted({int(t) for t, c in zip(pd.to_numeric(df["t_index"], errors="coerce"), df["capped"])
+                         if pd.notna(t) and _truthy(c)})
     params = None
     if p.name.endswith(RIGID_TABLE_SUFFIX):
         rp = p.with_name(p.name[: -len(RIGID_TABLE_SUFFIX)] + RIGID_REPORT_SUFFIX)
@@ -180,7 +196,7 @@ def load_seed_table(series_dir: Path, stem: str, seed_table=None) -> tuple[dict[
             params = None
     with open(long_path(p), "rb") as fh:
         sha = hashlib.sha256(fh.read()).hexdigest()
-    return seeds, {"table": str(p), "sha256": sha, "rigid_parameters": params}
+    return seeds, {"table": str(p), "sha256": sha, "rigid_parameters": params, "capped_t_indices": capped}
 
 
 # ---- the axis, the segments and the interpolation ------------------------------------------------------------
@@ -234,11 +250,21 @@ def origin_axis(points: pd.DataFrame) -> tuple:
 
 PC1_COLUMNS = {"vy": "axis_pc1_vy", "vx": "axis_pc1_vx", "cy_um": "axis_pc1_cy_um", "cx_um": "axis_pc1_cx_um",
                "offset_um": "axis_pc1_offset_um"}
+PC1_MIN_VARIANCE_FRACTION = 0.85    # a tripped guard warns when PC1 explains less of the origin's yx variance
 
 
 def _pc1_direction(yx: np.ndarray) -> np.ndarray:
     """The first principal direction (unit, (y, x)) of the centred points."""
     return np.linalg.svd(yx - yx.mean(axis=0), full_matrices=False)[2][0]
+
+
+def pc1_variance_fraction(yx: np.ndarray) -> float:
+    """The share of the points' yx variance along their first principal direction (1 for points on a line, 0.5 for
+    an isotropic cloud): how well one straight axis can describe the origin's germline. The spread ratio cannot tell,
+    since PC1 is straight by construction and always reads well on it."""
+    s = np.linalg.svd(np.asarray(yx, dtype=float) - np.asarray(yx, dtype=float).mean(axis=0), compute_uv=False)
+    total = float(np.sum(s ** 2))
+    return float(s[0] ** 2 / total) if total > 0 else 1.0
 
 
 def spread_ratios(points: pd.DataFrame, a0, k: int) -> dict:
@@ -299,7 +325,9 @@ def pc1_axis(points: pd.DataFrame) -> tuple:
 def guard_origin_axis(points: pd.DataFrame, c0, a0, axis, source: str, k: int, threshold: float) -> tuple:
     """The guard on the origin axis: ``(axis, source, a0, block)``, the axis to use (the default one, or PC1 when the
     spread ratio is above ``threshold``), its positions of the origin nuclei ``c0`` and the report block. A default
-    axis whose positions cannot be split into K segments at all counts as folded."""
+    axis whose positions cannot be split into K segments at all counts as folded. The block also records
+    ``pc1_variance_fraction`` (pc1_variance_fraction of the origin's yx centroids) and, when the guard tripped and
+    that is under PC1_MIN_VARIANCE_FRACTION, a ``warning``: the straight axis it fell back on is a poor fit."""
     block = {"threshold": float(threshold), "axis_before": source}
     try:
         sr = spread_ratios(points, a0, k)
@@ -310,12 +338,19 @@ def guard_origin_axis(points: pd.DataFrame, c0, a0, axis, source: str, k: int, t
         block.update(spread_ratio_by_segment=None, spread_ratio=None, segment_spans_before_um=None,
                      why=f"the default axis does not separate into {k} segments: {e}")
         tripped = True
-    block["tripped"] = tripped
+    frac = pc1_variance_fraction(points[["yr_um", "xr_um"]].to_numpy(float))
+    block.update(tripped=tripped, pc1_variance_fraction=frac, pc1_min_variance_fraction=PC1_MIN_VARIANCE_FRACTION,
+                 warning=None)
     if not tripped:
         block.update(axis_used=source, pc1=None)
         return axis, source, a0, block
     model, params = pc1_axis(points)
     block.update(axis_used="pc1", pc1=params)
+    if frac < PC1_MIN_VARIANCE_FRACTION:
+        block["warning"] = (f"the axis guard fell back on PC1, the straight principal axis, but PC1 explains only "
+                            f"{frac:.2f} of the origin's yx variance (under {PC1_MIN_VARIANCE_FRACTION:g}): the germline "
+                            f"is not straight enough for one straight axis; check the origin's axis, or use fewer "
+                            f"segments")
     return model, "pc1", np.asarray(model(c0), dtype=float), block
 
 
@@ -503,8 +538,10 @@ def register_series_piecewise(
         gap_rows: dict[int, dict] = {}          # t_index -> the per-gap columns of its segment rows
         gap_list: list[dict] = []               # the registered gaps with the prior, for the report's prior block
         seeds, seed_info = load_seed_table(sdir, stem, seed_table) if seeding else ({}, None)
+        seed_capped = set(seed_info["capped_t_indices"]) if seeding else set()     # shortened rigid steps
         seed_rows: dict[tuple[int, int], dict] = {}     # (t_index, segment) -> the seed columns of that row
         unseeded_gaps: list[dict] = []
+        seed_warnings: list[str] = []
         prior_warnings: list[str] = []
 
     n = len(tps)
@@ -549,6 +586,9 @@ def register_series_piecewise(
     rows: list[dict] = []
     steps_rep: list[dict] = []
     warnings: list[str] = []
+    if guard is not None and guard.get("warning"):
+        warnings.append(guard["warning"])
+        log.warning("%s: %s", stem, guard["warning"])
     errors: dict[str, str] = {}
     capped_list: list[dict] = []
     disagree_list: list[dict] = []
@@ -596,11 +636,20 @@ def register_series_piecewise(
                 if ref_k in seeds and k in seeds:
                     sd, seed_src = seeds[k] - seeds[ref_k], "rigid"
                     sy, sx = int(np.rint(sd[1] / spacing[1])), int(np.rint(sd[2] / spacing[2]))
+                    hit = [t for t in sorted(seed_capped) if ref_k < t <= k]
+                    if hit:                 # the seed table clipped a step of this gap: the seed is not the move
+                        seed_src = "rigid, capped in the seed table"
+                        w = (f"t{ref_k}-t{k}: the seed table capped its rigid step into "
+                             f"{', '.join(f't{t:03d}' for t in hit)}, so this gap's seed is a shortened step, not the "
+                             f"move; register the rigid table with the cap the movie needs, for example `germquant "
+                             f"register {sdir} --max-step-um 15 --prior stage`, then seed again")
+                        seed_warnings.append(w)
+                        warnings.append(w)
+                        log.warning("%s", w)
                 else:
                     seed_src = f"none: no rigid step for t{(k if k not in seeds else ref_k):03d}"
                     unseeded_gaps.append({"gap": f"t{ref_k}-t{k}", "why": seed_src})
             gp = PR.gap_prior(stage, ref_k, k, z_range) if stage is not None else None
-            cap_k, cap_src = PR.gap_cap(k, cap, max_step_at=msa, gp=gp, seeded=sd is not None)
         raw_steps = np.full((K, 3), np.nan)
         seg_err = [""] * K
         boxes = []
@@ -629,6 +678,9 @@ def register_series_piecewise(
             errors[str(k)] = why
             log.warning("t%03d: %s", k, why)
             continue
+        if per_gap:     # the gap's cap (priors.gap_cap); its focus term is what the segments' own z uses of it
+            cap_k, cap_src = PR.gap_cap(k, cap, max_step_at=msa, gp=gp, seeded=sd is not None,
+                                        est_dz_um=max(abs(float(raw_steps[s][0])) for s in good))
         steps = np.full((K, 3), np.nan)
         capped = [False] * K
         deps = np.full((K, 3), np.nan)              # seeded: the departure of each estimate from the seed
@@ -718,6 +770,8 @@ def register_series_piecewise(
             flags: list[str] = []
             if stage is not None:
                 found_flags = {f for s in good for f in PR.gap_flags(raw_steps[s], gp, cap, rigid=False)}
+                if sd is not None and PR.xy_mismatch(float(np.hypot(sd[1], sd[2])), gp, cap):
+                    found_flags.add("seed_step_mismatch")       # the rigid seed does not fit the recorded stage step
                 flags = [f for f in PR.FLAG_ORDER if f in found_flags]
                 if sd is None and gp["recorded"] and gp["stage_xy_um"] > margin:
                     why = ("--seed rigid has no rigid step for this gap: register the rigid table over it" if seeding
@@ -792,8 +846,9 @@ def register_series_piecewise(
             report["parameters"]["seed"] = "rigid"
             if seed_table is not None:
                 report["parameters"]["seed_table"] = str(seed_table)
-            n_seeded = sum(1 for st_ in steps_rep if st_.get("seed_source") == "rigid")
+            n_seeded = sum(1 for st_ in steps_rep if str(st_.get("seed_source") or "").startswith("rigid"))
             report["seed"] = {**seed_info, "n_seeded_gaps": n_seeded, "unseeded_gaps": unseeded_gaps,
+                              "warnings": seed_warnings,
                               "z": "recorded, not applied (every plane and the circular z estimate are kept)",
                               "cap_basis": "the departure from the seed (estimate minus (0, seed_y, seed_x))"}
     if guard is not None:
