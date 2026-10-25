@@ -269,8 +269,9 @@ def main(argv: list[str] | None = None) -> int:
                                         "the runs) or a batch tree")
     pe.add_argument("--out", required=True, help="the training folder: image/, labels/, manifest.csv, export.json")
     pe.add_argument("--orientations", default="auto",
-                    help="auto (the default): by the run's geometry, xy, xz and yz slices of a 3D run and one proj "
-                         "pair of a projected run (the 2D image its segmenter saw); or a comma-separated subset of "
+                    help="auto (the default): by the run's geometry, xy, xz and yz slices of a 3D run, one proj "
+                         "pair of a projected run (the 2D image its segmenter saw) and the plane of a single-plane "
+                         "run as xy (tiles of at most 1024 px above that size); or a comma-separated subset of "
                          "xy,xz,yz for the 3D runs. xz and yz slices are resampled along z to the xy pixel size so "
                          "every slice is isotropic (docs/TRAINING.md)")
     pe.add_argument("--slices-per-image", type=int, default=3, metavar="N",

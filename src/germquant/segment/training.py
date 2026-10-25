@@ -13,8 +13,11 @@ These commands share this module:
   exported slice is isotropic and a 2D model trained on them applies in 3D with ``anisotropy = dz / dy``,
   which is how the segment stage runs Cellpose; a projected run (segmentation.nuclei.project) gives one pair
   of orientation ``proj``, the 2D image its segmenter saw (the recorded plane, or the max or mean projection)
-  with its 2D labels. A person corrects the labels in napari or the Cellpose GUI and saves them back under
-  the same name.
+  with its 2D labels; a single-plane run (io.planar) gives its plane as orientation ``xy``, cut above
+  TILE_PX (1024) pixels into the fewest tiles of at most that size, each tile's offset in the manifest
+  (tile_y0, tile_x0). A person corrects the labels in napari or the Cellpose GUI and saves them back under
+  the same name. ``germquant import-labels`` (germquant.import_labels) writes labels made elsewhere into the
+  same layout, through the plane and slice writers here.
 * ``germquant train-nuclei --pairs PAIRS --out MODELDIR`` (``train_nuclei``): ``cellpose.train.train_seg``
   in process, as scripts/train_nucleus_model_combined.py ran it (AdamW, learning rate 1e-5, weight decay
   0.1, batch 8), with the pairs split by source image or by series and never by slice, so no slice of a
@@ -52,12 +55,19 @@ log = logging.getLogger(__name__)
 
 ORIENTATIONS = ("xy", "xz", "yz")          # the slices of a 3D run; an explicit --orientations list names these
 PROJ = "proj"                              # the one 2D image of a projected run (design section 10, step 2)
+TILE_PX = 1024                             # a single plane above this size a side is exported as tiles of it
 _AXIS = {"xy": 0, "xz": 1, "yz": 2}        # the array axis a slice index runs along (labels are (Z, Y, X))
 _T_SUFFIX = re.compile(r"_t(\d{3})$")
 _PAIR_NAME = re.compile(r"^(?P<id>.+)_(?P<orient>xy|xz|yz|proj)_(?P<index>\d+)$")
 MANIFEST_COLS = ["image_id", "series_id", "t_index", "orientation", "slice_index", "n_labels", "zone",
                  "image", "labels", "source_file", "xy_stride", "z_range", "channel_role", "channel_index",
                  "pixel_um", "z_zoom", "height", "width"]
+# columns a manifest gains only when a pair needs them, after MANIFEST_COLS: source (import:<tool>, a pair of
+# germquant import-labels; empty for an exported pair) and tile_y0, tile_x0 (the offset of a 2D plane's pair in
+# its plane, on the run's grid: a single-plane run's export, or an import of 2D labels). A manifest of 3D and
+# projected runs only has exactly MANIFEST_COLS, as before.
+MANIFEST_EXTRA_COLS = ["source", "tile_y0", "tile_x0"]
+_TILE_COLS = ("tile_y0", "tile_x0")
 LICENCE_NOTE = ("Cellpose-SAM weights are BSD-3-Clause; Cellpose's own training data is distributed under a "
                 "non-commercial (CC BY-NC) licence, so a model fine-tuned from cpsam inherits that question for "
                 "commercial use (README, License).")
@@ -136,9 +146,9 @@ def _run_ref(folder: Path, iid: str, labels_path: Path, summary_path: Path) -> R
         for nested in ("run_geometry", "geometry"):
             if isinstance(rec.get(nested), dict):
                 man.update({k: v for k, v in rec[nested].items() if k in ("xy_stride", "z_range", "t_index")})
-        if isinstance(rec.get("segment_projection"), dict):
-            # a projected run of a batch: its proj pair must be the channel the segmenter saw, so the segmented
-            # role comes from the batch's own config (3D batch runs keep the dna default, as before)
+        if isinstance(rec.get("segment_projection"), dict) or rec.get("planar") is True:
+            # a projected or single-plane run of a batch: its 2D pair must be the channel the segmenter saw, so
+            # the segmented role comes from the batch's own config (3D batch runs keep the dna default, as before)
             batch_man = _batch_manifest(folder, rec.get("config_hash"))
             if batch_man is not None:
                 man["config"] = batch_man.get("config")
@@ -203,12 +213,51 @@ def _run_record(folder: str | Path, image_id: str) -> dict:
 
 
 def _geometry(record: dict) -> tuple[str, dict | None]:
-    """``("projected", {mode, plane, z})`` for a run whose record holds segment_projection (a projected run,
-    docs/PLANAR.md), else ``("3d", None)``: every other run exports its xy, xz and yz slices."""
+    """``("planar", None)`` for a single-plane run (its record holds ``"planar": true``, docs/PLANAR.md; checked
+    first, since such a run records no segment_projection, decision D7), ``("projected", {mode, plane, z})`` for a
+    run whose record holds segment_projection (a projected run), else ``("3d", None)``: every other run exports
+    its xy, xz and yz slices."""
+    if record.get("planar") is True:
+        return "planar", None
     proj = record.get("segment_projection")
     if isinstance(proj, dict):
         return "projected", dict(proj)
     return "3d", None
+
+
+def _run_spacing(run: RunRef, record: dict, stack) -> tuple[float, float, float]:
+    """The (dz, dy, dx) a run's pixels are exported on: the stack's as read, unless the run records spacing_source
+    (a single-plane run, or io.voxel_size_um in any run: decision D6), whose spacing is applied after the read and
+    so is not the file's. Then the voxel size of the run's image_summary, which process_image writes from the
+    spacing it ran with; a single plane's NaN dz becomes planar.PLANAR_DZ, the placeholder its run used."""
+    if not record.get("spacing_source"):
+        return tuple(float(s) for s in stack.spacing)
+    s = pd.read_csv(long_path(Path(run.folder) / f"{run.image_id}__image_summary.csv"), low_memory=False,
+                    float_precision="round_trip")
+    row = s.iloc[0]
+    dz, dy, dx = (float(row[f"voxel_{a}_um"]) for a in ("dz", "dy", "dx"))
+    if not np.isfinite(dz):
+        from ..planar import PLANAR_DZ
+
+        dz = PLANAR_DZ
+    if not (np.isfinite(dy) and np.isfinite(dx) and dy > 0 and dx > 0):
+        raise ValueError(f"{run.image_id}: the run's image_summary holds no pixel size (voxel_dy_um {dy}, "
+                         f"voxel_dx_um {dx}), and the run's spacing ({record.get('spacing_source')}) is not the file's")
+    return dz, dy, dx
+
+
+def plane_tiles(height: int, width: int, tile_px: int = TILE_PX) -> list[tuple[int, int, int, int]]:
+    """The tiles a plane of ``height`` x ``width`` pixels is exported as: ``(y0, x0, h, w)`` row by row, the fewest
+    tiles of at most ``tile_px`` pixels a side, of near-equal size (on each axis the sizes differ by at most one
+    pixel, so no thin sliver is left at an edge), every pixel in exactly one tile. A plane that fits is one tile,
+    ``(0, 0, height, width)``."""
+    def cuts(n: int) -> list[tuple[int, int]]:
+        n = int(n)
+        k = max(1, -(-n // int(tile_px)))
+        edges = [(i * n) // k for i in range(k + 1)]
+        return [(edges[i], edges[i + 1] - edges[i]) for i in range(k)]
+
+    return [(y0, x0, h, w) for y0, h in cuts(height) for x0, w in cuts(width)]
 
 
 # ---- slicing ---------------------------------------------------------------------------------------------
@@ -340,6 +389,89 @@ def _projected_pair(run: RunRef, projection: dict | None, img: np.ndarray, label
     return row, os.path.getsize(long_path(p_im)) + os.path.getsize(long_path(p_lab))
 
 
+def plane_pairs(base: dict, img2d: np.ndarray, lab2d: np.ndarray, zones: dict, out_dir: Path,
+                tile_px: int = TILE_PX):
+    """Write the pairs of one 2D plane, the image a single-plane run segmented (or an imported 2D labels file's
+    image, germquant.import_labels): the plane itself, or above ``tile_px`` pixels a side its tiles (plane_tiles),
+    as ``<id>_xy_<k>.tif`` with k the tile's number row by row (0 for a whole plane), uint16 like every exported
+    image and not resampled, the labels int32 with their ids as given. A tile whose labels hold no object is not
+    written (its number is skipped). Yields ``(row, bytes written)`` per pair, writing each when asked, so the
+    caller can stop at its size cap; ``base`` holds the row's fields that do not change per tile (image_id,
+    series_id, t_index, source_file, xy_stride, z_range, channel_role, channel_index, pixel_um and, for an import,
+    source)."""
+    import tifffile
+
+    img2d, lab2d = np.asarray(img2d), np.asarray(lab2d)
+    if img2d.shape != lab2d.shape or lab2d.ndim != 2:
+        raise ValueError(f"{base.get('image_id')}: a plane and its labels must be 2D of one shape, got {img2d.shape} "
+                         f"and {lab2d.shape}")
+    for k, (y0, x0, h, w) in enumerate(plane_tiles(*lab2d.shape, tile_px)):
+        lab = np.ascontiguousarray(lab2d[y0:y0 + h, x0:x0 + w]).astype(np.int32)
+        ids = np.unique(lab)
+        ids = ids[ids > 0]
+        if not ids.size:
+            continue
+        stem = f"{base['image_id']}_xy_{k:04d}.tif"
+        p_im, p_lab = out_dir / "image" / stem, out_dir / "labels" / stem
+        tifffile.imwrite(long_path(p_im), _to_uint16(img2d[y0:y0 + h, x0:x0 + w]), compression="zlib")
+        tifffile.imwrite(long_path(p_lab), lab, compression="zlib")
+        row = {**base, "orientation": "xy", "slice_index": int(k), "n_labels": int(ids.size),
+               "zone": _mode_zone(zones, ids), "image": f"image/{stem}", "labels": f"labels/{stem}",
+               "z_zoom": 1.0, "height": int(h), "width": int(w), "tile_y0": int(y0), "tile_x0": int(x0)}
+        yield row, os.path.getsize(long_path(p_im)) + os.path.getsize(long_path(p_lab))
+
+
+def slice_pairs(base: dict, img: np.ndarray, labels: np.ndarray, spacing, out_dir: Path, *, orientations=ORIENTATIONS,
+                slices_per_image: int = 3, min_labels: int = 3, seed: int = 0, zones: dict | None = None):
+    """Write the xy, xz and yz slice pairs of a (Z, Y, X) image and its labels by export-training's rule for a 3D
+    run (choose_slices, seeded per image with _rng_for, isotropic_slice), for germquant.import_labels. Yields
+    ``(row, bytes written)`` per pair; ``base`` as for plane_pairs. ``pixel_um`` is taken from ``base`` when it
+    holds one (None there for an image whose voxel size is unknown), else the slice's."""
+    import tifffile
+
+    rng = _rng_for(seed, str(base["image_id"]))
+    zones = zones or {}
+    for orient in orientations:
+        for i in choose_slices(slice_counts(labels, orient), slices_per_image, min_labels, rng):
+            im2, lab2, px, z_zoom = isotropic_slice(img, labels, orient, i, spacing)
+            stem = f"{base['image_id']}_{orient}_{i:04d}.tif"
+            p_im, p_lab = out_dir / "image" / stem, out_dir / "labels" / stem
+            tifffile.imwrite(long_path(p_im), _to_uint16(im2), compression="zlib")
+            tifffile.imwrite(long_path(p_lab), lab2, compression="zlib")
+            ids = np.unique(lab2)
+            ids = ids[ids > 0]
+            row = {"pixel_um": px, **base, "orientation": orient, "slice_index": int(i), "n_labels": int(ids.size),
+                   "zone": _mode_zone(zones, ids), "image": f"image/{stem}", "labels": f"labels/{stem}",
+                   "z_zoom": z_zoom, "height": int(lab2.shape[0]), "width": int(lab2.shape[1])}
+            yield row, os.path.getsize(long_path(p_im)) + os.path.getsize(long_path(p_lab))
+
+
+def merge_manifest(out_dir: Path, rows: list[dict]) -> pd.DataFrame:
+    """The manifest of a pairs folder after ``rows`` join it: the rows of an existing manifest.csv whose image is
+    not among ``rows`` stay (in their order), then ``rows``. The columns are MANIFEST_COLS, then those of
+    MANIFEST_EXTRA_COLS that a row of either side holds (none for 3D and projected runs, so such a manifest is
+    exactly MANIFEST_COLS); the tile offsets are whole numbers, empty where a pair has none. Nothing is written."""
+    extra = [c for c in MANIFEST_EXTRA_COLS if any(c in r for r in rows)]
+    new = pd.DataFrame(rows, columns=MANIFEST_COLS + extra)
+    manifest_path = out_dir / "manifest.csv"
+    if manifest_path.exists():
+        old = pd.read_csv(long_path(manifest_path), low_memory=False)
+        old = old[~old["image_id"].astype(str).isin(set(new["image_id"].astype(str)))] if "image_id" in old else old.iloc[0:0]
+        # an extra column stays while a kept row holds a value in it
+        cols = MANIFEST_COLS + [c for c in MANIFEST_EXTRA_COLS
+                                if c in extra or (c in old.columns and old[c].notna().any())]
+        for c in cols:
+            if c not in old.columns:
+                old[c] = pd.NA
+            if c not in new.columns:
+                new[c] = pd.NA
+        new = pd.concat([old[cols], new[cols]], ignore_index=True)
+    for c in _TILE_COLS:
+        if c in new.columns:
+            new[c] = pd.array(pd.to_numeric(new[c], errors="coerce"), dtype="Int64")
+    return new
+
+
 def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orientations=None,
                           slices_per_image: int = 3, seed: int = 0, zone_column: str | None = "zone",
                           min_labels: int = 3, max_bytes: float = 2e9) -> pd.DataFrame:
@@ -353,16 +485,22 @@ def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orien
       the image). The orientations are xy, xz and yz, or the ones an explicit ``orientations`` list names,
       in its order;
     * a projected run (its record holds segment_projection): one pair of orientation ``proj``, the 2D image
-      the segmenter saw and the run's 2D labels (``_projected_pair``), whatever an explicit list names.
+      the segmenter saw and the run's 2D labels (``_projected_pair``), whatever an explicit list names;
+    * a single-plane run (its record holds ``"planar": true``): its plane as orientation ``xy``, whole, or above
+      TILE_PX pixels a side the fewest tiles of at most that size (``plane_pairs``), whatever an explicit list
+      names; each row records the tile's offset (tile_y0, tile_x0), and its slice_index is the tile's number.
 
-    ``zone_column`` names the nuclei-table column (the staging stage's ``zone``) whose most frequent value
-    among the nuclei in a pair becomes its zone tag; absent column, empty tag. The export stops with a
-    warning once ``max_bytes`` have been written (a 56 GB series must not become a 56 GB training folder).
-    ``manifest.csv`` (MANIFEST_COLS) is merged with an existing one in ``out_dir``: rows of the images
-    exported now replace their old rows, other rows stay. ``export.json`` records the settings and the runs;
-    its ``orientations`` is the union over the runs (the slice list, then ``proj``), and only when a run is
-    not 3D, ``run_orientations`` gives each run's geometry and orientations, in the order of ``runs``.
-    Returns the manifest."""
+    A run that records spacing_source (a single-plane run, or io.voxel_size_um in any run) is exported on the
+    spacing it ran with, from its image_summary (``_run_spacing``): the xz and yz stretch and pixel_um are the
+    run's, not the file's. ``zone_column`` names the nuclei-table column (the staging stage's ``zone``) whose
+    most frequent value among the nuclei in a pair becomes its zone tag; absent column, empty tag. The export
+    stops with a warning once ``max_bytes`` have been written (a 56 GB series must not become a 56 GB training
+    folder). ``manifest.csv`` is merged with an existing one in ``out_dir`` (``merge_manifest``): rows of the
+    images exported now replace their old rows, other rows stay; its columns are MANIFEST_COLS, plus the tile
+    and import columns of MANIFEST_EXTRA_COLS only when a row holds them. ``export.json`` records the settings
+    and the runs; its ``orientations`` is the union over the runs (the slice list, then xy for single-plane runs
+    when the list lacks it, then ``proj``), and only when a run is not 3D, ``run_orientations`` gives each run's
+    geometry and orientations, in the order of ``runs``. Returns the manifest."""
     import tifffile
 
     from .. import pipeline
@@ -373,17 +511,22 @@ def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orien
     if not runs:
         raise FileNotFoundError(f"no finished run (run_manifest.json + <id>__nuclei_labels.tif + "
                                 f"<id>__image_summary.csv) under {results_dir}")
-    geometry = [_geometry(_run_record(r.folder, r.image_id)) for r in runs]
+    records = [_run_record(r.folder, r.image_id) for r in runs]
+    geometry = [_geometry(rec) for rec in records]
     out_dir = Path(out_dir)
     for sub in ("image", "labels"):
         os.makedirs(long_path(out_dir / sub), exist_ok=True)
     rows: list[dict] = []
     written = 0
     stopped = False
-    for run, (kind, projection) in zip(runs, geometry):
+    for run, record, (kind, projection) in zip(runs, records, geometry):
         _meta, stack = pipeline._read_input(Path(run.source_file), xy_stride=run.xy_stride,
                                             z_range=tuple(run.z_range) if run.z_range else None, t=run.t_index)
         labels = np.asarray(tifffile.imread(long_path(run.labels_path)))
+        if kind == "planar" and labels.ndim == 2:
+            labels = labels[None]               # a single-plane run writes its labels as YX (planar.write_labels_yx)
+        # the spacing the run ran with: the stack's as read, unless the run records spacing_source
+        spacing = _run_spacing(run, record, stack)
         idx = run.channel_index
         if idx is None:
             log.warning("%s: the segmented role %r did not resolve in that run; exporting channel 0 as the "
@@ -401,18 +544,30 @@ def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orien
                 z = nuc[["nucleus_id", zone_column]].dropna()
                 zones = {int(k): str(v) for k, v in zip(z["nucleus_id"], z[zone_column])}
         rng = _rng_for(seed, run.image_id)
-        slice_orients = orientations if kind == "3d" else ()        # a projected run is not sliced
+        slice_orients = orientations if kind == "3d" else ()        # a projected or single-plane run is not sliced
         if kind == "projected":
-            pair = _projected_pair(run, projection, img, labels, stack.spacing, int(idx), zones, out_dir,
+            pair = _projected_pair(run, projection, img, labels, spacing, int(idx), zones, out_dir,
                                    slices_per_image)
             if pair is not None:
                 rows.append(pair[0])
                 written += pair[1]
                 stopped = written > float(max_bytes)
+        elif kind == "planar" and int(slices_per_image) >= 1:
+            # the plane the run segmented, whole or in tiles above TILE_PX (design section 10, step 2)
+            base = {"image_id": run.image_id, "series_id": run.series_id, "t_index": run.t_index,
+                    "source_file": run.source_file, "xy_stride": run.xy_stride,
+                    "z_range": json.dumps(run.z_range) if run.z_range else "", "channel_role": run.channel_role,
+                    "channel_index": int(idx), "pixel_um": float(spacing[1])}
+            for row, nbytes in plane_pairs(base, img[0], labels[0], zones, out_dir):
+                rows.append(row)
+                written += nbytes
+                if written > float(max_bytes):
+                    stopped = True
+                    break
         for orient in slice_orients:
             counts = slice_counts(labels, orient)
             for i in choose_slices(counts, slices_per_image, min_labels, rng):
-                im2, lab2, px, z_zoom = isotropic_slice(img, labels, orient, i, stack.spacing)
+                im2, lab2, px, z_zoom = isotropic_slice(img, labels, orient, i, spacing)
                 stem = f"{run.image_id}_{orient}_{i:04d}.tif"
                 p_im, p_lab = out_dir / "image" / stem, out_dir / "labels" / stem
                 tifffile.imwrite(long_path(p_im), _to_uint16(im2), compression="zlib")
@@ -439,26 +594,24 @@ def export_training_pairs(results_dir: str | Path, out_dir: str | Path, *, orien
             log.warning("export stopped at %.2f GB (max_bytes); %d of %d runs exported", written / 1e9,
                         len({r["image_id"] for r in rows}), len(runs))
             break
-    new = pd.DataFrame(rows, columns=MANIFEST_COLS)
-    manifest_path = out_dir / "manifest.csv"
-    if manifest_path.exists():
-        old = pd.read_csv(long_path(manifest_path), low_memory=False)
-        old = old[~old["image_id"].astype(str).isin(set(new["image_id"].astype(str)))] if "image_id" in old else old.iloc[0:0]
-        for c in MANIFEST_COLS:
-            if c not in old.columns:
-                old[c] = pd.NA
-        new = pd.concat([old[MANIFEST_COLS], new], ignore_index=True)
-    new.to_csv(long_path(manifest_path), index=False)
+    new = merge_manifest(out_dir, rows)
+    new.to_csv(long_path(out_dir / "manifest.csv"), index=False)
     kinds = {kind for kind, _ in geometry}
-    # the union over the runs: the slice list as given (a 3D-only tree records exactly that), then proj
-    resolved = (list(orientations) if "3d" in kinds else []) + ([PROJ] if "projected" in kinds else [])
+    # the union over the runs: the slice list as given (a 3D-only tree records exactly that), then the xy of
+    # single-plane runs when the list lacks it, then proj
+    resolved = (list(orientations) if "3d" in kinds else [])
+    if "planar" in kinds and "xy" not in resolved:
+        resolved.append("xy")
+    resolved += [PROJ] if "projected" in kinds else []
     per_run = {}
     if kinds != {"3d"}:
         # each run's geometry and orientations, in the order of "runs"; written only when a run is not 3D
         per_run["run_orientations"] = [
-            {"image_id": r.image_id, "geometry": kind, "orientations": list(orientations) if kind == "3d" else [PROJ],
-             **({"segment_projection": projection} if projection is not None else {})}
-            for r, (kind, projection) in zip(runs, geometry)]
+            {"image_id": r.image_id, "geometry": kind,
+             "orientations": list(orientations) if kind == "3d" else (["xy"] if kind == "planar" else [PROJ]),
+             **({"segment_projection": projection} if projection is not None else {}),
+             **({"tile_px": TILE_PX, "spacing_source": rec.get("spacing_source")} if kind == "planar" else {})}
+            for r, rec, (kind, projection) in zip(runs, records, geometry)]
     with open(long_path(out_dir / "export.json"), "w", encoding="utf-8") as fh:
         json.dump({"results_dir": str(results_dir), "orientations": resolved, **per_run,
                    "slices_per_image": int(slices_per_image), "seed": int(seed), "zone_column": zone_column,
@@ -674,6 +827,25 @@ CARD_DIMS = {"xy": "3d", "xz": "3d", "yz": "3d", PROJ: "2d"}    # the dims of a 
 _DATASET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 
 
+def _filled(value) -> bool:
+    """Whether a manifest cell holds a value (not None, NaN or empty text)."""
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return False
+    return not (isinstance(value, str) and not value.strip()) and value is not pd.NA
+
+
+def _pair_dims(pair: dict, row: dict, sources: dict) -> str:
+    """The dims of one pair: "2d" for a 2D plane or a tile of one (its manifest row holds a tile offset: a
+    single-plane run's export, or imported 2D labels; without a manifest row, a run export.json calls planar) and
+    for a proj pair, else "3d" (a slice of a 3D run, CARD_DIMS)."""
+    if _filled(row.get("tile_y0")):
+        return "2d"
+    src = sources.get(str(pair["image_id"]))
+    if not row and src is not None and src.get("geometry") == "planar":
+        return "2d"
+    return CARD_DIMS.get(str(pair.get("orientation")), "3d")
+
+
 def _dataset_record(dataset: str) -> dict:
     """The card's ``dataset`` for public data (design 3.6): ``{"id", "licence", "split_sha256"}``. The id names
     the folder benchmarks/ext/<id>/ of the committed benchmark records, looked up under the config roots (the
@@ -759,7 +931,8 @@ def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None 
                 kind: str | None = None, dataset: str | None = None) -> dict:
     """What a model card says about its training data (design 3.6 and 10 step 5), in card order:
 
-    * ``kind`` "cellpose"; ``dims`` "3d" (slices of 3D runs), "2d" (proj pairs) or "2d+3d";
+    * ``kind`` "cellpose"; ``dims`` "3d" (slices of 3D runs, or of imported 3D labels), "2d" (proj pairs, and
+      the planes or tiles of single-plane runs and of imported 2D labels: _pair_dims) or "2d+3d";
     * ``pixel_um``: the pairs' manifest pixel size when they share one, else None (``pixel_um_values`` lists
       them when they differ);
     * ``object_kind``: ``kind`` when given (nucleus or cell), else the object kind that the packs of all the
@@ -768,7 +941,8 @@ def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None 
     * ``pack``: {id, version, recipe} of the pack recipe every source run used (export.json's runs, read again
       from their results folders), plus ``"edited": true`` when that is a project's edited recipe (the record
       project_config writes); None for runs without a pack, and None with ``pack_note`` when the runs differ
-      (an edited recipe differs from its pack recipe) or are unknown;
+      (an edited recipe differs from its pack recipe) or are unknown, or when labels were imported (manifest
+      source import:<tool>: they come from no run);
     * ``segmented_role``: the role the runs segmented (the manifest's channel_role), like pixel_um;
     * ``dataset`` (_dataset_record, or a record made before) only when ``dataset`` is given; ``source_url``
       None (a local model).
@@ -783,7 +957,7 @@ def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None 
     pairs_dir = Path(pairs_dir)
     sources = _source_runs(pairs_dir) if sources is None else sources
     rows = _manifest_rows(pairs_dir)
-    dims = sorted({CARD_DIMS.get(str(p.get("orientation")), "3d") for p in pairs})
+    dims = sorted({_pair_dims(p, rows.get(str(p["image"]), {}), sources) for p in pairs})
     pixel, roles = [], []
     for p in pairs:
         row = rows.get(str(p["image"]), {})
@@ -797,16 +971,29 @@ def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None 
         if isinstance(role, str) and role.strip():
             roles.append(role.strip())
     ids = sorted({str(p["image_id"]) for p in pairs})
-    unknown = [i for i in ids if sources.get(i) is None]
-    records = {i: sources[i]["pack"] for i in ids if sources.get(i) is not None}
+    # pairs of germquant import-labels (manifest source import:<tool>) come from no run: no pack recipe made them
+    imported: dict[str, set] = {}
+    for p in pairs:
+        src = rows.get(str(p["image"]), {}).get("source")
+        if isinstance(src, str) and src.startswith("import:"):
+            imported.setdefault(str(p["image_id"]), set()).add(src)
+    unknown = [i for i in ids if i not in imported and sources.get(i) is None]
+    records = {i: sources[i]["pack"] for i in ids if i not in imported and sources.get(i) is not None}
     # a project run records edited (project_config, section 9.1): an edited recipe is not the pack recipe itself
     keys = {None if rec is None else (rec.get("id"), rec.get("version"), rec.get("recipe"), bool(rec.get("edited")))
             for rec in records.values()}
     pack, note = None, None
+    notes = []
+    if imported:
+        notes.append(f"the labels of {len(imported)} of {len(ids)} image(s) were imported, not made by a run of a "
+                     f"pack recipe ({', '.join(sorted(set().union(*imported.values())))}): "
+                     f"{', '.join(sorted(imported)[:5])}" + (" ..." if len(imported) > 5 else ""))
     if unknown:
-        note = (f"the source runs of {len(unknown)} of {len(ids)} image(s) are unknown (not in the pairs folder's "
-                f"export.json, or a results folder that cannot be read): {', '.join(unknown[:5])}"
-                + (" ..." if len(unknown) > 5 else ""))
+        notes.append(f"the source runs of {len(unknown)} of {len(ids)} image(s) are unknown (not in the pairs folder's "
+                     f"export.json, or a results folder that cannot be read): {', '.join(unknown[:5])}"
+                     + (" ..." if len(unknown) > 5 else ""))
+    if notes:
+        note = "; ".join(notes)
     elif len(keys) == 1 and None not in keys:
         pack_id, version, recipe, edited = next(iter(keys))
         pack = {"id": pack_id, "version": version, "recipe": recipe, **({"edited": True} if edited else {})}
@@ -817,7 +1004,7 @@ def _card_fields(pairs_dir: str | Path, pairs: list[dict], sources: dict | None 
     if kind is None:
         # the object kind every known source run's pack names (two recipes of one pack included), else nucleus
         found = {(rec or {}).get("object_kind") for rec in records.values()}
-        one = next(iter(found)) if len(found) == 1 and not unknown else None
+        one = next(iter(found)) if len(found) == 1 and not unknown and not imported else None
         kind = one if one in OBJECT_KINDS else "nucleus"
     out = {"kind": "cellpose", "dims": dims[0] if len(dims) == 1 else ("2d+3d" if dims else None),
            **_one_or_all(pixel, "pixel_um"), "object_kind": str(kind),

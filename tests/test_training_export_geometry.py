@@ -3,8 +3,12 @@
 ``export_training_pairs(orientations=None)`` and the CLI default ``--orientations auto`` read each run's geometry:
 a 3D run gives its xy, xz and yz slices exactly as before, and a projected run (segmentation.nuclei.project, P2a)
 gives one pair of orientation ``proj``: the 2D image its segmenter saw (the recorded plane, or the max or mean
-projection, read again at the run's stride, z range and timepoint) with the run's 2D labels, labels[0]. An
-explicit list names the slices of 3D runs; a projected run gives its proj pair whatever the list says.
+projection, read again at the run's stride, z range and timepoint) with the run's 2D labels, labels[0]. A
+single-plane run (io.planar, P2b) gives its plane as xy pairs: the whole plane, or above 1024 px the fewest tiles
+of at most 1024 px a side, with each tile's offset in the manifest (tile_y0, tile_x0). An explicit list names the
+slices of 3D runs; a projected or single-plane run gives its 2D pairs whatever the list says. A run that records
+spacing_source (a single-plane run, or io.voxel_size_um) is exported on the spacing it ran with, from its
+image_summary, not on the file's.
 
 The 3D half is pinned against the base code: the manifest of the synthetic gonad (test_end_to_end's stack, run with
 config/config.yaml and the classical segmenter) is the text the export wrote before this change, byte for byte
@@ -70,16 +74,47 @@ def _export_json(pairs: Path) -> dict:
 
 
 _STACKS: dict = {}
+# single-plane images (P2b): planar_helpers' 256 x 256 plane, and a plane of 1030 x 1100 px that is tiled
+PLANE, PLANE_ID = "plane_001.nd2", "plane_001"
+BIG, BIG_ID = "plane_big_001.nd2", "plane_big_001"
+BIG_SHAPE = (1030, 1100)                 # tiles of 515 x 550 px: rows 0 and 515, columns 0 and 550
+# disk centres of the big plane: none in its bottom-right tile, and one across the row-515 border on the left
+BIG_DISKS = [(150, 150), (150, 400), (300, 700), (150, 950), (700, 200), (850, 400), (515, 275)]
+
+
+def _plane_meta(data) -> dict:
+    """An .nd2 header of a single plane: no Z axis (planar_helpers.nd2_meta, two_d)."""
+    import planar_helpers as PH
+
+    return PH.nd2_meta(data, (PH.DZ, PH.DY, PH.DX))
+
+
+def _big_plane() -> np.ndarray:
+    """(2, 1, 1030, 1100) uint16: bright disks of radius 8 px in the DAPI channel at BIG_DISKS."""
+    rng = np.random.default_rng(5)
+    yy, xx = np.indices(BIG_SHAPE)
+    dna = np.full(BIG_SHAPE, 200.0)
+    for cy, cx in BIG_DISKS:
+        dna[(yy - cy) ** 2 + (xx - cx) ** 2 <= 8 ** 2] = 1400.0
+    dna += rng.normal(0.0, 8.0, BIG_SHAPE)
+    foci = 150.0 + rng.normal(0.0, 12.0, BIG_SHAPE)
+    return np.clip(np.round(np.stack([dna, foci])), 0, 65535).astype(np.uint16)[:, None]
 
 
 def _sources() -> dict:
-    """{file name: (header, stack)} of the two synthetic images, made once."""
+    """{file name: (header, stack)} of the synthetic images, made once."""
     if not _STACKS:
+        import planar_helpers as PH
+
         _STACKS[GONAD] = (GONAD_META, _synthetic_stack())
         stack, _planted = yeast_like_stack()
         c, z, y, x = stack.data.shape
         _STACKS[YEAST] = ({"sizes": {"C": c, "Z": z, "Y": y, "X": x}, "spacing": stack.spacing, "spacing_ok": True,
                            "channel_names": list(stack.channel_names), "dtype": "float32", "is_2d": False}, stack)
+        for name, data in ((PLANE, PH.plane_cyx()[:, None]), (BIG, _big_plane())):
+            _STACKS[name] = (_plane_meta(data), Stack(data=data, spacing=(PH.DZ, PH.DY, PH.DX),
+                                                      channel_names=list(PH.CHANNELS), path=Path(name),
+                                                      spacing_ok=True))
     return _STACKS
 
 
@@ -343,3 +378,198 @@ def test_a_projected_batch_run_exports_the_channel_it_segmented(tmp_path, monkey
     (root / "run_manifest.json").write_text(json.dumps(other), encoding="utf-8")
     r = TR.export_training_pairs(root, tmp_path / "other").iloc[0].to_dict()
     assert (r["orientation"], r["channel_role"], int(r["channel_index"])) == ("proj", "dna", 0)
+
+
+# ---- single-plane runs (P2b): the plane, tiled above 1024 px -------------------------------------------------
+
+SWAP, SWAP_ID = "plane_swap_001.nd2", "plane_swap_001"
+
+
+@pytest.fixture(scope="module")
+def planar_results(tmp_path_factory, results):
+    """The single-plane runs (config/profiles/generic_2d.yaml, classical, spots off): plane (256 x 256, its file's
+    0.8 um), strided (xy stride 2), override (io.voxel_size_um 0.4) and big (1030 x 1100, tiled); and a 3D run of
+    the synthetic gonad with io.voxel_size_um [0.6, 0.25, 0.25] (gonad_override)."""
+    import planar_helpers as PH
+
+    root = tmp_path_factory.mktemp("planar")
+    with pytest.MonkeyPatch.context() as mp:
+        _patch_readers(mp)
+        off = {"spots.enabled": False}
+        pipeline.process_image(PLANE, PH.generic_2d(**off), root / "plane", prov=None)
+        pipeline.process_image(PLANE, PH.generic_2d(**off), root / "strided", prov=None, xy_stride=2)
+        pipeline.process_image(PLANE, PH.generic_2d(**off, **{"io.voxel_size_um": 0.4}), root / "override", prov=None)
+        pipeline.process_image(BIG, PH.generic_2d(**off), root / "big", prov=None)
+        cfg = load_config(ROOT / "config" / "config.yaml")
+        cfg._data["segmentation"]["nuclei"]["method"] = "classical"
+        cfg.set("io.voxel_size_um", [0.6, 0.25, 0.25])
+        pipeline.process_image(GONAD, cfg, root / "gonad_override", prov=None)
+    return root
+
+
+def test_plane_tiles():
+    assert TR.TILE_PX == 1024
+    assert TR.plane_tiles(256, 256) == [(0, 0, 256, 256)]
+    assert TR.plane_tiles(1024, 1024) == [(0, 0, 1024, 1024)]           # a plane that fits is one tile
+    assert TR.plane_tiles(1025, 10) == [(0, 0, 512, 10), (512, 0, 513, 10)]
+    assert TR.plane_tiles(*BIG_SHAPE) == [(0, 0, 515, 550), (0, 550, 515, 550), (515, 0, 515, 550),
+                                          (515, 550, 515, 550)]
+    for h, w in ((1, 1), (2049, 3000), (5000, 1023), (4097, 4096), (3071, 7)):
+        tiles = TR.plane_tiles(h, w)
+        cover = np.zeros((h, w), np.int32)
+        for y0, x0, th, tw in tiles:
+            assert 0 < th <= 1024 and 0 < tw <= 1024
+            cover[y0:y0 + th, x0:x0 + tw] += 1
+        assert (cover == 1).all(), (h, w)                                # every pixel in exactly one tile
+        ny, nx = -(-h // 1024), -(-w // 1024)
+        assert len(tiles) == ny * nx                                     # the fewest tiles of at most 1024 px
+        assert max(t[2] for t in tiles) - min(t[2] for t in tiles) <= 1  # near-equal sizes on each axis
+        assert max(t[3] for t in tiles) - min(t[3] for t in tiles) <= 1
+        assert tiles == sorted(tiles)                                    # row by row
+
+
+def test_planar_run_exports_xy_tiles(tmp_path, planar_results, readers):
+    import planar_helpers as PH
+
+    plane = planar_results / "plane"
+    rec = json.loads((plane / "run_manifest.json").read_text(encoding="utf-8"))
+    assert rec["planar"] is True and rec["spacing_source"] == "file" and "segment_projection" not in rec
+    labels = _labels(plane, PLANE_ID)
+    assert labels.shape == (256, 256)                                   # a single-plane run writes YX labels
+    man = TR.export_training_pairs(plane, tmp_path / "plane")
+    assert list(man.columns) == TR.MANIFEST_COLS + ["tile_y0", "tile_x0"]
+    assert len(man) == 1
+    r = man.iloc[0].to_dict()
+    stem = f"{PLANE_ID}_xy_0000.tif"
+    assert (r["orientation"], int(r["slice_index"]), r["image"], r["labels"]) == ("xy", 0, f"image/{stem}",
+                                                                                f"labels/{stem}")
+    assert (int(r["tile_y0"]), int(r["tile_x0"]), int(r["height"]), int(r["width"])) == (0, 0, 256, 256)
+    assert (r["channel_role"], int(r["channel_index"]), float(r["pixel_um"]), float(r["z_zoom"])) == \
+        ("dna", 0, 0.8, 1.0)
+    assert int(r["n_labels"]) == len(np.unique(labels)) - 1 == len(PH.planted()["nuclei"])
+    assert np.array_equal(tifffile.imread(tmp_path / "plane" / r["image"]), _u16(PH.plane_cyx()[0]))
+    assert np.array_equal(tifffile.imread(tmp_path / "plane" / r["labels"]), labels)
+    exp = _export_json(tmp_path / "plane")
+    assert exp["orientations"] == ["xy"]
+    assert exp["run_orientations"] == [{"image_id": PLANE_ID, "geometry": "planar", "orientations": ["xy"],
+                                        "tile_px": 1024, "spacing_source": "file"}]
+    # an explicit list names the slices of 3D runs: a single-plane run still gives its plane
+    listed = TR.export_training_pairs(plane, tmp_path / "listed", orientations=("xz",))
+    pd.testing.assert_frame_equal(listed, man)
+    assert _export_json(tmp_path / "listed")["orientations"] == ["xy"]
+    # read again at the run's geometry: xy stride 2 halves the plane and doubles the pixel size
+    s = TR.export_training_pairs(planar_results / "strided", tmp_path / "strided").iloc[0]
+    assert (int(s["height"]), int(s["width"]), float(s["pixel_um"])) == (128, 128, 1.6)
+    assert np.array_equal(tifffile.imread(tmp_path / "strided" / s["image"]), _u16(PH.plane_cyx()[0][::2, ::2]))
+    # io.voxel_size_um: the pixel size the run used (its image_summary), not the file's 0.8 um
+    o = TR.export_training_pairs(planar_results / "override", tmp_path / "override").iloc[0]
+    assert float(o["pixel_um"]) == 0.4
+    assert _export_json(tmp_path / "override")["run_orientations"][0]["spacing_source"] == "override"
+    # the big plane: the fewest tiles of at most 1024 px; the empty bottom-right tile (number 3) is not written
+    big = planar_results / "big"
+    big_labels = _labels(big, BIG_ID)
+    assert big_labels.shape == BIG_SHAPE
+    b = TR.export_training_pairs(big, tmp_path / "big")
+    assert [int(v) for v in b["slice_index"]] == [0, 1, 2]
+    assert [(int(y), int(x)) for y, x in zip(b["tile_y0"], b["tile_x0"])] == [(0, 0), (0, 550), (515, 0)]
+    assert set(zip(b["height"].astype(int), b["width"].astype(int))) == {(515, 550)}
+    data = _sources()[BIG][1].data
+    seen: dict[int, set] = {}
+    for _, row in b.iterrows():
+        y0, x0, h, w = int(row["tile_y0"]), int(row["tile_x0"]), int(row["height"]), int(row["width"])
+        im = tifffile.imread(tmp_path / "big" / row["image"])
+        lab = tifffile.imread(tmp_path / "big" / row["labels"])
+        assert np.array_equal(im, _u16(data[0, 0, y0:y0 + h, x0:x0 + w]))
+        assert np.array_equal(lab, big_labels[y0:y0 + h, x0:x0 + w]) and lab.dtype == np.int32
+        ids = set(np.unique(lab)) - {0}
+        assert int(row["n_labels"]) == len(ids)
+        assert row["image"] == f"image/{BIG_ID}_xy_{int(row['slice_index']):04d}.tif"
+        for i in ids:
+            seen.setdefault(int(i), set()).add(int(row["slice_index"]))
+    assert not big_labels[515:, 550:].any()                              # the tile that was left out is empty
+    assert set(seen) == set(np.unique(big_labels)) - {0}                 # every object is in some tile
+    across = int(big_labels[515, 275])
+    assert across and seen[across] == {0, 2}                             # the disk across the border: both pieces
+    assert _export_json(tmp_path / "big")["run_orientations"][0]["tile_px"] == 1024
+    assert cli.main(["export-training", str(big), "--out", str(tmp_path / "big_cli")]) == 0
+    assert _manifest_text(tmp_path / "big_cli") == _manifest_text(tmp_path / "big")
+    # the pairs load with their tile number as the slice index; the card calls them 2D, also without manifest.csv
+    pairs = TR.load_pairs(tmp_path / "big")
+    assert [(p["orientation"], p["slice_index"]) for p in pairs] == [("xy", 0), ("xy", 1), ("xy", 2)]
+    assert TR._card_fields(tmp_path / "big", pairs)["dims"] == "2d"
+    (tmp_path / "big" / "manifest.csv").unlink()
+    named = TR.load_pairs(tmp_path / "big")
+    assert [(p["image_id"], p["slice_index"]) for p in named] == [(BIG_ID, 0), (BIG_ID, 1), (BIG_ID, 2)]
+    assert TR._card_fields(tmp_path / "big", named)["dims"] == "2d"
+
+
+def test_a_tree_of_3d_and_single_plane_runs(tmp_path, results, planar_results, readers):
+    import shutil
+
+    tree = tmp_path / "tree"
+    shutil.copytree(results / "mixed" / "gonad", tree / "gonad")
+    shutil.copytree(planar_results / "plane", tree / "plane")
+    man = TR.export_training_pairs(tree, tmp_path / "pairs")
+    exp = _export_json(tmp_path / "pairs")
+    assert exp["orientations"] == ["xy", "xz", "yz"]                      # xy is in the slice list already
+    assert [(e["image_id"], e["geometry"], e["orientations"]) for e in exp["run_orientations"]] == [
+        (GONAD_ID, "3d", ["xy", "xz", "yz"]), (PLANE_ID, "planar", ["xy"])]
+    gonad_rows = man[man["image_id"] == GONAD_ID]
+    assert gonad_rows["tile_y0"].isna().all() and len(gonad_rows) == 9
+    # the 3D run's rows are the ones it gives alone, with the two tile cells empty
+    TR.export_training_pairs(tree / "gonad", tmp_path / "alone")
+    lines = _manifest_text(tmp_path / "pairs").splitlines()
+    assert lines[0] == HEADER + ",tile_y0,tile_x0"
+    alone = _manifest_text(tmp_path / "alone").splitlines()[1:]
+    assert [ln for ln in lines if ln.startswith(GONAD_ID + ",")] == [ln + ",," for ln in alone]
+    plane_rows = man[man["image_id"] == PLANE_ID]
+    assert list(plane_rows["orientation"]) == ["xy"] and int(plane_rows["tile_y0"].iloc[0]) == 0
+    assert TR._card_fields(tmp_path / "pairs", TR.load_pairs(tmp_path / "pairs"))["dims"] == "2d+3d"
+    # an explicit list: the 3D slices it names, then the single plane's xy
+    TR.export_training_pairs(tree, tmp_path / "yz", orientations=("yz",))
+    assert _export_json(tmp_path / "yz")["orientations"] == ["yz", "xy"]
+
+
+def test_a_run_with_the_voxel_size_override_is_exported_on_its_spacing(tmp_path, results, planar_results, readers):
+    """io.voxel_size_um (D6) is applied after the read, so the export takes the run's spacing from its
+    image_summary: the xz and yz slices are stretched by the run's dz / dy and pixel_um is the run's dy."""
+    run = planar_results / "gonad_override"
+    rec = json.loads((run / "run_manifest.json").read_text(encoding="utf-8"))
+    assert rec["spacing_source"] == "override"
+    man = TR.export_training_pairs(run, tmp_path / "pairs")
+    assert list(man.columns) == TR.MANIFEST_COLS                       # a 3D run: no tile columns
+    assert set(man["pixel_um"].astype(float)) == {0.25}
+    side = man[man["orientation"] != "xy"]
+    assert set(side["z_zoom"].astype(float)) == {0.6 / 0.25} and set(side["height"].astype(int)) == {48}
+    stack, labels = _synthetic_stack(), _labels(run, GONAD_ID)
+    for _, r in side.iterrows():
+        im2, lab2, px, z_zoom = TR.isotropic_slice(stack.data[0], labels, r["orientation"], int(r["slice_index"]),
+                                                   (0.6, 0.25, 0.25))
+        assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r["image"]), _u16(im2))
+        assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r["labels"]), lab2)
+    # the same image without the override: the file's spacing, as before
+    base = TR.export_training_pairs(results / "mixed" / "gonad", tmp_path / "base")
+    assert set(base[base["orientation"] != "xy"]["z_zoom"].astype(float)) == {2.0}
+    assert set(base["pixel_um"].astype(float)) == {0.2}
+
+
+def test_a_planar_batch_run_exports_the_channel_it_segmented(tmp_path, monkeypatch):
+    """A batch run folder holds no run_manifest.json; its single-plane record sends the export to the batch's
+    manifest for the segmented role (here foci, channel 1 of the file, which holds the nuclei), as for a
+    projected run of a batch (review S1 of part 1)."""
+    import planar_helpers as PH
+
+    from germquant import provenance
+
+    _patch_readers(monkeypatch)
+    swapped = PH.plane_cyx()[::-1].copy()[:, None]           # channel 0 (DAPI) flat, channel 1 (foci) the nuclei
+    _STACKS[SWAP] = (_plane_meta(swapped), Stack(data=swapped, spacing=(PH.DZ, PH.DY, PH.DX),
+                                                 channel_names=list(PH.CHANNELS), path=Path(SWAP), spacing_ok=True))
+    cfg = PH.generic_2d(**{"spots.enabled": False, "segmentation.nuclei.channel": "foci"})
+    root = tmp_path / "batch"
+    prov = provenance.write_manifest(root, config_hash=cfg.hash, config=cfg.as_dict(), extra={})
+    pipeline.process_image(SWAP, cfg, root / SWAP_ID, prov=prov)
+    assert not (root / SWAP_ID / "run_manifest.json").exists()
+    r = TR.export_training_pairs(root, tmp_path / "pairs").iloc[0].to_dict()
+    assert (r["orientation"], r["channel_role"], int(r["channel_index"])) == ("xy", "foci", 1)
+    assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r["image"]), _u16(swapped[1, 0]))
