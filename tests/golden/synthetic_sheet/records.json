@@ -1,0 +1,24 @@
+{
+ "in_sheet": {
+  "image_id": "20251105_n2_nohs_HERM_001",
+  "marker_sample_row_sha256": "6d45b0aa09b8d44d0f2740672d5c270aab3e1357c8e2bf25e005b24ba03a7f4e",
+  "read_flags": [],
+  "row_sha256": "6d45b0aa09b8d44d0f2740672d5c270aab3e1357c8e2bf25e005b24ba03a7f4e",
+  "sample_sheet": {
+   "row_sha256": "6d45b0aa09b8d44d0f2740672d5c270aab3e1357c8e2bf25e005b24ba03a7f4e",
+   "source": "samples.csv"
+  }
+ },
+ "not_in_sheet": {
+  "image_id": "20251021_n2_hs_MALE_2",
+  "marker_sample_row_sha256": null,
+  "read_flags": [
+   "metadata:not_in_sample_sheet"
+  ],
+  "row_sha256": null,
+  "sample_sheet": {
+   "row_sha256": null,
+   "source": "samples.csv"
+  }
+ }
+}
