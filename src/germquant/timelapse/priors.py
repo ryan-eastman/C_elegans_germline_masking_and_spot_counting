@@ -1,0 +1,477 @@
+"""Registration priors from the acquisition record (docs/TIMELAPSE.md, "Per-gap caps and the acquisition record";
+``germquant register --prior stage``, ``--max-step-at``).
+
+The record. ``load_stage_record`` finds the per-timepoint stage and focus record of a series (io.nd2_stage) and
+keeps it next to the series record as ``<stem>__stage_record.json`` (``"format": "germquant.stage_record/1"``): the
+source, the stack geometry, the series' own timepoints only and the events between its first and last timepoint. It
+is found, in this order:
+
+1. ``nd2`` when given (``--nd2 PATH``): read it and write the record file;
+2. otherwise the series record's ``file_path``, when it is an .nd2 that exists: read it and write the record file;
+3. otherwise an existing ``<stem>__stage_record.json`` (a folder moved without its nd2, the simulator), refused when
+   its ``series_id`` names another series;
+4. otherwise a ValueError that says which of these to give.
+
+An nd2 read in 1 or 2 must be the movie the series was run from: its timepoint count must equal the series record's
+``n_timepoints`` and the time stamp of each timepoint's first frame the series record's ``t_seconds`` within
+FRAME_TIME_TOL_S (the series record's times are the same frames' stamps, so the run's own nd2 matches to the bit,
+while two movies of one protocol differ by tens to hundreds of ms); otherwise a ValueError, and no record file is
+written.
+
+The prior of a gap (``gap_prior``) between two registrable timepoints, which need not be consecutive: the stage xy
+step in stage coordinates (never mapped to image axes; the mapping and its scale are scope facts), the move of the
+stack's centre in Z Coord, the depth both stacks share (restricted to the run's z_range), the refocus pauses in the
+gap and the stack depth.
+
+The cap of a gap (``gap_cap``), into timepoint T: ``max_step_at[T]`` when given (0 = no cap there); else, with the
+prior, the base cap plus the recorded moves the estimate still has to contain: the stage xy step when it is at least
+STAGE_FLOOR_UM (1.0 um; between frames without a re-centring the shown movies' stage moved at most 0.95 um) and, when
+the stack z step is at least Z_FLOOR_UM (0.5 um; every ZDrive step of that size falls in a paused gap), as much of it
+as the estimate's own z uses, min(|stack dz|, |estimate dz|): the cap clips the 3D length, so a full focus allowance
+would also admit that much xy. A seeded piecewise step does not contain the stage xy move (the rigid seed carries it),
+so only the z term is added there. A base of 0 stays "no cap". Else the base cap.
+
+The flags of a gap (``gap_flags``), advisory only: ``no_record``, ``no_shared_depth`` (the stacks share no depth),
+``z_beyond_record`` (the estimate's |dz| is more than Z_EXCESS_UM above the record's |dz|), for the rigid step
+``stage_step_mismatch`` and for a seeded piecewise gap ``seed_step_mismatch`` (xy_mismatch: at a recorded stage move
+the xy length of the step, or of its rigid seed, differs from the stage step's by more than the base cap, 5 um when
+the base is 0, or, at a stage move of 5 um or more, is under LOCK_FRACTION of it; lengths only, the direction would
+need the scope's stage to image mapping).
+"""
+from __future__ import annotations
+
+import json
+import math
+from pathlib import Path
+
+import numpy as np
+
+from .. import provenance
+from ..fsutil import long_path
+
+RECORD_SUFFIX = "__stage_record.json"
+RECORD_FORMAT = "germquant.stage_record/1"
+PRIORS = ("stage",)
+STAGE_FLOOR_UM = 1.0        # a stage xy step counts towards the cap from this length
+Z_FLOOR_UM = 0.5            # a stack z step counts towards the cap from this size
+Z_EXCESS_UM = 2.5           # z_beyond_record: the estimate's |dz| beyond the record's |dz| by more than this
+MISMATCH_NO_CAP_UM = 5.0    # stage/seed_step_mismatch tolerance when the base cap is 0 (no cap); the lock rule's floor
+LOCK_FRACTION = 0.5         # stage/seed_step_mismatch: an xy length under this fraction of a 5 um or larger stage step
+FRAME_TIME_TOL_S = 1e-3     # an nd2 whose first-frame times differ from the series record's by more is another movie
+REFOCUS_TOKEN = "Refocus"   # an event whose description holds this is a refocus pause
+FLAG_ORDER = ("no_record", "no_shared_depth", "z_beyond_record", "stage_step_mismatch", "seed_step_mismatch")
+GAP_COLUMNS = ("stage_dx_um", "stage_dy_um", "stage_dz_um", "refocus_pauses", "stack_overlap_um", "prior_flags")
+
+
+def stage_record_path(series_dir: str | Path, stem: str) -> Path:
+    return Path(series_dir) / f"{stem}{RECORD_SUFFIX}"
+
+
+def restrict_record(rec: dict, t_indices) -> dict:
+    """The record of ``t_indices`` only: those timepoints, and the events placed after one of the series' timepoints
+    and before its last one (first <= after_t_index < last). Every timepoint when ``t_indices`` is empty or None."""
+    keep = None if not t_indices else {int(t) for t in t_indices}
+    tps = [dict(tp) for tp in rec.get("timepoints", []) if keep is None or int(tp["t_index"]) in keep]
+    ks = [int(tp["t_index"]) for tp in tps]
+    lo, hi = (min(ks), max(ks)) if ks else (None, None)
+    events = [dict(e) for e in rec.get("events", [])
+              if lo is not None and e.get("after_t_index") is not None and lo <= int(e["after_t_index"]) < hi]
+    out = {k: v for k, v in rec.items() if k not in ("timepoints", "events")}
+    out.update(timepoints=tps, events=events, series_t_indices=ks)
+    return out
+
+
+def write_stage_record(series_dir: str | Path, stem: str, rec: dict) -> Path:
+    path = stage_record_path(series_dir, stem)
+    body = {"format": RECORD_FORMAT, "series_id": stem}
+    body.update({k: v for k, v in rec.items() if k not in ("format", "series_id", "loaded_from", "record_file",
+                                                            "written")})
+    body["written"] = provenance.run_timestamp()
+    with open(long_path(path), "w", encoding="utf-8") as fh:
+        json.dump(body, fh, indent=1)
+    return path
+
+
+def read_stage_record_file(path: str | Path) -> dict:
+    p = Path(path)
+    with open(long_path(p), encoding="utf-8") as fh:
+        rec = json.load(fh)
+    if not isinstance(rec, dict) or rec.get("format") != RECORD_FORMAT or "timepoints" not in rec:
+        raise ValueError(f"{p.name} is not a {RECORD_FORMAT} record")
+    return rec
+
+
+def _nd2_of(record: dict | None) -> Path | None:
+    fp = (record or {}).get("file_path")
+    if not fp:
+        return None
+    try:
+        p = Path(str(fp))
+        return p if p.suffix.lower() == ".nd2" and p.is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
+def load_stage_record(series_dir: str | Path, stem: str, record: dict | None, nd2: str | Path | None = None,
+                      t_indices=None) -> dict:
+    """The stage record of a series, restricted to its timepoints (``t_indices``, else the series record's), found
+    by the precedence of the module docstring. The returned dict carries ``loaded_from`` (how it was found) and
+    ``record_file`` (the ``<stem>__stage_record.json`` path, written when the record was read from an nd2). An nd2
+    whose timepoint count differs from the series record's ``n_timepoints``, or whose first-frame times differ from
+    its ``t_seconds`` by more than FRAME_TIME_TOL_S, is refused (ValueError, nothing written): it is not the movie the
+    series was run from. A record file whose ``series_id`` is another series' is refused too."""
+    from ..io.nd2_stage import read_stage_record
+
+    sdir = Path(series_dir)
+    ks = list(t_indices) if t_indices else [int(e["t_index"]) for e in (record or {}).get("timepoints", [])
+                                            if "t_index" in e]
+    rec_file = stage_record_path(sdir, stem)
+    if nd2 is not None:
+        p = Path(nd2)
+        if not p.is_file():
+            raise FileNotFoundError(f"--nd2 {p}: no such file")
+        rec, how = read_stage_record(p), "nd2 (given)"
+    elif _nd2_of(record) is not None:
+        rec, how = read_stage_record(_nd2_of(record)), "nd2 (the series record's file_path)"
+    elif rec_file.is_file():
+        body = read_stage_record_file(rec_file)
+        sid = body.get("series_id")
+        if sid is not None and str(sid) != str(stem):
+            raise ValueError(f"{rec_file.name} is the stage record of {str(sid)!r}, not of this series ({stem!r}): "
+                             f"remove it, or give this series' movie with --nd2 PATH")
+        out = restrict_record(body, ks)
+        out.update(loaded_from="record file", record_file=str(rec_file))
+        return out
+    else:
+        fp = (record or {}).get("file_path")
+        raise ValueError(
+            f"{sdir}: no acquisition record for --prior stage: the series record's file_path ({fp!r}) is not an "
+            f"existing .nd2 and there is no {rec_file.name}; give the movie with --nd2 PATH (read for its metadata "
+            f"only) or put a {RECORD_FORMAT} record next to the series record")
+    n_series = (record or {}).get("n_timepoints")
+    n_nd2 = len({int(tp["t_index"]) for tp in rec.get("timepoints", [])})
+    src = Path(str(rec.get("source", {}).get("path", ""))).name
+    if n_series is not None and int(n_series) != n_nd2:
+        raise ValueError(f"{src} has {n_nd2} timepoints and the series record {int(n_series)}: not the movie this series "
+                         f"was run from? (--nd2 names that movie; the record was not written)")
+    t_ser = {int(e["t_index"]): float(e["t_seconds"]) for e in (record or {}).get("timepoints", [])
+             if "t_index" in e and e.get("t_seconds") is not None}
+    t_nd2 = {int(tp["t_index"]): float(tp["t_start_s"]) for tp in rec.get("timepoints", [])
+             if tp.get("t_start_s") is not None}
+    off = [t for t in sorted(t_ser) if t in t_nd2 and abs(t_ser[t] - t_nd2[t]) > FRAME_TIME_TOL_S]
+    if off:
+        t = off[0]
+        more = f" (and at {len(off) - 1} more timepoint(s))" if len(off) > 1 else ""
+        raise ValueError(f"{src}: the frame time of t{t:03d}, {t_nd2[t]:.4f} s, differs from the series record's "
+                         f"{t_ser[t]:.4f} s{more}: not the movie this series was run from (--nd2 names that movie; "
+                         f"the record was not written)")
+    out = restrict_record(rec, ks)
+    write_stage_record(sdir, stem, out)
+    out.update(loaded_from=how, record_file=str(rec_file))
+    return out
+
+
+def _z_extent(tp: dict, stack: dict, z_range) -> tuple[float, float]:
+    """(low, high) Z Coord of the planes a run reads (its z_range, python slice semantics) of one stack."""
+    z0, z1 = float(tp["z_first_um"]), float(tp["z_last_um"])
+    n = stack.get("n_planes")
+    if z_range and n and int(n) > 1:
+        n = int(n)
+        i0 = min(max(0, int(z_range[0])), n - 1)
+        i1 = min(max(i0 + 1, int(z_range[1])), n) - 1
+        step = (z1 - z0) / (n - 1)
+        za, zb = z0 + i0 * step, z0 + i1 * step
+    else:
+        za, zb = z0, z1
+    return (za, zb) if za <= zb else (zb, za)
+
+
+def gap_prior(rec: dict, t_a: int, t_b: int, z_range=None) -> dict:
+    """The prior of the gap from timepoint ``t_a`` to ``t_b`` (module docstring): ``stage_dx_um``, ``stage_dy_um``
+    (stage coordinates), ``stage_xy_um`` (their length), ``stage_dz_um`` (the stack centre's move in Z Coord),
+    ``stack_overlap_um`` (negative when the stacks share no depth), ``stack_depth_um``, ``refocus_pauses`` and
+    ``recorded`` (False when the record lacks either timepoint; the stage numbers are then NaN)."""
+    by_t = {int(tp["t_index"]): tp for tp in rec.get("timepoints", [])}
+    a, b = by_t.get(int(t_a)), by_t.get(int(t_b))
+    pauses = sum(1 for e in rec.get("events", []) if REFOCUS_TOKEN in str(e.get("description", ""))
+                 and e.get("after_t_index") is not None and int(t_a) <= int(e["after_t_index"]) < int(t_b))
+    nan = float("nan")
+    out = {"t_from": int(t_a), "t_to": int(t_b), "recorded": a is not None and b is not None, "stage_dx_um": nan,
+           "stage_dy_um": nan, "stage_xy_um": nan, "stage_dz_um": nan, "stack_overlap_um": nan, "stack_depth_um": nan,
+           "refocus_pauses": int(pauses)}
+    if a is None or b is None:
+        return out
+    stack = rec.get("stack") or {}
+    lo_a, hi_a = _z_extent(a, stack, z_range)
+    lo_b, hi_b = _z_extent(b, stack, z_range)
+    dx = float(b["stage_x_um"]) - float(a["stage_x_um"])
+    dy = float(b["stage_y_um"]) - float(a["stage_y_um"])
+    out.update(stage_dx_um=dx, stage_dy_um=dy, stage_xy_um=float(math.hypot(dx, dy)),
+               stage_dz_um=(lo_b + hi_b) / 2.0 - (lo_a + hi_a) / 2.0,
+               stack_overlap_um=min(hi_a, hi_b) - max(lo_a, lo_b), stack_depth_um=hi_a - lo_a)
+    return out
+
+
+def gap_cap(t_index: int, base_um: float, *, max_step_at: dict | None = None, gp: dict | None = None,
+            seeded: bool = False, est_dz_um: float | None = None) -> tuple[float, str]:
+    """``(cap, source)`` of the gap into ``t_index`` (module docstring); a cap of 0 means no cap. ``base_um`` is the
+    run's --max-step-um (0 for none) and comes back unchanged, the same float, when nothing raises it.
+    ``est_dz_um`` is the estimate's z (the rigid step's, or the largest |dz| over a piecewise gap's segments): the
+    stack z term is min(|stack dz|, |est_dz_um|), the full |stack dz| without an estimate."""
+    if max_step_at and int(t_index) in max_step_at:
+        return float(max_step_at[int(t_index)]), "max_step_at"
+    if gp is not None and gp.get("recorded") and base_um > 0:
+        extra = 0.0
+        xy = float(gp["stage_xy_um"])
+        if not seeded and xy >= STAGE_FLOOR_UM:
+            extra += xy
+        dz = abs(float(gp["stage_dz_um"]))
+        if dz >= Z_FLOOR_UM:
+            est = None if est_dz_um is None else abs(float(est_dz_um))
+            extra += dz if est is None or not math.isfinite(est) else min(dz, est)
+        if extra > 0:
+            return base_um + extra, "prior:stage"
+    return base_um, "max_step_um"
+
+
+def xy_mismatch(xy_um: float, gp: dict | None, base_um: float) -> bool:
+    """True when an xy length ``xy_um`` (a rigid step's, or a seeded gap's rigid seed) does not fit the recorded stage
+    step of the gap: at a stage move of STAGE_FLOOR_UM or more, the lengths differ by more than the base cap
+    (MISMATCH_NO_CAP_UM when the base is 0), or, at a stage move of MISMATCH_NO_CAP_UM or more, ``xy_um`` is under
+    LOCK_FRACTION of it (a step locked near zero, which the length rule alone misses once the base reaches the stage
+    step). Lengths only: a match of the right length in another direction is not caught (that needs the scope's stage
+    to image mapping). False without a record of the gap."""
+    if gp is None or not gp.get("recorded"):
+        return False
+    stage = float(gp["stage_xy_um"])
+    if not stage >= STAGE_FLOOR_UM or not math.isfinite(float(xy_um)):
+        return False
+    tol = base_um if base_um > 0 else MISMATCH_NO_CAP_UM
+    return abs(float(xy_um) - stage) > tol or (stage >= MISMATCH_NO_CAP_UM and float(xy_um) < LOCK_FRACTION * stage)
+
+
+def gap_flags(step_um, gp: dict | None, base_um: float, *, rigid: bool) -> list[str]:
+    """The advisory flags of a gap (module docstring) for the estimate ``step_um`` (dz, dy, dx; the uncapped
+    estimate, or None when there is none), in FLAG_ORDER. ``seed_step_mismatch`` is the seeded piecewise
+    registration's own (xy_mismatch on its seed); this gives the others."""
+    if gp is None:
+        return []
+    if not gp.get("recorded"):
+        return ["no_record"]
+    flags = []
+    if float(gp["stack_overlap_um"]) <= 0:
+        flags.append("no_shared_depth")
+    if step_um is not None:
+        s = np.asarray(step_um, dtype=float)
+        if np.all(np.isfinite(s)):
+            if abs(float(s[0])) > abs(float(gp["stage_dz_um"])) + Z_EXCESS_UM:
+                flags.append("z_beyond_record")
+            if rigid and xy_mismatch(float(math.hypot(s[1], s[2])), gp, base_um):
+                flags.append("stage_step_mismatch")
+    return [f for f in FLAG_ORDER if f in flags]
+
+
+def parse_max_step_at(items) -> dict[int, float]:
+    """``{T: UM}`` from ``["T=UM", ...]`` (``--max-step-at``, repeatable). ValueError for a malformed item, a
+    negative or non-finite cap, or a timepoint given twice."""
+    out: dict[int, float] = {}
+    for it in items or []:
+        text = str(it).strip()
+        if text.count("=") != 1:
+            raise ValueError(f"--max-step-at {it!r}: expected T=UM, for example 6=40")
+        t_txt, um_txt = (v.strip() for v in text.split("="))
+        try:
+            t = int(t_txt.lstrip("tT"))
+            um = float(um_txt)
+        except ValueError:
+            raise ValueError(f"--max-step-at {it!r}: expected an integer timepoint and a cap in microns, for "
+                             f"example 6=40") from None
+        if t < 0 or not math.isfinite(um) or um < 0:
+            raise ValueError(f"--max-step-at {it!r}: the timepoint must be >= 0 and the cap a finite number >= 0 "
+                             f"(0 = no cap at that gap)")
+        if t in out:
+            raise ValueError(f"--max-step-at: timepoint {t} given twice")
+        out[t] = um
+    return out
+
+
+def check_max_step_at(max_step_at, registrable: list[int]) -> dict[int, float]:
+    """``max_step_at`` as ``{int: float}``, every key a registrable timepoint (one with a gap into it). ValueError
+    naming the registrable timepoints otherwise: a cap for a gap that does not exist is an error, not a no-op."""
+    out = {}
+    for t, um in dict(max_step_at or {}).items():
+        try:
+            k, v = int(t), float(um)
+        except (TypeError, ValueError):
+            raise ValueError(f"max_step_at: {t!r}={um!r} is not a timepoint and a cap in microns") from None
+        if not math.isfinite(v) or v < 0:
+            raise ValueError(f"max_step_at: the cap at t{k:03d} must be a finite number >= 0, got {um!r}")
+        out[k] = v
+    bad = sorted(k for k in out if k not in set(registrable))
+    if bad:
+        shown = ", ".join(str(k) for k in registrable[:12]) + (" ..." if len(registrable) > 12 else "")
+        raise ValueError(f"--max-step-at: {', '.join(f't{k:03d}' for k in bad)} is not a registrable timepoint of "
+                         f"this series (a timepoint with a reference volume after the first one: {shown or 'none'})")
+    return out
+
+
+def gap_record(gp: dict | None, flags: list[str]) -> dict:
+    """The gap prior's table columns (GAP_COLUMNS) for one row."""
+    nan = float("nan")
+    if gp is None:
+        return {"stage_dx_um": nan, "stage_dy_um": nan, "stage_dz_um": nan, "refocus_pauses": nan,
+                "stack_overlap_um": nan, "prior_flags": ""}
+    return {"stage_dx_um": gp["stage_dx_um"], "stage_dy_um": gp["stage_dy_um"], "stage_dz_um": gp["stage_dz_um"],
+            "refocus_pauses": gp["refocus_pauses"], "stack_overlap_um": gp["stack_overlap_um"],
+            "prior_flags": ";".join(flags)}
+
+
+def gap_row(cap_um: float, cap_source: str, gp: dict | None, flags: list[str], *, with_prior: bool) -> dict:
+    """The per-gap table columns of one registered gap: ``cap_um`` (NaN = no cap), ``cap_source`` and, with the
+    prior, GAP_COLUMNS."""
+    out = {"cap_um": float(cap_um) if cap_um > 0 else float("nan"), "cap_source": cap_source}
+    if with_prior:
+        out.update(gap_record(gp, flags))
+    return out
+
+
+def gap_summary(gp: dict | None, flags: list[str]) -> dict | None:
+    """The gap prior of one ``steps`` entry of a report."""
+    if gp is None:
+        return None
+    keys = ("recorded", "stage_dx_um", "stage_dy_um", "stage_xy_um", "stage_dz_um", "stack_overlap_um",
+            "stack_depth_um", "refocus_pauses")
+    return {**{k: gp[k] for k in keys}, "flags": list(flags)}
+
+
+def add_gap_columns(df, gap_rows: dict, *, with_prior: bool, key: str = "t_index") -> None:
+    """Append the per-gap columns to a registration table in place, after its declared columns: one value per row
+    from ``gap_rows[row's t_index]`` (every segment row of a gap gets its gap's values); rows without a gap (the
+    origin, error rows) get NaN and empty text."""
+    import pandas as pd
+
+    blank = gap_row(0.0, "", None, [], with_prior=with_prior)
+    cols = ["cap_um", "cap_source"] + (list(GAP_COLUMNS) if with_prior else [])
+    vals = {c: [] for c in cols}
+    for t in df[key].tolist():
+        r = gap_rows.get(int(t), blank)
+        for c in cols:
+            vals[c].append(r[c])
+    for c in cols:
+        if c == "refocus_pauses":
+            df[c] = pd.array([None if pd.isna(v) else int(v) for v in vals[c]], dtype="Int64")
+        elif c in ("cap_source", "prior_flags"):
+            df[c] = [str(v) for v in vals[c]]
+        else:
+            df[c] = np.asarray(vals[c], dtype=float)
+
+
+def add_report_options(report: dict, max_step_at: dict, prior: str | None, rec: dict | None, gaps: list[dict], *,
+                       z_range=None, warnings: list[str] | None = None) -> None:
+    """The report's record of the per-gap options: ``parameters.max_step_at`` and ``parameters.prior`` (only when
+    given) and the top-level ``prior`` block (report_block, plus the prior's ``warnings``) when the record was
+    read."""
+    if max_step_at:
+        report["parameters"]["max_step_at"] = {str(t): float(v) for t, v in sorted(max_step_at.items())}
+    if prior is not None:
+        report["parameters"]["prior"] = prior
+    if rec is not None:
+        report["prior"] = report_block(rec, gaps, z_range=z_range)
+        report["prior"]["warnings"] = list(warnings or [])
+
+
+def _gap_caps(report: dict) -> list[tuple[str, float | None, str]]:
+    """(gap, cap or None, source) of every registered gap of a rigid or piecewise report."""
+    out = []
+    for st in report.get("steps", []):
+        if "cap_source" in st:
+            out.append((f"t{st['reference_t_index']}-t{st['t_index']}", st.get("cap_um"), st["cap_source"]))
+    return out
+
+
+def console_lines(report: dict) -> list[str]:
+    """The command's lines for the opt-in options of a registration report, one per option: the caps raised and
+    set (gap, cap, why), the prior's record and flags (and its warnings), the seeded gaps and the largest seed, the
+    guard's ratio and decision. Empty for a report without them."""
+    lines: list[str] = []
+    par = report.get("parameters", {})
+    caps = _gap_caps(report)
+    if caps and (par.get("max_step_at") or par.get("prior")):     # a seeded run records its caps too; no line for them
+        raised = [(g, c, s) for g, c, s in caps if s == "prior:stage"]
+        given = [(g, c, s) for g, c, s in caps if s == "max_step_at"]
+        base = par.get("max_step_um")
+        txt = f"  per-gap caps: {len(raised)} gap(s) raised above the base ({f'{base:g} um' if base else 'no cap'})"
+        if raised:
+            txt += ": " + ", ".join(f"{g} {c:.2f} um ({s})" for g, c, s in raised)
+        if given:
+            txt += "; set by --max-step-at: " + ", ".join(f"{g.split('-')[1]} " + ("no cap" if c is None else f"{c:.2f} um")
+                                                         for g, c, _s in given)
+        n_capped = report.get("n_capped", len(report.get("capped", [])))
+        lines.append(txt + f"; {n_capped} capped")
+    blk = report.get("prior")
+    if blk:
+        rf = Path(str(blk.get("record_file"))).name if blk.get("record_file") else "?"
+        flags = blk.get("flags") or {}
+        ftxt = "; ".join(f"{g} {', '.join(f)}" for g, f in flags.items()) if flags else "none"
+        lines.append(f"  prior stage: {blk.get('loaded_from')} ({rf}); {len(blk.get('gaps_with_a_move_or_refocus', []))} "
+                     f"gap(s) with a stage move or a refocus pause; flags: {ftxt}")
+        for w in blk.get("warnings") or []:
+            lines.append(f"  warning: {w}")
+    sb = report.get("seed")
+    if sb:
+        best = None
+        for st in report.get("steps", []):
+            for seg in st.get("segments", []):
+                s = seg.get("seed_um")
+                if s is not None:
+                    n = float(np.hypot(s[1], s[2]))
+                    if best is None or n > best[0]:
+                        best = (n, f"t{st['reference_t_index']}-t{st['t_index']}")
+        n_gaps = len(report.get("steps", []))
+        txt = f"  seed rigid: {sb.get('n_seeded_gaps', 0)} of {n_gaps} gap(s) seeded from {Path(str(sb.get('table'))).name}"
+        if best is not None:
+            txt += f" (largest seed {best[0]:.1f} um in y and x, at {best[1]})"
+        if sb.get("unseeded_gaps"):
+            txt += "; unseeded: " + ", ".join(f"{u['gap']} ({u['why']})" for u in sb["unseeded_gaps"])
+        lines.append(txt)
+        for w in sb.get("warnings") or []:
+            lines.append(f"  warning: {w}")
+    g = report.get("axis_guard")
+    if g:
+        ratio = g.get("spread_ratio")
+        rtxt = f"spread ratio {ratio:.2f}" if ratio is not None else "the default axis does not split into segments"
+        decision = ("tripped, the straight PC1 axis is used" if g.get("tripped")
+                    else f"not tripped, the axis stays {g.get('axis_used')}")
+        lines.append(f"  axis guard: {rtxt} (threshold {g.get('threshold'):g}): {decision}")
+        if g.get("warning"):
+            lines.append(f"  warning: {g['warning']}")
+    return lines
+
+
+def report_block(rec: dict, gaps: list[dict], *, z_range=None) -> dict:
+    """The ``prior`` block of a registration report: the record and where it came from, the stack, the constants,
+    the gaps with a stage move or a refocus pause, and the flags per gap. ``gaps``: one {gap prior, flags, cap,
+    cap_source} dict per registered gap."""
+    stack = dict(rec.get("stack") or {})
+    depth = None
+    tps = rec.get("timepoints") or []
+    if tps:
+        lo, hi = _z_extent(tps[0], stack, z_range)
+        depth = hi - lo
+    moved = [g for g in gaps if g.get("recorded") and (g["stage_xy_um"] >= STAGE_FLOOR_UM
+                                                        or abs(g["stage_dz_um"]) >= Z_FLOOR_UM
+                                                        or g["refocus_pauses"] > 0)]
+    return {"prior": "stage", "record_file": rec.get("record_file"), "loaded_from": rec.get("loaded_from"),
+            "source": rec.get("source"), "stack": stack, "stack_depth_um": depth, "z_range": list(z_range) if z_range else None,
+            "n_timepoints_recorded": len(tps), "n_events": len(rec.get("events") or []),
+            "events_error": rec.get("events_error"),
+            "constants": {"stage_floor_um": STAGE_FLOOR_UM, "z_floor_um": Z_FLOOR_UM, "z_excess_um": Z_EXCESS_UM,
+                          "mismatch_no_cap_um": MISMATCH_NO_CAP_UM, "lock_fraction": LOCK_FRACTION,
+                          "frame_time_tolerance_s": FRAME_TIME_TOL_S},
+            "z_term": "min(|stack dz|, |estimate dz|) when |stack dz| >= z_floor_um",
+            "gaps_with_a_move_or_refocus": [
+                {"gap": f"t{g['t_from']}-t{g['t_to']}", "stage_dx_um": g["stage_dx_um"], "stage_dy_um": g["stage_dy_um"],
+                 "stage_dz_um": g["stage_dz_um"], "refocus_pauses": g["refocus_pauses"],
+                 "stack_overlap_um": g["stack_overlap_um"], "cap_um": g.get("cap_um"), "cap_source": g.get("cap_source")}
+                for g in moved],
+            "flags": {f"t{g['t_from']}-t{g['t_to']}": g["flags"] for g in gaps if g.get("flags")}}

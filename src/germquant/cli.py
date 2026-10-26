@@ -169,6 +169,31 @@ def main(argv: list[str] | None = None) -> int:
     prg.add_argument("--margin-um", type=float, default=None, metavar="UM",
                      help="piecewise: how far a segment's crop reaches beyond its nuclei in y and x (default: the "
                           "timelapse.register.piecewise_margin_um key, code default 6.0)")
+    prg.add_argument("--max-step-at", action="append", default=None, metavar="T=UM",
+                     help="the cap of the one gap into timepoint T in microns instead of --max-step-um (0 = no cap "
+                          "at that gap); repeatable, for example --max-step-at 6=40 for a stage re-centring into t6")
+    prg.add_argument("--prior", choices=["stage"], default=None,
+                     help="stage: read the movie's acquisition record (stage X and Y, stack Z, ZDrive, refocus "
+                          "pauses; metadata only), raise each gap's cap by the stage and focus moves recorded in it "
+                          "and flag the gaps the record cannot explain (docs/TIMELAPSE.md, 'Per-gap caps and the "
+                          "acquisition record')")
+    prg.add_argument("--nd2", default=None, metavar="PATH",
+                     help="with --prior stage: the movie the record is read from (default: the series record's nd2, "
+                          "else <stem>__stage_record.json next to the series record); refused when its timepoint "
+                          "count or frame times differ from the series record's")
+    prg.add_argument("--seed", choices=["none", "rigid"], default=None,
+                     help="piecewise: start every gap from the rigid step of <stem>__register_shifts.csv, the moving "
+                          "crop following it, so one registration crosses a stage re-centring (default: the "
+                          "timelapse.register.piecewise_seed key, code default none)")
+    prg.add_argument("--seed-table", default=None, metavar="PATH",
+                     help="piecewise, with --seed rigid: the rigid table to seed from instead of the folder's own, "
+                          "for example one registered with --taper 0.25")
+    prg.add_argument("--axis-guard", action=argparse.BooleanOptionalAction, default=None,
+                     help="piecewise: when the origin's axis folds (a segment's nuclei spread along the gonad more "
+                          "than timelapse.register.piecewise_axis_fold_ratio, code default 4, times its axis span), "
+                          "use the straight principal axis of the origin's nuclei (default: the "
+                          "timelapse.register.piecewise_axis_guard key, code default off; --no-axis-guard overrides "
+                          "the key)")
     gcfg = prg.add_mutually_exclusive_group(required=False)
     gcfg.add_argument("--config", help="config yaml for the timelapse.register.* keys (default: the series' run_manifest.json)")
     gcfg.add_argument("--profile", help="profile name instead of --config")
@@ -971,12 +996,14 @@ def _register(args) -> int:
     docs/TIMELAPSE.md "Registration"). Exit code 1, with the reason, when the folder is not a series or holds no
     reference volumes; a timepoint that cannot be registered is a row with an error, not a failure. ``--mode
     piecewise`` registers each axial segment of the germline (timelapse.piecewise) instead."""
+    from .timelapse.priors import console_lines, parse_max_step_at
     from .timelapse.register import DEFAULTS as RIGID_DEFAULTS
     from .timelapse.register import register_series
 
     if getattr(args, "mode", "rigid") == "piecewise":
         return _register_piecewise(args)
-    for opt, given in (("--segments", args.segments), ("--margin-um", args.margin_um)):
+    for opt, given in (("--segments", args.segments), ("--margin-um", args.margin_um), ("--seed", args.seed),
+                       ("--seed-table", args.seed_table), ("--axis-guard", args.axis_guard)):
         if given is not None:
             print(f"ERROR: {opt} applies to --mode piecewise only", file=sys.stderr)
             return 1
@@ -984,7 +1011,9 @@ def _register(args) -> int:
         res = register_series(args.series_dir, reference=args.reference, upsample=args.upsample,
                               max_step_um=args.max_step_um, channel=args.channel, rigid=args.rigid,
                               normalization=args.normalization,
-                              taper=RIGID_DEFAULTS["taper"] if args.taper is None else args.taper)
+                              taper=RIGID_DEFAULTS["taper"] if args.taper is None else args.taper,
+                              max_step_at=parse_max_step_at(args.max_step_at) if args.max_step_at else None,
+                              prior=args.prior, nd2=args.nd2)
     except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
@@ -1012,6 +1041,8 @@ def _register(args) -> int:
         angles = [r["rotation_deg"] for r in rep["rigid"] if r.get("rotation_deg") is not None]
         print(f"  rigid fit (experimental, report only): {len(angles)} step(s) fitted, largest rotation "
               f"{max(angles) if angles else 0.0:.2f} deg")
+    for line in console_lines(rep):
+        print(line)
     for k, why in rep.get("errors", {}).items():
         print(f"  t{int(k):03d}: {why}")
     print(f"  -> {res['table_path']}, {res['report_path']}")
@@ -1022,6 +1053,7 @@ def _register_piecewise(args) -> int:
     """``germquant register SERIES_DIR --mode piecewise``: one translation per axial segment per timepoint
     (timelapse.piecewise, docs/TIMELAPSE.md "Piecewise registration")."""
     from .timelapse.piecewise import register_series_piecewise
+    from .timelapse.priors import console_lines, parse_max_step_at
 
     if args.reference != "previous":
         print("ERROR: --mode piecewise registers every timepoint against the previous one (--reference previous)",
@@ -1034,7 +1066,10 @@ def _register_piecewise(args) -> int:
         cfg = _track_cfg(args)
         res = register_series_piecewise(args.series_dir, segments=args.segments, margin_um=args.margin_um,
                                         taper=args.taper, upsample=args.upsample, max_step_um=args.max_step_um,
-                                        channel=args.channel, normalization=args.normalization, cfg=cfg)
+                                        channel=args.channel, normalization=args.normalization, cfg=cfg,
+                                        max_step_at=parse_max_step_at(args.max_step_at) if args.max_step_at else None,
+                                        prior=args.prior, nd2=args.nd2, seed=args.seed, seed_table=args.seed_table,
+                                        axis_guard=args.axis_guard)
     except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
@@ -1055,6 +1090,8 @@ def _register_piecewise(args) -> int:
               f"{qtxt}{dtxt}")
     print(f"  {len(rep['capped'])} segment step(s) capped, {len(rep['brightfield_disagreement'])} above the "
           f"{par['disagreement_um']:g} um disagreement threshold, {len(rep['filled'])} filled from neighbours")
+    for line in console_lines(rep):
+        print(line)
     for k, why in rep.get("errors", {}).items():
         print(f"  t{int(k):03d}: {why}")
     print(f"  -> {res['table_path']}, {res['report_path']}")
