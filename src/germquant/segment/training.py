@@ -454,7 +454,9 @@ def merge_manifest(out_dir: Path, rows: list[dict]) -> pd.DataFrame:
     extra = [c for c in MANIFEST_EXTRA_COLS if any(c in r for r in rows)]
     new = pd.DataFrame(rows, columns=MANIFEST_COLS + extra)
     manifest_path = out_dir / "manifest.csv"
-    if manifest_path.exists():
+    # through long_path: a plain Path.exists() is False past 260 characters on Windows without long paths, and the
+    # rows of every other image would then be dropped from the manifest written next
+    if os.path.exists(long_path(manifest_path)):
         old = pd.read_csv(long_path(manifest_path), low_memory=False)
         old = old[~old["image_id"].astype(str).isin(set(new["image_id"].astype(str)))] if "image_id" in old else old.iloc[0:0]
         # an extra column stays while a kept row holds a value in it
