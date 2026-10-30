@@ -1,8 +1,10 @@
 """Project status (docs/PROJECTS.md, "Status"; design 7.7; PLAN.md 9.3 and 4.4 P5-RUN; P5 acceptance 3, run half).
 
 * Every status of section 9.3 (done, stale, failed, missing, excluded, unreachable) and every reason code
-  (config_hash, stages, geometry, planar_flag, segment_hash, failed_stages; sample_row comes with the sample
-  sheet), with qc_pass, the last run id, the device used and the error.
+  (config_hash, stages, geometry, planar_flag, segment_hash, sample_row, failed_stages), with qc_pass, the last run
+  id, the device used and the error.
+* The project's sample sheet: each image's row compared as a run compares it (sample_row), and a sheet that cannot
+  be read reported as one warning, never raised.
 * An edit marks every finished image stale with the reason (acceptance 3).
 * The environment-mix warning, the lock report, the pack and model reports, the runs merged from every log, and
   `germquant project status --json` equal to api.project_status.
@@ -18,6 +20,7 @@ import pytest
 from packs_helpers import pack_env  # noqa: F401
 from project_helpers import BASIC_HASH, TEST_PACK_REF, project_env  # noqa: F401
 from test_project_run import (
+    _fabricate,
     _project_model,
     hand_edit_recipe,
     log_events,
@@ -33,18 +36,6 @@ from germquant.project import status as S
 
 IMAGE_KEYS = ["id", "path", "status", "reason_code", "reason", "out_dir", "qc_pass", "last_run_id", "device_used",
               "error"]
-
-
-def _fabricate(proj, src: str, dest: str, **marker_changes) -> None:
-    """results/<dest>/ holding the marker and image summary of results/<src>/, re-named for dest, the marker's
-    fields changed as given."""
-    a, d = proj.root / "results" / src, proj.root / "results" / dest
-    d.mkdir(parents=True)
-    marker = json.loads((a / f"{src}__done.json").read_text(encoding="utf-8"))
-    marker.update(image_id=dest, **marker_changes)
-    (d / f"{dest}__done.json").write_text(json.dumps(marker, indent=1), encoding="utf-8")
-    text = (a / f"{src}__image_summary.csv").read_text(encoding="utf-8")
-    (d / f"{dest}__image_summary.csv").write_text(text.replace(f",{src},", f",{dest},"), encoding="utf-8")
 
 
 def test_every_status_and_reason_code(project_env, tmp_path):  # noqa: F811
@@ -183,6 +174,65 @@ def test_status_names_the_refusal_of_a_series(project_env, tmp_path):  # noqa: F
     res = P.run_project(proj, images=["movie"])
     (e,) = [e for e in log_events(res["log"]) if e["event"] == "image_failed"]
     assert e["error"].startswith("REFUSED: a time series of 2 timepoints") and e["error"] in rows["movie"]["reason"]
+
+
+def test_the_sample_row_reason_and_a_sheet_that_cannot_be_read(project_env, tmp_path):  # noqa: F811
+    """Status compares each fixed image's row of the project's sample sheet as a run does (reason_code sample_row,
+    which covers batch.is_done's four reasons); a sheet that cannot be read is one warning naming the run's refusal
+    (status never raises for it), and the images are then compared without rows. The finished images are markers
+    with the run's own hashes, made without a run."""
+    from germquant import batch, provenance
+    from germquant.io import sample_sheet as SS
+    from germquant.project import run as R
+
+    proj = project_with_images(tmp_path, names=("a", "b", "c"))
+    cfg = P.project_config(proj)
+    seg, _planar = R.ResumeHashes(cfg).for_image(proj.root / "images" / "a.ome.tif")
+
+    def finished(iid, **extra):
+        d = proj.root / "results" / iid
+        d.mkdir(parents=True)
+        provenance.write_done_marker(d, iid, config_hash=cfg.hash, enabled_stages=batch.enabled_stage_names(cfg),
+                                     stage_hashes={"segment": seg}, extra=extra)
+
+    finished("a", sample_row_sha256=SS.row_sha256({"genotype": "N2"}))       # ran with its row
+    finished("b", sample_row_sha256=None)                                    # ran in a sheet run, without a row
+    finished("c")                                                            # ran without a sheet
+    sheet = proj.root / "samples.csv"
+    SS.write_sample_sheet(sheet, [{"image_id": "a", "genotype": "N2"}])
+    P.save_project(proj, samples="samples.csv")
+
+    def status():
+        st = P.project_status(proj)
+        return {r["id"]: (r["status"], r["reason_code"]) for r in st["images"]}, st
+
+    assert status()[0] == {"a": ("done", None), "b": ("done", None), "c": ("done", None)}
+    # a's row changed, b got a row it ran without, c got one and ran without a sheet: each reruns
+    SS.write_sample_sheet(sheet, [{"image_id": "a", "genotype": "syp-2(ok307)"}, {"image_id": "b", "sex": "male"},
+                                  {"image_id": "c", "genotype": "N2"}])
+    got, st = status()
+    assert got == {iid: ("stale", "sample_row") for iid in "abc"}
+    why = {r["id"]: r["reason"] for r in st["images"]}
+    assert "row in the sample sheet changed" in why["a"] and "had no row" in why["b"]
+    assert "without a sample sheet" in why["c"]
+    # the sheet cleared: the image that ran with a row reruns, the others stay done
+    P.save_project(proj, samples="")
+    got, st = status()
+    assert got == {"a": ("stale", "sample_row"), "b": ("done", None), "c": ("done", None)}
+    assert "none was given" in st["images"][0]["reason"]
+    # a sheet that cannot be read: one warning in the run's words, and the images compared as without a sheet
+    P.save_project(proj, samples="samples.csv")
+    sheet.write_bytes(b"image_id;genotype\na;N2\n")
+    got, st = status()
+    assert got == {"a": ("stale", "sample_row"), "b": ("done", None), "c": ("done", None)}
+    with pytest.raises(P.ProjectError) as exc:
+        P.run_project(proj)
+    said = [w for w in st["warnings"] if "semicolons" in w]
+    assert len(said) == 1 and str(exc.value) in said[0] and "refused" in said[0], st["warnings"]
+    # every reason batch.is_done gives for a row starts with "sample row": reason_code sample_row
+    for marker, given in (({"sample_row_sha256": "x"}, "y"), ({"sample_row_sha256": "x"}, None), ({}, "y"),
+                          ({"sample_row_sha256": None}, "y")):
+        assert S.reason_code(batch._sample_row_differs(marker, given)) == "sample_row"
 
 
 def test_edit_marks_every_image_stale_with_reason(project_env, tmp_path):  # noqa: F811

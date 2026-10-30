@@ -465,8 +465,11 @@ def _collect(args) -> int:
     from .project.collect import collect_project
 
     rec = collect_project(Path(args.dir))
-    _emit(args, rec, [f"collected {rec['counts']} -> {rec['summary']} (qc.germline_outlier_factor "
-                      f"{rec['outlier_factor']:g})"])
+    lines = [f"collected {rec['counts']} -> {rec['summary']} (qc.germline_outlier_factor {rec['outlier_factor']:g})"]
+    if rec["sample_sheet"] is not None:
+        joined = ", ".join(rec["sample_sheet"]["columns"]) or "none: the sheet has no column of its own"
+        lines.append(f"sample sheet {rec['sample_sheet']['path']}: columns joined: {joined}")
+    _emit(args, rec, lines)
     return 0
 
 

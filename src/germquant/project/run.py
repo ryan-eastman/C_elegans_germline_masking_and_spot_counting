@@ -1,5 +1,5 @@
 """Running a project (docs/PROJECTS.md, "Running a project"; design 7.5 to 7.8; PLAN.md 4.4 P5-RUN, decisions D9,
-D12, D15, D17, D28, D33, D40, D44, D46 to D49).
+D12, D15, D17, D21, D28, D33, D40, D44, D46 to D49).
 
 ``run_project(project, images=None, resume=True, device=None, shard=None, progress=None, *, via="cli", run_id=None,
 should_stop=None)`` runs the project's images into results/<image_id>/, one api.run_loaded call per image (the call
@@ -13,23 +13,31 @@ through timelapse.process_series, and writes the run's log, runs/<run_id>.jsonl 
    a recipe that does not load; a pack that the pack check finds unusable (its model blockers aside: the model
    check below knows which models this project's recipe uses); a model the run needs that is missing, or whose
    resolved file has another sha256 than the manifest records (design 7.5: a file at the same relative path under
-   $GERMQUANT_MODELS wins over the project's own), checked before any pixel is read; the project lock held by an
-   edit in progress (a lock older than 12 h is a warning: it is never broken silently); a log of that run id that
-   exists already. In a labels_from run the segmentation model is not loaded, so its check is skipped, with a
-   warning (D12).
+   $GERMQUANT_MODELS wins over the project's own), checked before any pixel is read; the sample sheet the manifest
+   names (``samples``) when it cannot be opened or read (read_project_sheet); the project lock held by an edit in
+   progress (a lock older than 12 h is a warning: it is never broken silently); a log of that run id that exists
+   already. In a labels_from run the segmentation model is not loaded, so its check is skipped, with a warning
+   (D12). The sheet is read once, and its warnings (germquant.io.sample_sheet: a cp1252 file, a non-ISO date, a
+   germ_cell no count can be made from) join the run's warnings, each said once.
 3. run_start, then each image in manifest order (``images`` picks some; ``shard`` "K/N" keeps every N-th of them
    from the K-th on, so the N shards cover the images exactly once): should_stop is asked before each image; an
    image already done is skipped when ``resume`` (batch.is_done, with the segment sub-hashes cli._batch computes:
    the planar one only for a recipe that sets io.planar, D44, and the per-image labels hash in labels_from runs,
-   D46); an image that cannot be reached, or fails (in its resume check or, for a series, the header read that
-   io.planar auto decides from, as well as in its run), is an image_failed event and the run goes on.
+   D46; in a project with a sheet, the image's row, as cli._batch compares it with --samples); an image that cannot
+   be reached, or fails (in its resume check or, for a series, the header read that io.planar auto decides from, as
+   well as in its run), is an image_failed event and the run goes on. In a project with a sheet each fixed image
+   runs with its row (SampleSheet.row of its image id and the path the run reads), as `batch --samples` runs it:
+   its design columns replace the file name's, and an image the sheet has no row for gets the empty row, which
+   flags it metadata:not_in_sample_sheet. A project without a sheet makes the call it always made (D40).
 4. run_end, with interrupted true when should_stop stopped the run between images, or when the run stopped part
    way (Ctrl-C, or an error that is no image's own): the image in progress is then an image_failed event, and
    an error raises RunError, which names the run id and the log.
 
 An image with timepoints that this release cannot run as a series is refused before process_series is called,
-which would resolve and hash the segmentation model before its loop (D33): a recipe with labels_from (D15) or one
-that runs single-plane images (io.planar true, or auto on a one-plane header; D9).
+which would resolve and hash the segmentation model before its loop (D33): a recipe with labels_from (D15), one
+that runs single-plane images (io.planar true, or auto on a one-plane header; D9), or a series that has a row in the
+project's sample sheet (D21: the time-lapse loop gives its timepoints no row). A series without a row runs as
+before, its design columns from the file name.
 
 GERMQUANT_DEVICE is set from ``device`` (the caller's choice, auto included, D47), else from the manifest's
 run.device, for the run, and restored afterwards; with neither it is left as it is. The run settings xy_stride
@@ -143,11 +151,12 @@ def unreachable_text(path) -> str:
     return f"not reachable: {path} (is the NAS or VPN connected?)"
 
 
-def series_refusal(cfg, path) -> str | None:
+def series_refusal(cfg, path, *, row=None) -> str | None:
     """Why an image with timepoints cannot run as a series under this recipe in this release, or None: a recipe
-    that reads labels from files (D15), or one that runs single-plane images (io.planar true, or auto on a header
-    with one plane; D9). The time-lapse loop is not changed in this release (design 4.13, PLAN.md Q1), so such a
-    series must never reach it."""
+    that reads labels from files (D15), one that runs single-plane images (io.planar true, or auto on a header with
+    one plane; D9), or ``row``, the series' row of the project's sample sheet, when the sheet has one for it (D21:
+    germquant.io.sample_sheet.SERIES_REFUSAL, the message `run --t ... --samples` and the API give). The time-lapse
+    loop is not changed in this release (design 4.13, PLAN.md Q1), so such a series must never reach it."""
     if cfg.get(LABELS_KEY) is not None:
         from ..io.labels import SERIES_REFUSAL
 
@@ -166,12 +175,51 @@ def series_refusal(cfg, path) -> str | None:
 
             if planar.one_plane_header(read_input_metadata(path)):
                 return planar.PLANAR_SERIES_REFUSED
+    if row is not None and row.row_sha256 is not None:
+        from ..io.sample_sheet import SERIES_REFUSAL as SHEET_SERIES_REFUSAL
+
+        return SHEET_SERIES_REFUSAL
     return None
 
 
-def series_refusal_text(entry: dict, why: str) -> str:
-    """The error a run logs for a series that series_refusal refuses (project_status shows it before any run)."""
-    return f"REFUSED: a time series of {int(entry['timepoints'])} timepoints: {why}"
+def series_refusal_text(entry: dict, why: str, root=None) -> str:
+    """The error a run logs for a series that series_refusal refuses (project_status shows it before any run). The
+    sheet's refusal names --samples, which `project run` does not take, so here it gets the project's own remedy
+    (its folder ``root``, else DIR)."""
+    text = f"REFUSED: a time series of {int(entry['timepoints'])} timepoints: {why}"
+    from ..io.sample_sheet import SERIES_REFUSAL as SHEET_SERIES_REFUSAL
+
+    if why == SHEET_SERIES_REFUSAL:
+        where = "DIR" if root is None else f'"{root}"'
+        text += (f". In a project: take the row of {entry['id']} out of the project's sample sheet, or stop using the "
+                 f"sheet with `germquant project edit {where} --samples none`; the series then runs, its design "
+                 f"columns from the file name")
+    return text
+
+
+def read_project_sheet(root, manifest: dict):
+    """The project's sample sheet (germquant.io.sample_sheet.SampleSheet), read once from the file the manifest
+    names (``samples``, a path inside the project), or None when it names none. Its warnings stay in ``.warnings``:
+    the SampleSheetWarning each is also issued as is held back, so a caller says each once. A sheet that cannot be
+    read is a ProjectError with SampleSheetError's message; a file that cannot be opened one that names the sheet
+    and the error's strerror, as `germquant batch --samples` does (never the long-path form the file is opened by)."""
+    samples = manifest.get("samples")
+    if not samples:
+        return None
+    import warnings
+
+    from ..io.sample_sheet import SampleSheetError, SampleSheetWarning, read_sample_sheet
+    from .images import resolve_path
+
+    path = resolve_path(root, str(samples))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SampleSheetWarning)      # each is in sheet.warnings, said once there
+            return read_sample_sheet(path)
+    except SampleSheetError as e:
+        raise ProjectError(str(e)) from None
+    except OSError as e:
+        raise ProjectError(f"sample sheet {Path(path).absolute()}: {e.strerror or e}") from None
 
 
 # ---- the digests a resume compares --------------------------------------------------------------------------
@@ -221,13 +269,19 @@ class ResumeHashes:
             self._pair = (seg, planar)
         return self._pair
 
-    def is_done(self, out_dir, marker_id: str, path, *, xy_stride: int, z_range, t=None) -> tuple[bool, str]:
+    def is_done(self, out_dir, marker_id: str, path, *, xy_stride: int, z_range, t=None,
+                row=None) -> tuple[bool, str]:
+        """batch.is_done with this run's segment sub-hashes and, for ``row`` (the image's row of the project's
+        sample sheet) when the sheet has one for it, its row_sha256: passed only then, as cli._batch passes it
+        (D40, D44's call shape), and None standing for no row on the marker's side (PLAN.md 9.4 #13, reading 2)."""
         from .. import batch
 
         seg, seg_planar = self.for_image(path)
         kw = {} if seg_planar is None else {"segment_hash_planar": seg_planar}
         if t is not None:
             kw["t"] = t
+        if row is not None and row.row_sha256 is not None:
+            kw["sample_row_sha256"] = row.row_sha256
         return batch.is_done(out_dir, marker_id, self.cfg, xy_stride=xy_stride, z_range=z_range, segment_hash=seg,
                              **kw)
 
@@ -490,9 +544,14 @@ def _run_one(entry: dict, ctx: dict) -> tuple[str, dict]:
         fields["elapsed_s"] = round(time.monotonic() - t0, 3)
         return kind, fields
 
+    mid = marker_id(path)
+    sheet = ctx.get("sheet")
+    # the image's row of the project's sample sheet, by its image id and the path the run reads (a row keyed by a
+    # file path names that one file); None in a project without a sheet
+    row = None if sheet is None else sheet.row(mid, path)
     if is_series(entry):
         try:
-            why = series_refusal(cfg, path)
+            why = series_refusal(cfg, path, row=row)
         except Exception as e:  # noqa: BLE001 - io.planar auto reads the header: one image failing must not stop the run
             if not reachable(path):
                 return finish("image_failed", error=unreachable_text(path))
@@ -500,7 +559,7 @@ def _run_one(entry: dict, ctx: dict) -> tuple[str, dict]:
             return finish("image_failed", error=(f"the header of this time series cannot be read (io.planar auto "
                                                  f"decides from it): {type(e).__name__}: {e}")[:4000])
         if why:
-            return finish("image_failed", error=series_refusal_text(entry, why))
+            return finish("image_failed", error=series_refusal_text(entry, why, root))
         if not reachable(path):
             return finish("image_failed", error=unreachable_text(path))
         try:
@@ -511,10 +570,10 @@ def _run_one(entry: dict, ctx: dict) -> tuple[str, dict]:
             return finish("image_failed", error=f"{type(e).__name__}: {e}"[:4000])
         kind, more = _series_fields(res)
         return finish(kind, **more)
-    mid = marker_id(path)
     if ctx["resume"]:
         try:
-            done, why = ctx["hashes"].is_done(out_dir, mid, path, xy_stride=ctx["xy_stride"], z_range=ctx["z_range"])
+            done, why = ctx["hashes"].is_done(out_dir, mid, path, xy_stride=ctx["xy_stride"], z_range=ctx["z_range"],
+                                              row=row)
         except Exception as e:  # noqa: BLE001 - the resume check of one image failing must not stop the run
             log.exception("FAILED %s", iid)
             return finish("image_failed", error=f"the resume check failed: {type(e).__name__}: {e}"[:4000])
@@ -524,8 +583,9 @@ def _run_one(entry: dict, ctx: dict) -> tuple[str, dict]:
             log.info("%s: reprocessing: %s", iid, why)
     if not reachable(path):
         return finish("image_failed", error=unreachable_text(path))
+    kw = {} if row is None else {"sample": row}          # a project with a sheet only (D40)
     try:
-        res = api.run_loaded(path, cfg, out_dir, xy_stride=ctx["xy_stride"], z_range=ctx["z_range"])
+        res = api.run_loaded(path, cfg, out_dir, xy_stride=ctx["xy_stride"], z_range=ctx["z_range"], **kw)
     except Exception as e:  # noqa: BLE001 - one image failing must not stop the run
         log.exception("FAILED %s", iid)
         return finish("image_failed", error=f"{type(e).__name__}: {e}"[:4000])
@@ -613,7 +673,10 @@ def run_project(project, images=None, resume=True, device=None, shard=None, prog
             why = _model_resolution_refusal(cfg)          # process_image resolves the model on every such image
             if why:
                 raise ProjectError(why)
+        sheet = read_project_sheet(root, m)               # once, before anything is written (D21; 9.4 #13)
         warnings += model_warnings
+        if sheet is not None:
+            warnings += sheet.warnings
         for w in warnings:
             log.warning("%s", w)
         rlog = RunLog(root, run_id)
@@ -631,7 +694,7 @@ def run_project(project, images=None, resume=True, device=None, shard=None, prog
         interrupted = False
         failures: list[str] = []
         ctx = {"root": root, "cfg": cfg, "xy_stride": xy_stride, "z_range": z_range, "resume": bool(resume),
-               "hashes": ResumeHashes(cfg)}
+               "hashes": ResumeHashes(cfg), "sheet": sheet}
         with device_env(run_dev):
             emit(rlog.start(**_start_fields(root, m, cfg, entries, via=via,
                                             shard=None if k_n is None else f"{k_n[0]}/{k_n[1]}", xy_stride=xy_stride)))

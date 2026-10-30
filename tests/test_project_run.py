@@ -13,6 +13,11 @@
 * A single-plane project (io.planar) resumes: its resume compares the planar segment sub-hash (D44).
 * An image with timepoints goes through process_series; a planar or labels_from recipe is refused for it before
   process_series, with the D9 and D15 messages, and nothing resolves a model or reads a timepoint (D33).
+* The project's sample sheet (D21, D40; PLAN.md 9.4 #13): read once, its warnings reported once; each fixed image
+  gets its row (the empty row without one), a resume compares the rows, collect_project joins the sheet's own
+  columns, a sheet that cannot be read is refused before anything is written, and a series with a row is refused
+  before process_series with the project's remedy. A project without a sheet passes no sample (fake_run_loaded
+  keeps today's signature).
 * In a fresh interpreter run_project imports germquant.pipeline (torch) before any reader or backend (D28).
 * collect_project uses the recipe's qc.germline_outlier_factor (P5 acceptance 14); export-commands writes the
   commands that run the project.
@@ -133,6 +138,18 @@ def hand_edit_recipe(proj, data: dict) -> None:
     m["recipe"]["file"] = "recipe.yaml"
     M.write_manifest(proj.root, m)
     proj.manifest = m
+
+
+def _fabricate(proj, src: str, dest: str, **marker_changes) -> None:
+    """results/<dest>/ holding the marker and image summary of results/<src>/, re-named for dest, the marker's
+    fields changed as given."""
+    a, d = proj.root / "results" / src, proj.root / "results" / dest
+    d.mkdir(parents=True)
+    marker = json.loads((a / f"{src}__done.json").read_text(encoding="utf-8"))
+    marker.update(image_id=dest, **marker_changes)
+    (d / f"{dest}__done.json").write_text(json.dumps(marker, indent=1), encoding="utf-8")
+    text = (a / f"{src}__image_summary.csv").read_text(encoding="utf-8")
+    (d / f"{dest}__image_summary.csv").write_text(text.replace(f",{src},", f",{dest},"), encoding="utf-8")
 
 
 # ---- the run log (P5 acceptance 2, second half; D17, D48) ---------------------------------------------------
@@ -654,6 +671,135 @@ def test_series_refused_for_labels_recipes(project_env, tmp_path, monkeypatch): 
     (e,) = [e for e in log_events(res["log"]) if e["event"].startswith("image_")]
     assert e["event"] == "image_failed" and SERIES_REFUSAL in e["error"]
     assert res["exit_code"] == 1 and calls == {"series": [], "model": [], "read": []}
+
+
+# ---- the sample sheet (P5 acceptance 5 in a project; D21, D33, D40; PLAN.md 9.4 #13) -------------------------
+
+_UNSET = object()
+
+
+def fake_run_loaded_rows(monkeypatch, seen: list) -> None:
+    """api.run_loaded replaced by a stand-in that also takes the sample= of a project with a sample sheet and records
+    it (_UNSET when a call passes none); it writes nothing. fake_run_loaded keeps today's signature, so each test of
+    a project without a sheet that uses it also checks that no sample is passed there (D40)."""
+    def fake(image, cfg, out=None, *, xy_stride=None, z_range=None, t=None, sample=_UNSET):
+        seen.append({"image": Path(image).name, "sample": sample})
+        return {"image_id": Path(image).name.split(".")[0], "n_nuclei": 0, "qc_pass": True, "qc_flags": [],
+                "out_dir": str(out), "tables": {}, "stages": {}}
+
+    monkeypatch.setattr(api, "run_loaded", fake)
+
+
+def test_a_project_run_takes_each_image_its_sheet_row(project_env, tmp_path, monkeypatch, capsys):  # noqa: F811
+    """run_project reads the manifest's sample sheet once and passes each fixed image its row, as `batch --samples`
+    does. One real run (image a, with a row) takes the row's design columns into its tables and records the row in
+    its stage record, run manifest and marker; the sheet's warnings are reported once. The rest reuses that run: an
+    image without a row gets the empty row (process_image flags it metadata:not_in_sample_sheet), a row keyed by a
+    file path binds to the file the run reads, a resume compares each image's row (an edited row reruns that image
+    only), collect_project joins the sheet's own columns, and a sheet that cannot be read or opened is refused before
+    anything is written."""
+    need_readers()
+    import warnings
+
+    from germquant.io import sample_sheet as SS
+
+    proj = project_with_images(tmp_path, names=("a", "b"))
+    sheet = proj.root / "samples.csv"
+    row_a = {"image_id": "a", "genotype": "syp-2(ok307)", "sex": "male", "acquisition_date": "11/5/2025",
+             "slide": "S12"}
+    SS.write_sample_sheet(sheet, [row_a, {"image_id": "z", "genotype": "N2", "slide": "S99"}])    # z: no image here
+    P.save_project(proj, samples="samples.csv")
+    reads = []
+    real_read = SS.read_sample_sheet
+    monkeypatch.setattr(SS, "read_sample_sheet", lambda path: reads.append(Path(path)) or real_read(path))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", SS.SampleSheetWarning)     # the run holds the warning back, and reports it once
+        res = P.run_project(proj, images=["a"])
+    assert res["counts"] == {"done": 1, "failed": 0, "skipped": 0} and reads == [sheet]
+    assert len([w for w in res["warnings"] if "acquisition_date '11/5/2025'" in w]) == 1, res["warnings"]
+    out = proj.root / "results" / "a"
+    sha = SS.row_sha256({k: row_a[k] for k in ("genotype", "sex", "acquisition_date")})
+    got = pd.read_csv(out / "a__image_summary.csv", dtype=str).iloc[0]
+    assert [got[c] for c in ("genotype", "sex", "germ_cell", "acquisition_date")] == [
+        "syp-2(ok307)", "male", "spermatocyte", "11/5/2025"]                       # germ_cell from the row's sex
+    assert json.loads((out / "a__done.json").read_text(encoding="utf-8"))["sample_row_sha256"] == sha
+    for record in ("a__stages.json", "run_manifest.json"):
+        assert json.loads((out / record).read_text(encoding="utf-8"))["sample_sheet"] == {"source": str(sheet),
+                                                                                          "row_sha256": sha}
+    # b has no row: the empty row (the flag); a is done with its row, so the resume skips it
+    seen = []
+    fake_run_loaded_rows(monkeypatch, seen)
+    assert P.run_project(proj)["counts"] == {"done": 1, "failed": 0, "skipped": 1}
+    assert seen == [{"image": "b.ome.tif", "sample": SS.SampleRow({}, str(sheet), None)}]
+    # a row keyed by a path names that file only: the run gives row() the path it reads, not the manifest's
+    keyed = [{"file": "a.ome.tif", **{k: row_a[k] for k in ("genotype", "sex", "acquisition_date", "slide")}},
+             {"file": "images/b.ome.tif", "genotype": "N2"}]
+    SS.write_sample_sheet(sheet, keyed)
+    seen.clear()
+    assert P.run_project(proj)["counts"] == {"done": 1, "failed": 0, "skipped": 1}
+    assert seen == [{"image": "b.ome.tif", "sample": SS.SampleRow({"genotype": "N2"}, str(sheet),
+                                                                 SS.row_sha256({"genotype": "N2"}))}]
+    # an edited row reruns that image only: b finished in a sheet run without a row, and still has none
+    _fabricate(proj, "a", "b", sample_row_sha256=None)
+    SS.write_sample_sheet(sheet, [{**row_a, "genotype": "N2"}])
+    rows = {r["id"]: (r["status"], r["reason_code"]) for r in P.project_status(proj)["images"]}
+    assert rows == {"a": ("stale", "sample_row"), "b": ("done", None)}
+    seen.clear()
+    assert P.run_project(proj)["counts"] == {"done": 1, "failed": 0, "skipped": 1}
+    assert [s["image"] for s in seen] == ["a.ome.tif"] and seen[0]["sample"].fields["genotype"] == "N2"
+    # collect joins the sheet's own columns into every batch table, by image id ("" for an image without a row)
+    rec = P.collect_project(proj)
+    assert rec["sample_sheet"] == {"path": str(sheet), "columns": ["slide"]}
+    stacked = pd.read_csv(proj.root / "results" / "batch_image_summary.csv", dtype=str, keep_default_na=False)
+    assert list(stacked.columns)[-1] == "slide" and dict(zip(stacked["image_id"], stacked["slide"])) == {
+        "a": "S12", "b": ""}
+    # a sheet that cannot be read, or opened, is refused before anything is written (exit 2), by collect too
+    logs = sorted((proj.root / "runs").iterdir())
+    sheet.write_bytes(b"image_id;genotype\na;N2\n")
+    with pytest.raises(P.ProjectError, match="semicolons"):
+        P.run_project(proj)
+    assert cli.main(["project", "run", str(proj.root)]) == 2 and "REFUSED: " in capsys.readouterr().err
+    sheet.unlink()
+    for call in (P.run_project, P.collect_project):
+        with pytest.raises(P.ProjectError) as exc:
+            call(proj)
+        assert str(exc.value).startswith(f"sample sheet {sheet}: ") and "\\\\?\\" not in str(exc.value), exc.value
+    assert sorted((proj.root / "runs").iterdir()) == logs and len(seen) == 1
+
+
+def test_a_series_with_a_sheet_row_is_refused(project_env, tmp_path, monkeypatch):  # noqa: F811
+    """D21 and D33 in a project: an image with timepoints that has a row in the project's sample sheet fails before
+    process_series is called (the time-lapse loop gives its timepoints no row), with the sheet's SERIES_REFUSAL and
+    the project's own remedy (`project run` takes no --samples), and nothing resolves a model or reads a timepoint;
+    status names the refusal before any run. The same series without a row runs through process_series, which takes
+    no sample, so its timepoints are not flagged."""
+    from germquant import timelapse
+    from germquant.io import sample_sheet as SS
+
+    proj = new_test_project(tmp_path / "proj")
+    P.add_images(proj, [_series_image(proj.root / "images")])
+    sheet = proj.root / "samples.csv"
+    SS.write_sample_sheet(sheet, [{"image_id": "movie", "genotype": "N2"}])
+    P.save_project(proj, samples="samples.csv")
+    (row,) = P.project_status(proj)["images"]
+    calls = _spy_series(monkeypatch)
+    res = P.run_project(proj)
+    (e,) = [e for e in log_events(res["log"]) if e["event"].startswith("image_")]
+    assert e["event"] == "image_failed" and SS.SERIES_REFUSAL in e["error"], e["error"]
+    assert f'germquant project edit "{proj.root}" --samples none' in e["error"] and "row of movie" in e["error"]
+    assert res["exit_code"] == 1 and calls == {"series": [], "model": [], "read": []}
+    assert row["status"] == "missing" and e["error"] in row["reason"]          # status said so before the run
+    # without a row the series runs (a stand-in for the loop, which has no sample parameter)
+    SS.write_sample_sheet(sheet, [{"image_id": "other", "genotype": "N2"}])
+    ran = []
+
+    def series(path, cfg, out_dir, *, timepoints, xy_stride, z_range, resume):
+        ran.append((Path(path).name, timepoints))
+        return {"record": {"timepoints": []}, "failed": []}
+
+    monkeypatch.setattr(timelapse, "process_series", series)
+    res = P.run_project(proj)
+    assert ran == [("movie.ome.tif", "all")] and res["exit_code"] == 0 and res["counts"]["done"] == 1
 
 
 # ---- imports (D28, R5) -------------------------------------------------------------------------------

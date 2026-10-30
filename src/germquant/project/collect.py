@@ -4,9 +4,12 @@
 results/batch_summary.csv with batch.collect, the code `germquant collect` and `germquant batch` use, for the
 project's own images only (its image ids; an image with timepoints by its timepoint ids <id>_t<NNN>), and with the
 recipe's qc.germline_outlier_factor. The plain `germquant collect` has no recipe and keeps the factor 1.8, which
-would flag dense fields of the outside packs as framing outliers (their base sets 1.0e+9 to switch it off).
-Returns ``{"root", "results", "outlier_factor", "images", "counts", "summary"}``; ``counts`` is batch.collect's
-``{table: rows}``.
+would flag dense fields of the outside packs as framing outliers (their base sets 1.0e+9 to switch it off). When
+the manifest names a sample sheet, its own columns (neither the key nor a design column) are joined into every
+batch table by image id, as `germquant collect --samples` joins them (batch.collect(sample_sheet=)); a sheet that
+cannot be opened or read is refused as a run refuses it (run.read_project_sheet).
+Returns ``{"root", "results", "outlier_factor", "images", "counts", "summary", "sample_sheet"}``; ``counts`` is
+batch.collect's ``{table: rows}``, ``sample_sheet`` None or ``{"path", "columns"}`` (the columns joined).
 """
 from __future__ import annotations
 
@@ -40,7 +43,7 @@ def collect_project(project) -> dict:
     from ..packs import use_project
     from . import Project, _root, project_config
     from .manifest import read_manifest
-    from .run import RESULTS_DIR
+    from .run import RESULTS_DIR, read_project_sheet
 
     root = _root(project)
     m = read_manifest(root)
@@ -51,7 +54,10 @@ def collect_project(project) -> dict:
     if not os.path.isdir(long_path(results)):
         raise ProjectError(f"{root} has no results yet ({results} is missing): run the project first with "
                            f"`germquant project run DIR`")
+    sheet = read_project_sheet(root, m)
     ids = collect_ids(m)
-    counts = batch.collect(results, image_ids=ids, outlier_factor=factor)
+    counts = batch.collect(results, image_ids=ids, outlier_factor=factor,
+                           **({} if sheet is None else {"sample_sheet": sheet}))
     return {"root": str(root), "results": str(results), "outlier_factor": factor, "images": len(ids),
-            "counts": counts, "summary": str(results / "batch_summary.csv")}
+            "counts": counts, "summary": str(results / "batch_summary.csv"),
+            "sample_sheet": None if sheet is None else {"path": sheet.source, "columns": sheet.extra_columns}}
