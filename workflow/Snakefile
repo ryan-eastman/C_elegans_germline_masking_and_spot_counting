@@ -9,9 +9,17 @@
 #             --workflow-profile config/profiles/slurm
 #   # a germquant project (docs/PROJECTS.md, "Snakemake"): one job per image of the project
 #   snakemake -s workflow/Snakefile --config project=/path/to/STUDY --cores 1
+#   # a system pack's recipe instead of germquant_config (docs/PACKS.md): germquant_pack replaces it
+#   snakemake -s workflow/Snakefile --configfile workflow/config.yaml \
+#             --config germquant_pack=cultured_cells@0.1.0 recipe=nuclei_foci --cores 8
+#
+# A recipe that sets io.input_suffixes (docs/DESIGN_system_packs.md 7.8) is run on those formats, under the image
+# ids io.formats.image_stem gives (x for x.ome.tif; Path.stem for an .nd2, so .nd2 jobs are unchanged), and nothing
+# named like germquant's own output images, or under an output_root inside input_root, is taken for an input.
 from pathlib import Path
 
 from germquant.config import load_config
+from germquant.io.formats import image_stem
 
 configfile: "workflow/config.yaml"
 
@@ -73,34 +81,51 @@ INPUT_ROOT  = Path(config["input_root"]).resolve()
 OUTPUT_ROOT = Path(config["output_root"]).resolve()
 GQ_CONFIG   = config["germquant_config"]
 XY_STRIDE   = int(config.get("xy_stride", 1))
+# pack mode: germquant_pack ID@VER, with recipe R (the pack's default recipe without it), runs each image with
+# `germquant run --pack ID@VER --recipe R` and discovers the files with that recipe's io keys
+GQ_PACK     = config.get("germquant_pack")
+GQ_RECIPE   = config.get("recipe")
+if GQ_RECIPE and not GQ_PACK:
+    raise ValueError("recipe: names a recipe of a system pack: give germquant_pack: ID@VER as well")
+
+
+def _pack_recipe_config():
+    from germquant.packs import find_pack, recipe_profile_path
+
+    pack = find_pack(GQ_PACK)
+    return load_config(recipe_profile_path(pack, pack.recipe(GQ_RECIPE)))
+
 
 # Single source of truth for which files to process: the germquant config (loaded through the same
-# loader as `germquant run`, so a profile's `extends:` is merged): io.input_glob / io.exclude_patterns
-# and qc.exclusions_file, applied by germquant.batch.discover_files, so `germquant batch` and this
-# Snakemake run never disagree on the file set. The workflow config may still override
+# loader as `germquant run`, so a profile's `extends:` is merged): io.input_glob / io.exclude_patterns,
+# io.input_suffixes and qc.exclusions_file, applied by germquant.batch.discover_files, so `germquant batch`
+# and this Snakemake run never disagree on the file set. The workflow config may still override
 # input_glob / exclude_patterns for a one-off.
-_gq_cfg = load_config(GQ_CONFIG)
+_gq_cfg = _pack_recipe_config() if GQ_PACK else load_config(GQ_CONFIG)
 INPUT_GLOB = config.get("input_glob", _gq_cfg.get("io.input_glob", "**/*.nd2"))
 EXCLUDE    = config.get("exclude_patterns", _gq_cfg.get("io.exclude_patterns", []))
 
 
 def _discover():
-    from germquant.batch import discover_files, load_exclusions
+    from germquant.batch import discover_files, discover_options, load_exclusions
 
     excl = load_exclusions(_gq_cfg.get("qc.exclusions_file"), _gq_cfg.base_dir)
-    files, dropped = discover_files(INPUT_ROOT, INPUT_GLOB, EXCLUDE, excl)
+    files, dropped = discover_files(INPUT_ROOT, INPUT_GLOB, EXCLUDE, excl, **discover_options(_gq_cfg, OUTPUT_ROOT))
     for f, why in dropped:
         if why.startswith("exclusions_file"):
             print(f"[germquant] excluded by {why}: {f.name}")
+        elif why.startswith("duplicate_id"):        # two formats of one image id in one folder (io.input_suffixes)
+            print(f"[germquant] left out {f.name}: {why}")
     return files
 
 FILES = [] if PROJECT else _discover()          # project mode runs the project's images, not a folder
-# per-job out dir mirrors the input tree: <out>/<relative parent>/<stem>/
-OUT_DIRS = [OUTPUT_ROOT / p.relative_to(INPUT_ROOT).parent / p.stem for p in FILES]
+# per-job out dir mirrors the input tree: <out>/<relative parent>/<image id>/
+OUT_DIRS = [OUTPUT_ROOT / p.relative_to(INPUT_ROOT).parent / image_stem(p) for p in FILES]
 IDX = list(range(len(FILES)))
 
 if not FILES and not PROJECT:
-    print(f"[germquant] WARNING: no .nd2 under {INPUT_ROOT}")
+    _what = ", ".join(_gq_cfg.get("io.input_suffixes") or [".nd2"])
+    print(f"[germquant] WARNING: no {_what} under {INPUT_ROOT}")
 
 
 rule all:
@@ -109,19 +134,36 @@ rule all:
         str(OUTPUT_ROOT / "batch_summary.csv"),
 
 
-rule process_one:
-    output:
-        touch(OUTPUT_ROOT / "_done" / "{idx}.done"),
-    params:
-        nd2=lambda wc: str(FILES[int(wc.idx)]),
-        outdir=lambda wc: str(OUT_DIRS[int(wc.idx)]),
-        cfg=GQ_CONFIG,
-        stride=XY_STRIDE,
-    resources:
-        gpu=1,
-    shell:
-        r'germquant run "{params.nd2}" --config "{params.cfg}" '
-        r'--out "{params.outdir}" --xy-stride {params.stride}'
+if GQ_PACK:
+    rule process_one:
+        output:
+            touch(OUTPUT_ROOT / "_done" / "{idx}.done"),
+        params:
+            nd2=lambda wc: str(FILES[int(wc.idx)]),
+            outdir=lambda wc: str(OUT_DIRS[int(wc.idx)]),
+            pack=GQ_PACK,
+            recipe=f' --recipe "{GQ_RECIPE}"' if GQ_RECIPE else "",
+            stride=XY_STRIDE,
+        resources:
+            gpu=1,
+        shell:
+            r'germquant run "{params.nd2}" --pack "{params.pack}"{params.recipe} '
+            r'--out "{params.outdir}" --xy-stride {params.stride}'
+
+else:
+    rule process_one:
+        output:
+            touch(OUTPUT_ROOT / "_done" / "{idx}.done"),
+        params:
+            nd2=lambda wc: str(FILES[int(wc.idx)]),
+            outdir=lambda wc: str(OUT_DIRS[int(wc.idx)]),
+            cfg=GQ_CONFIG,
+            stride=XY_STRIDE,
+        resources:
+            gpu=1,
+        shell:
+            r'germquant run "{params.nd2}" --config "{params.cfg}" '
+            r'--out "{params.outdir}" --xy-stride {params.stride}'
 
 
 rule batch_summary:
@@ -133,6 +175,6 @@ rule batch_summary:
     run:
         from germquant.batch import collect
 
-        counts = collect(OUTPUT_ROOT, image_ids={p.stem for p in FILES},
+        counts = collect(OUTPUT_ROOT, image_ids={image_stem(p) for p in FILES},
                          outlier_factor=float(_gq_cfg.get("qc.germline_outlier_factor", 1.8)))
         print(f"[germquant] collected {counts} -> {output[0]}")

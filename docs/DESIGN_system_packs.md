@@ -2194,6 +2194,20 @@ it adds, and every Train B hand-off records the Windows test seconds it adds, ag
 and 90 s for a P5 unit or P2b-CORE (plan D41). If a shard still passes 15 minutes, the shards are rebalanced before
 any test is trimmed.
 
+macOS note (2026-10-30, plan decision D54): from 2026-10-30, G1's macOS job runs on macos-15, the macOS 15 arm64
+(Apple Silicon) runner image, instead of macos-14 (.github/workflows/ci.yml). GitHub retires its macOS 14 images on
+2026-11-02 and until then fails macos-14 jobs in scheduled brownouts (github.com/actions/runner-images issue 13518:
+14:00 to 00:00 UTC on October 29, 30 and 31 and November 1); on 2026-10-30 a brownout cancelled the plugin CI's
+macos-14 job in all three attempts of one run. GitHub's ways off macos-14 are macos-latest, macos-15 and macos-26.
+macos-15 is the same Apple Silicon runner class one release newer, so constraints/ci-mac-arm64-2026-10.txt, torch
+and torchvision from PyPI, golden_rtol 1e-6, one job (shard "all") and the 15-minute budget carry over unchanged;
+macos-latest moves to each new macOS on GitHub's schedule (it is macOS 26 today), and macos-26 is the larger step.
+Where this design names macos-14 for CI (G1 in 11.3, P1 and P3 in 12.3, the G1 note above), read the macOS job,
+macos-15 from this date. The first comment line of constraints/ci-mac-arm64-2026-10.txt still names macos-14,
+because Train B edits nothing under constraints/. GitHub keeps the two newest macOS versions, so macos-15 holds until
+the images of the next macOS arrive; a later train then moves the label again. The plugin workflow (8.10) takes the
+same label in its own commit.
+
 ## 15. Findings to raise (number-relevant; not fixed in T5)
 
 - a. Since Cellpose 4.2.0 (2026-06-11), the bare name cpsam runs cpsam_v2. nuclei._cellpose passes no

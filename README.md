@@ -367,7 +367,30 @@ them, so the channel map matches by those names, and a file without a readable v
 `voxel:UNREADABLE_assumed_isotropic_1um` exactly as an `.nd2` would be. One image per file for now: a
 time-lapse (more than one time point) or a file with several scenes or positions stops with a message
 asking for a single scene (time-lapse support is planned). `germquant info` and `germquant run` take
-these files; `germquant batch` still expects a folder of `.nd2` files.
+these files. `germquant batch` (and the Snakemake workflow) take a folder of them when the config lists their
+suffixes in `io.input_suffixes`, as `config/profiles/generic_2d.yaml` does; in a study profile of your own:
+
+```yaml
+io:
+  input_glob: "**/*"
+  input_suffixes: [".ome.tif", ".tif"]
+```
+
+A suffix is the whole format suffix, so `.tif` does not pick up `x.ome.tif`. Each image's id, which names its
+results folder, is the file name without that suffix (`x.ome.tif` is the image `x`). Two files of one folder with
+one id in different formats (`x.nd2` and an export `x.tif`) would share that folder, so the batch keeps the first by
+name (`x.nd2` before `x.ome.tif` before `x.tif`) and prints the others as left out. germquant's own output images
+(`<id>__nuclei_labels.tif` and the like) are never taken for inputs, and with `io.input_suffixes` set nothing under
+an `--out` folder inside the input folder is either (results next to the images, `--out` the input folder itself,
+are fine). Label images of other tools kept next to the images, such as Cellpose's `x_masks.tif` or the labels files
+of docs/LABELS.md, match a listed suffix too and would be taken for images: leave them out with
+`io.exclude_patterns`, which replaces config.yaml's list, so keep its entries, for example
+`exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*", "*_masks.tif"]`. Without `io.input_suffixes` a batch
+processes the `.nd2` files of the folder, as it always has.
+
+A sample sheet gives each image's design columns (genotype, sex, treatment, replicate and the others) when the
+file names do not follow the naming convention: `germquant batch FOLDER ... --samples samples.csv` (also on
+`germquant run` and `germquant collect`). docs/PROJECTS.md, "Sample sheet", describes the file.
 
 ### Checking the graphics chip is being used
 
