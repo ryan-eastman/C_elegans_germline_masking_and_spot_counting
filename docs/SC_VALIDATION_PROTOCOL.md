@@ -1751,3 +1751,118 @@ Entries are appended, never edited. Each one says whether a test result had been
    477, the SC channel of 2026-01-05) and segmentation (Cellpose) checks. The round ends with the configuration of
    v2 proposed for the freeze; the robustness report of section 9, the thresholds on all development gonads and the
    freeze entry wait for the project lead's decisions.
+36. 2026-10-30, the v3 development round (an independent review of entries 31 to 35: disclosures, corrections and
+   code-only changes; no method change), written after the recount of (d) and the test check of (e) below were
+   computed and before any other number of this entry (no test result had been computed, no test or reserved image
+   was run, no test or reserved truth was read and no sealed seed was generated). After entry 35 an independent
+   review checked the round at commit 834b6c2 (its scripts and outputs are kept in
+   C:/Users/ryane/sc_ribbon_work/v3/review/). It found no blocker. The protocol commits only append, and every entry
+   of the round precedes the numbers it fixes: entries 31 to 33 were committed at 12:40:50Z to 12:41:16Z and the
+   first tuning file is of 12:48:52Z; entry 34 (14:07:30Z) follows the last grid file (14:03:28Z) and precedes the
+   snapshot (from 14:12:01Z) and the checkpoint (from 14:36Z); entry 35 (15:32:55Z) follows H1-v3 (15:28Z). The
+   confirmation seeds were never used, no sealed file, image or seed was touched, the rules are coded as entries 32
+   and 33 state, and the defaults at 834b6c2 give every shared column of the five tables (apart from
+   sc_straighten_hash), the overview and the strips of two development gonads rerun on the CPU
+   (n2rad51_noHS_male_001 and n2rad51_20260105b_HS_male_001) as runs/a711fe5 and v3/runs/v2/24bfde1 do. With its own
+   code it recomputed S2a and S2b of v2 and of the punctum class (entry 35 (a)), the junction rate, the fall of gaps
+   and the recovery of entry 34 (b) (on a fresh rerun of the 400 tuning scenes of the four dense families, which
+   reproduced the cached ones) and the puncta excess of entry 34 (a), all as reported. For S2 it read the zone truth
+   of the twelve development gonads again, through the guarded loader and with the runs of Z-v3; it scored no new
+   configuration, chose nothing and wrote no line of dev_trials.jsonl, and it is not a checkpoint. Disclosed and
+   corrected now:
+   (a) Approval (review finding S1). The five germquant runs of entry 31 (f) were made without the approval that
+   entry 27 (e) requires (a memory window that the project lead approves; decision 4 of the PR): the gate was the
+   orchestrator's, and no approval by the project lead is on record. H1-v3 (entry 35 (b)) and the 2025-10-21
+   channel-map check of protocol 4.5 (5) on 20251021_n2_nohs_MALE_2 (entry 31 (f)) stand only if the project lead
+   accepts these runs (decision 4). No germquant run of the eight test images that still need one is made under such
+   a gate before the project lead answers; v3/scripts/heavy_germquant.py now refuses to start without --approval
+   naming the changelog entry that records the approval.
+   (b) The memory gate (S2). The gate of entry 31 (f), at least 40 GiB of free physical memory at the start, was
+   below the measured need: the germquant process peaked at 45.0 to 51.5 GiB working set and 54.5 to 72.7 GiB commit
+   on the 63.1 GiB workstation, and the available memory fell to 0.33, 0.01, 0.01, 0.16 and 0.0 GiB. Jobs of the
+   round ran beside every run: on 2026-10-25 design_gaps.py (00:45Z to 00:48Z) during 20251021_n2_nohs_MALE_2 and
+   the design panels of entry 31 (a) (01:12Z to 01:51Z) during 20260105_n2_hs_1_HERM_1 and the interrupted
+   20260105_n2_hs_HERM_2; on 2026-10-30 the v3 tests (12:25Z to 12:27Z) and the check of the panel code (12:32Z to
+   12:34Z) during 20260105_n2_hs_HERM_2 (12:08Z to 12:36Z), the tuning panel of v2 (12:48:50Z to 13:05:47Z) during
+   20260105_n2_nohs_HERM_1 (12:37Z to 13:09Z), and the end of the last grid panel (to 14:03:28Z) and the snapshot
+   (14:11:59Z to 14:29:36Z) during 20260105_n2_nohs_MALE_3 (14:01:37Z to 14:35:30Z). The review found no memory
+   error in the logs of the other workflows of that time, and each run passed its completion, channel and
+   segmentation checks. In v3/logs/heavy_germquant.jsonl germquant_started_after_s is 0.0 for every run, because the
+   driver matched "germquant.cli" in the command line of the GPU-lock wrapper, and the wall_s of
+   20260105_n2_nohs_MALE_3 (5123.8 s) holds about 51 minutes of waiting for the GPU lock. For any later heavy run
+   the gate also requires an idle machine (no other process with a working set above 2 GiB and no job of this
+   workflow running); a marker file exists while a run holds the lock, and the jobs of the round (v3_panel.py run,
+   v3_zones.py run) refuse to start while it does; the available memory and the run's memory are logged every 30 s;
+   the germquant process is found by its command line (python -m germquant.cli), and the lock wait is logged apart
+   from the run (v3/scripts/heavy_germquant.py and mem_gate_run.py; the versions that made the five runs are kept as
+   heavy_germquant_entry31f.py and mem_gate_run_entry31f.py). A dry check of the new gate at 17:27Z found the
+   recount panel of (d) running and refused to start. No heavy run has been made under it.
+   (c) The measured axial reference (S3). Entry 32 (b) checked the reference on puncta_psf, whose foci are points
+   rendered with the local PSF times 595/511, the ratio that psf.axial_reference divides out, so it checked the
+   estimator where its two assumptions (point-like foci and a PSF that scales with the emission wavelength) hold by
+   construction. On the twelve development images (entry 35 (a): 0.363 to 0.458 um) the reference no longer falls
+   back to 0.365 um, but its accuracy there is untested: real foci have size, and the wavelength scaling of the real
+   PSF is unmeasured (no bead PSF; decision 9 of the PR). The PR draft, which called the reference problem of v2
+   solved (the report of the round said fixed), is corrected.
+   (d) Entry 32 (c) counted twice (nit N1). v3/scripts/v3_panel.py summed the punctum-labelled length per truth
+   ribbon, so a strand sample within the tolerance of two ribbons counted twice. Counted once per strand sample (the
+   wording of entry 32 (c)) on a rerun of the same tuning scenes with params.V3_PUNCTUM at commit 834b6c2
+   (v3/panel/tuning/t_b1_once, 2026-10-30T17:25:04Z to 17:35:19Z, the eleven families of (c) and of its strand
+   check), which reproduced the punctum strands and the per-ribbon rows of the run of entry 34 (t_b1, commit
+   52b15c2) in all 1,100 scenes (v3/scripts/run_n1_recount.sh, v3/logs/targets_entry32c_once_tuning.json): 0.559
+   percent of the truth length of dense_puncta (17.45 of 3,124 um; entry 34 (a): 0.61) and 0.680 percent of
+   real_dense_r2 (21.30 of 3,131 um; 0.70), 0.339 percent of the dense ribbons of puncta_psf (0.36), 0.029 percent
+   of dense_reg (as before) and none in dense, snr and snr_reg; the punctum strands lying half or more on an iso,
+   gaps, foci or pairs ribbon, each counted once, are 2 (as before), and no matched strand of such a ribbon is of
+   class punctum. dense_puncta and real_dense_r2 still exceed 0.5 percent, so (c) fails as entry 34 (a) found and
+   the withdrawal stands. The panel counts once from now on and keeps the per-ribbon rows; the recount decides
+   nothing.
+   (e) Tests (S4). With one condition of the v3 rules removed at a time from a copy of the code (eleven such
+   mutations), four left every test of tests/test_sc_straighten_v3_gaps.py and
+   tests/test_sc_straighten_v3_punctum.py passing: the link guard of entry 33 (i), the z test of entry 33 (ii), the
+   smoothing term of the empty-gap sigma (entry 33 (ii)) and the residual condition of the shape test (entry 32
+   (i)). One test is added for each (test_no_dim_stretch_at_a_link_between_two_traced_members,
+   test_a_filled_stretch_inside_its_noise_stays_a_gap, test_the_empty_gap_model_holds_the_smoothing_window and
+   test_the_shape_test_needs_a_small_residual); with them the two files hold 34 and 15 tests, pass on the code of
+   834b6c2, and fail under each of the eleven mutations (v3/scripts/mutation_check_entry36.py,
+   v3/logs/mutation_check_entry36.json).
+   (f) The record of the resume (S5). Section 4 of v3/RESUME_NOTE.md said that both runs of 2026-10-25 record
+   git_sha acbee94-dirty: that of 20251021_n2_nohs_MALE_2 (started 00:40Z, before any file of the worktree was
+   changed) records acbee94 clean, that of 20260105_n2_hs_1_HERM_1 acbee94-dirty, and the runs of
+   20260105_n2_hs_HERM_2 and 20260105_n2_nohs_HERM_1 of 2026-10-30, started before entry 31 was committed, record
+   acbee94-dirty as well, which entry 35 (d) did not say (germquant.provenance counts untracked files as dirty);
+   20260105_n2_nohs_MALE_3 records 52b15c2. The dirty state was confined to germquant/sc/straighten, tests and docs,
+   which `germquant run` does not import (after `germquant run --help` only the parser module
+   germquant.cli_sc_straighten, unchanged since acbee94, is loaded), so these outputs are those of the clean code.
+   The uncommitted diff of 2026-10-24 (sc_straighten code digest d143d3b93f68, the code behind every discarded
+   result of entry 31 (a)) was not preserved, and the test file kept as
+   v3/interrupted_build/tests/test_sc_straighten_v3_rules.py is the version of 2026-10-30 12:25Z with its entry
+   numbers corrected, not the interrupted original (section 7 of the resume note said otherwise). Both sections are
+   corrected. When a build is interrupted from now on, its state is saved before any edit (git diff into a patch
+   file, the untracked files copied).
+   (g) Order (N2, N3). Entry 31 (a) says that the resumed round added the guards, the measured axial sigma, gaps_psf
+   and tests before any number. Before entry 31 was committed (12:40:50Z) the v3 tests had run on their own phantoms
+   (12:25Z to 12:27Z; the fills of 0.1 to 0.3 that entry 33 cites for two ribbons with dim tips come from them), and
+   the check of the panel code had run one scene of every family at the development seed 999000 (12:32Z to 12:34Z;
+   disclosed in entry 34); neither used a seed of entry 31 (b), a development image or zone truth, but entry 31 does
+   not name them. The draft of entry 31 of 2026-10-24 (v3/entries/entry31.txt, never committed) adopted a change
+   only when its real-data targets held at the checkpoint; entry 31 (d) as committed lets the checkpoint only veto,
+   as entry 11 (c) does. The change was made before any number of the round and had no effect (no change passed the
+   synthetic stage).
+   (h) Wording (N4 to N7). The junction dim stretches of entries 33 (d) and 34 (b) are counted per 100 traced nuclei
+   of dense, snr, real_dense_r2 and real_dense_r2_brightness (11 in 400 at (0.35, 3.0), 11 to 22 over the grid); the
+   docs, a test docstring, the resume note and the PR draft said "per 100 dense nuclei". The docs said that an empty
+   gap stays a gap whatever its length and tilt; what was shown is that no empty gap of the tests, and at the
+   defaults none of the 709 matched truth gaps of the tuning seeds, was read as a dim stretch. A comment of
+   v3/scripts/v3_zones.py dated the fix of the H1-v3 clause 15:40Z; the file was saved with it at 15:30:09Z.
+   test_recorded_dim_stretches_avoid_neighbours now requires at least one dim stretch, so that its check is not
+   vacuous. The PR draft listed the five germquant runs and H1 as still to do, and the body of PR #18 described the
+   v2 head; both are brought to the head of this entry.
+   (i) Code-only changes: no method change and no rule of this protocol changed, and every output of sc-straighten
+   at the defaults stays that of entry 25 (tests/test_sc_straighten_v2_compat.py,
+   tests/test_sc_straighten_v3_compat.py and the fence tests check it). In the repository: the tests of (e) and (h)
+   and the wording of docs/SC_STRAIGHTEN.md; outside it: v3/scripts/heavy_germquant.py, mem_gate_run.py,
+   v3_panel.py, v3_targets.py and v3_zones.py, v3/RESUME_NOTE.md and the PR draft. No zone statistic is computed
+   with these changes. The configuration proposed for the freeze stays that of v2; the robustness report of section
+   9, the thresholds on all development gonads and the freeze entry wait for the project lead's decisions, decision
+   4 first.
