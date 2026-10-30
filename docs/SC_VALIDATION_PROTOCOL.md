@@ -1428,3 +1428,101 @@ Entries are appended, never edited. Each one says whether a test result had been
    inside can move by more than that. The structural check of entry 27 (f) is therefore the number of strands of
    every synthetic case alone, on every platform; the strip index stays with the table digests among the workstation
    pins (GERMQUANT_WORKSTATION_PINS=1), which the hand-off runs on the workstation.
+31. 2026-10-30, the v3 development round (its rules, and the disclosures of its interrupted start), written before
+   any number of the v3 changes was computed on the tuning, confirmation or snapshot seeds of this round, on a
+   development image or on zone truth (no test result had been computed, no test or reserved image was run, no test
+   or reserved truth was read and no sealed seed was generated). Motivated by development results (entries 8, 9, 16
+   to 19, 28 and 29): rule B1 labels most PSF-blurred SYP puncta and small aggregates of the development phantoms
+   and almost no tilted ribbon longer than about 1 um, but on real images its reference, the image PSF, is mostly
+   the fallback sigma_z (0.365 um, against 0.380 to 0.464 um from the compact RAD-51 foci of entry 9), and its
+   confirmation failed on one strand of a ribbon (entry 19); brightness variation along the ribbons at the level
+   measured on the trial-4 strands reproduces, on the recalibrated phantoms, 58 percent of the fall of the median
+   piece_lw_mean_um from continuous phantoms to real full SC, through gaps read at dim stretches (entry 29). The
+   round makes two changes, each behind switches whose defaults give the outputs of v2 (which equal those of v1 in
+   every column of v1): the punctum class B1 with the image's measured axial sigma (entry 32) and dim stretches that
+   are not gaps (entry 33). The long vertical structures that hold most of the steep length in the heat-shock and
+   no-SC zones are not addressed: without hand traces (protocol R2) and a bead PSF (decision 9 of the PR) they
+   cannot be told from real tilted SC, so they are reported (the steep share by zone), not changed.
+   (a) The interrupted start (resume note C:/Users/ryane/sc_ribbon_work/v3/RESUME_NOTE.md). A first build of this
+   round began on 2026-10-25 (UTC) after entry 30 and stopped at about 01:55Z the same day, before any entry of the
+   round was committed; its draft of this entry (v3/entries/entry31.txt) was never committed and is replaced by this
+   one. Before any entry, with code that was never committed (sc_straighten code digest d143d3b93f68), it computed
+   on development seeds: (i) at 00:45Z to 00:48Z, v3/scripts/design_gaps.py on the design seeds 2000 to 2049 and
+   3000 to 3049 at the defaults (the features of every detected gap of five families, against the truth gaps of the
+   gaps family; v3/design/gaps_design_v1.json); (ii) at 01:12Z to 01:51Z, five synthetic panels on the design seeds
+   2000 to 2049 (17 families each): the defaults, the punctum class of entry 16 with punctum.exclude, the punctum
+   rule of entry 32 as then coded, the dim-stretch rule of entry 33 as then coded, and the punctum rule without its
+   shape test (stopped at 679 of 850 scenes), and two reports of them (v3/design/report_d_v2.json and
+   report_design4.json). All of it is discarded: no target, parameter, decision or table of this round uses it, and
+   the resumed round did not open it. The values that the uncommitted code gave the dim-stretch rule after (i)
+   (gaps.dim_fill 0.15, gaps.dim_z 2.0) are not kept as such: entry 33 chooses them on the tuning seeds by a rule
+   fixed there; the other new constants are set in entries 32 and 33 from earlier entries. The golden
+   tests/golden/sc_straighten/v2_compat.json made then (with the package code of acbee94, as its builder required)
+   was recomputed on 2026-10-30 from a clean copy of acbee94 with identical digests in all 19 cases and the code
+   digest deedb8a7e9fd (v3/logs/resume_verify_v2_compat_golden.json); it is kept. Before any number, the resumed
+   round added to the uncommitted code the guards and the measured axial sigma of the dim-stretch rule and the
+   development family gaps_psf (entry 33), and tests.
+   (b) Seeds. Development seeds used before this round: 1000 to 1023, 2000 to 2049, 3000 to 3049, 5000 to 5459, 5500
+   to 5959, 6000 to 6139, 6300 to 6359, 10000 to 10099, 11000 to 11099 and 12000 to 12099 (2000 to 2049 and 3000 to
+   3049 again by (a)). This round tunes on 13000 to 13099, confirms on 14000 to 14099 (once per change and per
+   revision) and computes the snapshot of the configuration it proposes once, on 15000 to 15099, with v2 on the same
+   scenes; no run has touched 13000 to 15099, and no design-seed run is made in this round after this entry. Scripts
+   and outputs: C:/Users/ryane/sc_ribbon_work/v3/ (scripts/v3_panel.py, v3_targets.py, v3_zones.py, v3_cost.py;
+   panel/, logs/).
+   (c) Adoption. A change is adopted when its targeted metrics hold on the tuning seeds and at their confirmation
+   levels on the confirmation seeds, the tolerances of entry 11 (b) hold on the confirmation seeds against v2 on the
+   same scenes (scored over the strands the nucleus tier counts, so punctum strands are out of the S1 scoring when
+   they are out of the tier), the cost rule of entry 11 (b) holds on n2rad51_noHS_herm_000, and the checkpoint of
+   (d) does not veto it. A parameter that a change introduces is set from physics or earlier entries where its entry
+   says so, or chosen on the tuning seeds by the rule its entry states, never on development images or zone truth. A
+   change gets at most one revision, with its own entry before any number of the revision (a new change in the sense
+   of entry 27 (c)); otherwise it is withdrawn by its switch. Whatever is adopted, the package defaults stay those
+   of v2 in this round: an adopted change enters the configuration proposed for the freeze by its switch values
+   (params.V3_PUNCTUM, params.V3_GAPS), and a default changes only by a later entry after the project lead's
+   decisions 2 and 3 of the PR.
+   (d) Zone truth enters once, at checkpoint Z-v3, after both changes are decided on synthetic evidence:
+   sc-straighten runs on the twelve development gonads with trial-4 runs with v2 (the defaults), with each change
+   alone and with both, whatever the synthetic stage decided (so that the real-data effect of each rule is
+   reported), and S2 is computed by the registered rules (theta_full and theta_present chosen again by 5.2 for each
+   configuration) under guard_frac 0.5 and 0.25, with the paired differences against v2 (cluster bootstrap, section
+   7) and the residual AUC of piece_lw_mean_um after the intensity (entry 7 (c)) with its paired difference. The
+   checkpoint can only veto (entry 11 (c)): a change that passed the synthetic stage is withdrawn when, in the
+   configuration with that change alone, the paired S2a difference against v2 is below -0.03 under both guards or
+   the S2b mean is more than 0.01 below that of v2; when both changes pass and neither is vetoed alone, the
+   configuration with both is checked by the same rule, and if it is vetoed, the change with the lower paired S2a
+   difference alone under guard_frac 0.25 is withdrawn. No parameter is chosen and nothing is revised after the
+   checkpoint. Each configuration is one line of dev_trials.jsonl (four lines; with H1-v3 the budget of section 9
+   then holds 15 of 40).
+   (e) Hold-out H1-v3, after the checkpoint: v2 and the configuration this round proposes run once on the
+   development hold-out gonads that have a germquant run (20251021_n2_nohs_HERM_2 and those of (f)); S2 with the
+   thresholds of the twelve of each configuration (S2c out of sample), the paired differences and the residual AUC;
+   one line of dev_trials.jsonl per configuration. With three or more gonads evaluable under guard_frac 0.25, a
+   paired S2a difference below -0.05 withdraws the changes of the proposal (v2 is proposed instead); with fewer it
+   is reported and decides nothing. If no change is adopted, H1-v3 runs v2 and both changes and decides nothing.
+   Nothing is changed after H1-v3.
+   (f) The germquant runs (xy stride 1) of the five development hold-out gonads that entry 27 (e) left for a memory
+   window above the 8 GB budget (20251021_n2_nohs_MALE_2, 20260105_n2_hs_1_HERM_1, 20260105_n2_hs_HERM_2,
+   20260105_n2_nohs_HERM_1 and 20260105_n2_nohs_MALE_3; entry 11 (e), protocol 4.5 (5)) are made under a gate that
+   the orchestrator set for this round: one at a time; each started only when Windows reports at least 40 GiB of
+   free physical memory right before its start (PowerShell Get-CimInstance Win32_OperatingSystem FreePhysicalMemory,
+   read inside the GPU lock; otherwise the lock is released and the gate asked again 10 minutes later); the GPU only
+   through C:/Users/ryane/germquant_golden/gpu_lock.py; the peak memory of each run logged
+   (v3/scripts/heavy_germquant.py and mem_gate_run.py, v3/logs/heavy_germquant.jsonl). No approval of decision 4 of
+   the PR (a memory window above 8 GB) by the project lead is on record; the gate is the orchestrator's. State when
+   this entry was written: 20251021_n2_nohs_MALE_2 (2026-10-25, 25 min, peak working set 45.0 GiB, peak commit 54.5
+   GiB) and 20260105_n2_hs_1_HERM_1 (27 min, 50.3 and 65.6 GiB) finished and passed the completion, channel and
+   segmentation checks (central_element is the nd2 channel 545 and 477, the sessions' SC channels; Cellpose; 585 and
+   532 nuclei), which completes the 2025-10-21 channel-map check of protocol 4.5 (5) on both development gonads of
+   that session; 20260105_n2_hs_HERM_2 was interrupted by the stop and left no output, and was started again on
+   2026-10-30 at 12:08Z (43.2 GiB free), before this entry; the other two follow. The gate guards the start only:
+   during the two finished runs the free physical memory fell to 0.33 and 0.01 GiB. No sc-straighten run is made on
+   these gonads before H1-v3, and their outputs are looked at only by those checks.
+   (g) Not changed in this round: the S1 criteria of 8.1, the S2 rules, the registered families and sc_split.json,
+   the QC thresholds and every switch of v2; the package VERSION stays 2.0 (the record's parameters name the rules).
+   With the switches of entries 32 and 33 off, every column of every table, the strips and the classes equal those
+   of the v2 head (commit acbee94; tests/test_sc_straighten_v3_compat.py against
+   tests/golden/sc_straighten/v2_compat.json), and every v1 column equals v1
+   (tests/test_sc_straighten_v2_compat.py); the params_hash changes with the new keys. No output column is added;
+   the record gains the keys punctum_reference, dim_reference and dim_stretches only when their switches are on.
+   (h) Reporting added under rule 2 (secondary, never gating), at the checkpoint and at the scoring: the steep share
+   of the counted traced length by zone, and the puncta, gaps and dim stretches per traced nucleus by zone.
