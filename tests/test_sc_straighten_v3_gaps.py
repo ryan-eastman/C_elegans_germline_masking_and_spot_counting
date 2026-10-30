@@ -7,7 +7,9 @@ gaps.dim_z standard errors, and its fill fraction exceeds gaps.dim_fill. The rul
 and nothing else: the strands and every sample except in_gap are those of v1. An empty gap stays a gap (also between
 two ribbons, and in a steep ribbon under a PSF wider than the fallback); a dim stretch of known length and
 brightness is read as one, with its length. The known ambiguity (two ribbons with dim tips and a short empty core
-that the tracer follows) is pinned at the top of the grid entry 33 chooses from.
+that the tracer follows) is pinned at the top of the grid entry 33 chooses from. Each condition of entry 33 has a
+test that fails when the condition is removed from the code (protocol changelog entry 36 added those of the link
+guard, the z test and the smoothing term of the empty-gap sigma).
 """
 from __future__ import annotations
 
@@ -124,6 +126,41 @@ def test_no_dim_stretch_across_a_link_or_next_to_another_strand():
     assert len(dims) == 1 and not g
 
 
+def test_a_filled_stretch_inside_its_noise_stays_a_gap():
+    """Entry 33 (ii), the z test (protocol changelog entry 36: no test caught its removal): fill 0.5 over 1 um
+    passes the fill test of the defaults (0.35); with standard errors so large that its minimum lies less than
+    gaps.dim_z (3.0) standard errors above the minimum of an empty gap of its missing length it stays a gap, while
+    v1 still finds the candidate (its dip is more than gaps.z errors deep)."""
+    ds, L, sig = 0.05, 8.0, 0.15
+    s = np.arange(-0.5, L + 0.5 + 1e-9, ds)
+    ins = (s >= 0) & (s <= L)
+    y = _profile(s, [(3.5, 4.5, 0.5)], sig)
+    clean = np.ones(len(s), bool)
+    for se, want_dim in ((5.0, True), (15.0, False)):
+        dims = []
+        g, _, _ = find_gaps(s, y, np.full(len(s), se), clean, ins, L, P_GAP_DEFAULT, ds,
+                            sigma_along=lambda _s: sig, dim=dims)
+        assert len(g) + len(dims) == 1, se
+        assert bool(dims) is want_dim, se
+
+
+def test_the_empty_gap_model_holds_the_smoothing_window():
+    """Entry 33 (ii) (protocol changelog entry 36: no test caught the removal of this term): the sigma of the
+    empty-gap model is the sigma along s combined with the moving mean of gaps.smooth_um (3 samples of 0.05 um, a
+    boxcar of 0.15 um), sqrt(sigma^2 + 0.15^2 / 12), and the empty-gap minimum is taken with it."""
+    ds, L, sig = 0.05, 8.0, 0.15
+    s = np.arange(-0.5, L + 0.5 + 1e-9, ds)
+    ins = (s >= 0) & (s <= L)
+    y = _profile(s, [(3.5, 4.5, 0.4)], sig) + np.random.default_rng(5).normal(0, 1.0, len(s))
+    dims = []
+    find_gaps(s, y, np.full(len(s), 1.5), np.ones(len(s), bool), ins, L, P_GAP, ds, sigma_along=lambda _s: sig,
+              dim=dims)
+    assert len(dims) == 1
+    want = math.sqrt(sig ** 2 + (3 * ds) ** 2 / 12.0)
+    assert dims[0]["sigma_along_um"] == pytest.approx(want, rel=1e-12)
+    assert dims[0]["r_empty"] == pytest.approx(empty_gap_min(dims[0]["length_um"], want), rel=1e-12)
+
+
 # ------------------------------------------------------------------------------------ phantoms
 def test_the_rule_changes_gaps_and_nothing_else():
     a = Ph.line(-3.2, 3.2, 10.0)
@@ -205,7 +242,8 @@ def test_two_ribbons_with_dim_tips(tilt, flank):
     Behind the blur along s the empty core does not show, and the junction looks like a stretch filled to 0.1 to
     0.3 of its flanks at the loosest pair of the grid; the defaults (0.35 and 3.0, the pair entry 34 took) keep every
     such junction a gap. Their rate in the dense phantoms is a targeted metric of entry 33 (entry 34: 2.75 to 5.5
-    per 100 dense nuclei, above the bar of 2 at every pair)."""
+    per 100 traced nuclei of dense, snr, real_dense_r2 and real_dense_r2_brightness, above the bar of 2 at every
+    pair)."""
     g = 0.3
     a = Ph.line(-3.0 - g / 2, -g / 2, tilt)
     b = Ph.line(g / 2, 3.0 + g / 2, tilt)
@@ -223,6 +261,26 @@ def test_two_ribbons_with_dim_tips(tilt, flank):
     assert strict.nuclei["n_pieces"].iloc[0] == v1.nuclei["n_pieces"].iloc[0]
 
 
+def test_no_dim_stretch_at_a_link_between_two_traced_members():
+    """Entry 33 (i), the link guard, end to end (protocol changelog entry 36: no test caught its removal): two
+    ribbons 35 degrees apart in the image plane with dimmed tips and an empty 0.3 um between them are traced as one
+    strand of two members joined by the end matching; at the loosest pair of the grid the junction reads as a dim
+    stretch without the guard and stays a gap with it."""
+    gap, th = 0.3, math.radians(35.0)
+    for flank in (0.4, 0.6):
+        a = Ph.line(-3.0, -gap / 2, 0.0)
+        t = np.linspace(0.0, 3.0, 601)
+        b = np.array([0.0, 0.0, gap / 2])[None, :] + t[:, None] * np.array([0.0, math.sin(th), math.cos(th)])[None, :]
+        sc = Ph.scene([{"points": a, "peak": 520.0, "weights": Ph.weights(a, [(2.45, 2.85, flank)])},
+                       {"points": b, "peak": 520.0, "weights": Ph.weights(b, [(0.0, 0.4, flank)])}],
+                      seed=int(65 + 10 * flank), R=3.4)
+        v1 = Ph.run(sc, P_V1)
+        v3 = Ph.run(sc, P_GAP)
+        assert len(v3.strands) == 1 and int(v3.strands["n_members"].iloc[0]) == 2, flank
+        Ph.assert_same_strands(v1, v3)
+        assert v3.record["dim_stretches"]["n"] == 0 and len(v3.gaps) == len(v1.gaps) == 1, flank
+
+
 def test_recorded_dim_stretches_avoid_neighbours():
     """On a phantom with several ribbons, no recorded dim stretch overlaps a contaminated sample."""
     a = Ph.line(-3.2, 3.2, 15.0)
@@ -232,6 +290,7 @@ def test_recorded_dim_stretches_avoid_neighbours():
                    {"points": b, "peak": 480.0, "weights": Ph.weights(b, [(2.2, 3.0, 0.3)])},
                    {"points": c, "peak": 450.0, "weights": Ph.weights(c, [(1.5, 2.4, 0.35)])}], seed=71, R=3.4)
     v3 = Ph.run(sc, P_GAP)
+    assert len(v3.dim_stretches) >= 1                         # the check below is not vacuous (entry 36)
     smp = v3.samples
     for _, d in v3.dim_stretches.iterrows():
         m = smp[(smp["strand_id"] == d["strand_id"]) & (smp["s_um"] >= d["s_start_um"]) &

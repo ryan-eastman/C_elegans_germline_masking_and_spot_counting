@@ -5,7 +5,8 @@ core profile along s is one Gaussian (centre on the strand, residual RMS at most
 than punctum.sigma_ratio (1.3) times the reference axial sigma is of class punctum and leaves the ribbon tier. The
 reference is the axial sigma of the image's compact isolated RAD-51 foci (the foci estimate of entry 12, scaled to
 the SYP wavelength) with a depth term, or the image PSF's without foci. Real steep ribbons longer than the axial blur
-stay ribbons at every PSF width; puncta leave the totals while ribbons stay.
+stay ribbons at every PSF width; puncta leave the totals while ribbons stay. Each condition of the shape test has a
+test that fails when the condition is removed from the code (protocol changelog entry 36 added the residual one).
 """
 from __future__ import annotations
 
@@ -36,6 +37,19 @@ def test_the_one_gaussian_profile_test():
     ramp = 20.0 + 300.0 * np.clip(s + 0.5, 0, None) / 2.0     # brightest beyond the end: no peak on the strand
     assert not one_gaussian(along_profile_fit(s, ramp), 1.0, 0.2)
     assert not one_gaussian(along_profile_fit(s[:5], one[:5]), 1.0, 0.2)   # too few samples: no fit
+
+
+def test_the_shape_test_needs_a_small_residual():
+    """Entry 32 (i) (protocol changelog entry 36: no test caught the removal of this condition): a single-peaked
+    profile whose sigma and centre pass but whose residual RMS is above punctum.max_rel_rms (0.2) of the amplitude
+    is not one Gaussian."""
+    s = np.arange(-0.5, 1.5 + 1e-9, 0.05)
+    peak = 20.0 + 300.0 * np.exp(-0.5 * ((s - 0.5) / 0.4) ** 2)
+    noisy = peak + np.where(np.arange(len(s)) % 2 == 1, 90.0, -90.0)
+    f = along_profile_fit(s, noisy)
+    assert f["ok"] and 0.05 * 1.01 < f["sigma"] < 5.0 * 0.99 and 0.0 <= f["mu"] <= 1.0 and f["A"] > 0
+    assert f["rel_rms"] > 0.2 and not one_gaussian(f, 1.0, 0.2)
+    assert one_gaussian(f, 1.0, 0.5)
 
 
 def _fits(cz, sz):
