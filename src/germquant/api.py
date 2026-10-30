@@ -66,6 +66,7 @@ from .segment import segment_nuclei
 from .spots import detect_spots
 from .stages import STAGES, apply_cli_switches, cli_switches, stage_enabled
 from .timelapse import parse_timepoints, process_series, register_series
+from .tune import apply_tuning, tune_spots
 
 # one image (run, run_loaded, resolve_config, default_out_dir, process_image); a time-lapse (process_series,
 # parse_timepoints: the loop `germquant run --t` runs; register_series: `germquant register`, the drift of a
@@ -76,7 +77,8 @@ from .timelapse import parse_timepoints, process_series, register_series
 # (segment_nuclei, detect_spots); models (resolve_model_path, get_model); batch helpers and the completion
 # marker (discover_files, load_exclusions, collect, is_done, enabled_stage_names, read_done_marker); projects
 # (germquant.project, docs/PROJECTS.md: Project, new_project to run_project and export_commands, the light header
-# read_header; importing germquant.project alone loads no torch).
+# read_header; importing germquant.project alone loads no torch); spot tuning from truth points (tune_spots and
+# apply_tuning: `germquant tune-spots`, docs/TUNING.md; germquant.tune holds the tuners, grids and point files).
 __all__ = [
     "STAGES",
     "SUPPORTED_SUFFIXES",
@@ -149,6 +151,9 @@ __all__ = [
     "break_lock",
     "list_rounds",
     "new_round",
+    # spot tuning (docs/TUNING.md); importing germquant.tune alone loads no torch, and each tuner imports the pipeline
+    "tune_spots",
+    "apply_tuning",
 ]
 
 
