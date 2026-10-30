@@ -1643,3 +1643,57 @@ Entries are appended, never edited. Each one says whether a test result had been
    share of those that are dim stretches, by PSF level; gaps and dim stretches per traced nucleus of every family
    and the fills of the dim stretches; the reference's error at the middle depth of gaps_psf; and, at the
    checkpoint, the same by zone.
+34. 2026-10-30, the v3 development round (results of the tuning seeds; both changes withdrawn), written after the
+   tuning numbers below and before any number of the confirmation or snapshot seeds or of zone truth was computed
+   (no test result had been computed, no test or reserved image was run, no test or reserved truth was read and no
+   sealed seed was generated). Computed as entries 32 and 33 fixed it on the tuning seeds 13000 to 13099 with the
+   code of commit 52b15c2 (sc_straighten code digest 3d18d9e2a4a4; C:/Users/ryane/sc_ribbon_work/v3/panel/tuning/,
+   logs/targets_entry32_tuning.json, select_entry33_tuning.json, targets_entry33_tuning.json,
+   compare_tuning_t_v2_t_b1.json and gap_grid_tuning_summary.json). Before the first panel, a check of the panel
+   code ran one scene of every family at the development seed 999000 for v2 and each rule and kept nothing
+   (v3/scripts/smoke_panel_code.py, v3/logs/smoke_panel_code_20261030.log).
+   (a) The punctum class of entry 32 (params.V3_PUNCTUM) against v2: yield met (82.1 percent of the point puncta of
+   puncta_pt and 73.1 percent of the aggregates of puncta_agg left no strand outside the class; on puncta_psf 80.8,
+   80.1, 79.9 and 81.2 percent at sigma_z 0.33, 0.38, 0.43 and 0.48 um); reference met (median error at the middle
+   depth +3.4, +0.5, -0.8 and -2.3 percent; the reference came from the foci in every scene, with the depth term in
+   91 of 100; the median absolute error at the puncta's depths was 3.2, 1.6, 1.7 and 2.4 percent with the depth term
+   and 3.9, 3.1, 2.5 and 3.1 percent with the constant estimate); excess met (the dense_puncta excess fell by 33.5
+   percent, from 6.51 to 4.33 um per nucleus); ribbons failed: two punctum strands lay half or more on gaps ribbons
+   (seeds 13025 and 13046: strands of 1.08 and 0.94 um, frac_steep60 1.0, 0.32 and 0.43 um in the image plane, each
+   of two traced members, on ribbons tilted 11 and 50 degrees, with the fallback reference 0.365 um; no matched
+   strand of an iso, gaps, foci or pairs ribbon was punctum), and the punctum-labelled length within the tolerance
+   of ribbons was 0.61 percent of the truth length of dense_puncta and 0.70 percent of real_dense_r2 (at most 0.5
+   allowed; dense 0, dense_reg 0.03, snr and snr_reg 0, the dense ribbons of puncta_psf 0.36 percent); no steep arc
+   of puncta_psf of 1.5 um or more carried a punctum strand (4 of the 76 of 0.9 to 1.5 um did). Every criterion
+   metric of 8.1 on the tuning seeds was that of v2. The change is withdrawn without a revision (punctum.enabled and
+   the other switches stay at their v2 values): the failures are axial spurs lying on ribbons and puncta within the
+   axial tolerance of ribbons, and a guard against both (isolation from other strands) would also keep out of the
+   class the puncta near ribbons that the excess reduction, 3.5 points above its bar, rests on; no such guard was
+   designed or run.
+   (b) Dim stretches of entry 33 (params.V3_GAPS). The rule of entry 33 on the six pairs: the dim stretches matched
+   0.0 to 0.14 percent of the 709 matched truth gaps of gaps and gaps_psf (criterion (1) met by every pair), but
+   those that join two truth ribbons numbered 5.50, 4.50, 4.50, 3.75, 3.00 and 2.75 per 100 traced nuclei of the
+   four dense families at (0.15, 2), (0.15, 3), (0.25, 2), (0.25, 3), (0.35, 2) and (0.35, 3) (criterion (2) failed
+   by every pair), so no pair was eligible and (0.35, 3.0) was taken. For that pair against v2: (a) failed, gaps per
+   traced nucleus of real_dense_r2_brightness fell by 10.0 percent (4.78 to 4.30; at least 40 required; 21.8 percent
+   at the loosest pair); (b) failed, the median piece_lw_mean_um moved 13.3 percent of the way to the base phantoms
+   (3.36 to 3.59 um against 5.09 um; 32.0 percent at the loosest pair); (c) met, no matched truth gap was a dim
+   stretch, at any PSF level of gaps_psf; (d) failed, 2.75 junction dim stretches per 100 traced nuclei (at most 2).
+   In v2 the gaps of the dense families are often junctions: 83 to 131 per 100 traced nuclei of the five dense
+   families of the grid have their two flanks on two different truth ribbons. Reported: of the truth dim stretches
+   of gaps_psf that v2 reads as gaps, the rule read 41 percent (248 of 605) as dim stretches at (0.35, 3) and 67
+   percent at (0.15, 2); the criterion metrics of 8.1 that the grid families give (S1b, S1c) were those of v2 for
+   every pair. The change is withdrawn without a revision: the empty-gap model separates true breaks from dim
+   stretches on isolated ribbons, but in dense nuclei it bridges junctions of two ribbons at rates above its bar at
+   every threshold while removing at most 22 percent of the gaps of the brightness phantoms, so no threshold of the
+   grid meets both targets; gaps.dim_stretch stays off. gaps.dim_fill and gaps.dim_z are set to the pair the rule
+   took, 0.35 and 3.0 (they act only with the switch on), so that params.V3_GAPS names the configuration the
+   checkpoint runs.
+   (c) No change of this round is adopted; the configuration proposed for the freeze stays that of v2 (whose outputs
+   equal those of v1 in every column of v1), and no confirmation seed is used. As entry 31 fixed, the checkpoint
+   Z-v3 runs on the twelve development gonads v2, the punctum class alone, dim stretches alone (with the pair above)
+   and both, reports the real-data effect of each and decides nothing (no change passed the synthetic stage); H1-v3
+   runs v2 and both changes on the hold-out gonads with germquant runs and decides nothing; the snapshot of the
+   proposed configuration (v2) is computed once on 15000 to 15099. Correction: entry 33 names
+   tests/test_sc_straighten_v3_guards.py; those tests are in tests/test_sc_straighten_v3_gaps.py (and the punctum
+   tests in tests/test_sc_straighten_v3_punctum.py), the names they were committed under.
