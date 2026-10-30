@@ -68,8 +68,9 @@ def add_parsers(sub) -> None:
                     help="the image the labels were drawn on, any format germquant reads; the labels hold its own "
                          "grid at full resolution, one plane or every plane")
     pi.add_argument("--pairs", required=True,
-                    help="the pairs folder to write into (image/, labels/, manifest.csv); earlier rows of this image "
-                         "are replaced, rows of other images stay")
+                    help="the pairs folder to write into (image/, labels/, manifest.csv); earlier rows of this "
+                         "image id are replaced (with a warning when another image file had them), rows of "
+                         "other images stay")
     pi.add_argument("--allow-pickle", action="store_true",
                     help="read a Cellpose _seg.npy: it is a Python pickle, and loading it can run code, so allow "
                          "only files you made")
@@ -114,7 +115,7 @@ def _import_labels(args) -> int:
     print(f"\n{res['image_id']}: {res['n_pairs']} pair(s) imported ({res['dims']}, {res['source']}, channel "
           f"{res['channel_index']} {res['channel_name'] or 'unnamed'}, {res['n_objects']} object(s))")
     if res["replaced"]:
-        print(f"  replaced {res['replaced']} earlier pair(s) of that image")
+        print(f"  replaced {res['replaced']} earlier pair(s) of the image id {res['image_id']}")
     print(f"  manifest -> {res['manifest']}")
     return 0
 

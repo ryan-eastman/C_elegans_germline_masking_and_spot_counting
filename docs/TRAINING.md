@@ -125,7 +125,9 @@ in the order of the file's ids, and the pairs are written as export-training wri
   `import:cellacdc` or `import:cellpose` by the format; from Python, `tool=` names another program, such as
   `micro-sam`). Pairs export-training wrote leave that column empty. The channel role is left empty, because the
   role the labels were drawn for is not known;
-- importing the same image again replaces its earlier rows (and files of the same names); rows of other images,
+- importing an image of the same id again (the id is the file name without its suffix, plus `_t<NNN>` for a
+  timepoint of a time series) replaces its earlier rows (and files of the same names), with a warning when they
+  came from another image file, such as an image of the same name in another folder; rows of other images,
   exported or imported, stay. Nothing else in the folder changes: export.json still describes the last export.
 
 Options:

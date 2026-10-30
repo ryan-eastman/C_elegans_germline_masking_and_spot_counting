@@ -78,11 +78,12 @@ def import_labels(src, fmt, image, pairs_dir, *, allow_pickle=False, frame=0, to
     '.' and '-'; default: tiff, png, cellacdc or cellpose by the format), recorded as the source ``import:<tool>``;
     ``channel`` the image channel (an index or a name); ``frame`` the frame of a T axis and a time series'
     timepoint (for a time series, a labels file without a T axis holds that timepoint's labels). Rows of the same
-    image id already in the folder's manifest are replaced; other rows stay.
+    image id already in the folder's manifest are replaced, with a warning when they came from another image file;
+    other rows stay.
 
     Returns ``{"image_id", "series_id", "t_index", "image", "image_sha256", "pixels_sha256", "labels",
     "labels_sha256", "format", "tool", "source", "dims" ("2d" or "3d"), "channel_index", "channel_name",
-    "n_objects", "pairs" (the manifest rows written), "n_pairs", "replaced" (earlier rows of that image),
+    "n_objects", "pairs" (the manifest rows written), "n_pairs", "replaced" (earlier rows of that image id),
     "pairs_dir", "manifest", "splits_checked" (the benchmark datasets compared), "warnings"}``. Refusals raise
     ValueError (ImportLabelsError, SplitTestImageError, germquant.io.labels.LabelsError) or FileNotFoundError
     before anything is written (module docstring)."""
@@ -170,7 +171,12 @@ def import_labels(src, fmt, image, pairs_dir, *, allow_pickle=False, frame=0, to
         pairs_gen = TR.slice_pairs({**base, **({} if stack.spacing_ok else {"pixel_um": None})}, img, labels,
                                    stack.spacing, pairs_dir, slices_per_image=SLICES_PER_IMAGE,
                                    min_labels=MIN_LABELS, seed=SEED)
-    replaced = _rows_of(pairs_dir / "manifest.csv", image_id)
+    replaced, others = _rows_of(pairs_dir / "manifest.csv", image_id, image)
+    if others:
+        # an image of another folder with the same id: its pairs and files (same names) are replaced
+        _warn(warnings, f"the pairs folder holds pairs of another image with the id {image_id} "
+                        f"({others[0]}{' ...' if len(others) > 1 else ''}); this import replaces them and "
+                        f"their files of the same names")
     for sub in ("image", "labels"):
         os.makedirs(long_path(pairs_dir / sub), exist_ok=True)
     rows = [row for row, _nbytes in pairs_gen]
@@ -413,14 +419,33 @@ def _check_splits(image: Path, image_sha: str | None, pix_sha: str, warnings: li
 
 # ---- writing ---------------------------------------------------------------------------------------------
 
-def _rows_of(manifest: Path, image_id: str) -> int:
-    """How many rows of ``image_id`` a pairs folder's manifest.csv holds now (0 without one)."""
+def _rows_of(manifest: Path, image_id: str, image: Path) -> tuple[int, list[str]]:
+    """How many rows of ``image_id`` a pairs folder's manifest.csv holds now (0 without one), and the image files
+    of those rows that are not ``image``: another image with the same id (an image of another folder), whose pairs
+    this import replaces. An imported row records its image's absolute path; an exported row the path its run was
+    given, which is compared only when it names a file from here."""
     if not os.path.isfile(long_path(manifest)):
-        return 0
+        return 0, []
     import pandas as pd
 
     old = pd.read_csv(long_path(manifest), low_memory=False)
-    return int((old["image_id"].astype(str) == image_id).sum()) if "image_id" in old.columns else 0
+    if "image_id" not in old.columns:
+        return 0, []
+    mine = old[old["image_id"].astype(str) == image_id]
+    here = os.path.normcase(os.path.abspath(image))
+    sources = list(mine["source"]) if "source" in mine.columns else [None] * len(mine)
+    paths = list(mine["source_file"]) if "source_file" in mine.columns else [None] * len(mine)
+    others = set()
+    for src, path in zip(sources, paths):
+        if not isinstance(path, str) or not path.strip():
+            continue
+        if isinstance(src, str) and src.startswith("import:"):
+            other = os.path.normcase(os.path.abspath(path)) != here
+        else:
+            other = os.path.exists(long_path(path)) and not os.path.samefile(long_path(path), long_path(image))
+        if other:
+            others.add(path)
+    return int(len(mine)), sorted(others)
 
 
 def _write_manifest(df, path: Path) -> Path:

@@ -472,9 +472,17 @@ def test_imports_merge_into_the_pairs_folder_and_the_card_says_where_they_came_f
     assert rec["channel_index"] == 1 and rec["channel_name"] == "foci" and rec["n_pairs"] == 1
     assert np.array_equal(tifffile.imread(pairs / rec["pairs"][0]["image"]),
                           _u16(images.data("cells_001.nd2")[1, 0]))
-    # the same image again replaces its rows; another image's rows join them
+    # the same image again replaces its rows, with no warning about another image; another image's rows join them
     assert cli.main(argv) == 0
-    assert json.loads(capsys.readouterr().out)["replaced"] == 1
+    again = json.loads(capsys.readouterr().out)
+    assert again["replaced"] == 1 and not any("another image" in w for w in again["warnings"])
+    # an image of another folder with the same id replaces them too, and says so
+    elsewhere = images.add("elsewhere/cells_001.nd2", _pixels(lab2, 1)[:, None], SP2, two_d=True)
+    moved = import_labels(m2, "tiff", elsewhere, pairs)
+    assert moved["replaced"] == 1 and any("another image with the id cells_001" in w and str(img2) in w
+                                          for w in moved["warnings"])
+    assert cli.main(argv) == 0                     # back to the first image (the rest of the test reads it)
+    capsys.readouterr()
     res3 = import_labels(m3, "cellacdc-npz", img3, pairs, tool="micro-sam")
     man = _manifest(pairs)
     assert list(man["image_id"]).count("cells_001") == 1 and res3["replaced"] == 0
@@ -484,6 +492,7 @@ def test_imports_merge_into_the_pairs_folder_and_the_card_says_where_they_came_f
     assert cli.main(argv[:-1]) == 0
     out = capsys.readouterr().out
     assert "cells_001" in out and "import:tiff" in out and "manifest.csv" in out
+    assert "replaced 1 earlier pair(s) of the image id cells_001" in out
     # the card: 2D and 3D pairs, the pixel sizes of both images, no pack (the labels came from no run)
     pairs_list = TR.load_pairs(pairs)
     card = TR._card_fields(pairs, pairs_list)
@@ -511,6 +520,15 @@ def test_imports_merge_into_the_pairs_folder_and_the_card_says_where_they_came_f
     raw = pd.read_csv(pairs / "manifest.csv", dtype=str, keep_default_na=False)
     assert raw.loc[raw["image_id"] == "cells_001", ["tile_y0", "tile_x0"]].values.tolist() == [["0", "0"]]
     assert set(raw.loc[raw["image_id"] == "stack_001", "tile_y0"]) == {""}             # whole offsets stay whole
+    # labels of the exported image itself replace its exported rows without a word about another image; labels
+    # of another image with the id stack_001 replace them too, and say so
+    same = import_labels(m3, "cellacdc-npz", img3, pairs)
+    assert same["replaced"] == len(new) and not any("another image" in w for w in same["warnings"])
+    TR.export_training_pairs(tmp_path / "results", pairs)
+    other3 = images.add("elsewhere/stack_001.nd2", _pixels(lab3, 2), SP3, two_d=False)
+    moved3 = import_labels(m3, "cellacdc-npz", other3, pairs)
+    assert moved3["replaced"] == len(new) and any("another image with the id stack_001" in w and str(img3) in w
+                                                  for w in moved3["warnings"])
     # the help says what the command does and points at the training guide
     capsys.readouterr()
     with pytest.raises(SystemExit):
