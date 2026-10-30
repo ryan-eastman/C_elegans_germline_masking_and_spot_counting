@@ -220,6 +220,9 @@ print(res["best"], res["ranked"][:5], res["warnings"])
 tune.apply_tuning(project, res["run_dir"])
 ```
 
+tune_spots and apply_tuning are also in germquant.api, next to the project calls, with TuneRefused, GridError
+and TuningWarning.
+
 The tuners themselves work on any finished runs, outside a project too (the benchmark tune splits use them),
 also on the runs of `germquant batch`, whose `run_manifest.json` sits at the top of its output folder:
 
