@@ -23,8 +23,19 @@ from germquant.sc.straighten.measure import empty_gap_min, fill_fraction, find_g
 
 WL = Ph.WL
 P_V1 = params.resolve(None, params.v1_sets())
-P_GAP = params.resolve(None, Ph.sets(params.V3_GAPS))
-P_GAP_PSF = params.resolve(None, Ph.sets({**params.V3_GAPS, "gaps.dim_sigma_source": "psf"}))
+# the mechanism is tested at the loosest pair of the grid of entry 33 (the hardest case for the safety tests);
+# the defaults are the pair entry 34 took
+LOOSE = {"gaps.dim_fill": 0.15, "gaps.dim_z": 2.0}
+P_GAP = params.resolve(None, Ph.sets({**params.V3_GAPS, **LOOSE}))
+P_GAP_PSF = params.resolve(None, Ph.sets({**params.V3_GAPS, **LOOSE, "gaps.dim_sigma_source": "psf"}))
+P_GAP_DEFAULT = params.resolve(None, Ph.sets(params.V3_GAPS))
+
+
+def test_the_defaults_are_the_pair_that_entry_34_took():
+    d = params.resolve()
+    assert (d["gaps.dim_fill"], d["gaps.dim_z"]) == (0.35, 3.0)
+    assert d["gaps.dim_stretch"] is False and d["gaps.dim_sigma_source"] == "psf"
+    assert (P_GAP_DEFAULT["gaps.dim_fill"], P_GAP_DEFAULT["gaps.dim_z"]) == (0.35, 3.0)
 
 
 # ------------------------------------------------------------------------------------ the model
@@ -192,8 +203,9 @@ def test_two_ribbons_with_dim_tips(tilt, flank):
     """The known ambiguity of the rule (entry 33): the tips of two different ribbons dimmed to ``flank`` of their
     brightness over their last 0.4 um with an empty 0.3 um between them, which the tracer follows as one strand.
     Behind the blur along s the empty core does not show, and the junction looks like a stretch filled to 0.1 to
-    0.3 of its flanks: gaps.dim_fill 0.35, the top of the grid that entry 33 chooses from, keeps every such junction
-    a gap, and their rate in the dense phantoms is a targeted metric of the entry."""
+    0.3 of its flanks at the loosest pair of the grid; the defaults (0.35 and 3.0, the pair entry 34 took) keep every
+    such junction a gap. Their rate in the dense phantoms is a targeted metric of entry 33 (entry 34: 2.75 to 5.5
+    per 100 dense nuclei, above the bar of 2 at every pair)."""
     g = 0.3
     a = Ph.line(-3.0 - g / 2, -g / 2, tilt)
     b = Ph.line(g / 2, 3.0 + g / 2, tilt)
@@ -205,7 +217,7 @@ def test_two_ribbons_with_dim_tips(tilt, flank):
     Ph.assert_same_strands(v1, v3)
     if len(v3.dim_stretches):
         assert float(v3.dim_stretches["fill"].max()) < 0.35
-    strict = Ph.run(sc, params.resolve(None, Ph.sets({**params.V3_GAPS, "gaps.dim_fill": 0.35})))
+    strict = Ph.run(sc, P_GAP_DEFAULT)
     Ph.assert_same_strands(v1, strict)
     assert strict.record["dim_stretches"]["n"] == 0
     assert strict.nuclei["n_pieces"].iloc[0] == v1.nuclei["n_pieces"].iloc[0]

@@ -62,7 +62,9 @@ DEFAULTS: dict[str, Any] = {
              # other strands, is a dim stretch and not a gap (dim_stretch false gives v1); dim_sigma_source names
              # the axial sigma of that blur ("psf": the image PSF; "foci", "foci_depth": the image's measured
              # axial reference, as punctum.sigma_source)
-             "dim_stretch": False, "dim_fill": 0.15, "dim_z": 2.0, "dim_sigma_source": "psf"},
+             # dim_fill and dim_z: the pair that the rule of entry 33 took on the tuning seeds (entry 34: no pair of
+             # the grid was eligible, so the strictest); the rule was withdrawn there
+             "dim_stretch": False, "dim_fill": 0.35, "dim_z": 3.0, "dim_sigma_source": "psf"},
     "contamination_um": [0.7, 0.35],
     # v2 (protocol changelog entries 16 to 18): the punctum class (enabled false gives v1). Entry 18 kept it as a
     # label (exclude false counts punctum strands in every nucleus column as v1 does; before_linking false keeps
