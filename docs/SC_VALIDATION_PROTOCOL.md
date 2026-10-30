@@ -1526,3 +1526,61 @@ Entries are appended, never edited. Each one says whether a test result had been
    the record gains the keys punctum_reference, dim_reference and dim_stretches only when their switches are on.
    (h) Reporting added under rule 2 (secondary, never gating), at the checkpoint and at the scoring: the steep share
    of the counted traced length by zone, and the puncta, gaps and dim stretches per traced nucleus by zone.
+32. 2026-10-30, the v3 development round (the punctum class with the image's measured axial sigma), written before
+   any number of this change was computed on the seeds of entry 31 (b), on a development image or on zone truth (no
+   test result had been computed, no test or reserved image was run, no test or reserved truth was read and no
+   sealed seed was generated). Motivated by development results (entries 8, 9 and 16 to 19): rule B1 at 1.3 times
+   sigma_z labelled 83 to 86 percent of PSF-blurred point puncta, 72 to 73 percent of aggregates of 0.25 to 0.8 um
+   and none of 60 tilted arcs of 1.5 to 6 um (entry 16), but the confirmation of entry 18 labelled one strand of a
+   gaps ribbon (a 1.26 um vertical strand on a ribbon tilted 28 degrees), and its reference on real images, the
+   image PSF, fell back to 0.365 um on 10 of the 12 development images while their compact RAD-51 foci give 0.380 to
+   0.464 um (entry 9), so that on wide-PSF images the rule misses puncta.
+   Method (switches; params.V3_PUNCTUM: punctum.enabled true, punctum.exclude true, punctum.sigma_source foci_depth,
+   punctum.one_gaussian true; the defaults are those of v2). After measurement, a traced strand with frac_steep60
+   above 0.5 and length_xy_um at most punctum.max_xy_um (0.5 um) whose core profile over s from -0.5 um to length_um
+   + 0.5 um (every 0.05 um), fitted by least squares with a Gaussian plus a constant (entry 16), (i) is one
+   Gaussian: the fit exists, its sigma lies more than 1 percent inside its bounds (0.05 and 5.0 um), its centre lies
+   on the strand (0 <= mu <= length_um), its amplitude is positive and the RMS of its residuals is at most
+   punctum.max_rel_rms (0.2, the threshold of the foci fits of entry 12) of the amplitude, and (ii) has sigma times
+   tz_abs_mean at most punctum.sigma_ratio (1.3, entries 8, 9 and 16) times the reference axial sigma at the
+   strand's mean depth, is of class punctum with the strand flag punctum (info). The reference
+   (psf.axial_reference): the foci estimate of entries 12 and 13 on the image's compact isolated RAD-51 foci (the
+   fit with the planar background and its rules; at least psf.foci_min, 15, kept fits; both emission wavelengths),
+   the median kept sigma_z times the ratio of the central_element to the foci emission wavelength; with at least
+   psf.ref_depth_min_fits (30, twice psf.foci_min) kept fits whose depths (5th to 95th percentile) span at least
+   psf.ref_depth_min_span_um (3.0 um, over which the depth dependence of entry 9, about 20 percent per 10 um,
+   changes sigma_z by about 6 percent, twice the per-image error of the foci estimate in entry 16), a depth term:
+   the Theil-Sen slope of the kept fits' sigma_z on their depth (times the same ratio), evaluated at the strand's
+   depth clipped to the 5th to 95th percentile of the foci's depths, the value clipped to the 10th to 90th
+   percentile of their scaled sigma_z; without a foci estimate the reference is the image PSF's sigma_z (that of v1,
+   as in entry 16). The image PSF itself stays that of v1 (psf.foci off); the record names the reference
+   (punctum_reference). Punctum strands stay in the strand, sample and strip outputs and leave the nucleus tier as
+   under punctum.exclude of entry 16 (every total, count, piece and continuity column, the multiplicity references,
+   the strand tubes of on_strand_frac and coverage_proxy, the foci assignment); n_puncta and puncta_signal_frac
+   report them; the S1 scoring leaves them out (entry 16). The end matching is that of v1 (punctum.before_linking
+   false).
+   New development family puncta_psf (family code 109; not registered; the seeds of entry 31 (b)): one image of two
+   layers 6.5 um apart in z, each with three dense nuclei of 2.3 holding 3 puncta each, one nucleus with 6 puncta
+   and no ribbon, and two steep isolated arcs (tilt U(60, 90) degrees, length U(0.9, 4.0) um, peak U(300, 800)
+   counts) in their own nuclei; puncta half points and half spheres of diameter U(0.25, 0.8) um, peaks log-uniform
+   in [100, 1500] counts, at least 0.6 um from every ribbon and 1.2 um apart; the axial PSF the psf_check level
+   (0.33, 0.38, 0.43 or 0.48 um by seed modulo 4) at the middle depth with a relative depth gradient U(-0.02, 0.02)
+   per um, the lateral sigma U(0.135, 0.165) um; a foci channel of RAD-51-like spots in every nucleus but the arcs'
+   (as psf_check, rendered with the local PSF times 595/511) with its spot table and the wavelengths 511 and 595 nm.
+   Targeted metrics, on the tuning seeds and then once on the confirmation seeds, against v2 on the same scenes
+   (v3/scripts/v3_targets.py): (a) yield: at least 80 percent of the point puncta of puncta_pt and 65 percent of the
+   aggregates of puncta_agg leave no strand outside the punctum class (entry 16 (b); there the reference is the
+   image PSF), and on puncta_psf at least 65 percent of the puncta at every PSF level; (b) reference: on puncta_psf
+   the median relative error of the reference at the middle depth against the rendered sigma_z there lies within
+   +/-5 percent at every level; (c) ribbons: no strand lying half or more within the tolerance of an iso, gaps, foci
+   or pairs ribbon is of class punctum and no matched strand of such a ribbon is (entries 16 (c) and 19); the
+   punctum-labelled strand length lying within the tolerance of the ribbons of dense, dense_reg, snr, snr_reg,
+   dense_puncta and real_dense_r2, and of the dense ribbons of puncta_psf, is at most 0.5 percent of that family's
+   truth length; on puncta_psf at most 1 percent of the steep arcs of 2.0 um or more and at most 5 percent of those
+   of 1.5 to 2.0 um carry a punctum strand lying half or more on them or as their matched strand (shorter arcs are
+   reported); (d) excess: the excess of the mean nucleus total of dense_puncta over that of dense_puncta_clean falls
+   by at least 30 percent (confirmation: 15 percent; entry 16 asked 60 percent and reached 36 percent without the
+   shape test); (e) the tolerances of entry 11 (b) on the confirmation seeds and the cost rule. The confirmation
+   levels of (a) to (c) are the same. Reported, choosing nothing: the reference's error at the puncta's depths with
+   the depth term and with the constant estimate, the sources of the reference by level, and, at the checkpoint, the
+   reference of the twelve development images against their image PSF.
