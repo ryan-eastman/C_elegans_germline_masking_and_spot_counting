@@ -353,9 +353,10 @@ config_hash moves): code defaults < the section of `--config` or `--profile` < `
 are in `germquant/sc/straighten/params.py` (DEFAULTS). The keys a development sweep may tune are
 `follow.seed_min`, `follow.lo`, `link.*`, `refine.knot_um`, `refine.lambda`, `refine.sigma_loc_um`, `gaps.*` and
 `classes.*`; everything else is fixed unless a changelog entry of the validation protocol says otherwise. The
-on/off switches of version 2.0 take true, false, on, off, yes or no, and `follow.contact_test` (local,
-claim_tangent) and `link.junction_gap` (anchors, tips) their listed values; any other value is refused (protocol
-changelog entry 27), so a typo never gives another configuration.
+on/off switches of versions 2.0 and 3 (`punctum.one_gaussian`, `gaps.dim_stretch`) take true, false, on, off,
+yes or no, and `follow.contact_test` (local, claim_tangent), `link.junction_gap` (anchors, tips) and
+`punctum.sigma_source` and `gaps.dim_sigma_source` (psf, foci, foci_depth) their listed values; any other value is
+refused (protocol changelog entry 27), so a typo never gives another configuration.
 Development calibration: `scripts/calibrate_sc_straighten.py` (synthetic development seeds only; `--generator
 registered` draws the dense and snr phantoms without the 0.25 um clearance of protocol changelog entry 2(c)).
 
@@ -381,6 +382,27 @@ junction-aware end fit (it shortened ends near other strands) and the re-pairing
 did not reduce the turns and end-to-end joins of the final strands). The development phantom families of the
 round (`psf_check`, `puncta_pt`, `puncta_agg`, `dense_puncta`, `real_dense` and, recalibrated by protocol changelog
 entry 28, `real_dense_r2`; germquant.sc.straighten.synth_dev) are not registered and have no sealed seeds.
+
+## Version 3 rules (both off by default)
+
+The v3 development round (protocol changelog entries 31 to 33) adds two rules, each behind switches whose defaults
+give the outputs of version 2.0 (which equal those of 1.0 in every column of 1.0): with the switches off every
+column of every table, the strips and the classes equal those of the v2 head (tests/test_sc_straighten_v3_compat.py
+against tests/golden/sc_straighten/v2_compat.json). No column is added. `params.V3_PUNCTUM`, `params.V3_GAPS` and
+`params.v3_sets()` give the configurations. Whether each rule is adopted is decided by its changelog entry; see
+"Validation status".
+
+| switches (defaults) | when on | entry |
+|---|---|---|
+| `punctum.enabled: true`, `punctum.exclude: true`, `punctum.sigma_source: foci_depth` (default `psf`), `punctum.one_gaussian: true` (default false); fixed `punctum.max_rel_rms` 0.2, `psf.ref_depth_min_fits` 30, `psf.ref_depth_min_span_um` 3.0 | the punctum class B1 with the image's measured axial sigma: a steep strand (frac_steep60 above 0.5) at most `punctum.max_xy_um` (0.5 um) long in the image plane whose core profile along s is one Gaussian (its sigma inside the fit bounds, its centre on the strand, residual RMS at most 0.2 of its amplitude) no wider in z than `punctum.sigma_ratio` (1.3) times the reference axial sigma at the strand's depth is class and flag `punctum`; it stays in the strand, sample and strip outputs and leaves every ribbon column of the nucleus tier (`n_puncta` and `puncta_signal_frac` report it). The reference (`psf.axial_reference`) is the sigma_z of the image's compact isolated RAD-51 foci (the foci estimate of entry 12, scaled to the central_element emission wavelength), with a depth term (the Theil-Sen slope of the foci's sigma_z on their depth) when at least 30 kept foci span at least 3 um in z; without a foci estimate it is the image PSF's sigma_z, as in v2. The image PSF itself stays that of v1; the record gives the reference (`punctum_reference`). | 32 |
+| `gaps.dim_stretch: true` (default false), `gaps.dim_sigma_source: foci_depth` (default `psf`); `gaps.dim_fill` and `gaps.dim_z` (chosen on the tuning seeds by the rule of entry 33) | dim stretches are not gaps: a gap candidate that passes every v1 test is a dim stretch, and the ribbon continues over it, when (i) no sample of its window lies within `contamination_um` of another strand or within 0.1 um of a link between two traced members, (ii) its relative minimum lies above the minimum that an empty gap of its missing length shows after the blur along the strand (the axial sigma of the measured reference at its depth, the lateral sigma of the image PSF, and the 0.15 um smoothing) by more than `dim_z` standard errors, and (iii) its fill fraction (the share of its flanks' signal that a stretch of that missing length and blurred minimum keeps) exceeds `dim_fill`. An empty gap (fill 0) stays a gap whatever its length and tilt. The strands, ends, links and lengths are those of v1; only the columns that the reading of gaps feeds change. The record counts the dim stretches (`dim_stretches`) and names the reference (`dim_reference`); `ImageResult.dim_stretches` lists them for development scripts. Known ambiguity: the junction of two different ribbons whose tips are dim, with a short empty core that the tracer follows, can look like a filled stretch behind the blur (entry 33 counts such joins in the dense phantoms). | 33 |
+
+Two development families (not registered, no sealed seeds) check the rules against a known PSF: `puncta_psf`
+(entry 32) holds dense nuclei with puncta, nuclei of puncta alone and steep isolated arcs, and `gaps_psf` (entry 33)
+tilted isolated ribbons with empty gaps of 0.3 to 1.0 um and with dim stretches of 0.4 to 1.5 um at 0.15 to 0.6 of
+their brightness; both are rendered with an axial PSF of 0.33 to 0.48 um that changes with depth and hold RAD-51-like
+foci with their spot table and wavelengths, so that the measured reference can be checked against the PSF the
+scene was rendered with.
 
 ## QC flags
 
@@ -408,7 +430,7 @@ positive and a negative case.
 | fit_residual | strand | review | qc.fit_rms_review_um | centreline fit residual RMS above fit_rms_review_um |
 | gap_long | strand | review | qc.gap_long_um | a gap of gap_long_um or more |
 | saturated | strand | review | qc.saturated_frac | more than saturated_frac of the core samples at the detector maximum |
-| punctum | strand | info | punctum.sigma_ratio | a steep strand at most punctum.max_xy_um long in the image plane whose axial extent fits the image's axial PSF: the axial blur of a SYP punctum or aggregate (class punctum; only with punctum.enabled, off by default) |
+| punctum | strand | info | punctum.sigma_ratio | a steep strand at most punctum.max_xy_um long in the image plane whose axial extent fits the reference axial sigma (the image PSF's, or with punctum.sigma_source foci or foci_depth the image's compact RAD-51 foci's, version 3 rules) and, with punctum.one_gaussian, whose profile along it is one Gaussian: the axial blur of a SYP punctum or aggregate (class punctum; only with punctum.enabled, off by default) |
 | imported | strand | info | - | geometry imported from a file (Imaris Filaments, SWC or CSV) |
 | verified | strand | info | - | imported geometry marked verified |
 | error | strand | fail | - | an exception while measuring the strand (error:<Type>) |
