@@ -10,6 +10,7 @@
 * A project model whose resolved file has another digest (a decoy under $GERMQUANT_MODELS/training/) is refused
   before any pixel is read; a project made on test_pack 0.1.0 still runs after its root moves test_pack to 0.2.0;
   a labels_from project skips the segmentation model's digest check with a warning (D12).
+* A single-plane project (io.planar) resumes: its resume compares the planar segment sub-hash (D44).
 * An image with timepoints goes through process_series; a planar or labels_from recipe is refused for it before
   process_series, with the D9 and D15 messages, and nothing resolves a model or reads a timepoint (D33).
 * In a fresh interpreter run_project imports germquant.pipeline (torch) before any reader or backend (D28).
@@ -530,6 +531,23 @@ def test_labels_project_skips_the_segmentation_model(project_env, tmp_path, monk
     assert [r["status"] for r in P.project_status(proj)["images"]] == ["done"]
 
 
+def test_a_single_plane_project_resumes(project_env, tmp_path):  # noqa: F811
+    """D44 (PLAN 9.4 #5): a recipe that sets io.planar runs a one-plane image as a plane, and the resume compares
+    its marker with the planar segment sub-hash, so a second run skips the image and status reads it done."""
+    need_readers()
+    import planar_helpers as PH
+
+    proj = new_test_project(tmp_path / "proj")
+    assert P.add_images(proj, [PH.write_ome_cyx(proj.root / "images" / "plane_001.ome.tif")])["refused"] == []
+    # the test pack's log spot backend declares no planar_ok, so the spot stage is off here
+    hand_edit_recipe(proj, {"io": {"planar": "auto"}, "spots": {"enabled": False}})
+    assert P.run_project(proj)["counts"] == {"done": 1, "failed": 0, "skipped": 0}
+    out = proj.root / "results" / "plane_001"
+    assert json.loads((out / "plane_001__done.json").read_text(encoding="utf-8")).get("planar") is True
+    assert P.run_project(proj)["counts"] == {"done": 0, "failed": 0, "skipped": 1}
+    assert [(r["status"], r["reason_code"]) for r in P.project_status(proj)["images"]] == [("done", None)]
+
+
 # ---- time series (D9, D15, D33) ------------------------------------------------------------------------
 
 def _series_image(folder: Path, name: str = "movie", t: int = 2) -> Path:
@@ -592,6 +610,7 @@ def test_series_refused_for_planar_recipes(project_env, tmp_path, monkeypatch): 
         hand_edit_recipe(proj, {"io": {"planar": value}})
         calls = _spy_series(monkeypatch)
         if value == "auto":                    # a one-plane header for the series, so auto runs it as a plane
+            need_readers()                     # auto reads the series' header (bioio) first
             monkeypatch.setattr(planar, "one_plane_header", lambda meta: True)
         res = P.run_project(proj, images=["movie"])
         (e,) = [e for e in log_events(res["log"]) if e["event"].startswith("image_")]
