@@ -103,9 +103,10 @@ def test_project_moves_between_roots(project_env, tmp_path):  # noqa: F811
     assert {r["id"]: r["path"] for r in st["images"]} == {"inside": str(b / "images" / "inside.ome.tif"),
                                                           "outside image": str(outside)}
     assert P.run_project(moved)["counts"] == {"done": 0, "failed": 0, "skipped": 2}
-    # run again under root B: the same config_hash and stage hashes, so the same markers but finished
-    assert P.run_project(moved, resume=False)["counts"]["done"] == 2
-    assert {iid: _marker_of(b / "results" / iid, iid) for iid in paths} == markers_a
+    # run again under root B: the same config_hash and stage hashes, so the same marker but finished. The image
+    # by relative path is the one whose path moved (the skip above already showed both images' hashes hold)
+    assert P.run_project(moved, images=["inside"], resume=False)["counts"]["done"] == 1
+    assert _marker_of(b / "results" / "inside", "inside") == markers_a["inside"]
 
 
 def _marker_of(out: Path, iid: str) -> dict:

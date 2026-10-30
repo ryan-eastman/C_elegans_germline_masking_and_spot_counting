@@ -197,9 +197,10 @@ def test_edit_marks_every_image_stale_with_reason(project_env, tmp_path):  # noq
     for r in st["images"]:
         assert (r["status"], r["reason_code"]) == ("stale", "config_hash")
         assert f"config_hash {BASIC_HASH} != {st['config_hash']}" in r["reason"]
-    res = P.run_project(proj.root)
-    assert res["counts"] == {"done": 2, "failed": 0, "skipped": 0}
-    assert {r["status"] for r in P.project_status(proj)["images"]} == {"done"}
+    # a run of one of them makes it done again under the new hash; the other stays stale until it runs
+    res = P.run_project(proj.root, images=["a"])
+    assert res["counts"] == {"done": 1, "failed": 0, "skipped": 0}
+    assert {r["id"]: r["status"] for r in P.project_status(proj)["images"]} == {"a": "done", "b": "stale"}
 
 
 def _log(proj, run_id: str, *, device="cpu", interpreter="/env/a/python", sha="aaaa", end=True, t="2026-10-24T10"):

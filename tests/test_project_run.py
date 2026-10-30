@@ -187,9 +187,9 @@ def test_run_log_events(project_env, tmp_path):  # noqa: F811
         assert list(e)[3:] == PLUGIN_IMAGE_DONE and e["status"] == "skipped"
         assert {k: e[k] for k in ("done_sha256", "config_hash", "stage_hashes", "qc_pass")} == \
                {k: old[k] for k in ("done_sha256", "config_hash", "stage_hashes", "qc_pass")}
-    # --no-resume reruns them
-    res3 = P.run_project(proj, resume=False)
-    assert res3["counts"] == {"done": 2, "failed": 0, "skipped": 0}
+    # --no-resume reruns what it is given, done or not (one image here, which keeps the test short)
+    res3 = P.run_project(proj, images=["a"], resume=False)
+    assert res3["counts"] == {"done": 1, "failed": 0, "skipped": 0}
     assert sorted(p.name for p in (proj.root / "runs").iterdir()) == sorted(
         f"{r['run_id']}.jsonl" for r in (res, res2, res3))
     assert runlog.read_logs(proj.root) == sorted(ev + ev2 + log_events(res3["log"]), key=lambda e: e["time"])
@@ -785,14 +785,19 @@ def test_export_commands(project_env, tmp_path, capsys):  # noqa: F811
         text = P.export_commands(odd, shell=shell)
         assert all(ln.startswith("#") or " -m germquant project " in ln for ln in text.splitlines()), text
         assert "study\\necho INJECTED\\rWrite-Host INJECTED\\u2028x" in text
-    # PowerShell also ends a single-quoted string at a typographic single quote (U+2018 to U+201B): a folder named
-    # with one, such as Ryan's study typed with a curly apostrophe, has it doubled, as the ASCII quote is
+    # PowerShell also ends a single-quoted string at a typographic single quote (U+2018 to U+201B): each of them is
+    # doubled, as the ASCII quote is (checked through _ps_quote, which quotes every path of the ps1 script), and a
+    # folder named with one, such as Ryan's study typed with a curly apostrophe (U+2019), gets its run and collect
+    # lines quoted so
+    from germquant.project.commands import _ps_quote
+
     for q in (chr(0x2018), chr(0x2019), chr(0x201A), chr(0x201B), "'"):
-        curly = new_test_project(tmp_path / f"Ryan{q}s study {ord(q)}")
-        runs = [ln for ln in P.export_commands(curly, shell="ps1").splitlines() if not ln.startswith("#")]
-        doubled = str(curly.root).replace(q, q * 2)
-        assert runs == [f"& '{sys.executable}' -m germquant project run '{doubled}'",
-                        f"& '{sys.executable}' -m germquant project collect '{doubled}'"], runs
+        assert _ps_quote(f"Ryan{q}s study") == f"'Ryan{q * 2}s study'", ord(q)
+    curly = new_test_project(tmp_path / f"Ryan{chr(0x2019)}s study")
+    runs = [ln for ln in P.export_commands(curly, shell="ps1").splitlines() if not ln.startswith("#")]
+    doubled = str(curly.root).replace(chr(0x2019), chr(0x2019) * 2)
+    assert runs == [f"& '{sys.executable}' -m germquant project run '{doubled}'",
+                    f"& '{sys.executable}' -m germquant project collect '{doubled}'"], runs
 
 
 # ---- the api re-exports (PLAN.md section 9.1) ----------------------------------------------------------------
