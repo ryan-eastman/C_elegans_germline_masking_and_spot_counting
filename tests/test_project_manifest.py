@@ -436,8 +436,9 @@ def test_a_recipe_with_input_suffixes_discovers_only_those(project_env, tmp_path
 def test_add_refuses_input_suffixes_that_recipe_keys_refuses(project_env, tmp_path, capsys):  # noqa: F811
     """reviews/P5_pass2_sheet.md N6: a folder is searched with the recipe's io.input_suffixes only when they pass
     recipe_keys' strict rule, the one every run of the recipe and `germquant batch` apply. A hand-edited recipe.yaml
-    with an upper-case suffix, a suffix without its dot or one germquant does not read makes `project add DIR
-    FOLDER` refuse (exit 2, one REFUSED line with recipe_keys' message) before anything is added."""
+    with an upper-case suffix, a suffix without its dot, one germquant does not read, an empty list or a plain
+    string makes `project add DIR FOLDER` refuse (exit 2, one REFUSED line with recipe_keys' message) before
+    anything is added."""
     from germquant.recipe_keys import input_suffixes_problem
 
     proj = new_test_project(tmp_path / "p")
@@ -452,7 +453,7 @@ def test_add_refuses_input_suffixes_that_recipe_keys_refuses(project_env, tmp_pa
         rp.write_bytes(yaml.safe_dump(recipe, allow_unicode=False, sort_keys=False).encode("ascii"))
 
     for bad, hint in (([".TIF"], "write it in lower case: '.tif'"), (["tif"], "write it with the dot: '.tif'"),
-                      ([".png"], None)):
+                      ([".png"], None), ([], None), (".nd2", "a single suffix is still a list")):
         hand_edit(bad)
         msg = input_suffixes_problem(bad)
         assert msg and (hint is None or hint in msg), msg
