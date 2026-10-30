@@ -338,6 +338,12 @@ def test_two_formats_of_one_id_in_one_folder_keep_the_first(tmp_path, monkeypatc
     (case / "q.nd2").write_bytes(b"")
     want = sorted(p.name for p in case.iterdir())
     assert sorted(f.name for f in batch.discover_files(case, "**/*", suffixes=(".nd2", ".tif"))[0]) == want
+    # a file dropped by a pattern holds no id (review pass 2 part 2a, N2): with the .nd2 files left out by
+    # io.exclude_patterns, the OME-TIFF of the pair runs
+    files, dropped = batch.discover_files(root, "**/*", ["*.nd2"], suffixes=(".nd2", ".ome.tif", ".tif"))
+    why = {f.name: w for f, w in dropped}
+    assert "img.ome.tif" in [f.name for f in files] and why["img.nd2"] == "exclude_pattern *.nd2"
+    assert why["img.tif"].startswith("duplicate_id img: img.ome.tif in this folder")
     # one id twice in one format, where the file system tells letter case apart (Linux: x.tif and x.TIF, listed here
     # as such a system lists them): one results folder, so the later is left out (review pass 2 part 2a, N1); the
     # default suffixes keep 8eb73de's files, both z.ND2 and z.nd2 (D20)
