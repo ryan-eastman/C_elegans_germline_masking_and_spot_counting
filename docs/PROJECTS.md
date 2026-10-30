@@ -64,7 +64,8 @@ The manifest is written as ASCII (a letter outside ASCII, such as the accented e
 escape, `Caf\xE9`) with LF line ends,
 atomically: a temporary file next to it, flushed to disk, then renamed over the old file, retried for 2 seconds
 when Windows reports the file busy (an indexer or a virus scanner). A failure at any point leaves the old file.
-Only the commands that edit a project write it: new, add, edit, use-model and rounds --new. A run never writes it.
+Only the commands that edit a project write it: new, add, edit, use-model, rounds --new and tune-spots --apply
+(docs/TUNING.md). A run never writes it.
 
 ### Images
 
@@ -229,8 +230,9 @@ command line, and it keeps the cuBLAS load order of the RTX 5090 safe (torch mus
 silently falls back to the watershed; docs/DESIGN_system_packs.md, rule R5). A CZI, LIF or OME-Zarr header is read
 after the pipeline has loaded torch.
 
-The napari plugin makes every project change through this entry, with the engine's own interpreter, so the code
-that writes a project is the code that runs it. With `--json` each command prints one JSON object on stdout (an
+The napari plugin makes every project change through this entry (a tuning result through
+`germquant tune-spots --apply`, docs/TUNING.md), with the engine's own interpreter, so the code that writes a
+project is the code that runs it. With `--json` each command prints one JSON object on stdout (an
 error as `{"error": ..., "kind": ...}`); the exit code is 0 when done, 1 when `add` (or `new --images`) refused
 some files, and 2 when the command was refused. A refusal writes nothing. Exit 2 also reports the rare write that
 stops part way, when Windows still denies a file after 2 seconds (an indexer or a virus scanner holding it):
