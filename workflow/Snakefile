@@ -13,7 +13,7 @@
 #
 # A recipe that sets io.input_suffixes (docs/DESIGN_system_packs.md 7.8) is run on those formats, under the image
 # ids io.formats.image_stem gives (x for x.ome.tif; Path.stem for an .nd2, so .nd2 jobs are unchanged), and nothing
-# under output_root or named like germquant's own output images is taken for an input.
+# named like germquant's own output images, or under an output_root inside input_root, is taken for an input.
 from pathlib import Path
 
 from germquant.config import load_config

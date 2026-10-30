@@ -92,7 +92,9 @@ def discover_files(root: str | Path, glob: str = "**/*.nd2", exclude_patterns: l
     exactly the .nd2 files of 8eb73de, under the same ids (image_stem is Path.stem for an .nd2). germquant's own
     output images (project.images.OUTPUT_SUFFIXES: <id>__nuclei_labels.tif and the like) are never kept; none of them
     ends in .nd2, so the default set is unchanged. With ``skip_root`` (the batch's output root, given only when
-    io.input_suffixes is set, PLAN.md D20) nothing under that folder is kept either."""
+    io.input_suffixes is set, PLAN.md D20) nothing under that folder is kept either, when it lies inside ``root``
+    (results in a folder of the input tree); an output root at or above ``root`` (results next to the images, or
+    around them) holds the inputs themselves, so there only germquant's own images are left out."""
     from .io.formats import image_stem, image_suffix
     from .project.images import is_output_name
 
@@ -100,6 +102,8 @@ def discover_files(root: str | Path, glob: str = "**/*.nd2", exclude_patterns: l
     excl = exclusions if isinstance(exclusions, Exclusions) else Exclusions([str(x) for x in (exclusions or [])])
     want = tuple(str(s).lower() for s in suffixes)
     skip = None if skip_root is None else os.path.normcase(os.path.abspath(skip_root))
+    if skip is not None and not skip.startswith(os.path.normcase(os.path.abspath(root)).rstrip(os.sep) + os.sep):
+        skip = None                        # at or above the input folder, or beside it: nothing of root lies under it
     keep: list[Path] = []
     dropped: list[tuple[Path, str]] = []
     for f in sorted(root.glob(glob)):

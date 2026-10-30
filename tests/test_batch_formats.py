@@ -6,8 +6,9 @@ acceptance 6).
   equals Path.stem for an .nd2). The function of 8eb73de is kept below, verbatim, as the reference.
 * With io.input_suffixes the batch discovers those suffixes, matched on the whole format suffix (x.ome.tif is
   .ome.tif, never .tif), and keys out_dir, resume and the collect ids on image_stem, so x.ome.tif is the image x.
-* germquant's own output images are never discovered, and with io.input_suffixes set nothing under the output root
-  is either (D20: a default batch keeps the base's set, an .nd2 under the output root included).
+* germquant's own output images are never discovered, and with io.input_suffixes set nothing under an output root
+  inside the input folder is either (D20: a default batch keeps the base's set, an .nd2 under the output root
+  included); an output root at or above the input folder keeps every input (review S3).
 * io.input_suffixes is checked strictly: a list of the suffixes germquant reads (recipe_keys), in batch before any
   file is discovered and in process_image before any stage.
 * Where a snakemake executable is available (D25: a throwaway environment, never the .venv), a dry run of the
@@ -255,6 +256,40 @@ def test_outputs_never_discovered(tmp_path, monkeypatch):
     calls.clear()
     assert cli.main(["batch", str(root), "--config", str(study), "--out", str(out)]) == 0
     assert [c[0] for c in calls] == first
+
+
+def test_an_output_root_at_or_above_the_input_folder_keeps_the_inputs(tmp_path, monkeypatch):
+    """Review S3: with io.input_suffixes, results next to the images (--out the input folder) or around them (--out
+    a parent folder) still find the images; only an output root inside the input folder is skipped (D20), and
+    germquant's own images are never taken."""
+    study = tmp_path / "study"
+    images = study / "images"
+    images.mkdir(parents=True)
+    for n in ("a.ome.tif", "b.ome.tif"):
+        (images / n).write_bytes(b"")
+    (images / "results" / "a").mkdir(parents=True)
+    (images / "results" / "a" / "c.ome.tif").write_bytes(b"")          # under an output root inside the input
+    every, outside = ["a.ome.tif", "b.ome.tif", "c.ome.tif"], ["a.ome.tif", "b.ome.tif"]
+    monkeypatch.chdir(tmp_path)                                         # a relative --out, as cli._batch passes it
+    for out, want in ((images, every), (study, every), (tmp_path, every), (tmp_path / "elsewhere", every),
+                      (images / "results", outside), (images / "results" / "a", outside)):
+        for skip in (out, str(out) + os.sep, os.path.relpath(out, tmp_path)):
+            files, _ = batch.discover_files(images, "**/*", suffixes=(".ome.tif",), skip_root=skip)
+            assert [f.name for f in files] == want, (out, skip)
+    shutil.rmtree(images / "results")
+    calls: list = []
+    monkeypatch.setattr(pipeline, "process_image", _fake_process(calls))
+    prof = _study(tmp_path, input_glob="**/*", input_suffixes=[".ome.tif", ".tif"])
+    for out in (images, study):
+        assert cli.main(["batch", str(images), "--config", str(prof), "--out", str(out)]) == 0
+        first = [c[0] for c in calls]
+        assert first == ["a.ome.tif", "b.ome.tif"], out
+        for name, out_dir in calls:
+            (out_dir / f"{image_stem(name)}__nuclei_labels.tif").write_bytes(b"")
+        calls.clear()
+        assert cli.main(["batch", str(images), "--config", str(prof), "--out", str(out)]) == 0
+        assert [c[0] for c in calls] == first, out
+        calls.clear()
 
 
 # ---------------------------------------------------------------------------------------------------
