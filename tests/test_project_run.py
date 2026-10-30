@@ -806,8 +806,11 @@ PROJECT_NAMES = ["Project", "ProjectError", "ProjectLockedError", "RunError", "n
                  "save_project", "add_images", "read_header", "project_config", "preview_roles", "write_recipe",
                  "revert_recipe", "use_model", "run_project", "project_status", "collect_project",
                  "export_commands", "break_lock", "list_rounds", "new_round"]
-# the names of section 9.1 that other P5 units bring: (name, module, unit); each joins api once its unit is merged
+# the names of section 9.1 (and 9.4 #12) that other P5 units bring: (name, module, unit), each the very object of
+# its module in germquant.api and its __all__
 LATER_NAMES = [("tune_spots", "germquant.tune", "P5-TUNE"), ("apply_tuning", "germquant.tune", "P5-TUNE"),
+               ("TuneRefused", "germquant.tune", "P5-TUNE"), ("GridError", "germquant.tune", "P5-TUNE"),
+               ("TuningWarning", "germquant.tune", "P5-TUNE"),
                ("import_labels", "germquant.import_labels", "P5-TRAIN"),
                ("SampleRow", "germquant.io.sample_sheet", "P5-SHEET"),
                ("SampleSheet", "germquant.io.sample_sheet", "P5-SHEET"),
@@ -826,9 +829,9 @@ def test_api_re_exports_the_project_names():
 
 @pytest.mark.parametrize("name,module,unit", LATER_NAMES)
 def test_api_re_exports_the_other_p5_names(name, module, unit):
+    """Every unit is in this branch, so no case skips (PLAN.md 10.15 item 6): a module or name that went missing
+    fails here."""
     import importlib
-    import importlib.util
 
-    if importlib.util.find_spec(module) is None:
-        pytest.skip(f"{module} comes with {unit}, which is not merged into this branch yet")
-    assert name in api.__all__ and getattr(api, name) is getattr(importlib.import_module(module), name)
+    assert name in api.__all__, f"{name} ({unit}, {module}) is not in germquant.api.__all__"
+    assert getattr(api, name) is getattr(importlib.import_module(module), name), name

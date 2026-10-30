@@ -36,6 +36,7 @@ from .io import (
     read_nd2_metadata,
     read_stack,
 )
+from .io.sample_sheet import SampleRow, SampleSheet, read_sample_sheet, write_sample_sheet
 from .models_registry import get_model, known_models, register_local_model
 from .packs import fetch_example, fetch_pack_models, find_pack, install_pack, list_packs, load_pack, pack_status
 from .pipeline import process_image, resolve_model_path, spot_instances
@@ -67,7 +68,7 @@ from .segment import segment_nuclei
 from .spots import detect_spots
 from .stages import STAGES, apply_cli_switches, cli_switches, stage_enabled
 from .timelapse import parse_timepoints, process_series, register_series
-from .tune import apply_tuning, tune_spots
+from .tune import GridError, TuneRefused, TuningWarning, apply_tuning, tune_spots
 
 # one image (run, run_loaded, resolve_config, default_out_dir, process_image); a time-lapse (process_series,
 # parse_timepoints: the loop `germquant run --t` runs; register_series: `germquant register`, the drift of a
@@ -79,8 +80,10 @@ from .tune import apply_tuning, tune_spots
 # marker (discover_files, load_exclusions, collect, is_done, enabled_stage_names, read_done_marker); projects
 # (germquant.project, docs/PROJECTS.md: Project, new_project to run_project and export_commands, the light header
 # read_header; importing germquant.project alone loads no torch); spot tuning from truth points (tune_spots and
-# apply_tuning: `germquant tune-spots`, docs/TUNING.md; germquant.tune holds the tuners, grids and point files);
-# training pairs from labels drawn in another program (import_labels: `germquant import-labels`, docs/TRAINING.md).
+# apply_tuning: `germquant tune-spots`, docs/TUNING.md, with TuneRefused, GridError and TuningWarning; germquant.tune
+# holds the tuners, grids and point files); training pairs from labels drawn in another program (import_labels:
+# `germquant import-labels`, docs/TRAINING.md); the sample sheet (SampleRow, SampleSheet, read_sample_sheet,
+# write_sample_sheet: `--samples`, docs/PROJECTS.md "Sample sheet"; run and run_loaded take a row as sample=).
 __all__ = [
     "STAGES",
     "SUPPORTED_SUFFIXES",
@@ -153,12 +156,22 @@ __all__ = [
     "break_lock",
     "list_rounds",
     "new_round",
-    # spot tuning (docs/TUNING.md); importing germquant.tune alone loads no torch, and each tuner imports the pipeline
+    # spot tuning (docs/TUNING.md); importing germquant.tune alone loads no torch, and each tuner imports the pipeline;
+    # TuneRefused (a ValueError) and GridError (a TuneRefused) are the refusals of tune_spots and apply_tuning, and
+    # TuningWarning the warning of apply_tuning (PLAN.md 9.4 #12)
     "tune_spots",
     "apply_tuning",
+    "TuneRefused",
+    "GridError",
+    "TuningWarning",
     # training pairs (docs/TRAINING.md); importing germquant.import_labels alone loads no torch, and the call
     # imports the pipeline before it reads the image
     "import_labels",
+    # the sample sheet (docs/PROJECTS.md, "Sample sheet"); importing germquant.io.sample_sheet alone loads no torch
+    "SampleRow",
+    "SampleSheet",
+    "read_sample_sheet",
+    "write_sample_sheet",
 ]
 
 
