@@ -122,21 +122,6 @@ def need_readers():
         pytest.skip(f"the OME-TIFF readers are not installed here ({', '.join(missing)}: the readers extra)")
 
 
-def need_p2b():
-    from germquant import planar
-
-    if not hasattr(planar, "PLANAR_SERIES_REFUSED"):
-        pytest.skip("needs P2b's single-plane names (planar.PLANAR_SERIES_REFUSED, one_plane_header): runs once "
-                    "feat/t5-p5 has synced with merge #1")
-
-
-def need_p2c():
-    import importlib.util
-
-    if importlib.util.find_spec("germquant.io.labels") is None:
-        pytest.skip("needs P2c's labels_from (germquant.io.labels): runs once feat/t5-p5 has synced with merge #2")
-
-
 def hand_edit_recipe(proj, data: dict) -> None:
     """Write recipe.yaml by hand (origin manual) and record it in the manifest, as a lab's hand edit is kept."""
     from germquant.project import manifest as M
@@ -523,7 +508,6 @@ def test_labels_project_skips_the_segmentation_model(project_env, tmp_path, monk
     assert seg["needed"] is False and seg["mismatch"] is not None and str(decoy) in seg["mismatch"]
     assert R.model_refusal(records, pack) is None
     assert any("labels_from" in w and "not checked" in w for w in warnings), warnings
-    need_p2c()
     need_readers()
     import numpy as np
     import tifffile
@@ -600,7 +584,6 @@ def test_an_image_with_timepoints_goes_through_process_series(project_env, tmp_p
 
 
 def test_series_refused_for_planar_recipes(project_env, tmp_path, monkeypatch):  # noqa: F811
-    need_p2b()
     from germquant import planar
 
     proj = new_test_project(tmp_path / "proj")
@@ -619,7 +602,6 @@ def test_series_refused_for_planar_recipes(project_env, tmp_path, monkeypatch): 
 def test_a_series_whose_header_cannot_be_read_fails_that_image_only(project_env, tmp_path, monkeypatch):  # noqa: F811
     """io.planar auto reads a series' header to decide; a series file that cannot be reached, or whose header
     cannot be read, fails as that image, and the next image still runs (run.py's docstring, step 3)."""
-    need_p2b()
     proj = new_test_project(tmp_path / "proj")
     series = _series_image(proj.root / "images")
     P.add_images(proj, [series, example_copy(proj.root / "images", "fixed")])
@@ -643,7 +625,6 @@ def test_a_series_whose_header_cannot_be_read_fails_that_image_only(project_env,
 
 
 def test_series_refused_for_labels_recipes(project_env, tmp_path, monkeypatch):  # noqa: F811
-    need_p2c()
     from germquant.io.labels import SERIES_REFUSAL
 
     proj = new_test_project(tmp_path / "proj")

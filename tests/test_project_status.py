@@ -21,8 +21,6 @@ from test_project_run import (
     _project_model,
     hand_edit_recipe,
     log_events,
-    need_p2b,
-    need_p2c,
     need_readers,
     project_with_images,
 )
@@ -115,7 +113,6 @@ def test_every_status_and_reason_code(project_env, tmp_path):  # noqa: F811
 
 def test_a_planar_marker_reads_stale_with_the_planar_flag(project_env, tmp_path):  # noqa: F811
     need_readers()
-    need_p2b()
     from germquant import pipeline, provenance, stages
 
     proj = project_with_images(tmp_path, names=("a", "pla"))
@@ -173,7 +170,6 @@ def test_status_reports_a_model_that_is_not_here(project_env, tmp_path, capsys):
 def test_status_names_the_refusal_of_a_series(project_env, tmp_path):  # noqa: F811
     """Before any run, a time series that the recipe cannot run as one (here labels_from, D15) reads missing with
     the refusal every run fails it with, in the run's own words."""
-    need_p2c()
     from test_project_run import _series_image
 
     from germquant.io.labels import SERIES_REFUSAL
