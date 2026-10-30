@@ -98,7 +98,10 @@ def discover_files(root: str | Path, glob: str = "**/*.nd2", exclude_patterns: l
 
     Two files of one folder whose image ids are equal (in any letter case) but whose formats differ (x.nd2 and an
     export x.tif) would share one results folder: the first in sorted order is kept, and each other one is dropped
-    with the reason ``duplicate_id``. With the default suffixes every file is an .nd2, so this never applies."""
+    with the reason ``duplicate_id``. So is a later file of the same format whose id is equal in letter case too
+    (x.tif and x.TIF, two files where the file system tells letter case apart), when the suffixes are not the
+    default set. With the default suffixes every file is an .nd2 and neither rule applies, so a default batch
+    keeps 8eb73de's files (PLAN.md D20)."""
     from .io.formats import image_stem, image_suffix
     from .project.images import is_output_name
 
@@ -111,6 +114,8 @@ def discover_files(root: str | Path, glob: str = "**/*.nd2", exclude_patterns: l
     keep: list[Path] = []
     dropped: list[tuple[Path, str]] = []
     first: dict[tuple[str, str], Path] = {}     # (folder, image id in any letter case) -> the file kept for it
+    held: dict[tuple[str, str], Path] = {}      # (folder, image id) -> the file kept for it
+    exact = want != (".nd2",)                   # io.input_suffixes set: one id twice in one format is a twin too
     for f in sorted(root.glob(glob)):
         if image_suffix(f) not in want or is_output_name(f.name):
             continue
@@ -125,11 +130,16 @@ def discover_files(root: str | Path, glob: str = "**/*.nd2", exclude_patterns: l
         hit = excl.matches(image_stem(f))
         if hit is not None:
             dropped.append((f, f"exclusions_file {hit}")); continue
-        other = first.setdefault((str(f.parent), image_stem(f).casefold()), f)
-        if other is not f and image_suffix(other) != image_suffix(f):
-            # one image id in two formats (x.nd2 and x.tif): both would write the one results folder <id>/
-            dropped.append((f, f"duplicate_id {image_stem(f)}: {other.name} in this folder has the same image id, "
+        here, iid = str(f.parent), image_stem(f)
+        other = first.setdefault((here, iid.casefold()), f)
+        twin = (other if other is not f and image_suffix(other) != image_suffix(f)
+                else held.get((here, iid)) if exact else None)
+        if twin is not None:
+            # one image id in two formats (x.nd2 and x.tif), or twice in one format where the file system tells letter
+            # case apart (x.tif and x.TIF): both would write the one results folder <id>/
+            dropped.append((f, f"duplicate_id {iid}: {twin.name} in this folder has the same image id, "
                                f"which names one results folder")); continue
+        held[(here, iid)] = f
         keep.append(f)
     return keep, dropped
 

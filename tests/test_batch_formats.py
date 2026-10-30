@@ -338,6 +338,15 @@ def test_two_formats_of_one_id_in_one_folder_keep_the_first(tmp_path, monkeypatc
     (case / "q.nd2").write_bytes(b"")
     want = sorted(p.name for p in case.iterdir())
     assert sorted(f.name for f in batch.discover_files(case, "**/*", suffixes=(".nd2", ".tif"))[0]) == want
+    # one id twice in one format, where the file system tells letter case apart (Linux: x.tif and x.TIF, listed here
+    # as such a system lists them): one results folder, so the later is left out (review pass 2 part 2a, N1); the
+    # default suffixes keep 8eb73de's files, both z.ND2 and z.nd2 (D20)
+    listing = [case / "y.TIF", case / "y.tif", case / "z.ND2", case / "z.nd2"]
+    monkeypatch.setattr(type(case), "glob", lambda self, pattern: iter(listing))
+    kept, gone = batch.discover_files(case, "**/*", suffixes=(".nd2", ".tif"))
+    assert [f.name for f in kept] == ["y.TIF", "z.ND2"] and [f.name for f, _ in gone] == ["y.tif", "z.nd2"]
+    assert all(w.startswith("duplicate_id ") for _, w in gone)
+    assert [f.name for f in batch.discover_files(case, "**/*")[0]] == ["z.ND2", "z.nd2"]
 
 
 # ---------------------------------------------------------------------------------------------------
