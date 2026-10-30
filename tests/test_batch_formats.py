@@ -269,7 +269,9 @@ def test_an_output_root_at_or_above_the_input_folder_keeps_the_inputs(tmp_path, 
         (images / n).write_bytes(b"")
     (images / "results" / "a").mkdir(parents=True)
     (images / "results" / "a" / "c.ome.tif").write_bytes(b"")          # under an output root inside the input
-    every, outside = ["a.ome.tif", "b.ome.tif", "c.ome.tif"], ["a.ome.tif", "b.ome.tif"]
+    (images / "results_old").mkdir()
+    (images / "results_old" / "d.ome.tif").write_bytes(b"")             # beside it, its name begins as the root's
+    every, outside = ["a.ome.tif", "b.ome.tif", "c.ome.tif", "d.ome.tif"], ["a.ome.tif", "b.ome.tif", "d.ome.tif"]
     monkeypatch.chdir(tmp_path)                                         # a relative --out, as cli._batch passes it
     for out, want in ((images, every), (study, every), (tmp_path, every), (tmp_path / "elsewhere", every),
                       (images / "results", outside), (images / "results" / "a", outside)):
@@ -277,6 +279,7 @@ def test_an_output_root_at_or_above_the_input_folder_keeps_the_inputs(tmp_path, 
             files, _ = batch.discover_files(images, "**/*", suffixes=(".ome.tif",), skip_root=skip)
             assert [f.name for f in files] == want, (out, skip)
     shutil.rmtree(images / "results")
+    shutil.rmtree(images / "results_old")
     calls: list = []
     monkeypatch.setattr(pipeline, "process_image", _fake_process(calls))
     prof = _study(tmp_path, input_glob="**/*", input_suffixes=[".ome.tif", ".tif"])
