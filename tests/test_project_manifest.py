@@ -528,11 +528,13 @@ def test_headers_are_read_without_bioio_and_agree_with_the_run_reader(tmp_path, 
               "ij_um.tif": dict(imagej=True, resolution=(5.0, 5.0), metadata={"axes": "YX", "unit": "um"}),
               "cm.tif": dict(resolution=(20000.0, 20000.0), resolutionunit="CENTIMETER"),
               "dpi72.tif": dict(resolution=(72.0, 72.0), resolutionunit="INCH"),
-              "unit_none.tif": dict(resolution=(1.0, 1.0), resolutionunit="NONE")}
+              "unit_none.tif": dict(resolution=(1.0, 1.0), resolutionunit="NONE"),
+              "aniso_cm.tif": dict(resolution=(10000.0, 20000.0), resolutionunit="CENTIMETER")}   # dx 1.0, dy 0.5
     for name, kw in planes.items():
         tifffile.imwrite(tmp_path / name, plane, **kw)
     assert read_header(tmp_path / "ij_pixel.tif")["spacing_yx_um"] is None
     assert tuple(read_header(tmp_path / "cm.tif")["spacing_yx_um"]) == (0.5, 0.5)
+    assert tuple(read_header(tmp_path / "aniso_cm.tif")["spacing_yx_um"]) == (0.5, 1.0)          # (dy, dx)
     for f in (yx, EXAMPLE, two, plain, ij, noname, *(tmp_path / n for n in planes)):
         light, full = read_header(f), read_image_metadata(f)
         assert light["channel_names"] == full["channel_names"], f
