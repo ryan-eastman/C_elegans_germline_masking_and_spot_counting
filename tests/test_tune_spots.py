@@ -819,3 +819,42 @@ def test_apply_reports_the_hash_it_leaves(planted, tmp_path, monkeypatch, capsys
     out, h = apply("r2")                                         # back to the pack's value: the last edit goes
     assert h == pack_hash and f"(was {tuned})" in out and not (root / "recipe.yaml").exists()
     assert P.open_project(root).manifest["recipe"]["origins"] == {}
+
+
+def test_detection_reproduces_a_single_plane_run(tmp_path):
+    """A single-plane SpotMAX run (io.planar) at 1.2 um pixels, made the way `germquant batch` makes it (one
+    manifest at the root, the per-image record in the done marker): the tuner's detection at the run's own
+    settings equals the run's spots table, effect sizes included. At these pixels the 3D SpotMAX chain gives
+    other effect sizes (review P5-TUNE S1); at the helpers' 0.2 um the two chains agree, so the 2D planted
+    optimum alone cannot tell them apart."""
+    pytest.importorskip("spotmax")
+    import tifffile
+
+    from germquant import pipeline, provenance
+    from germquant.tune.points import write_points
+
+    cfg = H.basic_recipe(**{"io.planar": True, "spots.backend": "spotmax", "spots.spot_radius_um": 1.5,
+                            "spots.gauss_sigma_um": 0.6})
+    es = float(cfg.get(ES_KEY, 3.0))
+    pix, truth, _ = H.planted_pixels(H.FIELD_2D_A, 5, shape=H.SHAPE_2D)
+    stack = H.Stack(data=pix.astype(np.float32), spacing=(0.5, 1.2, 1.2), channel_names=H.CHANNELS,
+                    path=Path("flat_a.nd2"), spacing_ok=True)
+    with pytest.MonkeyPatch.context() as mp:
+        H.patch_planted_reader(mp, {"flat_a.nd2": stack})
+        for mode in ("batch",):
+            rd = tmp_path / mode / "flat_a"
+            prov = provenance.write_manifest(tmp_path / mode, config_hash=cfg.hash, config=cfg.as_dict(),
+                                             extra={"n_files": 1})
+            pipeline.process_image(tmp_path / "flat_a.nd2", cfg, rd, prov=prov)
+            labels = tifffile.imread(rd / "flat_a__nuclei_labels.tif")
+            zyx = np.asarray(truth, float) / np.asarray(H.SPACING) * np.array([0.0, 1.2, 1.2])
+            pts = write_points(tmp_path / f"{mode}__points_x.csv", zyx, labels=labels, spacing=(float("nan"), 1.2, 1.2))
+            item = {"image_id": "flat_a", "image": tmp_path / "flat_a.nd2", "result_dir": rd, "points": pts}
+            got: dict = {}
+            S._tune([item], {ES_KEY: [es]}, S.OBJECTIVE, "project", backend="spotmax",
+                    out_dir=tmp_path / f"t_{mode}", max_runs=1, shortcut=False,
+                    on_tables=lambda i, k, ps, pn: got.__setitem__(k, ps))
+            run = pd.read_csv(rd / "flat_a__spots.csv", float_precision="round_trip")
+            assert len(run) > 0, mode
+            pd.testing.assert_frame_equal(got[0][SPOT_COLS].reset_index(drop=True), run[SPOT_COLS],
+                                          check_dtype=False, check_column_type=False, obj=mode)
