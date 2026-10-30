@@ -427,7 +427,9 @@ def revert_recipe(project, *, plugin_version=None) -> str:
 def use_model(project, model, *, card=None, plugin_version=None) -> str:
     """Name a model file of the project (training/<round>/models/<name>/<file>; relative to the project root, or
     absolute inside it) by relative path in recipe.yaml (segmentation.nuclei.cellpose_model), and record its sha256
-    and its card (default <file>.card.json next to it) in the manifest's models. Returns the new config_hash."""
+    and its card (default <file>.card.json next to it) in the manifest's models. Returns the new config_hash. A
+    recipe that loads no Cellpose model (labels from files, method classical, another segmentation backend: the
+    three reasons pack derive refuses a parent recipe for) records the model all the same, with a warning."""
     from .recipe import MODEL_KEY, model_entry
 
     root = _root(project)
@@ -435,10 +437,14 @@ def use_model(project, model, *, card=None, plugin_version=None) -> str:
     entry = model_entry(root, model, card)
     plan = _apply(project, command="use-model", plugin_version=plugin_version, edits={MODEL_KEY: entry["ref"]},
                   origin="model", model_entry=entry)
-    if str(plan["config"].get("segmentation.nuclei.method", "auto")) == "classical":
-        log.warning("the recipe segments with method classical, which loads no model: %s is recorded but not used",
-                    entry["ref"])
-    return plan["config"].hash
+    cfg = plan["config"]
+    why = ("takes its labels from files (segmentation.nuclei.labels_from)" if cfg.get("segmentation.nuclei.labels_from")
+           else "segments with method classical" if str(cfg.get("segmentation.nuclei.method", "auto")) == "classical"
+           else f"segments with the {cfg.get('segmentation.nuclei.backend')!r} backend"
+           if str(cfg.get("segmentation.nuclei.backend", "cellpose")) != "cellpose" else None)
+    if why:
+        log.warning("the recipe %s, which loads no Cellpose model: %s is recorded but not used", why, entry["ref"])
+    return cfg.hash
 
 
 # ---- locks and rounds -------------------------------------------------------------------------------------------
