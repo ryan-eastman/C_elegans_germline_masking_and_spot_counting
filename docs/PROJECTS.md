@@ -244,3 +244,72 @@ The Python API is the same code: germquant.project offers new_project, open_proj
 project_config, preview_roles, write_recipe, revert_recipe, use_model, list_rounds, new_round and break_lock.
 Each takes the project (a Project or its folder) explicitly, so it can be called from any thread, and importing
 germquant.project loads nothing heavy either.
+
+## Sample sheet
+
+A sample sheet gives each image its design columns when the file names do not carry them, or carry them wrongly. It
+is a CSV file, samples.csv in a project, any file with `--samples`:
+
+    image_id,genotype,sex,treatment,replicate,acquisition_date,slide
+    20251105_n2_nohs_HERM_001,syp-2(ok307),male,control,3,2025-11-05,S12
+    20251105_n2_nohs_HERM_002,N2,herm,control,4,2025-11-05,S12
+
+- The first line names the columns. Each row names its image by `image_id`, the file name without its format
+  suffix (the id that names the results folder: `x` for `x.ome.tif`), or by `file`: a file name, or a path relative
+  to the sheet's folder (`/` or `\` between folders, read alike on Windows, Linux and macOS), which then names that
+  one file.
+- The design columns are `genotype`, `sex`, `germ_cell`, `treatment`, `replicate` and `acquisition_date`, written in
+  lower case. A row's values go into every per-image table instead of what the file name gives through
+  metadata.filename_regex, exactly as written (spaces around a value are dropped). A cell left empty keeps the file
+  name's value. When a row gives `sex` but no `germ_cell`, germ_cell follows the row's sex as it does for a file name
+  (herm: oocyte, male: spermatocyte), so the expected synaptonemal complex count follows the corrected sex. A sex
+  other than herm or male (H, HERM, M or MALE in any letter case) on a row without germ_cell, and a germ_cell other
+  than oocyte or spermatocyte, are kept as written, with a warning: such an image gets no expected synaptonemal
+  complex or crossover count (`unknown` and `NA` say the value is not known, and are not warned about).
+- Any other column is your own (a slide, a strain note, a scorer). No run reads it: `germquant collect --samples`
+  joins it into every `batch_<table>.csv` by image id (empty for an image without a row). A column a table already
+  has, such as `n_nuclei` in batch_image_summary.csv, is not joined there, with a warning; batch_summary.csv keeps
+  its six columns. A column named like one of the metadata columns every table carries (`file_path`, `config_hash`
+  and the others) is refused. Because the join goes by image id, two images in different folders that share an id
+  (day1/img_001.nd2 and day2/img_001.nd2) both get the columns of a row that names one of them by its path, though
+  the run gives that row's design columns to the named file only: give such images distinct names.
+- An image the sheet has no row for keeps the file name's design columns and gets the flag
+  `metadata:not_in_sample_sheet` (only in a run that was given a sheet). Rows for images that are not in the run are
+  ignored.
+
+Commands, Windows and Mac alike:
+
+    germquant run IMAGE --config CONFIG --out RESULTS --samples samples.csv
+    germquant batch FOLDER --config CONFIG --out RESULTS --samples samples.csv [--resume]
+    germquant collect RESULTS --samples samples.csv
+
+A plain `germquant batch` writes batch_summary.csv only, so the sheet's own columns reach the batch tables through
+`germquant collect --samples` (or `batch --resume --samples`, which collects). In a project the sheet is the file the
+manifest names (`germquant project edit STUDY --samples samples.csv`), and a project run applies it image by image as
+`batch --samples` does.
+
+**Resuming.** The sheet is not part of the config hash, like the file name it replaces, so adding a row for one
+image never reruns another. Each image's row has a digest, row_sha256: the sha256 of the row's design cells written
+as canonical JSON. A run with a sheet records it in the image's run geometry (`sample_sheet {source, row_sha256}` in
+`<image_id>__stages.json`, and in run_manifest.json where a run writes one per image: `germquant run`, the API and
+project runs) and in its completion marker (`sample_row_sha256`; null for an image without a row). `batch --resume` then reruns exactly the images whose row changed: a corrected design cell, a row
+added for an image that ran without one, or a row taken away (resuming without the sheet reruns every image that
+ran with a row). Editing your own columns reruns nothing. The reason is printed, `reprocessing: sample row differs
+(...)`.
+
+**Saving from Excel.** Save the sheet as "CSV UTF-8 (Comma delimited)". The digest depends only on the values, so
+saving the same values again, with Windows line ends, a byte-order mark, another column order or quotes around every
+cell, reruns nothing. Excel's plain "CSV" on Windows is cp1252: it is read, with a warning, and gives the same
+values. A sheet with semicolons between the columns (what Excel saves in some languages) or saved as "Unicode Text"
+is refused with a message. Keep dates in ISO form, 2025-11-05 (or 20251105): Excel rewrites a date in the computer's
+own format when it saves, so format the column as Text before you type them. A date in another form is kept as it
+is, with a warning.
+
+**Time series.** A sheet does not apply to a time series in this release: `germquant run SERIES --t ... --samples
+FILE` is refused (exit 2, before any timepoint), because the time-lapse loop gives its timepoints no sample row. Run
+the series without the sheet; its design columns then come from the file name.
+
+**From code.** germquant.io.sample_sheet reads and writes sheets without loading anything heavy:
+`read_sample_sheet(path)` returns a SampleSheet, whose `row(image_id, path)` is the SampleRow that
+`api.run(..., sample=row)` and `process_image(..., sample=row)` take; `write_sample_sheet(path, rows)` writes a list
+of dicts as ASCII with LF line ends, atomically, and refuses a value outside ASCII, naming its row and column.

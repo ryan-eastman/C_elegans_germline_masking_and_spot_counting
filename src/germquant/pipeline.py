@@ -279,6 +279,7 @@ def process_image(
     t: int | None = None,
     on_stack=None,
     read_fn=None,
+    sample=None,
 ) -> dict:
     """Run every enabled stage on one image and write its results folder. ``nd2_path`` (the name is kept
     for compatibility) is any supported image: an ``.nd2``, or a TIFF / OME-TIFF, CZI, LIF or OME-Zarr
@@ -310,7 +311,20 @@ def process_image(
     With ``segmentation.nuclei.labels_from`` set (docs/LABELS.md) the segment stage reads the image's labels file
     instead of segmenting: no model is resolved (model_sha256 "unused"), segmentation_method reads labels_file,
     the flag segment:labels_from_file is raised and run_geometry and the segment sub-hash record the file. Such a
-    run refuses ``t``."""
+    run refuses ``t``.
+
+    ``sample`` (None by default) is the image's row of a sample sheet (germquant.io.sample_sheet.SampleRow,
+    docs/PROJECTS.md "Sample sheet"): its design cells replace the file name's (parse_sample) in every per-image
+    table, and the run records sample_sheet {source, row_sha256} in its geometry and sample_row_sha256 in its done
+    marker; a row the sheet does not have (row_sha256 None) keeps the file name's fields and raises
+    metadata:not_in_sample_sheet. The sheet is not hashed. A sample row with ``t`` is refused before the read."""
+    sample_row = sample                    # the sample sheet row; the name ``sample`` holds parse_sample's fields below
+    if sample_row is not None:
+        from .io import sample_sheet
+
+        sample_sheet.check_row(sample_row)            # anything but a SampleRow, before any pixel is read
+        if t is not None:
+            raise sample_sheet.SampleSheetError(sample_sheet.SERIES_REFUSAL)    # no sheet row for a time series (D21)
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
     os.makedirs(long_path(out_dir), exist_ok=True)
@@ -329,6 +343,10 @@ def process_image(
     dapi_present = role_to_idx.get("dna") is not None
 
     sample = parse_sample(nd2_path, cfg.get("metadata.filename_regex"), cfg.get("metadata.defaults"))
+    if sample_row is not None:
+        # a sheet run: the row's design cells override the file name's; an image without a row keeps them and raises
+        # metadata:not_in_sample_sheet (docs/PROJECTS.md, "Sample sheet")
+        flags += sample_sheet.apply_row(sample, sample_row)
     if t is not None:
         # one timepoint of a series: the design columns were parsed from the raw stem above; the image id,
         # and so every per-image file name, carries the timepoint (three digits, one underscore)
@@ -441,6 +459,10 @@ def process_image(
         run_geometry["spacing_source"] = decision["spacing_source"]
     elif override is not None:
         run_geometry["spacing_source"] = override["spacing_source"]      # io.voxel_size_um in a 3D run (D6)
+    if sample_row is not None:
+        # a sheet run: the sheet and the row's sha256 enter the run geometry (manifest, stage record) ONLY then; the
+        # sheet is never hashed (row_sha256 None: the image has no row)
+        run_geometry["sample_sheet"] = {"source": sample_row.source, "row_sha256": sample_row.row_sha256}
     prov = prov or provenance.write_manifest(out_dir, config_hash=cfg.hash, config=cfg.as_dict(),
                                              extra=run_geometry)
 
@@ -1276,6 +1298,8 @@ def process_image(
     timepoint = {k: run_geometry[k] for k in ("t_index", "t_seconds") if k in run_geometry}   # {} for a fixed image
     # a single-plane run's marker says so ({"planar": true}): batch.is_done then compares its planar segment hash
     marker_extra = {**timepoint, **({"planar": True} if planar_run else {})}
+    if sample_row is not None:
+        marker_extra["sample_row_sha256"] = sample_row.row_sha256      # sheet runs only; batch.is_done compares it
     provenance.write_done_marker(
         out_dir, sample["image_id"], config_hash=cfg.hash, enabled_stages=run_geometry["enabled_stages"],
         stage_hashes=stage_hashes, xy_stride=run_geometry["xy_stride"], z_range=run_geometry["z_range"],
