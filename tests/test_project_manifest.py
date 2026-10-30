@@ -509,17 +509,41 @@ def test_headers_are_read_without_bioio_and_agree_with_the_run_reader(tmp_path, 
     hn = read_header(tmp_path / "x.nd2")
     assert hn["n_images"] == 2 and hn["single_plane"] is True and hn["reader"] == "nd2"
     assert hn["channel_names"] == ["a", "b", "c"] and tuple(hn["spacing_yx_um"]) == (0.1, 0.1)
+    from germquant.project import headers as H
+
+    czi = {"sizes": {"T": 1, "C": 1, "Z": 1, "Y": 8, "X": 8}, "spacing": (1.0, 1.0, 1.0), "spacing_ok": False,
+           "spacing_yx_um": (0.3, 0.3), "channel_names": ["DAPI"], "n_scenes": 1, "reader": "bioio_czi"}
+    monkeypatch.setattr(H, "_other_metadata", lambda path: dict(czi))   # a format only bioio reads (after torch)
+    hc = read_header(tmp_path / "plane.czi")
+    assert tuple(hc["spacing_yx_um"]) == (0.3, 0.3) and hc["spacing_ok"] is False and hc["single_plane"] is True
     if importlib.util.find_spec("bioio") is None:
         pytest.skip("the readers extra is not installed here: the comparison with the run's reader needs bioio")
     import germquant.pipeline  # noqa: F401  (torch before the readers' dask can load CuPy, rule R5)
     from germquant.io import read_image_metadata
 
-    for f in (yx, EXAMPLE, two, plain, ij, noname):
+    # one plane of each xy calibration kind: the light header's spacing_yx_um is the one a single-plane run takes
+    # (io.bioio_reader._spacing_yx): none for ImageJ pixels and for the TIFF unit none, the length otherwise
+    plane = np.zeros((16, 16), np.uint16)
+    planes = {"ij_pixel.tif": dict(imagej=True, resolution=(0.5, 0.5), metadata={"axes": "YX", "unit": "pixel"}),
+              "ij_um.tif": dict(imagej=True, resolution=(5.0, 5.0), metadata={"axes": "YX", "unit": "um"}),
+              "cm.tif": dict(resolution=(20000.0, 20000.0), resolutionunit="CENTIMETER"),
+              "dpi72.tif": dict(resolution=(72.0, 72.0), resolutionunit="INCH"),
+              "unit_none.tif": dict(resolution=(1.0, 1.0), resolutionunit="NONE")}
+    for name, kw in planes.items():
+        tifffile.imwrite(tmp_path / name, plane, **kw)
+    assert read_header(tmp_path / "ij_pixel.tif")["spacing_yx_um"] is None
+    assert tuple(read_header(tmp_path / "cm.tif")["spacing_yx_um"]) == (0.5, 0.5)
+    for f in (yx, EXAMPLE, two, plain, ij, noname, *(tmp_path / n for n in planes)):
         light, full = read_header(f), read_image_metadata(f)
         assert light["channel_names"] == full["channel_names"], f
         assert light["sizes"] == full["sizes"], f
         assert light["n_images"] == full["n_scenes"], f
         assert tuple(light["spacing"]) == tuple(full["spacing"]) and light["spacing_ok"] == full["spacing_ok"], f
+        if light["single_plane"]:
+            want = full.get("spacing_yx_um")
+            got = light["spacing_yx_um"]
+            assert (got is None and want is None) or (got is not None and want is not None
+                                                      and np.allclose(got, want)), (f, got, want)
 
 
 def test_cli_new_add_and_rounds_print_json_and_stamp_the_plugin_version(project_env, tmp_path,  # noqa: F811
