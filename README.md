@@ -356,7 +356,11 @@ A suffix is the whole format suffix, so `.tif` does not pick up `x.ome.tif`. Eac
 results folder, is the file name without that suffix (`x.ome.tif` is the image `x`). germquant's own output images
 (`<id>__nuclei_labels.tif` and the like) are never taken for inputs, and with `io.input_suffixes` set nothing under
 an `--out` folder inside the input folder is either (results next to the images, `--out` the input folder itself,
-are fine). Without the key a batch processes the `.nd2` files of the folder, as it always has.
+are fine). Label images of other tools kept next to the images, such as Cellpose's `x_masks.tif` or the labels files
+of docs/LABELS.md, match a listed suffix too and would be taken for images: leave them out with
+`io.exclude_patterns`, which replaces config.yaml's list, so keep its entries, for example
+`exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*", "*_masks.tif"]`. Without `io.input_suffixes` a batch
+processes the `.nd2` files of the folder, as it always has.
 
 A sample sheet gives each image's design columns (genotype, sex, treatment, replicate and the others) when the
 file names do not follow the naming convention: `germquant batch FOLDER ... --samples samples.csv` (also on

@@ -121,7 +121,8 @@ def main(argv: list[str] | None = None) -> int:
                          "flagged metadata:not_in_sample_sheet (docs/PROJECTS.md, \"Sample sheet\"). Refused with --t")
     _add_stage_switches(pr)
 
-    pb = sub.add_parser("batch", help="process every .nd2 under a folder, mirroring the tree")
+    pb = sub.add_parser("batch", help="process every .nd2 under a folder (or the formats the config lists in "
+                                      "io.input_suffixes), mirroring the tree")
     pb.add_argument("folder")
     _add_config_args(pb, packs=True)
     pb.add_argument("--out", required=True)
@@ -1018,8 +1019,9 @@ def _batch(args) -> int:
     n_pass = sum(s["qc_pass"] for s in summaries)
     print(f"\nDone. {n_pass}/{len(files)} passed QC. Summary -> {out_root / 'batch_summary.csv'}")
     if sheet is not None and sheet.extra_columns:
+        # both paths quoted, so the line pastes as one command when a folder name holds a space
         print(f"  the sheet's own columns ({', '.join(sheet.extra_columns)}) are joined into the batch tables by "
-              f"`germquant collect {out_root} --samples {args.samples}`")
+              f"`germquant collect \"{out_root}\" --samples \"{args.samples}\"`")
     return 0
 
 

@@ -394,7 +394,11 @@ def test_snakemake_dry_run_formats_and_pack_mode(tmp_path):
     assert len(jobs) == 2 and all(".ome.tif" in j.split("--out")[0] for j in jobs), jobs
     assert {j.split("--out")[1].split('"')[1] for j in jobs} == {str(root / "results" / "i"),
                                                                   str(root / "results" / "sub" / "m")}
-    # pack mode: germquant_pack ID@VER with recipe R runs `germquant run --pack`, discovering with that recipe's keys
-    text = _dry_run(exe, home, input_root=root, output_root=out, germquant_pack="test_pack@0.1.0", recipe="basic")
+    # pack mode: germquant_pack ID@VER with recipe R runs `germquant run --pack`, discovering with that recipe's keys;
+    # germquant_config, which workflow/config.yaml always sets, is not read for it (here it would match no file;
+    # review N4)
+    nothing = _study(tmp_path, input_glob="no_such_folder/*.nd2")
+    text = _dry_run(exe, home, input_root=root, output_root=out, germquant_pack="test_pack@0.1.0", recipe="basic",
+                    germquant_config=nothing.as_posix())
     jobs = [line for line in text.splitlines() if line.strip().startswith("germquant run")]
     assert jobs and all('--pack "test_pack@0.1.0" --recipe "basic"' in j and "--config" not in j for j in jobs), jobs

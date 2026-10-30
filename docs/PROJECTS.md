@@ -264,11 +264,13 @@ is a CSV file, samples.csv in a project, any file with `--samples`:
   other than herm or male (H, HERM, M or MALE in any letter case) on a row without germ_cell, and a germ_cell other
   than oocyte or spermatocyte, are kept as written, with a warning: such an image gets no expected synaptonemal
   complex or crossover count (`unknown` and `NA` say the value is not known, and are not warned about).
-- Any other column is your own (a slide, a strain note, a scorer). No run reads it: `germquant collect` joins it
-  into every `batch_<table>.csv` by image id (empty for an image without a row). A column a table already has, such
-  as `n_nuclei` in batch_image_summary.csv, is not joined there, with a warning; batch_summary.csv keeps its six
-  columns. A column named like one of the metadata columns every table carries (`file_path`, `config_hash` and the
-  others) is refused.
+- Any other column is your own (a slide, a strain note, a scorer). No run reads it: `germquant collect --samples`
+  joins it into every `batch_<table>.csv` by image id (empty for an image without a row). A column a table already
+  has, such as `n_nuclei` in batch_image_summary.csv, is not joined there, with a warning; batch_summary.csv keeps
+  its six columns. A column named like one of the metadata columns every table carries (`file_path`, `config_hash`
+  and the others) is refused. Because the join goes by image id, two images in different folders that share an id
+  (day1/img_001.nd2 and day2/img_001.nd2) both get the columns of a row that names one of them by its path, though
+  the run gives that row's design columns to the named file only: give such images distinct names.
 - An image the sheet has no row for keeps the file name's design columns and gets the flag
   `metadata:not_in_sample_sheet` (only in a run that was given a sheet). Rows for images that are not in the run are
   ignored.
@@ -284,11 +286,11 @@ A plain `germquant batch` writes batch_summary.csv only, so the sheet's own colu
 manifest names (`germquant project edit STUDY --samples samples.csv`), and a project run applies it image by image as
 `batch --samples` does.
 
-**Resuming.** The sheet is not part of the config hash, like the file name it replaces, so adding a row never
-reruns a finished image. Each image's row has a digest, row_sha256: the sha256 of the row's design cells written as
-canonical JSON. A run with a sheet records it in the image's run geometry (`sample_sheet {source, row_sha256}` in
-run_manifest.json and `<image_id>__stages.json`) and in its completion marker (`sample_row_sha256`; null for an image
-without a row). `batch --resume` then reruns exactly the images whose row changed: a corrected design cell, a row
+**Resuming.** The sheet is not part of the config hash, like the file name it replaces, so adding a row for one
+image never reruns another. Each image's row has a digest, row_sha256: the sha256 of the row's design cells written
+as canonical JSON. A run with a sheet records it in the image's run geometry (`sample_sheet {source, row_sha256}` in
+`<image_id>__stages.json`, and in run_manifest.json where a run writes one per image: `germquant run`, the API and
+project runs) and in its completion marker (`sample_row_sha256`; null for an image without a row). `batch --resume` then reruns exactly the images whose row changed: a corrected design cell, a row
 added for an image that ran without one, or a row taken away (resuming without the sheet reruns every image that
 ran with a row). Editing your own columns reruns nothing. The reason is printed, `reprocessing: sample row differs
 (...)`.

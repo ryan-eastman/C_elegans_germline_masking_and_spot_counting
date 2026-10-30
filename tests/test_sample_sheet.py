@@ -283,6 +283,18 @@ def test_default_runs_unchanged(tmp_path, monkeypatch, capsys):
     api.run_loaded("g.nd2", cfg, tmp_path / "c")
     api.run_loaded("g.nd2", cfg, tmp_path / "d", sample=row)
     assert seen == [{}, {"sample": row}, {}, {"sample": row}]
+    # review N3: without a row, api.run hands run_loaded today's keywords (a fake of today's exact signature would
+    # raise on any other)
+    loaded = []
+
+    def exact_loaded(image, cfg, out=None, *, xy_stride=None, z_range=None, t=None):
+        loaded.append(str(image))
+        return {}
+
+    with monkeypatch.context() as mp:
+        mp.setattr(api, "run_loaded", exact_loaded)
+        api.run("g.nd2", config=cfg, out=tmp_path / "e")
+    assert loaded == ["g.nd2"]
     # `germquant batch` without --samples: process_image and is_done get today's keywords (a fake with today's exact
     # signature would raise on any other), and the batch writes what it always has
     src = tmp_path / "in"
@@ -788,6 +800,28 @@ def test_a_file_path_with_backslashes_names_the_same_file_everywhere(tmp_path, m
     assert posix.row("img_001", PurePosixPath("/study/day1/img_001.nd2")).fields == {"genotype": "N2"}
     assert posix.row("img_002", PurePosixPath("/study/day2/img_002.nd2")).fields == {"genotype": "N3"}
     assert posix.rows[0]["file"] == "day1\\img_001.nd2"
+
+
+def test_the_collect_hint_quotes_its_paths(tmp_path, monkeypatch, capsys):
+    """Review N7: after a plain `batch --samples` whose sheet has columns of its own, the printed `germquant collect`
+    line quotes both paths, so it can be pasted as one command when a folder name holds a space."""
+    src = tmp_path / "in put"
+    src.mkdir()
+    (src / IN).write_bytes(b"")
+    rows = []
+
+    def fake(nd2, cfg, out_dir, *, xy_stride=1, z_range=None, prov=None, sample=None):
+        rows.append(sample)
+        return {"image_id": IN_ID, "n_nuclei": 1, "qc_pass": True, "qc_flags": [], "out_dir": str(out_dir),
+                "tables": {"image_summary": pd.DataFrame([{"n_germline_nuclei": 1}])}, "stages": {}}
+
+    monkeypatch.setattr(pipeline, "process_image", fake)
+    sheet = _write_csv(tmp_path / "my sheet.csv", [{"image_id": IN_ID, "genotype": "N2", "slide": "S1"}])
+    out = tmp_path / "out dir"
+    assert cli.main(["batch", str(src), "--config", str(_study(tmp_path)), "--out", str(out), "--samples",
+                     str(sheet)]) == 0
+    assert [r.fields for r in rows] == [{"genotype": "N2"}]
+    assert f'`germquant collect "{out}" --samples "{sheet}"`' in capsys.readouterr().out
 
 
 def test_importing_the_module_is_light():
