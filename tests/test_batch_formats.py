@@ -292,6 +292,51 @@ def test_an_output_root_at_or_above_the_input_folder_keeps_the_inputs(tmp_path, 
         calls.clear()
 
 
+def test_two_formats_of_one_id_in_one_folder_keep_the_first(tmp_path, monkeypatch, capsys):
+    """Review pass 2, S1 (reviews/P5_pass2_sheet.md): with io.input_suffixes listing several formats, x.nd2 and its
+    export x.tif in one folder have one image id, which names one results folder. The first by name is kept and
+    every other one is dropped with the reason duplicate_id and printed, so no two runs write one results folder;
+    the same id in another folder is another image, and a default batch (.nd2 only) never meets the rule."""
+    root = tmp_path / "in"
+    for name in ("img.nd2", "img.ome.tif", "img.tif", "sub/img.tif", "two.ome.tif", "TWO.tif", "x.nd2", "y.tif"):
+        p = root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"")
+    files, dropped = batch.discover_files(root, "**/*", suffixes=(".nd2", ".ome.tif", ".tif"))
+    names = _rel(root, files)
+    twins = {"two.ome.tif", "TWO.tif"}            # which of the two sorts first is the system's letter case rule
+    assert [n for n in names if n not in twins] == ["img.nd2", "sub/img.tif", "x.nd2", "y.tif"]
+    assert len(twins & set(names)) == 1
+    why = {f.name: w for f, w in dropped}
+    assert set(why) == {"img.ome.tif", "img.tif"} | (twins - set(names))
+    assert why["img.tif"].startswith("duplicate_id img: img.nd2 in this folder has the same image id")
+    assert all(w.startswith("duplicate_id ") for w in why.values())
+    # the default set: .nd2 files only, one suffix per id, so nothing is dropped for it
+    assert _rel(root, batch.discover_files(root)[0]) == ["img.nd2", "x.nd2"]
+    assert not [w for _, w in batch.discover_files(root, "**/*")[1] if w.startswith("duplicate_id")]
+    # `germquant batch`: one run per results folder, the others printed as left out; a resume finds every marker
+    calls: list = []
+    monkeypatch.setattr(pipeline, "process_image", _fake_process(calls))
+    study = _study(tmp_path, input_glob="**/*", input_suffixes=[".nd2", ".ome.tif", ".tif"])
+    out = tmp_path / "out"
+    assert cli.main(["batch", str(root), "--config", str(study), "--out", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert [c[0] for c in calls] == [Path(n).name for n in names]
+    assert len({c[1] for c in calls}) == len(calls)
+    assert "left out img.ome.tif: duplicate_id img" in printed and "left out img.tif: duplicate_id img" in printed
+    calls.clear()
+    assert cli.main(["batch", str(root), "--config", str(study), "--out", str(out), "--resume"]) == 0
+    assert calls == [] and capsys.readouterr().out.count("already done") == len(names)
+    # one format, two names that differ in letter case (two files only where the file system tells case apart): the
+    # base keeps both, and so does the rule, which compares formats
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "Q.nd2").write_bytes(b"")
+    (case / "q.nd2").write_bytes(b"")
+    want = sorted(p.name for p in case.iterdir())
+    assert sorted(f.name for f in batch.discover_files(case, "**/*", suffixes=(".nd2", ".tif"))[0]) == want
+
+
 # ---------------------------------------------------------------------------------------------------
 # io.input_suffixes: the strict check
 # ---------------------------------------------------------------------------------------------------

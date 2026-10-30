@@ -353,7 +353,9 @@ io:
 ```
 
 A suffix is the whole format suffix, so `.tif` does not pick up `x.ome.tif`. Each image's id, which names its
-results folder, is the file name without that suffix (`x.ome.tif` is the image `x`). germquant's own output images
+results folder, is the file name without that suffix (`x.ome.tif` is the image `x`). Two files of one folder with
+one id in different formats (`x.nd2` and an export `x.tif`) would share that folder, so the batch keeps the first by
+name (`x.nd2` before `x.ome.tif` before `x.tif`) and prints the others as left out. germquant's own output images
 (`<id>__nuclei_labels.tif` and the like) are never taken for inputs, and with `io.input_suffixes` set nothing under
 an `--out` folder inside the input folder is either (results next to the images, `--out` the input folder itself,
 are fine). Label images of other tools kept next to the images, such as Cellpose's `x_masks.tif` or the labels files

@@ -933,6 +933,8 @@ def _batch(args) -> int:
     for f, why in dropped:
         if why.startswith("exclusions_file"):
             print(f"excluded by {why}: {f.name}")
+        elif why.startswith("duplicate_id"):       # two formats of one image id in one folder (io.input_suffixes)
+            print(f"left out {f.name}: {why}")
     if not files:
         what = f"files with the suffixes {', '.join(formats_kw['suffixes'])}" if formats_kw else ".nd2 files"
         print(f"No {what} matched {glob} under {root}", file=sys.stderr)

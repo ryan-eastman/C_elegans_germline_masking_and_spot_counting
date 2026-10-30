@@ -94,7 +94,11 @@ def discover_files(root: str | Path, glob: str = "**/*.nd2", exclude_patterns: l
     ends in .nd2, so the default set is unchanged. With ``skip_root`` (the batch's output root, given only when
     io.input_suffixes is set, PLAN.md D20) nothing under that folder is kept either, when it lies inside ``root``
     (results in a folder of the input tree); an output root at or above ``root`` (results next to the images, or
-    around them) holds the inputs themselves, so there only germquant's own images are left out."""
+    around them) holds the inputs themselves, so there only germquant's own images are left out.
+
+    Two files of one folder whose image ids are equal (in any letter case) but whose formats differ (x.nd2 and an
+    export x.tif) would share one results folder: the first in sorted order is kept, and each other one is dropped
+    with the reason ``duplicate_id``. With the default suffixes every file is an .nd2, so this never applies."""
     from .io.formats import image_stem, image_suffix
     from .project.images import is_output_name
 
@@ -106,6 +110,7 @@ def discover_files(root: str | Path, glob: str = "**/*.nd2", exclude_patterns: l
         skip = None                        # at or above the input folder, or beside it: nothing of root lies under it
     keep: list[Path] = []
     dropped: list[tuple[Path, str]] = []
+    first: dict[tuple[str, str], Path] = {}     # (folder, image id in any letter case) -> the file kept for it
     for f in sorted(root.glob(glob)):
         if image_suffix(f) not in want or is_output_name(f.name):
             continue
@@ -120,6 +125,11 @@ def discover_files(root: str | Path, glob: str = "**/*.nd2", exclude_patterns: l
         hit = excl.matches(image_stem(f))
         if hit is not None:
             dropped.append((f, f"exclusions_file {hit}")); continue
+        other = first.setdefault((str(f.parent), image_stem(f).casefold()), f)
+        if other is not f and image_suffix(other) != image_suffix(f):
+            # one image id in two formats (x.nd2 and x.tif): both would write the one results folder <id>/
+            dropped.append((f, f"duplicate_id {image_stem(f)}: {other.name} in this folder has the same image id, "
+                               f"which names one results folder")); continue
         keep.append(f)
     return keep, dropped
 
