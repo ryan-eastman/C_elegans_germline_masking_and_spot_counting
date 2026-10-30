@@ -269,6 +269,11 @@ switches; an unmodified project therefore runs with the config_hash of `germquan
   docs/LABELS.md) or runs single-plane images (io.planar true, or auto on an image with one plane, docs/PLANAR.md)
   cannot run a series in this release: such an image fails with that message, before anything of it is read, and
   the other images run.
+- With a sample sheet (`project edit STUDY --samples samples.csv`, see Sample sheet below) each image runs with its
+  row, as `batch --samples` runs it, and a resume reruns the images whose row changed. A time series that has a row
+  fails before anything of it is read (the time-lapse loop gives its timepoints no row: take the row out, or clear
+  the sheet with `--samples none`); a series without a row runs as before, its design columns from the file name
+  and without the flag `metadata:not_in_sample_sheet`.
 - A recipe that reads its nuclei from labels files does not load the segmentation model, so the model is not
   checked; the run says so.
 - An image that fails, or cannot be reached (a NAS or a VPN that is not connected: "not reachable"), is named in
@@ -287,6 +292,8 @@ The run is refused, before any image is read and with nothing written (exit 2, t
   under `$GERMQUANT_MODELS` first: a shared model store holding a file at the same relative path would
   otherwise run instead of the project's own (see Project models). A pack model that is missing is fetched with
   `germquant pack fetch-models`;
+- the sample sheet the project names cannot be opened or read (the message names the file, as `batch --samples`
+  does);
 - an edit holds the project's lock. A lock older than 12 hours is reported instead, and the run goes on (a run
   never removes a lock).
 
@@ -382,7 +389,7 @@ that was stopped: readers use its complete lines.
 | status | meaning | reason_code |
 |---|---|---|
 | done | its results match the project's recipe and run settings; a run skips it | |
-| stale | its results were made with another recipe or setting; a run makes them again | config_hash (the recipe changed: an edit, or another pack version), stages (a stage was switched on or off), geometry (the xy stride, z range or timepoint), planar_flag (a single-plane result checked without its single-plane segment hash; it runs again), segment_hash (the segmentation model, Cellpose or the labels file changed) |
+| stale | its results were made with another recipe or setting; a run makes them again | config_hash (the recipe changed: an edit, or another pack version), stages (a stage was switched on or off), geometry (the xy stride, z range or timepoint), planar_flag (a single-plane result checked without its single-plane segment hash; it runs again), segment_hash (the segmentation model, Cellpose or the labels file changed), sample_row (the image's row of the sample sheet changed, was added, or was taken away) |
 | failed | a stage failed last time (failed_stages), or the last run of it failed (its error) | failed_stages, or none |
 | missing | no results yet | |
 | unreachable | not done, and its file cannot be reached: is the NAS or VPN connected? | |
@@ -404,7 +411,8 @@ segmented on and the file a run reads (a relative path joined to the project fol
   project's copy of the pack missing or replaced, a recipe.yaml the manifest does not record, a held or stale lock,
   a model a run would refuse (missing, not the expected file, or a segmentation model the engine cannot resolve
   on this computer, which status reports instead of failing; when the recipe segments with that model, the
-  images' segment stage is then not compared), and an environment mix: runs that used more than one device,
+  images' segment stage is then not compared), the sample sheet's own warnings, or a sheet a run would refuse
+  (the images are then compared as without a sheet), and an environment mix: runs that used more than one device,
   interpreter or engine version (git sha), whose results can differ.
 
 `--json` prints the same as one JSON object, the record germquant.project.project_status returns: format, root,
@@ -420,8 +428,10 @@ fields above), warnings, lock and runs.
 timepoints by its timepoint ids, `<id>_t<NNN>`) and with the recipe's QC settings: qc.germline_outlier_factor.
 The outside packs set it to 1.0e+9, which switches off the framing check that flags a gonad with far more
 germline nuclei than the others; on dense fields of cultured cells or yeast that check would flag nearly every
-image. The plain `germquant collect results/` has no recipe and keeps the factor 1.8. `--json` prints `{"root",
-"results", "outlier_factor", "images", "counts", "summary"}`. A project without results is refused.
+image. The plain `germquant collect results/` has no recipe and keeps the factor 1.8. With a sample sheet, its
+own columns are joined into every table, as `germquant collect --samples` joins them. `--json` prints `{"root",
+"results", "outlier_factor", "images", "counts", "summary", "sample_sheet"}` (`sample_sheet` null, or `{"path",
+"columns"}` with the columns joined). A project without results is refused.
 
 ## Export commands
 
