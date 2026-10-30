@@ -1697,3 +1697,57 @@ Entries are appended, never edited. Each one says whether a test result had been
    proposed configuration (v2) is computed once on 15000 to 15099. Correction: entry 33 names
    tests/test_sc_straighten_v3_guards.py; those tests are in tests/test_sc_straighten_v3_gaps.py (and the punctum
    tests in tests/test_sc_straighten_v3_punctum.py), the names they were committed under.
+35. 2026-10-30, the v3 development round (results of the checkpoint Z-v3, the hold-out check H1-v3 and the
+   snapshot), written after the numbers below were computed (no test result had been computed, no test or reserved
+   image was run, no test or reserved truth was read and no sealed seed was generated). With the code of commit
+   24bfde1 (C:/Users/ryane/sc_ribbon_work/v3/runs/, v3/zones/Zv3/zones_v3.json, v3/zones/H1v3/zones_v3.json,
+   v3/logs/summary_snapshot_s_v2.json; dev_trials.jsonl lines 10 to 15). No change of this round was adopted (entry
+   34), so neither check decides anything; the numbers report the real-data effect of each rule.
+   (a) Z-v3, the twelve development gonads with trial-4 runs. v2 (the defaults): every shared column of the five
+   tables of all twelve images equals that of the v2.0 head runs (runs/a711fe5, themselves equal to trial 4) apart
+   from sc_straighten_hash (v3/logs/realdata_identity_v2_24bfde1_vs_a711fe5.json); S2a 0.828 (0.671 to 0.933) over 7
+   evaluable gonads under the registered guard and 0.802 (0.728 to 0.859) over 12 under guard_frac 0.25 (intensity
+   comparator 0.965 and 0.910); S2b 0.987 and 0.984; SC_fullstart within one point spacing in 11 of 12 (median error
+   5.3 um); theta_full 2.0 um and theta_present 10.0 um; residual AUC of piece_lw_mean_um after the intensity 0.616
+   and 0.609. The punctum class alone: S2a 0.805 and 0.778, paired differences against v2 -0.023 (-0.044 to -0.008)
+   and -0.023 (-0.037 to -0.013); S2b 0.985 and 0.981 (paired -0.002 and -0.003); residual AUC 0.606 and 0.599
+   (paired -0.010 and -0.010); SC_fullstart 11 of 12 (median error 7.7 um; theta_present 9.5 um under guard_frac
+   0.25); the reference came from the foci with the depth term on all twelve images, sigma_z 0.363 to 0.458 um
+   against the image PSF 0.365 to 0.383 um (the fallback on 10 of 12), 0.453 to 0.458 um on the four 2026-01-05
+   heat-shock males; puncta per traced analysis nucleus (no guard band) None 0.89, SCfrag 1.00, SCfull 0.57, LPfrag
+   1.41; the steep share of the counted traced length fell from 0.707 to 0.623 (None), 0.561 to 0.531 (SCfrag),
+   0.364 to 0.350 (SCfull) and 0.426 to 0.389 (LPfrag), far above the 0.13 of randomly oriented ribbons, so the
+   class removes little of the steep length. Dim stretches alone (0.35, 3.0): 2 to 51 dim stretches per image (158
+   in all, 67 um), gaps per traced SCfull nucleus 2.81 to 2.74; paired S2a differences -0.0001 and -0.0007
+   (intervals across 0), S2b and SC_fullstart unchanged, residual AUC about -0.001 under both guards. Both: as the
+   punctum class (paired S2a -0.023 and -0.024). For the record, no configuration met the veto condition of entry 31
+   (d) (no paired S2a difference below -0.03 under both guards; S2b at most 0.003 below v2's).
+   (b) H1-v3, the six development hold-out gonads that now have germquant runs (20251021_n2_nohs_HERM_2 and the five
+   of entry 31 (f)), with the thresholds of the twelve (out of sample). v2: S2a not evaluable under the registered
+   guard (no gonad with ten nuclei in each class outside the bands) and 0.833 (0.744 to 0.907) over all six under
+   guard_frac 0.25 (intensity comparator 0.840; per gonad 0.739, 0.659, 0.921, 0.949, 0.881 and 0.850 in the order
+   above, the first as in entry 26); S2b 0.962 (0.923 to 0.987) and 0.933 (intensity 0.974 and 0.966); SC_fullstart
+   within one point spacing in 3 of 6 (median error 16.9 um), SC_fragstart 3 of 6, SC_fraglate 5 of 6; residual AUC
+   0.678 under guard_frac 0.25. Both changes: S2a 0.832 under guard_frac 0.25 (paired -0.001, -0.006 to +0.001), S2b
+   0.963 and 0.934, SC_fullstart 3 of 6. With no change adopted H1-v3 decides nothing (entry 31 (e)); the two
+   dev_trials.jsonl lines of H1-v3 carry "decides" true because the scoring script did not apply that clause (it
+   does now; nothing would have been withdrawn: the paired difference is -0.001).
+   (c) The snapshot of the configuration proposed for the freeze, v2, once on 15000 to 15099: S1a met (mean length
+   error +0.081 um, 95 percent limits -0.066 to +0.229 um, median centreline distance 0.018 um, one strand per
+   ribbon in all); S1b not met (mean total error -5.9 percent, SD 8.8 percent, CCC 0.541; coverage 0.963 and
+   off-truth 0.009 met); S1c met (precision 1.00, recall 0.913, gap length error 0.038 um); S1d met (0.062 um, all
+   on the right ribbon); S1e not met (complete precision 0.889 pooled, 0.667 in dense nuclei); S1f met. With the
+   registered generator the dense totals were -15.3 percent (SD 9.4 percent, CCC 0.282).
+   (d) Process. The first start of the checkpoint (14:36Z) failed before any sc-straighten ran (an environment clash
+   in the run script), and its score found no run and computed nothing (v3/zones/_failed_start_20261030T1436Z). The
+   second start ran all four configurations; its first score stopped at 15:16Z after the official S2 of v2, on a
+   column-name clash in the by-zone tables, before any dev_trials line was written, and its numbers were not read
+   (v3/zones/_failed_score_20261030T1516Z); the score then ran once in full. The five heavy germquant runs of entry
+   31 (f) are all done: 20260105_n2_hs_HERM_2 again from scratch (27 min, peak working set 50.2 GiB, peak commit
+   65.6 GiB, 701 nuclei), 20260105_n2_nohs_HERM_1 (32 min, 51.5 and 72.7 GiB, 1,183 nuclei, 1,101 in the germline)
+   and 20260105_n2_nohs_MALE_3 (34 min, after about 51 min waiting for the GPU lock that another workflow held, 51.0
+   and 72.7 GiB, 774 nuclei, 760 in the germline); each started with 43.2 to 50.7 GiB free, the free physical memory
+   fell to 0.0 to 0.16 GiB during each, and each passed the completion, channel (central_element is the nd2 channel
+   477, the SC channel of 2026-01-05) and segmentation (Cellpose) checks. The round ends with the configuration of
+   v2 proposed for the freeze; the robustness report of section 9, the thresholds on all development gonads and the
+   freeze entry wait for the project lead's decisions.
