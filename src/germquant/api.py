@@ -170,6 +170,7 @@ def run(
     t: int | None = None,
     pack: str | None = None,
     recipe: str | None = None,
+    sample=None,
 ) -> dict:
     """Process one image exactly as ``germquant run`` does and return its result record.
 
@@ -186,7 +187,10 @@ def run(
     None, the default, for a fixed image. ``pack`` (``id`` or ``id@version``) and ``recipe`` run a system
     pack's recipe instead of config or profile (docs/PACKS.md), as ``germquant run --pack`` does; the run
     also records the pack and the runtime in its manifest. This call does not run the pack check: call
-    ``pack_status`` first, as the command line does.
+    ``pack_status`` first, as the command line does. ``sample`` is the image's row of a sample sheet
+    (``germquant.io.sample_sheet.read_sample_sheet(path).row(image_id, image)``, a SampleRow; docs/PROJECTS.md,
+    "Sample sheet"), as ``germquant run --samples`` passes it: its design columns replace the file name's; None, the
+    default, for none. A sample row with ``t`` is refused.
 
     Returns the dict process_image returns: ``image_id``, ``n_nuclei``, ``qc_pass``, ``qc_flags``,
     ``out_dir``, ``tables`` (one DataFrame per output table) and ``stages`` (the per-stage record). A QC
@@ -195,7 +199,8 @@ def run(
     cfg = resolve_config(config, profile, pack=pack, recipe=recipe)
     for key, value in (overrides or {}).items():
         cfg.set(str(key), value)
-    return run_loaded(image, cfg, out, xy_stride=xy_stride, z_range=z_range, t=t)
+    return run_loaded(image, cfg, out, xy_stride=xy_stride, z_range=z_range, t=t,
+                      **({} if sample is None else {"sample": sample}))
 
 
 def run_loaded(
@@ -206,13 +211,17 @@ def run_loaded(
     xy_stride: int | None = None,
     z_range: tuple[int, int] | list[int] | None = None,
     t: int | None = None,
+    sample=None,
 ) -> dict:
     """``run`` once the config is resolved and every override applied: the single call that the command
-    line and the API share, so there is one code path to a results folder."""
+    line and the API share, so there is one code path to a results folder. ``sample``: the image's sample sheet
+    row (see ``run``)."""
     out_dir = Path(out) if out is not None else default_out_dir(image)
     stride = int(xy_stride) if xy_stride else 1
     zr = (int(z_range[0]), int(z_range[1])) if z_range else None
     # process_image writes run_manifest.json itself (run geometry and per-stage hashes), hence prov=None;
     # t goes along only when given, so a fixed image is the call it has always been
     kw = {} if t is None else {"t": t}
+    if sample is not None:
+        kw["sample"] = sample              # a sample sheet row, passed on only when given (D40)
     return process_image(image, cfg, out_dir, xy_stride=stride, z_range=zr, prov=None, **kw)
