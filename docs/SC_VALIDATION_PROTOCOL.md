@@ -1584,3 +1584,62 @@ Entries are appended, never edited. Each one says whether a test result had been
    levels of (a) to (c) are the same. Reported, choosing nothing: the reference's error at the puncta's depths with
    the depth term and with the constant estimate, the sources of the reference by level, and, at the checkpoint, the
    reference of the twelve development images against their image PSF.
+33. 2026-10-30, the v3 development round (dim stretches that are not gaps), written before any number of this change
+   was computed on the seeds of entry 31 (b), on a development image or on zone truth (no test result had been
+   computed, no test or reserved image was run, no test or reserved truth was read and no sealed seed was
+   generated). Motivated by development results (entry 29): with the recalibrated brightness feature alone, gaps per
+   traced nucleus of continuous dense phantoms rose from 1.76 to 4.29 and the median piece_lw_mean_um fell from 5.03
+   to 3.65 um (58 percent of the way to real full SC), while strands per nucleus and totals barely changed.
+   Method (switches; params.V3_GAPS: gaps.dim_stretch true, gaps.dim_sigma_source foci_depth; the defaults are those
+   of v2). A gap candidate of a strand that passes every test of v1 (the same window, baseline, missing length L,
+   centre and z score) is a dim stretch and not a gap when (i) no sample of its widened window lies within
+   contamination_um of another strand (there the neighbour's blur adds signal that an empty gap does not hold) or
+   within 0.1 um of the midpoint of a link between two traced members (there the end matching may have joined two
+   ribbons); (ii) its relative minimum r (the smoothed profile at its deepest sample over the baseline there)
+   exceeds the minimum m_E(L) = 1 - erf(L / (2 sqrt(2) sigma)) of an empty gap of the same missing length after the
+   blur along s by more than gaps.dim_z standard errors of r (the standard error of the integrated sample there over
+   the baseline; it ignores the smoothing, so it is conservative), with sigma = sqrt(sigma_t^2 + (3 x 0.05 um)^2 /
+   12), sigma_t the axial and lateral sigmas projected on the strand's tangent there, the axial sigma that of the
+   measured reference of entry 32 at the candidate's depth (gaps.dim_sigma_source foci_depth; the image PSF's
+   without a foci estimate) and the lateral sigma the image PSF's; and (iii) its fill fraction f exceeds
+   gaps.dim_fill, f the solution of r = f + (1 - f) m_E(L / (1 - f)) (a stretch of width L / (1 - f) that keeps the
+   fraction f of its flanks' signal has the missing length L and, after the blur, the minimum r; f is 0 when r is at
+   or below m_E(L)). A dim stretch is not a gap: it has no gap row, its samples are not in_gap and the strand's
+   pieces continue over it; the record counts the dim stretches (dim_stretches) and names the reference
+   (dim_reference). The strands, their ends, links and lengths are those of v1, because the rule runs after the
+   centrelines are final, and only the columns that the reading of gaps feeds can change
+   (tests/test_sc_straighten_v3_guards.py). A known ambiguity: behind the blur along s, the junction of two
+   different ribbons whose tips are dim, with a short empty core between them that the tracer follows, looks like a
+   filled stretch (fills of 0.1 to 0.3 of the flanks in the tests at 0 and 40 degrees of tilt); (i) excludes such
+   junctions only at links, so their rate is a targeted metric below.
+   New development family gaps_psf (family code 110; not registered; the seeds of entry 31 (b)): one image of two
+   layers 6.5 um apart in z, each with six isolated ribbons in their own nuclei (length U(3.0, 7.0) um, lengthened
+   in 0.5 um steps as the gaps family does when its events do not fit, tilt U(0, 75) degrees, peak U(300, 800)
+   counts), alternately with 1 or 2 empty gaps of U(0.3, 1.0) um (as the gaps family; 1 below 4 um) and with 1 or 2
+   dim stretches of U(0.4, 1.5) um at U(0.15, 0.6) of the ribbon's brightness, at least 0.8 um of ribbon before,
+   between and after them; the PSF and the foci channel of puncta_psf (entry 32).
+   Parameters, chosen on the tuning seeds by this rule (gaps.* is tunable, DESIGN section 8): the pairs
+   (gaps.dim_fill, gaps.dim_z) of {0.15, 0.25, 0.35} x {2.0, 3.0} are run with the switches of params.V3_GAPS on the
+   families gaps, gaps_psf, dense, snr, real_dense_r2, real_dense_r2_base and real_dense_r2_brightness. A pair is
+   eligible when (1) at most 2 percent of the truth gaps of gaps and gaps_psf (pooled) that a gap or a dim stretch
+   of the run matches (the S1c matching, one to one by the largest overlap; with the strands of v1 these are the
+   truth gaps that v2 detects) are matched by a dim stretch, and (2) the dim stretches whose two flanks (the
+   in-strand samples 0.1 to 0.6 um before and after them, half or more of each flank within the tolerance of one
+   truth ribbon) lie on two different truth ribbons number at most 2 per 100 traced nuclei of dense, snr,
+   real_dense_r2 and real_dense_r2_brightness (pooled). Among eligible pairs the one with the largest relative fall
+   of gaps per traced nucleus of real_dense_r2_brightness against v2 is chosen, pairs within 0.02 of the largest
+   counting as tied and ties going to the larger gaps.dim_fill, then the larger gaps.dim_z; with no eligible pair,
+   (0.35, 3.0) is taken. The chosen pair becomes the default of gaps.dim_fill and gaps.dim_z (they act only with the
+   switch on) before the confirmation.
+   Targeted metrics of the chosen pair against v2 on the same scenes, on the tuning seeds and then once on the
+   confirmation seeds: (a) gaps per traced nucleus of real_dense_r2_brightness fall by at least 40 percent
+   (confirmation: 20 percent); (b) the median piece_lw_mean_um of the traced nuclei of real_dense_r2_brightness
+   moves at least 40 percent (confirmation: 20 percent) of the way from v2's value to v2's value on
+   real_dense_r2_base (the same scenes without the brightness feature); (c) at most 2 percent (confirmation: 3
+   percent) of the matched truth gaps of gaps and gaps_psf, pooled, are dim stretches, and at most 5 percent at
+   every PSF level of gaps_psf; (d) at most 2 (confirmation: 3) dim stretches per 100 traced nuclei join two truth
+   ribbons as in (2); (e) the tolerances of entry 11 (b) on the confirmation seeds and the cost rule. Reported,
+   choosing nothing: the share of the truth dim stretches of gaps_psf that a gap or a dim stretch matches and the
+   share of those that are dim stretches, by PSF level; gaps and dim stretches per traced nucleus of every family
+   and the fills of the dim stretches; the reference's error at the middle depth of gaps_psf; and, at the
+   checkpoint, the same by zone.
