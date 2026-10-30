@@ -730,6 +730,30 @@ def test_file_column_keys_rows(tmp_path):
         S.read_sample_sheet(_write_csv(tmp_path / "d.csv", [{"file": "a/x.nd2"}, {"file": "b/x.ome.tif"}]))
 
 
+def test_a_file_path_with_backslashes_names_the_same_file_everywhere(tmp_path, monkeypatch):
+    """Review S2: a `file` cell written with Windows separators names the same image and file on Linux and macOS,
+    where pathlib.Path is a POSIX path (stood in for by PurePosixPath, so the test bites on every system). The cell
+    is kept as written in SampleSheet.rows, and the key is not hashed."""
+    from pathlib import PurePosixPath
+
+    import germquant.io.formats as F
+
+    cells = [{"file": "day1\\img_001.nd2", "genotype": "N2"}]
+    sheet = S.read_sample_sheet(_write_csv(tmp_path / "s.csv", cells))
+    assert sheet.image_ids == ["img_001"] and sheet.rows == cells
+    assert sheet.row("img_001", tmp_path / "day1" / "img_001.nd2").fields == {"genotype": "N2"}
+    assert sheet.row("img_001", tmp_path / "day2" / "img_001.nd2").row_sha256 is None
+    assert sheet.row("img_001").row_sha256 == _canonical({"genotype": "N2"})
+    monkeypatch.setattr(F, "Path", PurePosixPath)
+    monkeypatch.setattr(S, "Path", PurePosixPath)
+    text = "file,genotype\nday1\\img_001.nd2,N2\nday2/img_002.nd2,N3\n"
+    posix = S._parse(text, "/study/samples.csv", PurePosixPath("/study"), "utf-8-sig")
+    assert posix.image_ids == ["img_001", "img_002"]
+    assert posix.row("img_001", PurePosixPath("/study/day1/img_001.nd2")).fields == {"genotype": "N2"}
+    assert posix.row("img_002", PurePosixPath("/study/day2/img_002.nd2")).fields == {"genotype": "N3"}
+    assert posix.rows[0]["file"] == "day1\\img_001.nd2"
+
+
 def test_importing_the_module_is_light():
     heavy, r = heavy_after("import germquant.io.sample_sheet\n")
     assert r.returncode == 0, r.stderr[-2000:]

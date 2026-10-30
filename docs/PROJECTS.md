@@ -254,7 +254,8 @@ is a CSV file, samples.csv in a project, any file with `--samples`:
 
 - The first line names the columns. Each row names its image by `image_id`, the file name without its format
   suffix (the id that names the results folder: `x` for `x.ome.tif`), or by `file`: a file name, or a path relative
-  to the sheet's folder, which then names that one file.
+  to the sheet's folder (`/` or `\` between folders, read alike on Windows, Linux and macOS), which then names that
+  one file.
 - The design columns are `genotype`, `sex`, `germ_cell`, `treatment`, `replicate` and `acquisition_date`, written in
   lower case. A row's values go into every per-image table instead of what the file name gives through
   metadata.filename_regex, exactly as written (spaces around a value are dropped). A cell left empty keeps the file

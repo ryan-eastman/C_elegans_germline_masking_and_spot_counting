@@ -4,8 +4,8 @@ docs/DESIGN_system_packs.md section 7.4; PLAN.md decision D21).
 A sample sheet is a CSV file. Its first line names the columns:
 
 * the key, ``image_id`` (the file name without its format suffix, io.formats.image_stem, which names the results
-  folder) or ``file`` (a file name, whose image id is its image_stem, or a path, relative to the sheet's folder,
-  which then names that one file);
+  folder) or ``file`` (a file name, whose image id is its image_stem, or a path, relative to the sheet's folder, with
+  / or \\ between folders on every system, which then names that one file);
 * any of the design columns ``genotype``, ``sex``, ``germ_cell``, ``treatment``, ``replicate`` and
   ``acquisition_date``: process_image(sample=row) writes them into every per-image table instead of what the file
   name gives (parse_sample with metadata.filename_regex); a cell left empty keeps the file name's value, and when a
@@ -305,6 +305,9 @@ def _parse(text: str, where: str, base_dir: Path, encoding: str) -> SampleSheet:
         ident = values[key]
         if not ident:
             raise SampleSheetError(f"{where}: row {n} has no {key}: every row names its image")
+        if key == "file":
+            # a Windows separator names the same file on Linux and macOS, where pathlib keeps a backslash in a name
+            ident = ident.replace("\\", "/")
         image_id = image_stem(ident) if key == "file" else ident
         file_path = None
         if key == "file" and _has_folder(ident):
