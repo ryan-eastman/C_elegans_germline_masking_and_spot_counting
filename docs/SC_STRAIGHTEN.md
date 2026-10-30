@@ -389,8 +389,9 @@ The v3 development round (protocol changelog entries 31 to 33) adds two rules, e
 give the outputs of version 2.0 (which equal those of 1.0 in every column of 1.0): with the switches off every
 column of every table, the strips and the classes equal those of the v2 head (tests/test_sc_straighten_v3_compat.py
 against tests/golden/sc_straighten/v2_compat.json). No column is added. `params.V3_PUNCTUM`, `params.V3_GAPS` and
-`params.v3_sets()` give the configurations. Whether each rule is adopted is decided by its changelog entry; see
-"Validation status".
+`params.v3_sets()` give the configurations. Neither rule was adopted: both failed targets of their entries on the
+tuning seeds and were withdrawn (protocol changelog entry 34; see "Validation status"), so their switches stay off
+and the configuration proposed for the freeze is that of version 2.0.
 
 | switches (defaults) | when on | entry |
 |---|---|---|
@@ -569,6 +570,31 @@ seeds 3000 to 3049.
 * Cost, four workers on a shared machine: 1.3 to 3.5 min per gonad. The main process peaked at 4.5 GB on the
   2025-11-05 stacks and 7.7 GB on a 2026-01-05 stack (106 x 2720 x 2720) at commit 6b7be22; with the plane-by-plane
   reader of commit cf43042 (the same numbers) that stack peaks at 3.9 GB.
+
+Version 3 round (protocol changelog entries 31 to 35; development seeds and development gonads only; the scripts
+and outputs are under `C:/Users/ryane/sc_ribbon_work/v3/`). Two rules were pre-specified with their targets before
+any number, tuned on the seeds 13000 to 13099, and both withdrawn there; neither was confirmed.
+
+* The punctum class with the image's measured axial sigma (entry 32): it met its yield (82 percent of point puncta
+  and 73 percent of aggregates labelled with no strand outside the class; 80 to 81 percent of the puncta of
+  `puncta_psf` at every PSF level), its reference (the foci estimate within -2.3 to +3.4 percent of the rendered
+  sigma_z at the middle depth; the depth term lowered the error at the puncta's depths from 2.5 to 3.9 to 1.6 to
+  3.2 percent) and its excess target (the puncta excess of dense nuclei fell by 33.5 percent), but it labelled two
+  axial spurs lying on gaps ribbons and 0.61 and 0.70 percent of the ribbon length of `dense_puncta` and
+  `real_dense_r2` (0.5 allowed). On the twelve development gonads (entry 35) it lowered S2a by 0.023 under both
+  guards (intervals below 0) and the steep share of the traced length only from 0.36 to 0.35 in SCfull nuclei
+  (0.71 to 0.62 in the None zone), so most steep length is not puncta.
+* Dim stretches that are not gaps (entry 33): it never read a matched truth gap as continuous (0 of 709 at the pair
+  it took), but at every threshold of its grid it joined two truth ribbons 2.75 to 5.5 times per 100 dense nuclei
+  (2 allowed) and removed at most 22 percent of the gaps of the brightness phantoms (40 percent required). In dense
+  phantoms about one gap per nucleus lies at a junction between two ribbons, where the empty-gap model cannot tell a
+  dim stretch from two dim ribbon tips with a short empty core. On the development gonads it changed S2a by
+  -0.0001. The gaps that brightness variation creates in dense phantoms (entry 29) remain.
+* The hold-out check of entry 35 now covers six development gonads with germquant runs: with the thresholds of the
+  twelve, S2a 0.833 over six under a quarter-spacing guard (none evaluable under the registered guard; intensity
+  comparator 0.840), S2b 0.962, and SC_fullstart within one point spacing in 3 of 6 (11 of 12 in sample).
+* Snapshot of the proposed configuration (version 2.0, seeds 15000 to 15099): S1a met (+0.081 um), S1b not met
+  (mean -5.9 percent, SD 8.8 percent, CCC 0.54), S1c, S1d and S1f met, S1e not met (0.889 pooled).
 
 ## Differences from the design document
 
