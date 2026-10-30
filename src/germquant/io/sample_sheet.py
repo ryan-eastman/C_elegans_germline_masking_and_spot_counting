@@ -15,7 +15,11 @@ A sample sheet is a CSV file. Its first line names the columns:
   join them into every batch_<table>.csv.
 
 Values are taken as given, with spaces around them stripped. A non-ISO acquisition_date (anything but YYYY-MM-DD or
-YYYYMMDD) is kept, with a SampleSheetWarning: Excel rewrites dates in the computer's own format when it saves.
+YYYYMMDD) is kept, with a SampleSheetWarning: Excel rewrites dates in the computer's own format when it saves. So
+are a germ_cell other than oocyte or spermatocyte and, on a row without germ_cell, a sex other than herm or male (H,
+HERM, M or MALE in any letter case), each with a SampleSheetWarning: germ_cell then gives the image no expected
+synaptonemal complex or crossover count (io.sample_metadata.expected_sc_count), which the C. elegans recipes take
+from it.
 
 The file is read as UTF-8 (a byte-order mark is allowed), else as cp1252 with a warning (Excel's plain "CSV" on
 Windows), so either save reads the same letters. Line ends, the byte-order mark, the encoding, the column order,
@@ -62,6 +66,8 @@ ENCODINGS = ("utf-8-sig", "cp1252")
 RETRIES = 5                      # after the first attempt: five more over RETRIES * RETRY_WAIT_S = 2 s
 RETRY_WAIT_S = 0.4
 _ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$|^(\d{4})(\d{2})(\d{2})$")
+_GERM_CELLS = ("oocyte", "spermatocyte")       # the words expected_sc_count counts (io/sample_metadata.py)
+_NO_VALUE = ("unknown", "na")                  # a design cell that says the value is not known (any letter case)
 
 # seams the tests replace (a failing or a briefly locked file system)
 _replace = os.replace
@@ -73,7 +79,8 @@ class SampleSheetError(ValueError):
 
 
 class SampleSheetWarning(UserWarning):
-    """Something about a sample sheet that is read anyway (a cp1252 file, a non-ISO date)."""
+    """Something about a sample sheet that is read anyway (a cp1252 file, a non-ISO date, a sex or germ_cell no
+    expected count can be made from)."""
 
 
 @dataclass(frozen=True)
@@ -162,6 +169,27 @@ def iso_date(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _germ_cell_warnings(where: str, n: int, image_id: str, fields: dict) -> list[str]:
+    """The warning for a row whose germ cell gives no expected count (expected_sc_count): a germ_cell other than
+    oocyte or spermatocyte, or, on a row without germ_cell, a sex that parse_sample's map does not know (germ_cell
+    then reads unknown). unknown and NA say the value is not known, and are not warned about. The value is kept as
+    given (D21)."""
+    if "germ_cell" in fields:
+        value = fields["germ_cell"]
+        if value in _GERM_CELLS or value.lower() in _NO_VALUE:
+            return []
+        return [f"{where}: row {n} (image {image_id}): germ_cell {value!r} is not oocyte or spermatocyte (in lower "
+                f"case), so a recipe that counts synaptonemal complexes or crossovers gives the image no expected "
+                f"count; it is kept as given"]
+    sex = fields.get("sex")
+    if sex is None or sex.lower() in _NO_VALUE or germ_cell_of(sex) != "unknown":
+        return []
+    return [f"{where}: row {n} (image {image_id}): sex {sex!r} is not herm or male (H, HERM, M or MALE in any letter "
+            f"case), so germ_cell reads unknown and a recipe that counts synaptonemal complexes or crossovers gives the "
+            f"image no expected count; for C. elegans write herm or male, or give a germ_cell column (oocyte or "
+            f"spermatocyte)"]
 
 
 @dataclass(frozen=True)
@@ -322,6 +350,7 @@ def _parse(text: str, where: str, base_dir: Path, encoding: str) -> SampleSheet:
             found.append(f"{where}: row {n} (image {image_id}): acquisition_date {fields['acquisition_date']!r} is not "
                          f"an ISO date (YYYY-MM-DD or YYYYMMDD); it is kept as given. Excel rewrites dates in the "
                          f"computer's own format when it saves: format the column as text, or write ISO dates")
+        found += _germ_cell_warnings(where, n, image_id, fields)
         rows.append(_Row(n, image_id, file_path, values, fields, row_sha256(fields)))
     return SampleSheet(where, columns=columns, key=key, rows=rows, encoding=encoding, warnings_=found)
 

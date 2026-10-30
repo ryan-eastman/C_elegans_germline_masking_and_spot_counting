@@ -260,7 +260,10 @@ is a CSV file, samples.csv in a project, any file with `--samples`:
   lower case. A row's values go into every per-image table instead of what the file name gives through
   metadata.filename_regex, exactly as written (spaces around a value are dropped). A cell left empty keeps the file
   name's value. When a row gives `sex` but no `germ_cell`, germ_cell follows the row's sex as it does for a file name
-  (herm: oocyte, male: spermatocyte), so the expected synaptonemal complex count follows the corrected sex.
+  (herm: oocyte, male: spermatocyte), so the expected synaptonemal complex count follows the corrected sex. A sex
+  other than herm or male (H, HERM, M or MALE in any letter case) on a row without germ_cell, and a germ_cell other
+  than oocyte or spermatocyte, are kept as written, with a warning: such an image gets no expected synaptonemal
+  complex or crossover count (`unknown` and `NA` say the value is not known, and are not warned about).
 - Any other column is your own (a slide, a strain note, a scorer). No run reads it: `germquant collect` joins it
   into every `batch_<table>.csv` by image id (empty for an image without a row). A column a table already has, such
   as `n_nuclei` in batch_image_summary.csv, is not joined there, with a warning; batch_summary.csv keeps its six

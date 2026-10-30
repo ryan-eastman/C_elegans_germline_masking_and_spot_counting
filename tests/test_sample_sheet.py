@@ -730,6 +730,42 @@ def test_file_column_keys_rows(tmp_path):
         S.read_sample_sheet(_write_csv(tmp_path / "d.csv", [{"file": "a/x.nd2"}, {"file": "b/x.ome.tif"}]))
 
 
+@pytest.mark.parametrize("cells, warned", [
+    ({"sex": "hermaphrodite"}, "sex 'hermaphrodite'"), ({"sex": "Hermaphrodite"}, "sex 'Hermaphrodite'"),
+    ({"sex": "female"}, "sex 'female'"), ({"germ_cell": "Oocyte"}, "germ_cell 'Oocyte'"),
+    ({"sex": "herm", "germ_cell": "oocytes"}, "germ_cell 'oocytes'"),
+    ({"sex": "Herm"}, None), ({"sex": "M"}, None), ({"sex": "unknown"}, None), ({"sex": "NA"}, None),
+    ({"germ_cell": "spermatocyte"}, None), ({"germ_cell": "unknown"}, None),
+    ({"sex": "hermaphrodite", "germ_cell": "oocyte"}, None), ({"genotype": "N2"}, None),
+])
+def test_a_germ_cell_no_count_can_be_made_from_is_warned(tmp_path, monkeypatch, capsys, cells, warned):
+    """Review S1: a sex that parse_sample's map does not know (on a row without germ_cell), or a germ_cell other than
+    oocyte or spermatocyte, would give the image no expected SC or crossover count without a word. It is kept as
+    given (the same fields and row hash), with a warning that names the row and the image; the CLI prints it."""
+    path = _write_csv(tmp_path / "s.csv", [{"image_id": "a", **cells}])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        sheet = S.read_sample_sheet(path)
+    assert sheet.row("a").fields == cells and sheet.row("a").row_sha256 == _canonical(cells)
+    found = [str(w.message) for w in caught if issubclass(w.category, S.SampleSheetWarning)]
+    assert found == sheet.warnings
+    if warned is None:
+        assert found == []
+        return
+    assert len(found) == 1 and warned in found[0], found
+    assert "row 2 (image a)" in found[0] and "no expected count" in found[0]
+    # the value stays as written: germ_cell is what parse_sample's rule makes of the sex, or the cell itself
+    sample = {"sex": "herm", "germ_cell": "oocyte"}
+    S.apply_row(sample, sheet.row("a"))
+    assert sample["germ_cell"] == cells.get("germ_cell", "unknown")
+    # `germquant run --samples` prints it, as it prints the date warning
+    monkeypatch.setattr(api, "run", lambda image, **kw: {"image_id": "a", "n_nuclei": 0, "qc_pass": True,
+                                                         "qc_flags": [], "out_dir": "x"})
+    assert cli.main(["run", str(tmp_path / "a.nd2"), "--config", str(ROOT / "config" / "config.yaml"), "--out",
+                     str(tmp_path / "o"), "--samples", str(path)]) == 0
+    assert f"warning: {found[0]}" in capsys.readouterr().out
+
+
 def test_a_file_path_with_backslashes_names_the_same_file_everywhere(tmp_path, monkeypatch):
     """Review S2: a `file` cell written with Windows separators names the same image and file on Linux and macOS,
     where pathlib.Path is a POSIX path (stood in for by PurePosixPath, so the test bites on every system). The cell
