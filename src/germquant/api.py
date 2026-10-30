@@ -24,6 +24,7 @@ from pathlib import Path
 from . import __version__
 from .batch import collect, discover_files, enabled_stage_names, is_done, load_exclusions
 from .config import Config, default_config_path, find_profile, load_config
+from .import_labels import import_labels
 from .io import (
     SUPPORTED_SUFFIXES,
     Stack,
@@ -78,7 +79,8 @@ from .tune import apply_tuning, tune_spots
 # marker (discover_files, load_exclusions, collect, is_done, enabled_stage_names, read_done_marker); projects
 # (germquant.project, docs/PROJECTS.md: Project, new_project to run_project and export_commands, the light header
 # read_header; importing germquant.project alone loads no torch); spot tuning from truth points (tune_spots and
-# apply_tuning: `germquant tune-spots`, docs/TUNING.md; germquant.tune holds the tuners, grids and point files).
+# apply_tuning: `germquant tune-spots`, docs/TUNING.md; germquant.tune holds the tuners, grids and point files);
+# training pairs from labels drawn in another program (import_labels: `germquant import-labels`, docs/TRAINING.md).
 __all__ = [
     "STAGES",
     "SUPPORTED_SUFFIXES",
@@ -154,6 +156,9 @@ __all__ = [
     # spot tuning (docs/TUNING.md); importing germquant.tune alone loads no torch, and each tuner imports the pipeline
     "tune_spots",
     "apply_tuning",
+    # training pairs (docs/TRAINING.md); importing germquant.import_labels alone loads no torch, and the call
+    # imports the pipeline before it reads the image
+    "import_labels",
 ]
 
 
