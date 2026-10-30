@@ -36,7 +36,7 @@ STUDY/
   results/<image_id>/      the results of each image
   annotations/             <image_id>__points_<annotator>.csv, truth points for spot tuning
   training/<round>/        training rounds: pairs, corrections.json, models with their cards
-  tuning/<run>/            spot tuning runs: trials.jsonl, ranked.csv, best.yaml
+  tuning/<run>/            spot tuning runs: grid.yaml, trials.jsonl, ranked.csv, best.yaml, run.json
   packs/                   the pinned pack version (copied at creation) and any derived packs
 ```
 
