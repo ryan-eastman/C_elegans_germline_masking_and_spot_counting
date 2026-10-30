@@ -1,13 +1,15 @@
 """The SpotMAX chain with the optional keys of a pack recipe (docs/DESIGN_system_packs.md section 4.7,
-docs/BACKENDS.md; tranche 5 package P2a).
+docs/BACKENDS.md; tranche 5 package P2a), and its single-plane mode (package P2b, docs/PLANAR.md).
 
 detect.detect_spots_spotmax branches here, at its top, only when one of detect.SPOTMAX_OPTIONAL_KEYS
-(spot_radius_z_um, remove_hot_pixels, sharpen) is given. Its own body, the validated default chain, is not
-edited, and this code lives in a module of its own (design rule R3: new code in new modules). The chain
-repeats the default body's steps and calls the same helpers of the detect module (the flood guard
-_cap_candidates, the z-split merge _merge_z_columns, _empty and _finish_tables), looked up on that module at
-call time, so a fix there reaches both chains. tests/test_pack_knobs.py spies on every SpotMAX call and on
-those helpers, and checks with the real SpotMAX that neutral option values give the default body's tables.
+(spot_radius_z_um, remove_hot_pixels, sharpen) is given, or when the call is planar (one (1, Y, X) plane).
+Its own body, the validated default chain, is not edited, and this code lives in a module of its own (design
+rule R3: new code in new modules). The chain repeats the default body's steps and calls the same helpers of
+the detect module (the flood guard _cap_candidates, the z-split merge _merge_z_columns, _empty and
+_finish_tables), looked up on that module at call time, so a fix there reaches both chains.
+tests/test_pack_knobs.py spies on every SpotMAX call and on those helpers, and checks with the real SpotMAX
+that neutral option values give the default body's tables; tests/test_planar_spots.py spies on the planar
+mode's calls the same way and runs it on a synthetic plane with the real SpotMAX.
 """
 from __future__ import annotations
 
@@ -24,7 +26,7 @@ log = logging.getLogger(__name__)
 def spotmax_chain_with_options(
     spot_img, labels, spacing, *, marker, spot_radius_um, gauss_sigma_um, thresholding_method, effect_size_metric,
     effect_size_min, merge_z_columns, z_merge_gap_um, z_merge_valley_frac, max_spot_candidates,
-    spot_radius_z_um=None, remove_hot_pixels=None, sharpen=None,
+    spot_radius_z_um=None, remove_hot_pixels=None, sharpen=None, planar=False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """detect_spots_spotmax with the optional keys of a pack recipe (SPOTMAX_OPTIONAL_KEYS; None = absent).
     The steps are those of the default body (preprocess, semantic segmentation, peak detection with the
@@ -43,18 +45,36 @@ def spotmax_chain_with_options(
       test stay on ``pre``, and the flood guard ranks candidates by the raw image, as in the default body.
 
     With every option at its neutral value (spot_radius_z_um equal to spot_radius_um, remove_hot_pixels and
-    sharpen false) the tables equal the default body's, which tests/test_pack_knobs.py checks."""
+    sharpen false) the tables equal the default body's, which tests/test_pack_knobs.py checks.
+
+    ``planar=True`` (detect_spots_spotmax(planar=True), single-plane runs; tranche 5 package P2b, design 4.7)
+    runs the chain on one (1, Y, X) plane with dy and dx from ``spacing`` and the dz passed ignored: radii_px
+    (detect.PLANAR_RZ_PX, r / dy, r / dx), the Gaussian sigma over min(dy, dx), the features spacing (1.0, dy,
+    dx), which also scales the tables (every z_um is 0.0), and no z-split merge, whatever merge_z_columns says.
+    remove_hot_pixels and sharpen apply as above; spot_radius_z_um has no meaning on one plane and is ignored,
+    with a warning. With planar False, the default, the chain runs exactly as before (its old lines are the
+    else branch)."""
     import spotmax.pipe as P
 
     from .peak_filter import fast_min_distance_filter
 
     sp = np.asarray(spacing, dtype=float)
     img = np.asarray(spot_img).astype("float32")
-    if spot_radius_z_um is not None:
-        radii_px = np.array([float(spot_radius_z_um), spot_radius_um, spot_radius_um], dtype=float) / sp
+    if planar:                       # one plane (P2b): nothing below depends on the dz the caller passed
+        dy, dx = float(sp[1]), float(sp[2])
+        sp = np.array([1.0, dy, dx])     # the one-plane placeholder dz, planar.PLANAR_DZ
+        radii_px = np.array([float(_detect.PLANAR_RZ_PX), spot_radius_um / dy, spot_radius_um / dx], dtype=float)
+        gauss = gauss_sigma_um / min(dy, dx)
+        merge_z_columns = False
+        if spot_radius_z_um is not None:
+            log.warning("spots.spot_radius_z_um (%s) does not apply to a single plane; the z radius is "
+                        "PLANAR_RZ_PX = %s px", spot_radius_z_um, _detect.PLANAR_RZ_PX)
     else:
-        radii_px = spot_radius_um / sp
-    gauss = gauss_sigma_um / float(sp.min())
+        if spot_radius_z_um is not None:
+            radii_px = np.array([float(spot_radius_z_um), spot_radius_um, spot_radius_um], dtype=float) / sp
+        else:
+            radii_px = spot_radius_um / sp
+        gauss = gauss_sigma_um / float(sp.min())
     pre_kw = {} if remove_hot_pixels is None else {"do_remove_hot_pixels": bool(remove_hot_pixels)}
 
     pre = P.preprocess_image(img, lab=labels, gauss_sigma=gauss, use_gpu=False,

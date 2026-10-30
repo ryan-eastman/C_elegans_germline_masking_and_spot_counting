@@ -1,0 +1,5 @@
+objective: per-object Lin's CCC over the annotated objects, rounded to 3 decimals,
+  then point F1 (higher is better; a missing value ranks last)
+backend: log
+keys:
+  spots.log.min_snr: 3.0

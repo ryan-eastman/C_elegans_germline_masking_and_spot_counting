@@ -28,6 +28,11 @@ append-only change: a backend without them is called exactly as before):
   file's sha256), which the pipeline adds to the spots stage sub-hash and the run manifest
   (``spot_backend``) only when the dict is not empty, so the default run's hashes do not move.
 
+A third, ``planar_ok = True`` (tranche 5 package P2b, docs/PLANAR.md), says that the backend can detect spots
+on a single plane: ``detect_spots(..., planar=True)`` hands it the (1, Y, X) plane with the keyword
+``planar=True``, and refuses a backend without it. ``spotmax`` declares it; ``log`` and ``net3d`` do not. A
+backend called without planar never sees the keyword.
+
 Third-party packages add backends through the
 entry-point group ``germquant.spot_backends`` (``name = "package.module:function"``); a failing entry
 point is logged and skipped, never fatal, and an entry point can not replace a registered name (the
@@ -222,16 +227,19 @@ def _check_name(name: Any) -> None:
 
 # ---- built-ins (lazy imports: detect.py imports this module, so the bodies live in sibling modules) ----
 
-def _spotmax_backend(image, labels, spacing, *, cfg_section: dict, marker: str):
+def _spotmax_backend(image, labels, spacing, *, cfg_section: dict, marker: str, planar: bool = False):
     """The validated default: the SpotMAX chain exactly as detect_spots always ran it. The resolved
     SpotMAX parameters are read from the section (detect_spots overlays its explicit arguments, so the
     code defaults are the ones detect_spots declares). The optional keys of a pack recipe
     (detect.SPOTMAX_OPTIONAL_KEYS: spot_radius_z_um, remove_hot_pixels, sharpen) are forwarded only when the
-    raw section holds them with a value, so a default run calls detect_spots_spotmax exactly as before."""
+    raw section holds them with a value, so a default run calls detect_spots_spotmax exactly as before.
+    It declares planar_ok (single planes, docs/PLANAR.md) and forwards planar=True, only in such a call."""
     from .detect import SPOTMAX_KEYS, SPOTMAX_OPTIONAL_KEYS, detect_spots_spotmax
 
     kw = {k: cfg_section[k] for k in SPOTMAX_KEYS if k in cfg_section}
     kw.update({k: cfg_section[k] for k in SPOTMAX_OPTIONAL_KEYS if cfg_section.get(k) is not None})
+    if planar:
+        kw["planar"] = True
     return detect_spots_spotmax(image, labels, spacing, marker=marker, **kw)
 
 
@@ -258,6 +266,7 @@ def _net3d_provenance(cfg_section: dict) -> dict:
 
 _net3d_backend.input_roles = ("dna",)           # passed when the image has it; a foci-only model ignores it
 _net3d_backend.provenance = _net3d_provenance   # the model file's sha256 enters the spots sub-hash
+_spotmax_backend.planar_ok = True               # single planes (docs/PLANAR.md); log and net3d do not declare it
 
 register_backend(DEFAULT_BACKEND, _spotmax_backend)
 register_backend("log", _log_backend)
