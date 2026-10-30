@@ -55,7 +55,14 @@ DEFAULTS: dict[str, Any] = {
             # (psf.axial_reference) needs this many kept foci fits spanning this depth (5th to 95th percentile)
             "ref_depth_min_fits": 30, "ref_depth_min_span_um": 3.0},
     "gaps": {"q": 0.6, "window_frac": 0.9, "min_um": 0.25, "z": 3.0, "smooth_um": 0.1, "ring_um": 0.45,
-             "tail_sigmas": 1.0, "plateau_um": 0.4},
+             "tail_sigmas": 1.0, "plateau_um": 0.4,
+             # v3 (protocol changelog entry 33): a candidate whose dip is shallower than an empty gap of its
+             # measured length can be after the blur along the strand, keeping a fill fraction above dim_fill
+             # of its flanks' signal at more than dim_z standard errors, inside one traced member and away from
+             # other strands, is a dim stretch and not a gap (dim_stretch false gives v1); dim_sigma_source names
+             # the axial sigma of that blur ("psf": the image PSF; "foci", "foci_depth": the image's measured
+             # axial reference, as punctum.sigma_source)
+             "dim_stretch": False, "dim_fill": 0.15, "dim_z": 2.0, "dim_sigma_source": "psf"},
     "contamination_um": [0.7, 0.35],
     # v2 (protocol changelog entries 16 to 18): the punctum class (enabled false gives v1). Entry 18 kept it as a
     # label (exclude false counts punctum strands in every nucleus column as v1 does; before_linking false keeps
@@ -101,9 +108,11 @@ V1_VALUES: dict[str, Any] = {
     "link.junction_gap": "anchors",
     "classes.complete_guard": False,
     "classes.max_complete_um": None,
-    # v3 (protocol changelog entry 32)
+    # v3 (protocol changelog entries 32 and 33)
     "punctum.sigma_source": "psf",
     "punctum.one_gaussian": False,
+    "gaps.dim_stretch": False,
+    "gaps.dim_sigma_source": "psf",
 }
 
 # The configurations of the two rules of the v3 round, both off by default: entry 32 (the punctum class B1 with the
@@ -115,7 +124,11 @@ V3_PUNCTUM: dict[str, Any] = {
     "punctum.sigma_source": "foci_depth",
     "punctum.one_gaussian": True,
 }
-V3_VALUES: dict[str, Any] = {**V3_PUNCTUM}
+V3_GAPS: dict[str, Any] = {
+    "gaps.dim_stretch": True,
+    "gaps.dim_sigma_source": "foci_depth",
+}
+V3_VALUES: dict[str, Any] = {**V3_PUNCTUM, **V3_GAPS}
 
 
 def v1_sets() -> list[str]:
@@ -123,11 +136,11 @@ def v1_sets() -> list[str]:
     return [f"{k}={json.dumps(v)}" for k, v in V1_VALUES.items()]
 
 
-def v3_sets(rules: tuple[str, ...] = ("punctum",)) -> list[str]:
-    """``--set`` assignments of the v3 rules (``rules``: "punctum" for entry 32)."""
+def v3_sets(rules: tuple[str, ...] = ("punctum", "gaps")) -> list[str]:
+    """``--set`` assignments of the v3 rules (``rules``: "punctum" for entry 32, "gaps" for entry 33)."""
     d: dict[str, Any] = {}
     for r in rules:
-        d.update({"punctum": V3_PUNCTUM}[r])
+        d.update({"punctum": V3_PUNCTUM, "gaps": V3_GAPS}[r])
     return [f"{k}={json.dumps(v)}" for k, v in d.items()]
 
 
@@ -139,11 +152,12 @@ def switch_on(value) -> bool:
 # the values resolve() accepts for the v2 switches (protocol changelog entry 27): an unknown value is refused, so a
 # typo can never silently give another configuration
 SWITCH_KEYS = ("psf.foci", "punctum.enabled", "punctum.exclude", "punctum.before_linking", "link.junction_dirs",
-               "classes.complete_guard", "punctum.one_gaussian")
+               "classes.complete_guard", "punctum.one_gaussian", "gaps.dim_stretch")
 SWITCH_WORDS = ("on", "off", "true", "false", "yes", "no")
 ENUM_KEYS: dict[str, tuple[str, ...]] = {"follow.contact_test": ("local", "claim_tangent"),
                                          "link.junction_gap": ("anchors", "tips"),
-                                         "punctum.sigma_source": ("psf", "foci", "foci_depth")}
+                                         "punctum.sigma_source": ("psf", "foci", "foci_depth"),
+                                         "gaps.dim_sigma_source": ("psf", "foci", "foci_depth")}
 
 
 def _check_switches(p: Params) -> None:

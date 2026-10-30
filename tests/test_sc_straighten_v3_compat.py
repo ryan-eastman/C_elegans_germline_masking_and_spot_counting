@@ -44,12 +44,12 @@ def test_the_golden_covers_every_case():
 
 def test_the_v3_switches_are_off_by_default_and_have_v1_values():
     d = params.resolve()
-    for key in ("punctum.one_gaussian",):
+    for key in ("gaps.dim_stretch", "punctum.one_gaussian"):
         assert d[key] is False and params.V1_VALUES[key] is False, key
-    for key in ("punctum.sigma_source",):
+    for key in ("punctum.sigma_source", "gaps.dim_sigma_source"):
         assert d[key] == "psf" and params.V1_VALUES[key] == "psf", key
     assert d["punctum.enabled"] is False
-    # the configuration of entry 32 is reachable by its switches alone
+    # the configuration of entries 32 and 33 is reachable by its switches alone
     p3 = params.resolve(None, params.v3_sets())
     for key, value in params.V3_VALUES.items():
         assert p3[key] == value, key

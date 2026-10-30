@@ -256,6 +256,12 @@ def punctum_reference(fits: list[dict] | None, wavelengths: dict | None, p, psf_
     return axial_reference(fits, wavelengths, p, psf_image, str(p["punctum.sigma_source"]))
 
 
+def gap_reference(fits: list[dict] | None, wavelengths: dict | None, p, psf_image) -> dict:
+    """The axial sigma of the blur along s in the empty-gap model of the dim-stretch rule (protocol changelog entry
+    33): ``axial_reference`` with gaps.dim_sigma_source."""
+    return axial_reference(fits, wavelengths, p, psf_image, str(p["gaps.dim_sigma_source"]))
+
+
 def punctum_sigma_at(ref: dict, z_um: float) -> float:
     """The reference axial sigma at depth ``z_um`` (whole-image um): the constant estimate, plus for a depth term
     the slope times the depth from the foci's median depth, the depth clipped to the foci's 5th to 95th percentile

@@ -27,7 +27,7 @@ from .fields import calibrate_null, sigma_vox
 from .measure import measure_crop
 from .noise import fit_noise_model
 from .params import Params, switch_on
-from .psf import image_psf, isolated_spots, punctum_reference
+from .psf import gap_reference, image_psf, isolated_spots, punctum_reference
 from .refine import Centreline
 from .trace import trace_crop
 
@@ -48,6 +48,9 @@ class ImageResult:
     record: dict = field(default_factory=dict)
     flags: list = field(default_factory=list)
     psf_items: dict = field(default_factory=dict)   # the PSF stretches and foci fits (development scripts only)
+    # the dim stretches of gaps.dim_stretch (protocol changelog entry 33), one row each with its strand_id
+    # (development scripts only; no output table holds them, the record counts them)
+    dim_stretches: pd.DataFrame | None = None
 
 
 # ------------------------------------------------------------------------------------ execution
@@ -440,6 +443,10 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
         # the reference axial sigma of the punctum rule (protocol changelog entry 32): the image's foci, or the
         # image PSF (v2)
         pun_ref = punctum_reference(foci_fits, wavelengths, p, psf) if _punctum_measured(p) else None
+        # the axial sigma of the empty-gap model of the dim-stretch rule (protocol changelog entry 33): the same
+        # measured reference, or the image PSF
+        dim_on = switch_on(p.get("gaps.dim_stretch", False))
+        gap_ref = gap_reference(foci_fits, wavelengths, p, psf) if dim_on else None
         # neighbours of each nucleus: in-strand samples of the strands of the nuclei it touches
         nbrs: dict[int, list] = {i: [] for i in present}
         for a, b in pairs:
@@ -457,6 +464,8 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
         ctx_b["psf"] = list(psf)
         if pun_ref is not None:
             ctx_b["punctum_ref"] = pun_ref
+        if gap_ref is not None:
+            ctx_b["gap_ref"] = gap_ref
 
         def tasks_b():
             for nid in present:
@@ -475,6 +484,15 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
         out.record["psf"]["wavelengths_nm"] = dict(wavelengths or {})
     if pun_ref is not None:
         out.record["punctum_reference"] = pun_ref
+    if dim_on:
+        out.record["dim_reference"] = gap_ref
+        out.record["dim_stretches"] = {
+            "n": int(sum(int((m.get("dim_stretches") or {}).get("n", 0)) for m in meas.values())),
+            "length_um": float(sum(float((m.get("dim_stretches") or {}).get("length_um", 0.0)) for m in meas.values()))}
+        uid_to_id = dict(zip(out.strands["strand_uid"], out.strands["strand_id"])) if len(out.strands) else {}
+        rows = [{"strand_id": uid_to_id.get(s.get("uid")), "nucleus_id": int(nid), **b}
+                for nid, m in meas.items() for s in m.get("strands", []) for b in s.get("dim", [])]
+        out.dim_stretches = pd.DataFrame(rows)
     return out
 
 
@@ -483,12 +501,18 @@ def _punctum_measured(p) -> bool:
     return switch_on(p.get("punctum.enabled", False)) and str(p.get("punctum.sigma_source", "psf")) != "psf"
 
 
+def _gap_measured(p) -> bool:
+    """The dim-stretch rule takes the axial sigma of its empty-gap model from the image's foci (protocol changelog
+    entry 33)."""
+    return switch_on(p.get("gaps.dim_stretch", False)) and str(p.get("gaps.dim_sigma_source", "psf")) != "psf"
+
+
 def psf_foci_inputs(spot_tables, roles, wavelengths, present, p) -> dict | None:
     """{nucleus_id: {"pos": (n, 3) um, "isolated": (n,) bool}} of the RAD-51 ``spots`` table for the foci estimate
-    of the PSF (psf.foci, entry 12) or of the punctum rule's reference (punctum.sigma_source, entry 32), or None
-    when neither is on or the estimate is impossible (no foci role, no spots, no wavelengths; then phase A is that
-    of v1)."""
-    if not (switch_on(p["psf.foci"]) or _punctum_measured(p)) or p["psf.mode"] == "fixed":
+    of the PSF (psf.foci, entry 12) or of the measured axial reference of the v3 rules (punctum.sigma_source, entry
+    32; gaps.dim_sigma_source, entry 33), or None when none is on or the estimate is impossible (no foci role, no
+    spots, no wavelengths; then phase A is that of v1)."""
+    if not (switch_on(p["psf.foci"]) or _punctum_measured(p) or _gap_measured(p)) or p["psf.mode"] == "fixed":
         return None
     df = (spot_tables or {}).get("spots")
     wl = wavelengths or {}

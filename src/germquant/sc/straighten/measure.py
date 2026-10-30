@@ -10,6 +10,7 @@ signal), the flat strip (mean over |v| <= 0.3 um) and the axial strip (mean over
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 import traceback
 
@@ -65,7 +66,42 @@ def _moving_median(x: np.ndarray, w: int) -> np.ndarray:
     return median_filter(x, size=w, mode="nearest")
 
 
-def find_gaps(s, integ, integ_se, clean, in_strand, L, p, ds=0.05, sigma_along=None):
+def empty_gap_min(length_um: float, sigma_um: float) -> float:
+    """The minimum, relative to its flanks, of a profile with an empty stretch of ``length_um`` blurred along s by
+    a Gaussian of ``sigma_um``: 1 - erf(L / (2 sqrt(2) sigma)) (protocol changelog entry 33)."""
+    if not sigma_um > 0:
+        return 0.0
+    return 1.0 - math.erf(float(length_um) / (2.0 * math.sqrt(2.0) * float(sigma_um)))
+
+
+def fill_fraction(length_um: float, r: float, sigma_um: float) -> float:
+    """The fill fraction f of a stretch whose blur along s (sigma ``sigma_um``) gives the measured missing length
+    ``length_um`` (the missing fraction of the baseline integrated over the stretch) and the relative minimum ``r``:
+    a stretch of width W = L / (1 - f) holding the fraction f of its flanks' signal has the minimum
+    f + (1 - f) empty_gap_min(W, sigma). f is 0 when r is at or below the minimum of an empty gap of length L (the
+    blur alone explains the dip) and at most r (protocol changelog entry 33). Bisection."""
+    L, r = float(length_um), float(r)
+    if not (math.isfinite(L) and math.isfinite(r)) or L <= 0 or r <= 0:
+        return 0.0
+    if r <= empty_gap_min(L, sigma_um):
+        return 0.0
+    lo, hi = 0.0, min(r, 0.999)
+
+    def g(f):
+        return f + (1.0 - f) * empty_gap_min(L / (1.0 - f), sigma_um) - r
+    if g(hi) <= 0:
+        return hi
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if g(mid) > 0:
+            hi = mid
+        else:
+            lo = mid
+    return 0.5 * (lo + hi)
+
+
+def find_gaps(s, integ, integ_se, clean, in_strand, L, p, ds=0.05, sigma_along=None, dim=None, dim_sigma_along=None,
+              dim_block=None):
     """Gaps of one strand. The integrated profile is smoothed over ``gaps.smooth_um``; M is its median over clean,
     non-end samples. A candidate is a run below ``gaps.window_frac`` x M that does not touch an end. Its window is
     widened by ``gaps.tail_sigmas`` x the PSF sigma along the strand there (``sigma_along(s)``; the blur spreads
@@ -76,7 +112,19 @@ def find_gaps(s, integ, integ_se, clean, in_strand, L, p, ds=0.05, sigma_along=N
     candidate is a gap when the smoothed profile dips below ``gaps.q`` x the baseline, the dip is deeper than
     ``gaps.z`` standard errors and the length is at least ``gaps.min_um``. Because blurring along the strand
     conserves signal, the gap length is the missing fraction of the baseline integrated over the widened window,
-    and the gap is centred on the deficit's centroid. Returns (gaps, M, smoothed)."""
+    and the gap is centred on the deficit's centroid. Returns (gaps, M, smoothed).
+
+    With ``gaps.dim_stretch`` (protocol changelog entry 33) a candidate that passes all of that is a dim stretch, not
+    a gap, when no sample of its widened window is blocked (``dim_block``: samples near another strand, where its
+    blur adds signal that an empty gap does not hold, and samples within 0.1 um of a link between two traced
+    members, where the end matching may have joined two ribbons), its relative minimum r (the smoothed dip over the
+    baseline there) lies above the minimum an empty gap of its measured length shows after the blur along the
+    strand (the sigma along s of ``dim_sigma_along``, else of ``sigma_along``, combined with the smoothing window)
+    by more than ``gaps.dim_z`` standard errors of r, and its fill fraction (``fill_fraction``) exceeds
+    ``gaps.dim_fill``; it is appended to ``dim`` (when a list is given) and the ribbon continues. The window, the
+    baseline, the length and every other test are those of v1, so the switch changes which candidates are gaps and
+    nothing else."""
+    dim_on = switch_on(p.get("gaps.dim_stretch", False))
     w = max(1, int(round(float(p["gaps.smooth_um"]) / ds)) + 1)
     sm = moving_mean(np.where(in_strand, integ, np.nan), w)
     nonend = (s >= 0.3) & (s <= L - 0.3)
@@ -141,6 +189,21 @@ def find_gaps(s, integ, integ_se, clean, in_strand, L, p, ds=0.05, sigma_along=N
             continue
         g0 = max(centre - 0.5 * length, 0.0)
         g1 = min(centre + 0.5 * length, L)
+        if dim_on and not (dim_block is not None and bool(np.any(dim_block[wi]))):
+            # the blur along s: the sigma along s there (with the measured axial reference when given) and the
+            # moving mean of w samples (a boxcar of w * ds)
+            sig_m = float(dim_sigma_along(float(s[kk]))) if dim_sigma_along is not None else sig
+            sig_eff = math.sqrt(sig_m * sig_m + (w * ds) ** 2 / 12.0)
+            r = dip / Pk
+            r_e = empty_gap_min(length, sig_eff)
+            f = fill_fraction(length, r, sig_eff)
+            se_r = se / Pk if np.isfinite(se) else float("nan")
+            if f > float(p["gaps.dim_fill"]) and np.isfinite(se_r) and r - r_e > float(p["gaps.dim_z"]) * se_r:
+                if dim is not None:
+                    dim.append({"s_start_um": g0, "s_end_um": g1, "length_um": length, "r": r, "r_empty": r_e,
+                                "fill": f, "z_score": z, "se_r": se_r, "sigma_along_um": sig_eff,
+                                "centre_um": centre})
+                continue
         gaps.append({"s_start_um": g0, "s_end_um": g1, "length_um": length, "depth": (Pk - dip) / Pk,
                      "z_score": z, "i_min": int(kk), "plateau": P, "plateau_rel": P / M})
     return gaps, M, sm
@@ -220,6 +283,10 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
         pun_ref = ctx.get("punctum_ref")
         pun_one = pun_on and switch_on(p.get("punctum.one_gaussian", False))
         pun_rms = float(p.get("punctum.max_rel_rms", 0.2))
+        # v3 (protocol changelog entry 33): dim stretches, with the axial sigma of the empty-gap model
+        dim_on = switch_on(p.get("gaps.dim_stretch", False))
+        gap_ref = ctx.get("gap_ref")
+        n_dim_all, um_dim_all = 0, 0.0
         det_max = float(ctx.get("detector_max") or 65535.0)
         # 1. measured centrelines (end rule), oriented so s = 0 is the end with the smaller rounded (z, y, x)
         lines, fits_all, es, ets = [], [], [], []
@@ -314,16 +381,37 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
             def sigma_along(sv, line=line, psf_t=psf_t):
                 return sigma_t(psf_t, float(line.tangent(sv)[0][0]))
 
-            gaps, M, _sm = find_gaps(fr.s, integ_local, integ_se, ~contaminated, ins, L, p, ds,
-                                     sigma_along=sigma_along)
-            in_gap = np.zeros(len(fr.s), bool)
-            for g in gaps:
-                in_gap |= (fr.s >= g["s_start_um"]) & (fr.s <= g["s_end_um"])
             link_mids = [lk["mid_um"] for lk in st.get("links", []) if "mid_um" in lk]
             if link_mids:
                 ls, _, _, _ = fr.to_local(np.asarray(link_mids, float))
             else:
                 ls = np.zeros(0)
+            dim_st = []
+            dim_kw = {}
+            if dim_on:
+                # entry 33: no dim stretch next to another strand or across a link between two traced members
+                blocked = contaminated.copy()
+                for s_link in np.atleast_1d(ls):
+                    blocked |= np.abs(fr.s - float(s_link)) <= 0.1 + 1e-9
+                dim_kw["dim_block"] = blocked
+                if gap_ref is not None and gap_ref.get("source") != "psf":
+                    from .psf import punctum_sigma_at
+
+                    def dim_sigma_along(sv, line=line, gap_ref=gap_ref, psf_t=psf):
+                        z_here = float(line.point(sv)[0][0])
+                        return sigma_t((punctum_sigma_at(gap_ref, z_here), psf_t[1]),
+                                       float(line.tangent(sv)[0][0]))
+                    dim_kw["dim_sigma_along"] = dim_sigma_along
+            gaps, M, _sm = find_gaps(fr.s, integ_local, integ_se, ~contaminated, ins, L, p, ds,
+                                     sigma_along=sigma_along, dim=dim_st, **dim_kw)
+            n_dim_all += len(dim_st)
+            um_dim_all += float(sum(b["length_um"] for b in dim_st))
+            for b in dim_st:
+                mid = line.point(0.5 * (b["s_start_um"] + b["s_end_um"]))[0]
+                b["mid_z_um"], b["mid_y_um"], b["mid_x_um"] = (float(v) for v in mid)
+            in_gap = np.zeros(len(fr.s), bool)
+            for g in gaps:
+                in_gap |= (fr.s >= g["s_start_um"]) & (fr.s <= g["s_end_um"])
             for g in gaps:
                 g["bridged"] = bool(np.any((ls >= g["s_start_um"] - 0.1) & (ls <= g["s_end_um"] + 0.1)))
                 mid = line.point(0.5 * (g["s_start_um"] + g["s_end_um"]))[0]
@@ -450,7 +538,7 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
                                    "strip_flat": np.stack(flat).astype(np.float32),
                                    "strip_axial": np.stack(axial).astype(np.float32),
                                    "strip_roles": list(strip_roles), "uid": strand_uid(fr.C[ins][::2]),
-                                   "line": line.to_state()})
+                                   "line": line.to_state(), "dim": dim_st})
         # strands that count in the nucleus tier: under punctum.exclude the punctum strands are left out of the
         # foci assignment and of the strand tubes of on_strand_frac and coverage_proxy (their voxels count as
         # territory)
@@ -505,6 +593,8 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
             rec["puncta_signal_frac"] = float(vals_p[inp].sum() / tot_p) if tot_p > 0 else float("nan")
         snr_all = np.concatenate(all_core_snr) if all_core_snr else np.zeros(0)
         rec["snr_core_median"] = float(np.median(snr_all)) if len(snr_all) else float("nan")
+        if switch_on(p.get("gaps.dim_stretch", False)):
+            rec["dim_stretches"] = {"n": int(n_dim_all), "length_um": float(um_dim_all)}
     except Exception as e:  # noqa: BLE001 - one nucleus must never stop the image
         rec["error"] = type(e).__name__
         rec["error_message"] = f"{e}\n{traceback.format_exc(limit=6)}"

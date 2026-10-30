@@ -288,8 +288,8 @@ def _one(f, root, out_root, params, geometry, paths_from, refine_imported, ends,
         **{k: res.record[k] for k in ("noise_model", "null_q", "sigma_vox", "psf", "complete_median_integrated",
                                       "complete_median_fwhm", "n_cut_across_nuclei", "n_contacts_freed", "counts",
                                       "nucleus_errors", "timing")},
-        # v3 (protocol changelog entry 32), only when its switches are on
-        **{k: res.record[k] for k in ("punctum_reference",) if k in res.record},
+        # v3 (protocol changelog entries 32 and 33), only when their switches are on
+        **{k: res.record[k] for k in ("punctum_reference", "dim_reference", "dim_stretches") if k in res.record},
         "role_crops_mb": round(sum(b.nbytes for b in role_crops.values()) / 2 ** 20, 1),
         "flags": flags, "elapsed_s": round(elapsed, 1), "workers": int(workers),
         "sealed_override": bool(sealed), "sealed_role": sealed, "sealed_reason": sealed_reason if sealed else None,

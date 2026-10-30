@@ -36,6 +36,16 @@ entry 27): these families have no sealed seeds.
   RAD-51-like point spots in every nucleus but the arcs' (as psf_check: a Poisson number of mean 0.15 per um3,
   peaks U(150, 450) counts, the local PSF times 595/511), with the spot table of protocol 4.4 and the wavelengths
   511 and 595 nm, so the foci estimate of entry 12 measures the PSF the puncta were rendered with.
+* ``gaps_psf`` (protocol changelog entry 33, dim stretches that are not gaps): one image of two layers 6.5 um apart in
+  z, each with six isolated ribbons in their own enclosing nuclei (length U(3.0, 7.0) um, lengthened as the gaps
+  family does when its events do not fit, tilt U(0, 75) degrees, peak U(300, 800) counts): the first, third and
+  fifth of each layer hold 1 or 2 empty gaps of U(0.3, 1.0) um (no signal, as the gaps family; 1 below 4 um), the
+  others 1 or 2 dim stretches of U(0.4, 1.5) um whose brightness is U(0.15, 0.6) of the ribbon's (at least 0.8 um
+  of ribbon before, between and after the events). The PSF is that of puncta_psf (the psf_check level by seed
+  modulo 4 at the middle depth, a relative depth gradient U(-0.02, 0.02) per um, lateral U(0.135, 0.165) um), and
+  a foci channel holds RAD-51-like point spots in every nucleus (as puncta_psf), with the spot table of protocol
+  4.4 and the wavelengths 511 and 595 nm. The empty gaps are the ribbons' ``gaps``; the dim stretches are in
+  ``info["dim_stretches"]`` ({ribbon_id: [[s0, s1, fill], ...]}, um along the ribbon).
 """
 from __future__ import annotations
 
@@ -46,7 +56,7 @@ from scipy import ndimage as ndi
 from . import synth as S
 
 FAMILY_CODE = {"puncta_pt": 101, "puncta_agg": 102, "dense_puncta": 103, "psf_check": 107, "real_dense": 108,
-               "puncta_psf": 109}
+               "puncta_psf": 109, "gaps_psf": 110}
 # entry 19: truth-free statistics of the twelve trial-4 runs (C:/Users/ryane/sc_ribbon_work/v2/logs/
 # realism_measures_t4.json; v2/scripts/realism_measure.py)
 REAL_DENSE_CALIB = {
@@ -515,8 +525,129 @@ def puncta_psf_scene(seed: int, *, final: bool = False) -> S.Scene:
                                                                  "y_um", "x_um"]), info=info)
 
 
+GAPS_PSF_PER_LAYER = 6                  # ribbons (and nuclei) per layer of gaps_psf: gap, dim, gap, dim, gap, dim
+
+
+def _events(rng, L: float, kind: str):
+    """Positions of 1 or 2 events along a ribbon of length L as synth.gaps_scene places its gaps (at least 0.8 um of
+    ribbon before, between and after them; the ribbon lengthened by 0.5 um steps until they fit): empty gaps of
+    U(0.3, 1.0) um, or dim stretches of U(0.4, 1.5) um. Returns (L, [(s0, s1), ...])."""
+    n_ev = 1 if L < 4.0 else int(rng.integers(1, 3))
+    lo, hi = (0.3, 1.0) if kind == "gap" else (0.4, 1.5)
+    widths = [float(rng.uniform(lo, hi)) for _ in range(n_ev)]
+    min_piece = 0.8
+    while sum(widths) + (n_ev + 1) * min_piece > L:
+        L += 0.5
+    free = L - sum(widths) - (n_ev + 1) * min_piece
+    cuts = np.sort(rng.uniform(0, free, n_ev))
+    ev, pos, prev_cut = [], 0.0, 0.0
+    for k in range(n_ev):
+        pos += min_piece + (cuts[k] - prev_cut)
+        prev_cut = cuts[k]
+        ev.append((float(pos), float(pos + widths[k])))
+        pos += widths[k]
+    return L, ev
+
+
+def gaps_psf_scene(seed: int, *, final: bool = False) -> S.Scene:
+    """The gaps_psf development family (protocol changelog entry 33; see the module docstring)."""
+    seed = _dev_seed(seed, final)
+    rng = _rng("gaps_psf", seed)
+    lv = PSF_LEVELS[seed % 4]
+    sxy = float(rng.uniform(0.135, 0.165))
+    grad = float(rng.uniform(-PUNCTA_PSF_GRADIENT, PUNCTA_PSF_GRADIENT))
+    scale = WAVELENGTHS["foci"] / WAVELENGTHS["central_element"]
+    centers, radii, label_r, gcs, kinds, ribs, foci_truth = [], [], [], [], [], [], []
+    dims: dict[int, list] = {}
+    for layer in range(2):
+        z0 = layer * PUNCTA_PSF_LAYER_DZ
+        x = 0.0
+        prev_r = 0.0
+        for j in range(GAPS_PSF_PER_LAYER):
+            kind = "gap" if j % 2 == 0 else "dim"
+            L, ev = _events(rng, float(rng.uniform(3.0, 7.0)), kind)
+            nid = len(centers) + 1
+            rib = S._iso_like(rng, float(rng.uniform(0.0, 75.0)), L, float(rng.uniform(300.0, 800.0)),
+                              nucleus_id=nid, ribbon_id=len(ribs) + 1, kind=f"{kind}_ribbon")
+            if kind == "gap":
+                rib.gaps = list(ev)
+            else:
+                dims[rib.ribbon_id] = [[a, b, float(rng.uniform(0.15, 0.6))] for a, b in ev]
+            cc, Ra = S._enclosing_nucleus([rib])
+            x += prev_r + Ra + 1.0
+            c = np.array([z0, 0.0, x])
+            rib.points = rib.points - cc + c
+            for _ in range(int(rng.poisson(FOCI_DENSITY * 4.0 / 3.0 * np.pi * Ra ** 3))):
+                d = rng.normal(size=3)
+                d /= np.linalg.norm(d)
+                foci_truth.append((nid, c + d * Ra * rng.uniform() ** (1.0 / 3.0), float(rng.uniform(*FOCI_PEAK_RANGE))))
+            centers.append(c)
+            radii.append(Ra)
+            label_r.append(Ra + float(rng.uniform(0.0, 0.4)))
+            gcs.append("unknown")
+            kinds.append(kind)
+            ribs.append(rib)
+            prev_r = Ra + 0.4
+    shape, shift = S._place([r.points for r in ribs], centers, label_r)
+    for r in ribs:
+        r.points = r.points + shift
+    centers = [c + shift for c in centers]
+    z_mid = float(shift[0] + 0.5 * PUNCTA_PSF_LAYER_DZ)
+
+    def sig_z(z: float) -> float:
+        return lv * (1.0 + grad * (float(z) - z_mid))
+
+    labels, _ = S._sphere_masks(shape, S.SPACING, centers, label_r)
+    levels = [float(rng.uniform(*S.NUCLEOPLASM)) for _ in centers]
+    nuc = nucleoplasm(shape, S.SPACING, centers, radii, levels, (lv, sxy, sxy))
+    clean = np.full(shape, S.OFFSET) + nuc
+    for r in ribs:
+        s = r.s
+        w = np.ones(len(s))
+        events = [(a, b) for a, b in r.gaps] + [(a, b) for a, b, _f in dims.get(r.ribbon_id, [])]
+        for a, b in r.gaps:
+            w[(s > a) & (s < b)] = 0.0
+        for a, b, f in dims.get(r.ribbon_id, []):
+            w[(s >= a) & (s <= b)] = f
+        keep = w > 0
+        P = r.points[keep]
+        probe_s = np.linspace(0.15 * s[-1], 0.85 * s[-1], 25)
+        ok = np.ones(len(probe_s), bool)
+        for a, b in events:
+            ok &= (probe_s < a - 0.5) | (probe_s > b + 0.5)
+        probe_s = probe_s[ok] if ok.any() else probe_s
+        probe = np.stack([np.interp(probe_s, s, r.points[:, k]) for k in range(3)], 1)
+        unit = float(S._value_at(probe, P, (sig_z(float(P[:, 0].mean())), sxy, sxy)).max())
+        if unit > 0:
+            _render_depth(clean, P, w[keep] * (r.peak / unit), sig_z, sxy)
+    fclean = np.full(shape, S.OFFSET) + nuc
+    rows = []
+    for k, (nid, pos, pk) in enumerate(foci_truth):
+        pos = pos + shift
+        S._render_points(fclean, pos[None, :], S.SPACING, (sig_z(pos[0]) * scale, sxy * scale, sxy * scale),
+                         weight=pk)
+        rows.append({"spot_id": k, "nucleus_id": nid, "z_um": pos[0], "y_um": pos[1], "x_um": pos[2], "peak": pk})
+    ce = S.add_noise(clean, rng)
+    fo = S.add_noise(fclean, rng)
+    truth = pd.DataFrame(rows, columns=["spot_id", "nucleus_id", "z_um", "y_um", "x_um", "peak"])
+    if len(truth):
+        loc = rng.normal(size=(len(truth), 3)) * np.asarray(S.FOCI_LOC_SIGMA)
+        spots = pd.DataFrame({"spot_id": truth["spot_id"].to_numpy(), "nucleus_id": truth["nucleus_id"].to_numpy(),
+                              "z_um": truth["z_um"].to_numpy() + loc[:, 0], "y_um": truth["y_um"].to_numpy() + loc[:, 1],
+                              "x_um": truth["x_um"].to_numpy() + loc[:, 2]})
+    else:
+        spots = pd.DataFrame(columns=["spot_id", "nucleus_id", "z_um", "y_um", "x_um"])
+    info = {"family": "gaps_psf", "seed": seed, "sigma_z_level": lv, "sigma_z_gradient_per_um": grad,
+            "z_mid_um": z_mid, "psf_sigma_xy_um": sxy, "wavelengths": dict(WAVELENGTHS), "nucleoplasm": levels,
+            "dim_stretches": {int(k): v for k, v in dims.items()}, "foci_truth": truth.to_dict("list")}
+    return S.Scene(family="gaps_psf", seed=seed, spacing=S.SPACING, channels={"central_element": ce, "foci": fo},
+                   labels=labels, nuclei=_nuclei_table(labels, centers, radii, label_r, gcs, kinds), ribbons=ribs,
+                   spots=spots, truth_foci=pd.DataFrame(columns=["spot_id", "ribbon_id", "nucleus_id", "s_um", "z_um",
+                                                                 "y_um", "x_um"]), info=info)
+
+
 def puncta_psf_sigma_z(info: dict, z: float) -> float:
-    """The axial PSF sigma of a puncta_psf scene at depth ``z`` (um, image frame)."""
+    """The axial PSF sigma of a puncta_psf or gaps_psf scene at depth ``z`` (um, image frame)."""
     return float(info["sigma_z_level"]) * (1.0 + float(info["sigma_z_gradient_per_um"]) * (float(z) -
                                                                                          float(info["z_mid_um"])))
 
@@ -537,7 +668,7 @@ def _dense_puncta_clean(seed, *, final=False):
     return puncta_scene(seed, final=final, family="dense_puncta", with_puncta=False)
 
 
-FAMILY_FUNCS = {"psf_check": psf_check_scene, "puncta_psf": puncta_psf_scene,
+FAMILY_FUNCS = {"psf_check": psf_check_scene, "puncta_psf": puncta_psf_scene, "gaps_psf": gaps_psf_scene,
                 "puncta_pt": _puncta("puncta_pt"), "puncta_agg": _puncta("puncta_agg"),
                 "dense_puncta": _puncta("dense_puncta"), "dense_puncta_clean": _dense_puncta_clean,
                 "real_dense": _real("real_dense", REAL_FEATURES), "real_dense_base": _real("real_dense_base", ()),
