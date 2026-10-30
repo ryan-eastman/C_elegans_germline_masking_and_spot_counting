@@ -276,15 +276,18 @@ def main(argv: list[str] | None = None) -> int:
                           "the spot-sources record. It must be the registered split file (its pinned digests)")
 
     pe = sub.add_parser("export-training",
-                        help="write paired 2D training slices (image/ and labels/ TIFs plus manifest.csv) from the "
-                             "nucleus labels of every finished run under a results or series folder, for correction "
-                             "in napari or the Cellpose GUI (docs/TIMELAPSE.md)")
+                        help="write paired 2D training images (image/ and labels/ TIFs plus manifest.csv) from the "
+                             "nucleus labels of every finished run under a results or series folder, by the run's "
+                             "geometry, for correction in napari or the Cellpose GUI (docs/TRAINING.md)")
     pe.add_argument("results_dir", help="a results folder, a time-lapse series folder (its t<NNN>/ subfolders are "
                                         "the runs) or a batch tree")
     pe.add_argument("--out", required=True, help="the training folder: image/, labels/, manifest.csv, export.json")
-    pe.add_argument("--orientations", default="xy,xz,yz",
-                    help="comma-separated subset of xy,xz,yz; xz and yz slices are resampled along z to the xy "
-                         "pixel size so every slice is isotropic (default: all three)")
+    pe.add_argument("--orientations", default="auto",
+                    help="auto (the default): by the run's geometry, xy, xz and yz slices of a 3D run, one proj "
+                         "pair of a projected run (the 2D image its segmenter saw) and the plane of a single-plane "
+                         "run as xy (tiles of at most 1024 px above that size); or a comma-separated subset of "
+                         "xy,xz,yz for the 3D runs. xz and yz slices are resampled along z to the xy pixel size so "
+                         "every slice is isotropic (docs/TRAINING.md)")
     pe.add_argument("--slices-per-image", type=int, default=3, metavar="N",
                     help="slices per run and orientation, drawn at random (seeded) from slices that cut at least "
                          "--min-labels nuclei (default 3)")
@@ -300,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     ptn = sub.add_parser("train-nuclei",
                          help="train a Cellpose nucleus model on corrected slice pairs (cellpose.train.train_seg in "
                               "process), split by image or series, never by slice; writes the model file, "
-                              "training_log.json and a model card with hold-out F1 (docs/TIMELAPSE.md)")
+                              "training_log.json and a model card with hold-out F1 (docs/TRAINING.md)")
     ptn.add_argument("--pairs", required=True, help="the folder export-training wrote (image/, labels/, manifest.csv)")
     ptn.add_argument("--base", default="cpsam",
                      help="starting weights: a registered model name, a model file, a Cellpose built-in name "
@@ -319,6 +322,17 @@ def main(argv: list[str] | None = None) -> int:
     ptn.add_argument("--learning-rate", type=float, default=1e-5, help="AdamW learning rate (default 1e-5)")
     ptn.add_argument("--min-train-masks", type=int, default=5,
                      help="Cellpose drops training slices with fewer nuclei than this (default 5)")
+    from .packs.format import OBJECT_KINDS
+
+    ptn.add_argument("--system", default=None,
+                     help="the biological system the pairs show, written to the card's system (free text, for "
+                          "example 'budding yeast'; default none)")
+    ptn.add_argument("--kind", choices=list(OBJECT_KINDS), default=None,
+                     help="what one label is, written to the card's object_kind (default: the object kind of the "
+                          "pack the pairs' runs used, else nucleus)")
+    ptn.add_argument("--dataset", default=None,
+                     help="public data: the dataset id of benchmarks/ext/<id>/, written to the card with its "
+                          "licence and the sha256 of its split.json (docs/TRAINING.md)")
 
     pts = sub.add_parser("train-spots",
                          help="train the EXPERIMENTAL net3d RAD-51 foci detector (a residual 3D U-Net heatmap) on the "
@@ -441,12 +455,13 @@ def main(argv: list[str] | None = None) -> int:
     cli_tune.add_parsers(sub)                      # germquant tune-spots (docs/TUNING.md)
 
     _add_track_parsers(sub)
-    from . import cli_assemble, cli_packs
+    from . import cli_assemble, cli_packs, cli_training
 
     cli_packs.add_parsers(sub)                     # germquant pack ... (docs/PACKS.md)
     cli_assemble.add_parsers(sub)                  # germquant assemble (one TIFF per channel -> one OME-TIFF)
     from . import cli_projects                     # germquant project ... (docs/PROJECTS.md)
     cli_projects.add_parsers(sub)
+    cli_training.add_parsers(sub)                  # germquant train-curve, import-labels (docs/TRAINING.md)
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
@@ -456,6 +471,7 @@ def main(argv: list[str] | None = None) -> int:
         "pack": lambda: cli_packs.dispatch(args),
         "assemble": lambda: cli_assemble.dispatch(args),
         "project": lambda: cli_projects.dispatch(args),
+        **dict.fromkeys(cli_training.COMMANDS, lambda: cli_training.dispatch(args)),
         "info": lambda: _info(args.nd2),
         "run": lambda: _run(args),
         "batch": lambda: _batch(args),
@@ -1246,7 +1262,9 @@ def _get_model(args) -> int:
 def _export_training(args) -> int:
     from .segment.training import export_training_pairs
 
-    orientations = tuple(o.strip() for o in str(args.orientations).split(",") if o.strip())
+    text = str(args.orientations).strip()
+    # auto: by run geometry; a list goes on as today's tuple, the call the plugin's in-process export makes
+    orientations = None if text.lower() == "auto" else tuple(o.strip() for o in text.split(",") if o.strip())
     manifest = export_training_pairs(args.results_dir, args.out, orientations=orientations,
                                      slices_per_image=args.slices_per_image, seed=args.seed,
                                      zone_column=args.zone_column or None, min_labels=args.min_labels,
@@ -1266,7 +1284,9 @@ def _train_nuclei(args) -> int:
     res = train_nuclei(args.pairs, args.out, base=args.base, name=args.name, epochs=args.epochs,
                        split_by=args.split_by, val_frac=args.val_frac, seed=args.seed, cpu=args.cpu,
                        learning_rate=args.learning_rate, batch_size=args.batch_size,
-                       min_train_masks=args.min_train_masks)
+                       min_train_masks=args.min_train_masks,
+                       **{k: v for k, v in (("system", args.system), ("kind", args.kind), ("dataset", args.dataset))
+                          if v is not None})                # the card options only when given (D40)
     sp = res["split"]
     print(f"\n{res['name']}: trained on {sp['n_train']} slice(s) from {len(sp['train_groups'])} {sp['by']} group(s), "
           f"{sp['n_val']} held out from {len(sp['val_groups'])}, device {res['device']}")
@@ -1281,6 +1301,15 @@ def _train_nuclei(args) -> int:
         print(f"  hold-out metrics missing: {res['metrics']['error']}")
     print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
     print(f"  card  -> {res['card_path']}")
+    card = res["card"]
+    pack = card.get("pack")
+    pack_text = "none" if not pack else (f"{pack['id']}@{pack['version']}/{pack['recipe']}"
+                                         + (" (edited)" if pack.get("edited") else ""))
+    # one value, or every value when the pairs differ (the card's pixel_um_values and segmented_roles)
+    pixel = card.get("pixel_um") if card.get("pixel_um") is not None else card.get("pixel_um_values")
+    role = card.get("segmented_role") if card.get("segmented_role") is not None else card.get("segmented_roles")
+    print(f"  card says: {card.get('dims')} {card.get('object_kind')} model, pixel {pixel} um, "
+          f"segmented role {role}, pack {pack_text}")
     print(f"  register it:  germquant register-model --model \"{res['model_path']}\" --card \"{res['card_path']}\"")
     return 0
 
