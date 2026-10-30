@@ -22,8 +22,8 @@ from .foci import assign_foci
 from .frames import StrandFrame
 from .noise import NoiseModel, gat
 from .params import Params, switch_on
-from .refine import (Centreline, EndFit, along_profile_sigma, ellipse_mask, finalize_line, fit_end, gauss_fit,
-                     n_eff, sigma_t)
+from .refine import (Centreline, EndFit, along_profile_fit, along_profile_sigma, ellipse_mask, finalize_line, fit_end,
+                     gauss_fit, n_eff, one_gaussian, sigma_t)
 from .sampling import LabelLookup, Sampler, grid, plane_points
 from .trace import background
 
@@ -216,6 +216,10 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
         pun_excl = pun_on and switch_on(p["punctum.exclude"])
         pun_xy = float(p["punctum.max_xy_um"])
         pun_ratio = float(p["punctum.sigma_ratio"])
+        # v3 (protocol changelog entry 32): the reference axial sigma from the image's foci, and the shape test
+        pun_ref = ctx.get("punctum_ref")
+        pun_one = pun_on and switch_on(p.get("punctum.one_gaussian", False))
+        pun_rms = float(p.get("punctum.max_rel_rms", 0.2))
         det_max = float(ctx.get("detector_max") or 65535.0)
         # 1. measured centrelines (end rule), oriented so s = 0 is the end with the smaller rounded (z, y, x)
         lines, fits_all, es, ets = [], [], [], []
@@ -418,10 +422,24 @@ def measure_crop(crop: Crop, ctx: dict, strands_in: list[dict], neighbours: np.n
             row["punctum"] = False
             steep = np.isfinite(row["frac_steep60"]) and row["frac_steep60"] > 0.5
             if pun_on and st["source"] == "auto" and steep and row["length_xy_um"] <= pun_xy + 1e-12:
-                sg = along_profile_sigma(fr.s, core)
+                if pun_one:
+                    fit = along_profile_fit(fr.s, core)
+                    sg = float(fit["sigma"])
+                else:
+                    fit, sg = None, along_profile_sigma(fr.s, core)
                 if np.isfinite(sg) and np.isfinite(row["tz_abs_mean"]):
                     row["punctum_sigma_z_um"] = float(sg * row["tz_abs_mean"])
-                    row["punctum"] = bool(row["punctum_sigma_z_um"] <= pun_ratio * psf[0] + 1e-12)
+                    if pun_ref is not None and pun_ref.get("source") != "psf":
+                        from .psf import punctum_sigma_at
+
+                        ref_z = punctum_sigma_at(pun_ref, float(np.mean(Cin[:, 0])) if len(Cin) else
+                                                 float(pun_ref.get("z_ref_um", 0.0)))
+                    else:
+                        ref_z = psf[0]
+                    is_p = row["punctum_sigma_z_um"] <= pun_ratio * ref_z + 1e-12
+                    if pun_one:
+                        is_p = is_p and one_gaussian(fit, L, pun_rms)
+                    row["punctum"] = bool(is_p)
             samples = {"s": fr.s, "in_strand": ins, "C": fr.C, "T": fr.T, "n_lat": fr.n_lat, "n_ax": fr.n_ax,
                        "core": core, "core_se": core_se, "integrated": integ, "integ_se": integ_se,
                        "contaminated": contaminated, "in_gap": in_gap, "in_label": in_label, "strength": strength,

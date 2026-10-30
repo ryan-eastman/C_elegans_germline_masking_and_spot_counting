@@ -478,19 +478,27 @@ def finalize_line(line: Centreline, fits: tuple[EndFit, EndFit]) -> tuple[Centre
     return new, float(e0), float(e1)
 
 
-def along_profile_sigma(s: np.ndarray, core: np.ndarray) -> float:
-    """The sigma of a Gaussian plus a constant fitted by least squares to a strand's core profile along s (the
-    punctum rule of protocol changelog entries 8, 9, 16 and 17; the fit of the entry-8 diagnostics)."""
+ALONG_SIGMA_BOUNDS = (0.05, 5.0)       # um, the sigma bounds of the along-strand Gaussian fit
+
+
+def along_profile_fit(s: np.ndarray, core: np.ndarray) -> dict:
+    """A Gaussian plus a constant (b + A exp(-(s - mu)^2 / 2 sigma^2)) fitted by least squares to a strand's core
+    profile along s (the punctum rule of protocol changelog entries 8, 9, 16, 17 and 31; the fit of the entry-8
+    diagnostics): {"ok", "A", "mu", "sigma", "b", "rel_rms" (the RMS of the residuals over A), "n"}. ``ok`` is False
+    (and sigma NaN) with fewer than 8 finite samples or a failed fit."""
     from scipy.optimize import least_squares
 
+    nan = float("nan")
+    out = {"ok": False, "A": nan, "mu": nan, "sigma": nan, "b": nan, "rel_rms": nan, "n": 0}
     ok = np.isfinite(core)
     s, core = np.asarray(s, float)[ok], np.asarray(core, float)[ok]
+    out["n"] = int(len(s))
     if len(s) < 8:
-        return float("nan")
+        return out
     b0 = float(np.percentile(core, 10))
     A0 = float(core.max() - b0)
-    lo = np.array([0.0, s.min() - 0.5, 0.05, -1e4])
-    hi = np.array([1e6, s.max() + 0.5, 5.0, 1e5])
+    lo = np.array([0.0, s.min() - 0.5, ALONG_SIGMA_BOUNDS[0], -1e4])
+    hi = np.array([1e6, s.max() + 0.5, ALONG_SIGMA_BOUNDS[1], 1e5])
     x0 = np.clip(np.array([max(A0, 1.0), float(s[np.argmax(core)]), 0.4, b0]), lo, hi)
 
     def res(q):
@@ -500,8 +508,29 @@ def along_profile_sigma(s: np.ndarray, core: np.ndarray) -> float:
     try:
         r = least_squares(res, x0, bounds=(lo, hi))
     except Exception:  # noqa: BLE001 - no fit, no punctum
-        return float("nan")
-    return float(r.x[2])
+        return out
+    A, mu, sg, b = (float(v) for v in r.x)
+    out.update({"ok": True, "A": A, "mu": mu, "sigma": sg, "b": b,
+                "rel_rms": float(np.sqrt(np.mean(r.fun ** 2)) / A) if A > 0 else float("inf")})
+    return out
+
+
+def along_profile_sigma(s: np.ndarray, core: np.ndarray) -> float:
+    """The sigma of ``along_profile_fit`` (NaN without a fit): the quantity of the punctum rule of v2."""
+    return float(along_profile_fit(s, core)["sigma"])
+
+
+def one_gaussian(fit: dict, L: float, max_rel_rms: float) -> bool:
+    """The shape test of the punctum rule of protocol changelog entry 32: the profile along the strand is one
+    Gaussian when the fit exists, its sigma lies inside the fit's bounds (more than 1 percent from either), its
+    centre lies on the strand (0 <= mu <= L), its amplitude is positive and the relative residual RMS is at most
+    ``max_rel_rms``."""
+    if not fit.get("ok"):
+        return False
+    sg, mu, A, rr = (float(fit[k]) for k in ("sigma", "mu", "A", "rel_rms"))
+    lo, hi = ALONG_SIGMA_BOUNDS
+    return bool(np.isfinite(sg) and lo * 1.01 < sg < hi * 0.99 and 0.0 <= mu <= float(L) and A > 0
+                and np.isfinite(rr) and rr <= float(max_rel_rms) + 1e-12)
 
 
 # ------------------------------------------------------------------------------------ PSF estimate

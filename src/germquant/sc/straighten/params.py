@@ -50,14 +50,23 @@ DEFAULTS: dict[str, Any] = {
             # v2 (protocol changelog entries 12 to 15): the foci estimate of the image PSF ("off" gives v1); withdrawn
             # by entry 16 (its confirmation failed at sigma_z 0.33 um), so the default is off
             "foci": "off", "foci_min": 15, "foci_window_um": [1.2, 0.54], "foci_isolation_um": 1.0,
-            "foci_max_sigma_xy_um": 0.25, "foci_max_ratio": 1.5, "foci_max_rel_rms": 0.2, "foci_min_snr": 8.0},
+            "foci_max_sigma_xy_um": 0.25, "foci_max_ratio": 1.5, "foci_max_rel_rms": 0.2, "foci_min_snr": 8.0,
+            # v3 (protocol changelog entry 32): the depth term of the measured axial reference of the v3 rules
+            # (psf.axial_reference) needs this many kept foci fits spanning this depth (5th to 95th percentile)
+            "ref_depth_min_fits": 30, "ref_depth_min_span_um": 3.0},
     "gaps": {"q": 0.6, "window_frac": 0.9, "min_um": 0.25, "z": 3.0, "smooth_um": 0.1, "ring_um": 0.45,
              "tail_sigmas": 1.0, "plateau_um": 0.4},
     "contamination_um": [0.7, 0.35],
     # v2 (protocol changelog entries 16 to 18): the punctum class (enabled false gives v1). Entry 18 kept it as a
     # label (exclude false counts punctum strands in every nucleus column as v1 does; before_linking false keeps
-    # the end matching of v1); its confirmation failed, so the class is off by default (entry 19)
-    "punctum": {"enabled": False, "exclude": False, "max_xy_um": 0.5, "sigma_ratio": 1.3, "before_linking": False},
+    # the end matching of v1); its confirmation failed, so the class is off by default (entry 19).
+    # v3 (protocol changelog entry 32): sigma_source "foci" or "foci_depth" takes the reference axial sigma of the
+    # rule from the image's compact RAD-51 foci (the foci estimate of entry 12, scaled to the central_element
+    # wavelength; with a depth term fitted on them for foci_depth) instead of the image PSF ("psf", v2), and
+    # one_gaussian asks the core profile to be one Gaussian (centre on the strand, relative residual RMS at most
+    # max_rel_rms); the image PSF itself stays that of v1
+    "punctum": {"enabled": False, "exclude": False, "max_xy_um": 0.5, "sigma_ratio": 1.3, "before_linking": False,
+                "sigma_source": "psf", "one_gaussian": False, "max_rel_rms": 0.2},
     "strips": {"write": True, "ds_um": 0.05, "du_um": 0.05, "dv_um": 0.1, "half_um": [1.0, 0.6],
                "extend_um": 0.5, "flat_v_um": 0.3, "axial_u_um": 0.15, "roles": ["central_element", "foci"]},
     "samples": {"step_um": 0.1},
@@ -92,12 +101,34 @@ V1_VALUES: dict[str, Any] = {
     "link.junction_gap": "anchors",
     "classes.complete_guard": False,
     "classes.max_complete_um": None,
+    # v3 (protocol changelog entry 32)
+    "punctum.sigma_source": "psf",
+    "punctum.one_gaussian": False,
 }
+
+# The configurations of the two rules of the v3 round, both off by default: entry 32 (the punctum class B1 with the
+# image's measured axial sigma, a class left out of the ribbon tier) and entry 33 (dim stretches are not gaps).
+# Whether each is adopted is decided by its entry; the defaults stay those of v1 either way.
+V3_PUNCTUM: dict[str, Any] = {
+    "punctum.enabled": True,
+    "punctum.exclude": True,
+    "punctum.sigma_source": "foci_depth",
+    "punctum.one_gaussian": True,
+}
+V3_VALUES: dict[str, Any] = {**V3_PUNCTUM}
 
 
 def v1_sets() -> list[str]:
     """``--set`` assignments that switch every v2 change back to v1."""
     return [f"{k}={json.dumps(v)}" for k, v in V1_VALUES.items()]
+
+
+def v3_sets(rules: tuple[str, ...] = ("punctum",)) -> list[str]:
+    """``--set`` assignments of the v3 rules (``rules``: "punctum" for entry 32)."""
+    d: dict[str, Any] = {}
+    for r in rules:
+        d.update({"punctum": V3_PUNCTUM}[r])
+    return [f"{k}={json.dumps(v)}" for k, v in d.items()]
 
 
 def switch_on(value) -> bool:
@@ -108,10 +139,11 @@ def switch_on(value) -> bool:
 # the values resolve() accepts for the v2 switches (protocol changelog entry 27): an unknown value is refused, so a
 # typo can never silently give another configuration
 SWITCH_KEYS = ("psf.foci", "punctum.enabled", "punctum.exclude", "punctum.before_linking", "link.junction_dirs",
-               "classes.complete_guard")
+               "classes.complete_guard", "punctum.one_gaussian")
 SWITCH_WORDS = ("on", "off", "true", "false", "yes", "no")
 ENUM_KEYS: dict[str, tuple[str, ...]] = {"follow.contact_test": ("local", "claim_tangent"),
-                                         "link.junction_gap": ("anchors", "tips")}
+                                         "link.junction_gap": ("anchors", "tips"),
+                                         "punctum.sigma_source": ("psf", "foci", "foci_depth")}
 
 
 def _check_switches(p: Params) -> None:

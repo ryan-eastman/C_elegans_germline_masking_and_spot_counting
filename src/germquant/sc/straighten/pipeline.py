@@ -27,7 +27,7 @@ from .fields import calibrate_null, sigma_vox
 from .measure import measure_crop
 from .noise import fit_noise_model
 from .params import Params, switch_on
-from .psf import image_psf, isolated_spots
+from .psf import image_psf, isolated_spots, punctum_reference
 from .refine import Centreline
 from .trace import trace_crop
 
@@ -437,6 +437,9 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
         stretches = [s for r in res_a for s in r.get("psf_stretches", [])]
         foci_fits = [f for r in res_a for f in r.get("psf_foci", [])] if foci_by is not None else None
         psf, psf_src, psf_detail = image_psf(stretches, foci_fits, wavelengths, p)
+        # the reference axial sigma of the punctum rule (protocol changelog entry 32): the image's foci, or the
+        # image PSF (v2)
+        pun_ref = punctum_reference(foci_fits, wavelengths, p, psf) if _punctum_measured(p) else None
         # neighbours of each nucleus: in-strand samples of the strands of the nuclei it touches
         nbrs: dict[int, list] = {i: [] for i in present}
         for a, b in pairs:
@@ -452,6 +455,8 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
                 spots_by.setdefault(int(nid), {})[name] = g
         ctx_b = dict(base_ctx)
         ctx_b["psf"] = list(psf)
+        if pun_ref is not None:
+            ctx_b["punctum_ref"] = pun_ref
 
         def tasks_b():
             for nid in present:
@@ -468,14 +473,22 @@ def straighten_image(ce: np.ndarray, labels: np.ndarray, spacing, nuclei: pd.Dat
     out.psf_items = {"stretches": stretches, "foci": foci_fits}
     if foci_by is not None:
         out.record["psf"]["wavelengths_nm"] = dict(wavelengths or {})
+    if pun_ref is not None:
+        out.record["punctum_reference"] = pun_ref
     return out
+
+
+def _punctum_measured(p) -> bool:
+    """The punctum rule takes its reference axial sigma from the image's foci (protocol changelog entry 32)."""
+    return switch_on(p.get("punctum.enabled", False)) and str(p.get("punctum.sigma_source", "psf")) != "psf"
 
 
 def psf_foci_inputs(spot_tables, roles, wavelengths, present, p) -> dict | None:
     """{nucleus_id: {"pos": (n, 3) um, "isolated": (n,) bool}} of the RAD-51 ``spots`` table for the foci estimate
-    of the PSF, or None when that estimate is off or impossible (no foci role, no spots, no wavelengths; then
-    phase A is that of v1)."""
-    if not switch_on(p["psf.foci"]) or p["psf.mode"] == "fixed":
+    of the PSF (psf.foci, entry 12) or of the punctum rule's reference (punctum.sigma_source, entry 32), or None
+    when neither is on or the estimate is impossible (no foci role, no spots, no wavelengths; then phase A is that
+    of v1)."""
+    if not (switch_on(p["psf.foci"]) or _punctum_measured(p)) or p["psf.mode"] == "fixed":
         return None
     df = (spot_tables or {}).get("spots")
     wl = wavelengths or {}

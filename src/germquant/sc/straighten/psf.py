@@ -213,6 +213,60 @@ def foci_estimate(fits: list[dict], wavelengths: dict | None, p) -> dict:
     return out
 
 
+# ------------------------------------------------------------------------------------ the measured axial reference
+def axial_reference(fits: list[dict] | None, wavelengths: dict | None, p, psf_image, source: str) -> dict:
+    """The measured axial reference of the v3 rules (protocol changelog entries 32 and 33): the image's axial
+    sigma from its compact isolated RAD-51 foci, the foci estimate of entries 12 and 13 (``foci_estimate``: the
+    median kept sigma_z times lambda_central_element / lambda_foci, at least psf.foci_min kept fits), with, for
+    ``source`` "foci_depth", a depth term: the Theil-Sen slope of the kept fits' sigma_z on their depth (times the
+    same ratio), used when at least psf.ref_depth_min_fits fits are kept and their depths (5th to 95th percentile)
+    span at least psf.ref_depth_min_span_um. Without a foci estimate, or for ``source`` "psf", it is the image PSF's
+    sigma_z (``psf_image``, that of v1). ``punctum_sigma_at`` evaluates it at a depth. The image PSF itself is not
+    changed."""
+    src = str(source)
+    out = {"requested": src, "source": "psf", "sigma_z_um": float(psf_image[0]), "slope_per_um": 0.0}
+    if src == "psf":
+        return out
+    fits = fits or []
+    fo = foci_estimate(fits, wavelengths, p)
+    out["foci"] = {k: fo.get(k) for k in ("ok", "n_fits", "n_kept", "why", "sigma_z_um", "se_z_um",
+                                          "wavelength_ratio")}
+    if not fo["ok"]:
+        return out
+    kept = [f for f in fits if f.get("kept")]
+    ratio = float(fo["wavelength_ratio"])
+    sz = np.array([f["sz"] for f in kept], float)
+    cz = np.array([f["cz"] for f in kept], float)
+    out.update({"source": "foci", "sigma_z_um": float(fo["sigma_z_um"]), "z_ref_um": float(np.median(cz)),
+                "sigma_lo_um": float(np.percentile(sz, 10)) * ratio, "sigma_hi_um": float(np.percentile(sz, 90)) * ratio,
+                "n_kept": len(kept)})
+    if src == "foci_depth":
+        z_lo, z_hi = (float(v) for v in np.percentile(cz, [5, 95]))
+        out.update({"z_lo_um": z_lo, "z_hi_um": z_hi})
+        if len(kept) >= int(p["psf.ref_depth_min_fits"]) and z_hi - z_lo >= float(p["psf.ref_depth_min_span_um"]):
+            from scipy.stats import theilslopes
+
+            out.update({"source": "foci_depth", "slope_per_um": float(theilslopes(sz, cz)[0]) * ratio})
+    return out
+
+
+def punctum_reference(fits: list[dict] | None, wavelengths: dict | None, p, psf_image) -> dict:
+    """The reference axial sigma of the punctum rule (protocol changelog entry 32): ``axial_reference`` with
+    punctum.sigma_source."""
+    return axial_reference(fits, wavelengths, p, psf_image, str(p["punctum.sigma_source"]))
+
+
+def punctum_sigma_at(ref: dict, z_um: float) -> float:
+    """The reference axial sigma at depth ``z_um`` (whole-image um): the constant estimate, plus for a depth term
+    the slope times the depth from the foci's median depth, the depth clipped to the foci's 5th to 95th percentile
+    and the value to the 10th to 90th percentile of their (scaled) sigma_z."""
+    if ref.get("source") != "foci_depth":
+        return float(ref["sigma_z_um"])
+    z = float(np.clip(float(z_um), ref["z_lo_um"], ref["z_hi_um"]))
+    v = float(ref["sigma_z_um"]) + float(ref["slope_per_um"]) * (z - float(ref["z_ref_um"]))
+    return float(np.clip(v, ref["sigma_lo_um"], ref["sigma_hi_um"]))
+
+
 # ------------------------------------------------------------------------------------ stretches
 def _gauss_grid_fit(x: np.ndarray, Y: np.ndarray) -> np.ndarray:
     """refine.gauss_fit's sigma for each row of ``Y`` (profiles on ``x``), vectorised (closed-form least squares

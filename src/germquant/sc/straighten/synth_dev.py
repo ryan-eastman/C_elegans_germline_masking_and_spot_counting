@@ -24,6 +24,18 @@ entry 27): these families have no sealed seeds.
 * ``real_dense_r2`` and ``real_dense_r2_base``, ``_psf``, ``_brightness``, ``_texture``, ``_puncta`` (protocol
   changelog entry 28): the same scenes with the features recalibrated so that the phantoms show the real
   statistics after the PSF and the measurement (REAL_DENSE_CALIB_R2).
+* ``puncta_psf`` (protocol changelog entry 32, the punctum class with the image's measured axial sigma): one image of
+  two layers 6.5 um apart in z, each with three dense nuclei of 2.3 (oocyte and spermatocyte alternating, the 0.25
+  um clearance of entry 2 (c)) holding 3 puncta each, one nucleus holding 6 puncta and no ribbon, and two steep
+  isolated arcs (tilt U(60, 90) degrees, length U(0.9, 4.0) um, peak U(300, 800) counts) in their own enclosing
+  nuclei; puncta are half points and half spheres of diameter U(0.25, 0.8) um, peaks log-uniform in [100, 1500]
+  counts above the nucleoplasm, at least 0.6 um from every ribbon and 1.2 um apart. The axial PSF sigma is the
+  level of psf_check (0.33, 0.38, 0.43 or 0.48 um by seed modulo 4) at the middle depth and changes linearly with
+  depth by a relative gradient U(-0.02, 0.02) per um (up to 20 percent over 10 um, as the compact RAD-51 foci of
+  the development images change, entry 9); the lateral sigma is U(0.135, 0.165) um. A foci channel holds
+  RAD-51-like point spots in every nucleus but the arcs' (as psf_check: a Poisson number of mean 0.15 per um3,
+  peaks U(150, 450) counts, the local PSF times 595/511), with the spot table of protocol 4.4 and the wavelengths
+  511 and 595 nm, so the foci estimate of entry 12 measures the PSF the puncta were rendered with.
 """
 from __future__ import annotations
 
@@ -33,7 +45,8 @@ from scipy import ndimage as ndi
 
 from . import synth as S
 
-FAMILY_CODE = {"puncta_pt": 101, "puncta_agg": 102, "dense_puncta": 103, "psf_check": 107, "real_dense": 108}
+FAMILY_CODE = {"puncta_pt": 101, "puncta_agg": 102, "dense_puncta": 103, "psf_check": 107, "real_dense": 108,
+               "puncta_psf": 109}
 # entry 19: truth-free statistics of the twelve trial-4 runs (C:/Users/ryane/sc_ribbon_work/v2/logs/
 # realism_measures_t4.json; v2/scripts/realism_measure.py)
 REAL_DENSE_CALIB = {
@@ -350,6 +363,164 @@ def real_dense_scene(seed: int, *, final: bool = False, features=REAL_FEATURES, 
                    info=info)
 
 
+PUNCTA_PSF_LAYER_DZ = 6.5               # um between the two layers of puncta_psf
+PUNCTA_PSF_GRADIENT = 0.02              # the largest relative change of sigma_z per um of depth
+
+
+def _render_depth(img, pts, weight, sig_of_z, sxy, chunk=100):
+    """synth._render_points with the axial sigma of each chunk of ``chunk`` consecutive points taken at the chunk's
+    mean depth (``sig_of_z(z)``); ``weight`` a scalar or one weight per point."""
+    pts = np.asarray(pts, float)
+    w = np.broadcast_to(np.asarray(weight, float), (len(pts),))
+    for a in range(0, len(pts), chunk):
+        P = pts[a:a + chunk]
+        S._render_points(img, P, S.SPACING, (float(sig_of_z(float(P[:, 0].mean()))), sxy, sxy),
+                         weight=np.ascontiguousarray(w[a:a + chunk]), chunk=chunk)
+
+
+def puncta_psf_scene(seed: int, *, final: bool = False) -> S.Scene:
+    """The puncta_psf development family (protocol changelog entry 32; see the module docstring)."""
+    seed = _dev_seed(seed, final)
+    rng = _rng("puncta_psf", seed)
+    lv = PSF_LEVELS[seed % 4]
+    sxy = float(rng.uniform(0.135, 0.165))
+    grad = float(rng.uniform(-PUNCTA_PSF_GRADIENT, PUNCTA_PSF_GRADIENT))
+    scale = WAVELENGTHS["foci"] / WAVELENGTHS["central_element"]
+    centers, radii, label_r, gcs, kinds, ribs = [], [], [], [], [], []
+    puncta, foci_truth = [], []
+
+    def add_puncta(nid, c, R, n, rib_pts):
+        tries, made = 0, 0
+        while made < n and tries < 5000:
+            tries += 1
+            d = rng.normal(size=3)
+            d /= np.linalg.norm(d)
+            q = c + d * R * rng.uniform(0.3, 0.95) ** (1 / 3) * 0.95
+            if any(np.linalg.norm(q - x["center"]) < 1.2 for x in puncta):
+                continue
+            if len(rib_pts) and np.min(np.linalg.norm(rib_pts - q, axis=1)) < 0.6:
+                continue
+            diam = 0.0 if made % 2 == 0 else float(rng.uniform(0.25, 0.8))
+            puncta.append({"center": q, "diam": diam, "peak": float(np.exp(rng.uniform(np.log(100.0),
+                                                                                    np.log(1500.0)))),
+                           "nucleus_id": nid})
+            made += 1
+
+    def add_foci(nid, c, R):
+        for _ in range(int(rng.poisson(FOCI_DENSITY * 4.0 / 3.0 * np.pi * R ** 3))):
+            d = rng.normal(size=3)
+            d /= np.linalg.norm(d)
+            foci_truth.append((nid, c + d * R * rng.uniform() ** (1.0 / 3.0), float(rng.uniform(*FOCI_PEAK_RANGE))))
+
+    for layer in range(2):
+        z0 = layer * PUNCTA_PSF_LAYER_DZ
+        x = 0.0
+        for i in range(3):
+            nid = len(centers) + 1
+            R = float(rng.uniform(2.2, 2.6))
+            c = np.array([z0, 0.0, x])
+            gc = "oocyte" if (i + layer + seed) % 2 == 0 else "spermatocyte"
+            rs = S._shell_nucleus(rng, gc, c, R, S.SCENE_PEAK, nid, len(ribs) + 1)
+            for r in rs:
+                r.kind = "dense"
+            add_puncta(nid, c, R, 3, np.vstack([r.points[::10] for r in rs]))
+            add_foci(nid, c, R)
+            centers.append(c)
+            radii.append(R)
+            label_r.append(R + float(rng.uniform(-0.2, 0.4)))
+            gcs.append(gc)
+            kinds.append("dense")
+            ribs.extend(rs)
+            x += 6.0
+        nid = len(centers) + 1
+        R = float(rng.uniform(2.2, 2.6))
+        c = np.array([z0, 0.0, x])
+        add_puncta(nid, c, R, 6, np.zeros((0, 3)))
+        add_foci(nid, c, R)
+        centers.append(c)
+        radii.append(R)
+        label_r.append(R + float(rng.uniform(-0.2, 0.4)))
+        gcs.append("oocyte")
+        kinds.append("puncta")
+        x += R + 1.0
+        prev_r = R + 0.4
+        for _j in range(2):
+            nid = len(centers) + 1
+            rib = S._iso_like(rng, float(rng.uniform(60.0, 90.0)), float(rng.uniform(0.9, 4.0)),
+                              float(rng.uniform(300.0, 800.0)), nucleus_id=nid, ribbon_id=len(ribs) + 1,
+                              kind="steep_arc")
+            cc, Ra = S._enclosing_nucleus([rib])
+            x += prev_r + Ra + 1.0
+            rib.points = rib.points - cc + np.array([z0, 0.0, x])
+            centers.append(np.array([z0, 0.0, x]))
+            radii.append(Ra)
+            label_r.append(Ra + float(rng.uniform(0.0, 0.4)))
+            gcs.append("unknown")
+            kinds.append("arc")
+            ribs.append(rib)
+            prev_r = Ra + 0.4
+    shape, shift = S._place([r.points for r in ribs] + [np.array([q["center"] for q in puncta])], centers, label_r)
+    for r in ribs:
+        r.points = r.points + shift
+    for q in puncta:
+        q["center"] = q["center"] + shift
+    centers = [c + shift for c in centers]
+    z_mid = float(shift[0] + 0.5 * PUNCTA_PSF_LAYER_DZ)
+
+    def sig_z(z: float) -> float:
+        return lv * (1.0 + grad * (float(z) - z_mid))
+
+    labels, _ = S._sphere_masks(shape, S.SPACING, centers, label_r)
+    levels = [float(rng.uniform(*S.NUCLEOPLASM)) for _ in centers]
+    nuc = nucleoplasm(shape, S.SPACING, centers, radii, levels, (lv, sxy, sxy))
+    clean = np.full(shape, S.OFFSET) + nuc
+    for r in ribs:
+        P = r.points
+        s = r.s
+        probe_s = np.linspace(0.15 * s[-1], 0.85 * s[-1], 25)
+        probe = np.stack([np.interp(probe_s, s, P[:, k]) for k in range(3)], 1)
+        unit = float(S._value_at(probe, P, (sig_z(float(P[:, 0].mean())), sxy, sxy)).max())
+        if unit > 0:
+            _render_depth(clean, P, r.peak / unit, sig_z, sxy)
+    for q in puncta:
+        sg = (sig_z(q["center"][0]), sxy, sxy)
+        pts = q["center"][None, :] if q["diam"] <= 0 else _sphere_points(q["diam"]) + q["center"][None, :]
+        unit = float(S._value_at(q["center"][None, :], pts, sg)[0])
+        S._render_points(clean, pts, S.SPACING, sg, weight=q["peak"] / unit, chunk=2000)
+    fclean = np.full(shape, S.OFFSET) + nuc
+    rows = []
+    for k, (nid, pos, pk) in enumerate(foci_truth):
+        pos = pos + shift
+        S._render_points(fclean, pos[None, :], S.SPACING, (sig_z(pos[0]) * scale, sxy * scale, sxy * scale),
+                         weight=pk)
+        rows.append({"spot_id": k, "nucleus_id": nid, "z_um": pos[0], "y_um": pos[1], "x_um": pos[2], "peak": pk})
+    ce = S.add_noise(clean, rng)
+    fo = S.add_noise(fclean, rng)
+    truth = pd.DataFrame(rows, columns=["spot_id", "nucleus_id", "z_um", "y_um", "x_um", "peak"])
+    if len(truth):
+        loc = rng.normal(size=(len(truth), 3)) * np.asarray(S.FOCI_LOC_SIGMA)
+        spots = pd.DataFrame({"spot_id": truth["spot_id"].to_numpy(), "nucleus_id": truth["nucleus_id"].to_numpy(),
+                              "z_um": truth["z_um"].to_numpy() + loc[:, 0], "y_um": truth["y_um"].to_numpy() + loc[:, 1],
+                              "x_um": truth["x_um"].to_numpy() + loc[:, 2]})
+    else:
+        spots = pd.DataFrame(columns=["spot_id", "nucleus_id", "z_um", "y_um", "x_um"])
+    info = {"family": "puncta_psf", "seed": seed, "sigma_z_level": lv, "sigma_z_gradient_per_um": grad,
+            "z_mid_um": z_mid, "psf_sigma_xy_um": sxy, "wavelengths": dict(WAVELENGTHS), "nucleoplasm": levels,
+            "puncta": [{"center": [float(v) for v in q["center"]], "diam": q["diam"], "peak": q["peak"],
+                        "nucleus_id": int(q["nucleus_id"]), "sigma_z_um": sig_z(q["center"][0])} for q in puncta],
+            "foci_truth": truth.to_dict("list")}
+    return S.Scene(family="puncta_psf", seed=seed, spacing=S.SPACING, channels={"central_element": ce, "foci": fo},
+                   labels=labels, nuclei=_nuclei_table(labels, centers, radii, label_r, gcs, kinds), ribbons=ribs,
+                   spots=spots, truth_foci=pd.DataFrame(columns=["spot_id", "ribbon_id", "nucleus_id", "s_um", "z_um",
+                                                                 "y_um", "x_um"]), info=info)
+
+
+def puncta_psf_sigma_z(info: dict, z: float) -> float:
+    """The axial PSF sigma of a puncta_psf scene at depth ``z`` (um, image frame)."""
+    return float(info["sigma_z_level"]) * (1.0 + float(info["sigma_z_gradient_per_um"]) * (float(z) -
+                                                                                         float(info["z_mid_um"])))
+
+
 def _real(name, features, calib=None):
     def f(seed, *, final=False):
         return real_dense_scene(seed, final=final, features=features, name=name, calib=calib)
@@ -366,7 +537,8 @@ def _dense_puncta_clean(seed, *, final=False):
     return puncta_scene(seed, final=final, family="dense_puncta", with_puncta=False)
 
 
-FAMILY_FUNCS = {"psf_check": psf_check_scene, "puncta_pt": _puncta("puncta_pt"), "puncta_agg": _puncta("puncta_agg"),
+FAMILY_FUNCS = {"psf_check": psf_check_scene, "puncta_psf": puncta_psf_scene,
+                "puncta_pt": _puncta("puncta_pt"), "puncta_agg": _puncta("puncta_agg"),
                 "dense_puncta": _puncta("dense_puncta"), "dense_puncta_clean": _dense_puncta_clean,
                 "real_dense": _real("real_dense", REAL_FEATURES), "real_dense_base": _real("real_dense_base", ()),
                 **{f"real_dense_{k}": _real(f"real_dense_{k}", (k,)) for k in REAL_FEATURES},
