@@ -19,9 +19,10 @@ gives that plane as orientation xy, cut above 1024 pixels a side into tiles (the
 segment.training.plane_pairs); labels of every plane give the xy, xz and yz slices export-training draws for a 3D
 run (3 per orientation among those that cut at least 3 objects, seeded per image, xz and yz stretched to the xy
 pixel size: segment.training.slice_pairs). The ids are relabelled 1 to N in the order of the file's ids. When the
-image is a time series, ``frame`` is also its timepoint, and the pairs carry that timepoint's image id
-(``<stem>_t<NNN>``). ``channel`` names the image channel the labels were drawn on (an index, or the channel's
-name); by default the only channel, or channel 0 with a warning.
+image is a time series, ``frame`` is also its timepoint (named in a warning), the pairs carry that timepoint's
+image id (``<stem>_t<NNN>``), and a labels file without a T axis holds the labels of that timepoint. ``channel``
+names the image channel the labels were drawn on (an index, or the channel's name); by default the only channel,
+or channel 0 with a warning.
 
 Refused, before anything is written: a format the file name does not carry, a ``_seg.npy`` without
 allow_pickle, labels of one plane for an image of several, labels on another grid, a label image without objects,
@@ -76,7 +77,8 @@ def import_labels(src, fmt, image, pairs_dir, *, allow_pickle=False, frame=0, to
     folder ``pairs_dir`` (module docstring). ``tool`` names the program the labels came from (letters, digits, '_',
     '.' and '-'; default: tiff, png, cellacdc or cellpose by the format), recorded as the source ``import:<tool>``;
     ``channel`` the image channel (an index or a name); ``frame`` the frame of a T axis and a time series'
-    timepoint. Rows of the same image id already in the folder's manifest are replaced; other rows stay.
+    timepoint (for a time series, a labels file without a T axis holds that timepoint's labels). Rows of the same
+    image id already in the folder's manifest are replaced; other rows stay.
 
     Returns ``{"image_id", "series_id", "t_index", "image", "image_sha256", "pixels_sha256", "labels",
     "labels_sha256", "format", "tool", "source", "dims" ("2d" or "3d"), "channel_index", "channel_name",
@@ -114,6 +116,9 @@ def import_labels(src, fmt, image, pairs_dir, *, allow_pickle=False, frame=0, to
             raise ImportLabelsError(f"--frame {frame} is out of range: {image.name} is a time series of {n_t} "
                                     f"timepoints (0 to {n_t - 1}), and the frame is also its timepoint")
         t = frame
+        # the frame is also the timepoint: say which one the pairs take (the default 0 too), as for the channel
+        _warn(warnings, f"{image.name} is a time series of {n_t} timepoints: the pairs take timepoint {t} "
+                        f"(--frame {t}); name the timepoint the labels were drawn on with --frame")
     _meta, stack = pipeline._read_input(image, xy_stride=1, z_range=None, t=t)
     names = [str(n) for n in (stack.channel_names or meta.get("channel_names") or [])]
     c = _channel_index(channel, int(stack.n_channels), names, image)
@@ -128,7 +133,7 @@ def import_labels(src, fmt, image, pairs_dir, *, allow_pickle=False, frame=0, to
     with open(long_path(src), "rb") as fh:
         data = fh.read()
     nz = int(stack.data.shape[1])
-    arr = _labels_array(src, fmt, data, nz=nz, frame=frame, warnings=warnings)
+    arr = _labels_array(src, fmt, data, nz=nz, frame=frame, warnings=warnings, series=t is not None)
     from .io import labels as labels_io
 
     if arr.ndim == 2 and nz != 1:
@@ -242,13 +247,22 @@ def _warn(warnings: list[str], text: str) -> None:
 
 # ---- reading the labels ----------------------------------------------------------------------------------
 
-def _labels_array(src: Path, fmt: str, data: bytes, *, nz: int, frame: int, warnings: list[str]) -> np.ndarray:
-    """The labels of the chosen frame as stored, (Y, X) or (Z, Y, X), before the relabel and the grid check."""
+def _labels_array(src: Path, fmt: str, data: bytes, *, nz: int, frame: int, warnings: list[str],
+                  series: bool = False) -> np.ndarray:
+    """The labels of the chosen frame as stored, (Y, X) or (Z, Y, X), before the relabel and the grid check. For a
+    time series (``series``) a labels file without a T axis holds the labels of one timepoint, the one ``frame``
+    names, so it is read as it is."""
     from .io import labels as labels_io
 
+    if series and frame != 0 and _t_frames(src, fmt, data, nz=nz) <= 1:
+        frame = 0              # one timepoint's labels, for the timepoint --frame names
     if fmt in ("tiff", "cellacdc-npz"):
-        # the run path's reader (segmentation.nuclei.labels_from): its axes, T axis and frame rules
-        return labels_io._frame(data, labels_io.labels_format(src), src.name, nz=nz, frame=frame)
+        # the run path's reader (segmentation.nuclei.labels_from): its axes, T axis and frame rules; its messages
+        # name the recipe key, which is --frame here
+        try:
+            return labels_io._frame(data, labels_io.labels_format(src), src.name, nz=nz, frame=frame)
+        except labels_io.LabelsError as e:
+            raise labels_io.LabelsError(str(e).replace(labels_io.FRAME_KEY, "--frame")) from None
     if frame != 0:
         raise labels_io.LabelsError(f"--frame {frame} names a frame of a T axis, but {src.name} ({fmt}) has none; "
                                     f"frame 0 is the file itself")
@@ -260,6 +274,21 @@ def _labels_array(src: Path, fmt: str, data: bytes, *, nz: int, frame: int, warn
     if arr.ndim not in (2, 3):
         raise labels_io.LabelsError(f"{src.name}: a {arr.ndim}-D label image; labels are (Y, X) or (Z, Y, X)")
     return arr
+
+
+def _t_frames(src: Path, fmt: str, data: bytes, *, nz: int) -> int:
+    """The frames of the T axis the run path's reader finds in a labels file (0 without one), by its rule
+    (germquant.io.labels._frame): a named T axis, or the one unnamed first axis of a file for an image of one
+    plane, when it is not that plane. A PNG or a _seg.npy has none."""
+    if fmt not in ("tiff", "cellacdc-npz"):
+        return 0
+    from .io import labels as labels_io
+
+    read = labels_io._npz if labels_io.labels_format(src) == "npz" else labels_io._tiff
+    arr, axes = read(data, src.name)
+    if axes == "QYX":
+        return int(arr.shape[0]) if int(nz) == 1 and int(arr.shape[0]) != 1 else 0
+    return int(arr.shape[0]) if axes.startswith("T") else 0
 
 
 def _png(data: bytes, name: str) -> np.ndarray:

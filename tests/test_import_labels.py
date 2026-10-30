@@ -241,7 +241,9 @@ def test_formats(images, tmp_path, case):
 
 def test_a_series_image_is_read_at_the_frame_and_named_by_its_timepoint(images, tmp_path):
     """A (T, Y, X) segm.npz of a one-plane time series: --frame picks the labels' frame and the image's
-    timepoint, and the pairs carry the timepoint's image id (<stem>_t<NNN>) in the series' group."""
+    timepoint, and the pairs carry the timepoint's image id (<stem>_t<NNN>) in the series' group. A labels file
+    without a T axis, or with a T axis of one frame, holds the labels of the timepoint --frame names; a warning
+    names the timepoint the pairs take."""
     from germquant.import_labels import import_labels
 
     lab = _labels_2d()
@@ -257,9 +259,31 @@ def test_a_series_image_is_read_at_the_frame_and_named_by_its_timepoint(images, 
     assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r["image"]), _u16(frames[2][0, 0]))
     assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r["labels"]), _relabelled(np.roll(lab, 6, axis=1)))
     assert res["pixels_sha256"] == pixels_sha256(frames[2])
+    # the timepoint the pairs take is named, also when --frame is left at 0
+    assert any("time series of 3 timepoints" in w and "timepoint 2" in w for w in res["warnings"])
+    # labels of one timepoint saved without a T axis: --frame names the timepoint they belong to
+    one = _write_labels(tmp_path / "movie_001_t1_masks.tif", "tiff", np.roll(lab, 3, axis=1))
+    res1 = import_labels(one, "tiff", img, tmp_path / "pairs_one", frame=1)
+    assert (res1["image_id"], res1["t_index"]) == ("movie_001_t001", 1)
+    r1 = _manifest(tmp_path / "pairs_one").iloc[0]
+    assert np.array_equal(tifffile.imread(tmp_path / "pairs_one" / r1["image"]), _u16(frames[1][0, 0]))
+    assert np.array_equal(tifffile.imread(tmp_path / "pairs_one" / r1["labels"]),
+                          _relabelled(np.roll(lab, 3, axis=1)))
+    # left at frame 0, the same file is timepoint 0's, and the warning names the timepoint the pairs took
+    res0 = import_labels(one, "tiff", img, tmp_path / "pairs_zero")
+    assert res0["t_index"] == 0 and any("timepoint 0" in w for w in res0["warnings"])
+    # a T axis of one frame (a (1, 1, Y, X) segm.npz) is one timepoint's labels too
+    single = _write_labels(tmp_path / "movie_001_t1_segm.npz", "npz", np.roll(lab, 3, axis=1)[None, None])
+    res_single = import_labels(single, "cellacdc-npz", img, tmp_path / "pairs_single", frame=1)
+    assert (res_single["image_id"], res_single["t_index"]) == ("movie_001_t001", 1)
+    r_single = _manifest(tmp_path / "pairs_single").iloc[0]
+    assert np.array_equal(tifffile.imread(tmp_path / "pairs_single" / r_single["labels"]),
+                          _relabelled(np.roll(lab, 3, axis=1)))
     # a frame the image does not have is refused before anything is written
     with pytest.raises(ValueError):
         import_labels(src, "cellacdc-npz", img, tmp_path / "pairs_bad", frame=3)
+    with pytest.raises(ValueError):
+        import_labels(one, "tiff", img, tmp_path / "pairs_bad", frame=3)
     assert not (tmp_path / "pairs_bad").exists()
 
 
@@ -389,6 +413,7 @@ def test_refusals_before_anything_is_written(images, tmp_path, capsys):
     img2 = images.add("cells_001.nd2", _pixels(lab2, 1)[:, None], SP2, two_d=True)
     img3 = images.add("stack_001.nd2", _pixels(lab3, 2), SP3, two_d=False)
     tif2 = _write_labels(tmp_path / "l" / "m2.tif", "tiff", lab2)
+    png2 = _write_labels(tmp_path / "l" / "m2.png", "png", lab2)
     npz3 = _write_labels(tmp_path / "l" / "m3.npz", "npz", lab3)
     flat3 = _write_labels(tmp_path / "l" / "m3_plane.tif", "tiff", lab3[2])   # one plane on the stack's own grid
     zyx = tmp_path / "l" / "m3.ome.tif"                       # a z stack by its axes, for an image of one plane
@@ -400,7 +425,8 @@ def test_refusals_before_anything_is_written(images, tmp_path, capsys):
         (dict(src=npz3, fmt="tiff", image=img3), ImportLabelsError, "tiff"),
         (dict(src=flat3, fmt="tiff", image=img3), ImportLabelsError, r"holds one plane \(2D labels\)"),
         (dict(src=zyx, fmt="tiff", image=img2), LABELS.LabelsError, "planes"),              # 6 planes, image 1
-        (dict(src=tif2, fmt="tiff", image=img2, frame=1), LABELS.LabelsError, "frame"),     # no T axis
+        (dict(src=tif2, fmt="tiff", image=img2, frame=1), LABELS.LabelsError, "--frame 1 names a frame"),  # no T
+        (dict(src=png2, fmt="png", image=img2, frame=1), LABELS.LabelsError, "--frame 1 names a frame"),
         (dict(src=tif2, fmt="tiff", image=img2, tool="my tool"), ValueError, "tool"),
         (dict(src=tif2, fmt="tiff", image=img2, channel=2), ImportLabelsError, "channel"),
         (dict(src=tif2, fmt="tiff", image=img2, channel="Cy5"), ImportLabelsError, "Cy5"),

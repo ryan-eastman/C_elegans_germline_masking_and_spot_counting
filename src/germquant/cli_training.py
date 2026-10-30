@@ -75,7 +75,8 @@ def add_parsers(sub) -> None:
                          "only files you made")
     pi.add_argument("--frame", type=int, default=0,
                     help="the frame of a T axis of the labels file and, when the image is a time series, its "
-                         "timepoint (default 0)")
+                         "timepoint (default 0); for a time series, a labels file without a T axis holds "
+                         "the labels of that timepoint")
     pi.add_argument("--channel", default=None,
                     help="the image channel the labels were drawn on: its index or its name (default: the only "
                          "channel, else channel 0 with a warning)")

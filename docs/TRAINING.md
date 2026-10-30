@@ -132,8 +132,10 @@ Options:
 - `--channel C` names the image channel the labels were drawn on, by its index or its name. An image of one channel
   needs none; for an image of several channels the default is channel 0, with a warning that names it.
 - `--frame N` picks the frame of a labels file with a T axis (docs/LABELS.md, "Frames"); a file without one holds
-  frame 0 only. When the image is a time series, N is also its timepoint, and the pairs take that timepoint's
-  image id (`<name>_t<NNN>`), so they stay in the series' group when training holds series out.
+  frame 0 only. When the image is a time series, N is also its timepoint (default 0, with a warning that names
+  it), and the pairs take that timepoint's image id (`<name>_t<NNN>`), so they stay in the series' group when
+  training holds series out. A labels file without a T axis (the labels of one timepoint, as the Cellpose GUI
+  or micro-sam saves them) is paired with timepoint N.
 - `--allow-pickle` reads a Cellpose `_seg.npy`. Such a file is a Python pickle, and loading a pickle can run code,
   so it is read only with this option, only for a file you made, and with a warning. The other formats never
   unpickle anything; a Cellpose mask can also be saved as a TIFF from the GUI and imported as `tiff`.
