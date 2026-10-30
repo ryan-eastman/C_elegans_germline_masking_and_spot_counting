@@ -457,6 +457,8 @@ def test_planar_run_exports_xy_tiles(tmp_path, planar_results, readers):
     listed = TR.export_training_pairs(plane, tmp_path / "listed", orientations=("xz",))
     pd.testing.assert_frame_equal(listed, man)
     assert _export_json(tmp_path / "listed")["orientations"] == ["xy"]
+    # --slices-per-image 0 exports no pair of a single-plane run, as of a projected one
+    assert len(TR.export_training_pairs(plane, tmp_path / "none", slices_per_image=0)) == 0
     # read again at the run's geometry: xy stride 2 halves the plane and doubles the pixel size
     s = TR.export_training_pairs(planar_results / "strided", tmp_path / "strided").iloc[0]
     assert (int(s["height"]), int(s["width"]), float(s["pixel_um"])) == (128, 128, 1.6)
@@ -491,6 +493,9 @@ def test_planar_run_exports_xy_tiles(tmp_path, planar_results, readers):
     across = int(big_labels[515, 275])
     assert across and seen[across] == {0, 2}                             # the disk across the border: both pieces
     assert _export_json(tmp_path / "big")["run_orientations"][0]["tile_px"] == 1024
+    # the size cap (max_bytes) stops a tiled plane too: the first tile is written, then the export stops
+    capped = TR.export_training_pairs(big, tmp_path / "capped", max_bytes=1)
+    assert [int(v) for v in capped["slice_index"]] == [0] and _export_json(tmp_path / "capped")["stopped_at_cap"]
     assert cli.main(["export-training", str(big), "--out", str(tmp_path / "big_cli")]) == 0
     assert _manifest_text(tmp_path / "big_cli") == _manifest_text(tmp_path / "big")
     # the pairs load with their tile number as the slice index; the card calls them 2D, also without manifest.csv

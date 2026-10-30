@@ -67,10 +67,10 @@ number of labels, zone, the two file paths, the source file, the stride and z ra
 and index, the pixel size, the z stretch and the size. A manifest that holds pairs of a single plane has two more
 columns at the end, `tile_y0` and `tile_x0`: where the pair's top left pixel sits in the plane, on the run's grid
 (0 and 0 for a whole plane); they are empty for the other pairs, and a manifest of 3D and projected runs only has
-exactly the columns above. Tiles are numbered row by row: a 2100 by 1500 pixel plane gives tiles 0 to 5, three
-rows of two. `export.json` records the settings and the runs; its `orientations` is the union over the runs, and
-when a run is not 3D, `run_orientations` gives each run's geometry and orientations (with the projection record of
-a projected run, and the tile size and where the pixel size came from for a single-plane run).
+exactly the columns above. Tiles are numbered row by row: a plane of 2100 rows and 1500 columns gives tiles 0 to 5,
+three rows of two. `export.json` records the settings and the runs; its `orientations` is the union over the runs,
+and when a run is not 3D, `run_orientations` gives each run's geometry and orientations (with the projection
+record of a projected run, and the tile size and where the pixel size came from for a single-plane run).
 
 The pixel size of a pair is the one the run used. A single-plane run, and any run with `io.voxel_size_um`
 (docs/PLANAR.md), records `spacing_source` in its run_manifest.json: its spacing is not the file's, so the export
@@ -150,10 +150,11 @@ Test images are never trained on. The import refuses an image that a committed b
 the working folder or `$GERMQUANT_CONFIG_ROOT` is read with its `converted.json`, and an image whose file sha256
 or pixels sha256 is that of a test item is refused, whatever its file name or format. The pixels sha256 is taken
 of the image as germquant reads it, every channel and plane at full resolution (the timepoint for a time series),
-so the same pixels in another file are still recognised (`germquant.io.pixels.pixels_sha256`). With no committed
-split at all, as in a container, which holds no `benchmarks/` folder, the import warns
-`no committed splits found` instead of passing silently; a split whose test items carry no digests is named in a
-warning too.
+so the same pixels in another file are still recognised (`germquant.io.pixels.pixels_sha256`). The file sha256
+reads the whole image file on every import, so each import from a large time series (one timepoint at a time)
+reads its file once in full. With no committed split at all, as in a container, which holds no `benchmarks/`
+folder, the import warns `no committed splits found` instead of passing silently; a split whose test items carry
+no digests, or a split file that cannot be read, is named in a warning too.
 
 It exits with code 2, and writes nothing, when it refuses: a format the file name does not carry, a `_seg.npy`
 without `--allow-pickle`, labels of one plane for an image of several (save the plane the labels were drawn on as
@@ -201,7 +202,7 @@ per orientation and per zone, and per pair), and what the data was:
 | `kind` | the model type, `cellpose` | |
 | `dims` | `3d` for a model trained on slices of 3D runs (or of imported labels of every plane), `2d` on proj pairs and on planes (single-plane runs, imported labels of one plane), `2d+3d` on both | the pairs' orientations, and the tile columns of the manifest |
 | `pixel_um` | the pixel size of the pairs, in micrometres; null when they differ, with `pixel_um_values` listing them | manifest.csv |
-| `object_kind` | what one label is: `nucleus` or `cell` | `--kind`, else the object kind the packs of all the runs name (two recipes of one pack included), else nucleus |
+| `object_kind` | what one label is: `nucleus` or `cell` | `--kind`, else the object kind the packs of all the runs name (two recipes of one pack included), else nucleus. Imported labels name no object kind: give `--kind cell` for labels of whole cells (Cell-ACDC's yeast cells, for example) |
 | `system` | the biological system the pairs show | `--system` (free text), else null |
 | `pack` | `{id, version, recipe}` of the pack recipe the runs used, with `"edited": true` when that is a project's edited recipe (docs/PROJECTS.md); null for runs without a pack, and null with `pack_note` when the runs differ (an edited recipe differs from its pack recipe) or cannot be read, or when some labels were imported (they come from no run) | the runs export.json lists, read again from their results folders; the manifest's `source` |
 | `segmented_role` | the channel role the runs segmented, such as `dna` | manifest.csv |
@@ -291,12 +292,14 @@ recipe's spot settings for the best match; applying the result writes recipe.yam
 `tests/test_training_export_geometry.py` pins the 3D export of the synthetic gonad (manifest.csv and export.json)
 to what the export wrote before this change, and checks the proj pairs of projected runs (the recorded plane, the
 projections, the run's stride and z range, a run of a batch tree), the xy pairs of single-plane runs (the whole
-plane, the tiles of a 1030 by 1100 pixel plane and their offsets, the stride, a batch tree), the spacing of runs
-with `io.voxel_size_um`, and trees that mix the geometries. `tests/test_import_labels.py` imports TIFF, PNG and
-Cell-ACDC npz files (one plane, every plane, with a T axis, and a time series), refuses a `_seg.npy` without
-`--allow-pickle`, refuses a test image of a benchmark split by its file and by its pixels, warns without any split,
-pins `pixels_sha256`, checks the merged manifest and the card of imported pairs, and checks, in a fresh Python,
-that the import loads torch before it reads an OME-TIFF.
+plane, the tiles of a plane of 1030 rows and 1100 columns and their offsets, the stride, the size cap, a batch
+tree), the spacing of runs with `io.voxel_size_um`, and trees that mix the geometries.
+`tests/test_import_labels.py` imports TIFF, PNG (also with indexed colours) and Cell-ACDC npz files (one plane,
+every plane, with a T axis, and a time series, also from labels of one timepoint), refuses a `_seg.npy` without
+`--allow-pickle`, refuses a test image of a benchmark split by its file and by its pixels, warns without any split
+and for a split it cannot read, pins `pixels_sha256`, checks the merged manifest (an image of the same name in
+another folder included) and the card of imported pairs, the exit code of a failed write, and checks, in a fresh
+Python, that the import loads torch before it reads an OME-TIFF.
 `tests/test_train_curve.py` checks the card fields (trained from the test pack's stand-in model `tinynet@f5055f8a`
 through the model store, as CI cannot hold the 1.2 GB Cellpose-SAM weights; the same command with
 `cpsam_v2@0f1cc3f7` is an opt-in test, `GERMQUANT_TRAIN_CARD_BASE`), the card's pack and object kind from the run

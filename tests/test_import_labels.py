@@ -79,11 +79,11 @@ class Images:
         self.src: dict[str, tuple[dict, list[np.ndarray], tuple]] = {}
         self.reads: list[tuple] = []
 
-    def add(self, name: str, data, spacing, *, two_d: bool, series: int = 1) -> Path:
+    def add(self, name: str, data, spacing, *, two_d: bool, series: int = 1, spacing_ok: bool = True) -> Path:
         frames = [np.asarray(d) for d in (data if isinstance(data, list) else [data])]
         c, z, y, x = frames[0].shape
         sizes = ({"T": series} if series > 1 else {}) | {"C": c} | ({} if two_d else {"Z": z}) | {"Y": y, "X": x}
-        meta = {"sizes": sizes, "spacing": tuple(spacing), "spacing_ok": True, "channel_names": list(CHANNELS),
+        meta = {"sizes": sizes, "spacing": tuple(spacing), "spacing_ok": spacing_ok, "channel_names": list(CHANNELS),
                 "dtype": "uint16", "is_2d": two_d, "n_timepoints": series, "period_s": None, "t_seconds": None}
         self.src[name] = (meta, frames, tuple(spacing))
         path = self.folder / name
@@ -104,7 +104,7 @@ class Images:
             meta, frames, sp = self.src[name]
             arr = frames[0 if t is None else int(t)]
             return Stack(data=np.ascontiguousarray(arr), spacing=sp, channel_names=list(CHANNELS), path=Path(path),
-                         spacing_ok=True, t_index=t)
+                         spacing_ok=bool(meta["spacing_ok"]), t_index=t)
 
         mp.setattr(pipeline, "read_nd2_metadata", read_meta)
         mp.setattr(pipeline, "read_stack", read_stack)
@@ -357,6 +357,12 @@ def test_test_split_image_refused(images, tmp_path, monkeypatch, capsys):
     assert cli.main(argv) == 2
     out = json.loads(capsys.readouterr().out)
     assert out["kind"] == "SplitTestImageError" and "ds_two" in out["error"] and not pairs.exists()
+    # a digest written in capitals is the same digest
+    upper = _split_root(tmp_path / "r5", "ds_upper", {"u1": {**other, "pixels_sha256": pix_sha.upper()}}, test=["u1"])
+    roots(upper)
+    with pytest.raises(SplitTestImageError, match="ds_upper"):
+        import_labels(src, "tiff", img, pairs)
+    assert not pairs.exists()
     # the same image in a tune or val partition is training material: imported, the splits named as checked
     tune_only = _split_root(tmp_path / "r3", "ds_three", {"a": {**other, "file_sha256": file_sha},
                                                          "b": {**other, "pixels_sha256": pix_sha}},
@@ -364,6 +370,14 @@ def test_test_split_image_refused(images, tmp_path, monkeypatch, capsys):
     roots(tune_only, by_file / "not_there")
     res = import_labels(src, "tiff", img, pairs)
     assert res["n_pairs"] == 1 and res["splits_checked"] == ["ds_three"]
+    assert not any("no committed splits found" in w for w in res["warnings"])
+    # a split file that cannot be read is named in a warning, not taken for no split at all
+    broken = tmp_path / "r6" / "benchmarks" / "ext" / "ds_broken"
+    broken.mkdir(parents=True)
+    (broken / "split.json").write_text("{not json", encoding="ascii")
+    roots(tmp_path / "r6")
+    res = import_labels(src, "tiff", img, tmp_path / "pairs_broken")
+    assert any("ds_broken" in w and "cannot be read" in w for w in res["warnings"])
     assert not any("no committed splits found" in w for w in res["warnings"])
     # a split whose test items carry no digests cannot be checked: said, not passed silently
     blind = _split_root(tmp_path / "r4", "ds_blind", {}, test=["z1", "z2"])
@@ -384,6 +398,39 @@ def test_no_committed_splits_warns(images, tmp_path, caplog):
     assert any("no committed splits found" in w for w in res["warnings"])
     assert any("no committed splits found" in r.getMessage() for r in caplog.records)
     assert not any("channel 0" in w for w in res["warnings"])        # the channel was named
+    # a name matches without regard to case when one channel does
+    folded = import_labels(src, "tiff", img, tmp_path / "pairs_folded", channel="foCI")
+    assert (folded["channel_index"], folded["channel_name"]) == (1, "foci")
+
+
+def test_an_indexed_colour_png_keeps_its_ids_and_an_unknown_voxel_size_stays_unknown(images, tmp_path):
+    """Two branches of the import the formats test does not reach: a palette PNG (Pillow keeps its indices as the
+    ids, the reason PNG is not read with skimage.io) and a 3D image whose voxel size the reader does not know
+    (pixel_um is left empty, and the warning says so)."""
+    from PIL import Image
+
+    from germquant.import_labels import import_labels
+
+    lab2 = _labels_2d()
+    img2 = images.add("cells_001.nd2", _pixels(lab2, 1)[:, None], SP2, two_d=True)
+    src = tmp_path / "l" / "cells_001_palette.png"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    # the ids as the palette indices of a P image, from its raw bytes
+    pal = Image.frombytes("P", (lab2.shape[1], lab2.shape[0]), lab2.astype(np.uint8).tobytes())
+    pal.putpalette([v for i in range(256) for v in ((i * 37) % 256, (i * 91) % 256, (i * 53) % 256)])
+    pal.save(src)
+    with Image.open(src) as chk:
+        assert chk.mode == "P"
+    res = import_labels(src, "png", img2, tmp_path / "pairs_png")
+    got = tifffile.imread(tmp_path / "pairs_png" / res["pairs"][0]["labels"])
+    assert res["n_objects"] == 3 and np.array_equal(got, _relabelled(lab2))
+    lab3 = _labels_3d()
+    img3 = images.add("stack_001.nd2", _pixels(lab3, 2), SP3, two_d=False, spacing_ok=False)
+    npz = _write_labels(tmp_path / "l" / "m3.npz", "npz", lab3)
+    res3 = import_labels(npz, "cellacdc-npz", img3, tmp_path / "pairs_3d")
+    assert any("no voxel size" in w for w in res3["warnings"])
+    man = _manifest(tmp_path / "pairs_3d")
+    assert len(man) and man["pixel_um"].isna().all()
 
 
 def test_pixels_sha256_is_stable():
@@ -535,6 +582,27 @@ def test_imports_merge_into_the_pairs_folder_and_the_card_says_where_they_came_f
         cli.main(["import-labels", "--help"])
     shown = capsys.readouterr().out
     assert "import:<tool>" in shown and "docs/TRAINING.md" in shown and "--allow-pickle" in shown
+
+
+def test_a_write_that_fails_exits_1(images, tmp_path, monkeypatch, capsys):
+    """A refusal exits 2 before anything is written; a write that fails part way (here the manifest's
+    replace, as when the file is open in another program on Windows) exits 1 with one ERROR line."""
+    import germquant.import_labels as IL
+
+    lab = _labels_2d()
+    img = images.add("cells_001.nd2", _pixels(lab, 1)[:, None], SP2, two_d=True)
+    src = _write_labels(tmp_path / "m.tif", "tiff", lab)
+
+    def locked(df, path):
+        raise PermissionError(f"{path} is open in another program")
+
+    monkeypatch.setattr(IL, "_write_manifest", locked)
+    argv = ["import-labels", str(src), "--format", "tiff", "--image", str(img), "--pairs", str(tmp_path / "pairs")]
+    assert cli.main(argv) == 1
+    err = capsys.readouterr().err
+    assert "ERROR:" in err and "REFUSED" not in err and not (tmp_path / "pairs" / "manifest.csv").exists()
+    assert cli.main(argv + ["--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["kind"] == "PermissionError"
 
 
 # ---- D28: the pipeline (torch) before the image is read ----------------------------------------------------
