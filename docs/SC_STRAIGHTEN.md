@@ -396,7 +396,7 @@ and the configuration proposed for the freeze is that of version 2.0.
 | switches (defaults) | when on | entry |
 |---|---|---|
 | `punctum.enabled: true`, `punctum.exclude: true`, `punctum.sigma_source: foci_depth` (default `psf`), `punctum.one_gaussian: true` (default false); fixed `punctum.max_rel_rms` 0.2, `psf.ref_depth_min_fits` 30, `psf.ref_depth_min_span_um` 3.0 | the punctum class B1 with the image's measured axial sigma: a steep strand (frac_steep60 above 0.5) at most `punctum.max_xy_um` (0.5 um) long in the image plane whose core profile along s is one Gaussian (its sigma inside the fit bounds, its centre on the strand, residual RMS at most 0.2 of its amplitude) no wider in z than `punctum.sigma_ratio` (1.3) times the reference axial sigma at the strand's depth is class and flag `punctum`; it stays in the strand, sample and strip outputs and leaves every ribbon column of the nucleus tier (`n_puncta` and `puncta_signal_frac` report it). The reference (`psf.axial_reference`) is the sigma_z of the image's compact isolated RAD-51 foci (the foci estimate of entry 12, scaled to the central_element emission wavelength), with a depth term (the Theil-Sen slope of the foci's sigma_z on their depth) when at least 30 kept foci span at least 3 um in z; without a foci estimate it is the image PSF's sigma_z, as in v2. The image PSF itself stays that of v1; the record gives the reference (`punctum_reference`). | 32 |
-| `gaps.dim_stretch: true` (default false), `gaps.dim_sigma_source: foci_depth` (default `psf`); `gaps.dim_fill` and `gaps.dim_z` (chosen on the tuning seeds by the rule of entry 33) | dim stretches are not gaps: a gap candidate that passes every v1 test is a dim stretch, and the ribbon continues over it, when (i) no sample of its window lies within `contamination_um` of another strand or within 0.1 um of a link between two traced members, (ii) its relative minimum lies above the minimum that an empty gap of its missing length shows after the blur along the strand (the axial sigma of the measured reference at its depth, the lateral sigma of the image PSF, and the 0.15 um smoothing) by more than `dim_z` standard errors, and (iii) its fill fraction (the share of its flanks' signal that a stretch of that missing length and blurred minimum keeps) exceeds `dim_fill`. An empty gap (fill 0) stays a gap whatever its length and tilt. The strands, ends, links and lengths are those of v1; only the columns that the reading of gaps feeds change. The record counts the dim stretches (`dim_stretches`) and names the reference (`dim_reference`); `ImageResult.dim_stretches` lists them for development scripts. Known ambiguity: the junction of two different ribbons whose tips are dim, with a short empty core that the tracer follows, can look like a filled stretch behind the blur (entry 33 counts such joins in the dense phantoms). | 33 |
+| `gaps.dim_stretch: true` (default false), `gaps.dim_sigma_source: foci_depth` (default `psf`); `gaps.dim_fill` and `gaps.dim_z` (chosen on the tuning seeds by the rule of entry 33) | dim stretches are not gaps: a gap candidate that passes every v1 test is a dim stretch, and the ribbon continues over it, when (i) no sample of its window lies within `contamination_um` of another strand or within 0.1 um of a link between two traced members, (ii) its relative minimum lies above the minimum that an empty gap of its missing length shows after the blur along the strand (the axial sigma of the measured reference at its depth, the lateral sigma of the image PSF, and the 0.15 um smoothing) by more than `dim_z` standard errors, and (iii) its fill fraction (the share of its flanks' signal that a stretch of that missing length and blurred minimum keeps) exceeds `dim_fill`. No empty gap of the tests, and at the defaults none of the 709 matched truth gaps of the tuning seeds, was read as a dim stretch (protocol changelog entries 34 and 36). The strands, ends, links and lengths are those of v1; only the columns that the reading of gaps feeds change. The record counts the dim stretches (`dim_stretches`) and names the reference (`dim_reference`); `ImageResult.dim_stretches` lists them for development scripts. Known ambiguity: the junction of two different ribbons whose tips are dim, with a short empty core that the tracer follows, can look like a filled stretch behind the blur (entry 33 counts such joins in the dense phantoms). | 33 |
 
 Two development families (not registered, no sealed seeds) check the rules against a known PSF: `puncta_psf`
 (entry 32) holds dense nuclei with puncta, nuclei of puncta alone and steep isolated arcs, and `gaps_psf` (entry 33)
@@ -580,19 +580,27 @@ any number, tuned on the seeds 13000 to 13099, and both withdrawn there; neither
   `puncta_psf` at every PSF level), its reference (the foci estimate within -2.3 to +3.4 percent of the rendered
   sigma_z at the middle depth; the depth term lowered the error at the puncta's depths from 2.5 to 3.9 to 1.6 to
   3.2 percent) and its excess target (the puncta excess of dense nuclei fell by 33.5 percent), but it labelled two
-  axial spurs lying on gaps ribbons and 0.61 and 0.70 percent of the ribbon length of `dense_puncta` and
-  `real_dense_r2` (0.5 allowed). On the twelve development gonads (entry 35) it lowered S2a by 0.023 under both
-  guards (intervals below 0) and the steep share of the traced length only from 0.36 to 0.35 in SCfull nuclei
-  (0.71 to 0.62 in the None zone), so most steep length is not puncta.
+  axial spurs lying on gaps ribbons and 0.56 and 0.68 percent of the ribbon length of `dense_puncta` and
+  `real_dense_r2` (0.5 allowed; counted once per strand sample, entry 36; entry 34 gave 0.61 and 0.70, counting a
+  sample near two ribbons twice). The reference check holds only where the estimator's assumptions hold by
+  construction: the phantoms' foci are points rendered with the PSF scaled by the same 595/511 that the estimator
+  divides out. On the twelve development images the reference (0.36 to 0.46 um) no longer falls back to 0.365 um,
+  but its accuracy there is untested: real foci have size, and the wavelength scaling of the real PSF is unmeasured
+  (no bead PSF). On the twelve development gonads (entry 35) it lowered S2a by 0.023 under both guards (intervals
+  below 0) and the steep share of the traced length only from 0.36 to 0.35 in SCfull nuclei (0.71 to 0.62 in the
+  None zone), so most steep length is not puncta.
 * Dim stretches that are not gaps (entry 33): it never read a matched truth gap as continuous (0 of 709 at the pair
-  it took), but at every threshold of its grid it joined two truth ribbons 2.75 to 5.5 times per 100 dense nuclei
-  (2 allowed) and removed at most 22 percent of the gaps of the brightness phantoms (40 percent required). In dense
+  it took), but at every threshold of its grid it joined two truth ribbons 2.75 to 5.5 times per 100 traced nuclei
+  of `dense`, `snr`, `real_dense_r2` and `real_dense_r2_brightness` (11 to 22 in 400; 2 allowed) and removed at
+  most 22 percent of the gaps of the brightness phantoms (40 percent required). In dense
   phantoms about one gap per nucleus lies at a junction between two ribbons, where the empty-gap model cannot tell a
   dim stretch from two dim ribbon tips with a short empty core. On the development gonads it changed S2a by
   -0.0001. The gaps that brightness variation creates in dense phantoms (entry 29) remain.
 * The hold-out check of entry 35 now covers six development gonads with germquant runs: with the thresholds of the
   twelve, S2a 0.833 over six under a quarter-spacing guard (none evaluable under the registered guard; intensity
-  comparator 0.840), S2b 0.962, and SC_fullstart within one point spacing in 3 of 6 (11 of 12 in sample).
+  comparator 0.840), S2b 0.962, and SC_fullstart within one point spacing in 3 of 6 (11 of 12 in sample). Five of
+  those germquant runs needed far more than the 8 GB per-process budget and were made without the project lead's
+  approval of that memory window, so this check stands only if the project lead accepts them (entry 36).
 * Snapshot of the proposed configuration (version 2.0, seeds 15000 to 15099): S1a met (+0.081 um), S1b not met
   (mean -5.9 percent, SD 8.8 percent, CCC 0.54), S1c, S1d and S1f met, S1e not met (0.889 pooled).
 
