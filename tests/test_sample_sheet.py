@@ -875,3 +875,14 @@ def test_collect_joins_extra_columns(golden_runs, tmp_path, caplog, capsys):
     with pytest.raises(SystemExit) as e:
         cli.main(["collect", str(out), "--samples", str(bad)])
     assert e.value.code == 2 and "REFUSED: " in capsys.readouterr().err and not (out / "batch_nuclei.csv").exists()
+
+
+def test_collect_join_stays_aligned_past_an_unreadable_table(golden_runs, tmp_path):
+    """Review pass 2, N3: a per-image table that collect cannot read is skipped with a warning, as without a sheet;
+    the sheet's columns of the images after it stay on their own rows."""
+    out = tmp_path / "results"
+    shutil.copytree(golden_runs["out"], out)
+    (out / OUT_ID / f"{OUT_ID}__nuclei.csv").write_bytes(b"")             # sorts first, and cannot be read
+    batch.collect(out, sample_sheet=GOLD / "samples.csv")
+    nuclei = pd.read_csv(out / "batch_nuclei.csv", dtype=str, keep_default_na=False)
+    assert len(nuclei) and set(nuclei["image_id"]) == {IN_ID} and set(nuclei["slide"]) == {"S12"}
