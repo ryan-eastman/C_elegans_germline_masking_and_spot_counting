@@ -886,7 +886,9 @@ def _sample_sheet(args):
             warnings.simplefilter("ignore", SampleSheetWarning)      # printed below, once, as the CLI prints
             sheet = read_sample_sheet(path)
     except (SampleSheetError, OSError) as e:
-        print(f"REFUSED: sample sheet {path}: {e}" if isinstance(e, OSError) else f"REFUSED: {e}", file=sys.stderr)
+        # an OSError's own text names the \\?\ long-path form of the file (fsutil.long_path): name the sheet instead
+        print(f"REFUSED: sample sheet {Path(path).absolute()}: {e.strerror or e}" if isinstance(e, OSError)
+              else f"REFUSED: {e}", file=sys.stderr)
         raise SystemExit(2) from None
     for w in sheet.warnings:
         print(f"warning: {w}")
