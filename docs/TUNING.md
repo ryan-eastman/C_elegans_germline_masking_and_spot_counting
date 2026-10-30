@@ -241,8 +241,8 @@ tune uses only `germquant.benchmark.stats`, `matching`, `nuclei3d` and `spots` a
 
 ## Not in this release
 
-- Single-plane (planar) runs are tuned once the single-plane path (Train B package P2b) is in the engine;
-  until then such a run is refused with that reason.
+- Single-plane runs are tuned with SpotMAX: the LoG detector does not declare planar_ok, so a single-plane run
+  with a LoG recipe is refused before any detection, as the pipeline refuses it (docs/PLANAR.md).
 - Time series are not tuned.
 - The matching tolerances are fixed (0.3 um in xy, 0.4 um in z); per-protocol tolerances for the public
   benchmarks come with their protocols.

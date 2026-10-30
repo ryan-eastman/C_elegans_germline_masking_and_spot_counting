@@ -3,8 +3,8 @@
 On the planted examples of tests/tune_helpers.py, finished runs of the test pack's basic recipe:
 
 * the planted optimum is recovered in 3D, by the LoG grid (spots.log.min_snr 3 finds exactly the true foci)
-  and by SpotMAX (an effect_size_min between the brightest decoy and the faintest true focus); the 2D case
-  needs package P2b and skips, naming it, until merge #1 is synced into feat/t5-p5;
+  and by SpotMAX (an effect_size_min between the brightest decoy and the faintest true focus), and in 2D by
+  SpotMAX on single-plane runs (io.planar);
 * run once, then filter, equals direct SpotMAX runs at each effect size, table for table;
 * a LoG grid makes one detection per grid point and image (D24), SpotMAX one per effect-size group;
 * the run folder holds grid.yaml, trials.jsonl, ranked.csv and best.yaml as section 9.3 describes, plus run.json;
@@ -45,12 +45,6 @@ ES_KEY = "spots.effect_size_min"
 SPOTMAX_GRID = {ES_KEY: [float(v) for v in range(0, 61)]}                 # fine enough to land in the gap
 KEEP = (0, 20, 29)                                                        # sets whose SpotMAX tables are kept
 SPOT_COLS = ["spot_id", "nucleus_id", "z_um", "y_um", "x_um", "effect_size", "spot_mean_intensity", "detector"]
-
-
-def _require_p2b():
-    if not hasattr(planar, "decide"):
-        pytest.skip("the 2D case needs package P2b (single-plane runs: germquant.planar.decide); it runs once "
-                    "merge #1 is synced into feat/t5-p5")
 
 
 @pytest.fixture(scope="module")
@@ -117,7 +111,6 @@ def _gap(tables, planted) -> tuple[float, float]:
 @pytest.mark.parametrize("dims", ["3d", "2d"])
 def test_recovers_planted_optimum(dims, planted, request, tmp_path):
     if dims == "2d":
-        _require_p2b()
         _planar_case(tmp_path)
         return
     res = planted.log
@@ -163,7 +156,6 @@ def test_a_batch_made_single_plane_run_is_tuned_as_one(tmp_path):
     reads a single-plane run from the done marker ({"planar": true}), so it detects with planar=True, and it
     refuses a backend without planar_ok (log) before any detection (review P5-TUNE S1). The run keeps its spots
     stage off, so the test needs no SpotMAX."""
-    _require_p2b()
     from germquant import pipeline, provenance
 
     name = "flat_a"
