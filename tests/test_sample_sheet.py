@@ -385,6 +385,11 @@ def test_run_takes_the_row_of_the_image(tmp_path, monkeypatch, capsys):
     assert "not in the sample sheet" in capsys.readouterr().out
     assert cli.main(["run", str(img), "--config", cfg, "--out", str(tmp_path / "o")]) == 0
     assert "sample" not in seen[-1][1]
+    # an OME-TIFF takes the row of its image id, the file name without .ome.tif (review pass 2, N1)
+    ome = _write_csv(tmp_path / "ome.csv", [{"image_id": "gonad_7", "genotype": "him-8(e1489)"}])
+    assert cli.main(["run", str(tmp_path / "gonad_7.ome.tif"), "--config", cfg, "--out", str(tmp_path / "o"),
+                     "--samples", str(ome)]) == 0
+    assert seen[-1][1]["sample"].fields == {"genotype": "him-8(e1489)"}
     # an unreadable sheet is refused before the run starts (exit 2, REFUSED, D49)
     bad = tmp_path / "bad.csv"
     bad.write_bytes(b"genotype,sex\nN2,herm\n")
