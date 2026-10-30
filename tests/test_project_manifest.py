@@ -433,6 +433,39 @@ def test_a_recipe_with_input_suffixes_discovers_only_those(project_env, tmp_path
     assert add_images(proj, [data / "a.ome.tif"])["added"] == ["a"]          # a file named explicitly is added
 
 
+def test_add_refuses_input_suffixes_that_recipe_keys_refuses(project_env, tmp_path, capsys):  # noqa: F811
+    """reviews/P5_pass2_sheet.md N6: a folder is searched with the recipe's io.input_suffixes only when they pass
+    recipe_keys' strict rule, the one every run of the recipe and `germquant batch` apply. A hand-edited recipe.yaml
+    with an upper-case suffix, a suffix without its dot or one germquant does not read makes `project add DIR
+    FOLDER` refuse (exit 2, one REFUSED line with recipe_keys' message) before anything is added."""
+    from germquant.recipe_keys import input_suffixes_problem
+
+    proj = new_test_project(tmp_path / "p")
+    write_recipe(proj, edits={"spots.log.min_snr": 3.0})
+    rp = proj.root / "recipe.yaml"
+    data = tmp_path / "data"
+    write_ome_tiff(data / "a.ome.tif")
+
+    def hand_edit(suffixes):             # a hand edit of the recorded recipe.yaml (origin manual), as a lab may make
+        recipe = yaml.safe_load(rp.read_bytes())
+        recipe.setdefault("io", {})["input_suffixes"] = suffixes
+        rp.write_bytes(yaml.safe_dump(recipe, allow_unicode=False, sort_keys=False).encode("ascii"))
+
+    for bad, hint in (([".TIF"], "write it in lower case: '.tif'"), (["tif"], "write it with the dot: '.tif'"),
+                      ([".png"], None)):
+        hand_edit(bad)
+        msg = input_suffixes_problem(bad)
+        assert msg and (hint is None or hint in msg), msg
+        rc = cli_projects.main(["add", str(proj.root), str(data), "--json"])
+        cap = capsys.readouterr()
+        assert rc == 2, (bad, cap.out, cap.err)
+        assert [ln for ln in cap.err.splitlines() if ln.startswith("REFUSED")] == [f"REFUSED: {msg}"], cap.err
+        assert last_json(cap.out) == {"error": msg, "kind": "ProjectError"}
+        assert read_manifest_file(proj.root)["images"] == [] and not (proj.root / M.LOCK_NAME).exists()
+    hand_edit([".ome.tif"])                                   # the rule's own form: the folder is searched with it
+    assert add_images(proj, [data]) == {"added": ["a"], "refused": []}
+
+
 def test_a_path_past_the_windows_limit_is_refused_with_its_length(project_env, tmp_path):  # noqa: F811
     """On Windows without long paths (LongPathsEnabled 0, the lab workstation), a path past 260 characters exists
     only in its extended form (fsutil.long_path), which the run's readers and the model loader do not use:

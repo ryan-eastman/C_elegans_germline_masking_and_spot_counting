@@ -74,7 +74,9 @@ Only the commands that edit a project write it: new, add, edit, use-model, round
 - A folder is searched, with its subfolders, for the suffixes the recipe lists in io.input_suffixes, or for
   every suffix germquant reads when the recipe lists none (.nd2, .tif, .tiff, .ome.tif, .ome.tiff, .czi, .lif,
   .zarr, .ome.zarr). So a folder of OME-TIFFs can be added to a project on any pack, even one whose base names
-  only .nd2 files.
+  only .nd2 files. The list must hold those suffixes as written here, in lower case with the dot, because every
+  run of the recipe refuses any other; a recipe.yaml edited by hand to `['.TIF']`, `['tif']` or `['.png']` makes
+  `project add` refuse (exit 2) before anything is added, naming the value and the suffixes allowed.
 - The search skips germquant's own outputs (`<id>__nuclei_labels.tif`, `<id>__spots.tif` and the other label
   and mask images) and the project's own results/, runs/, training/, tuning/, annotations/ and packs/ folders.
 - Each file's header is read. A file is refused, with the reason, when it is missing, has an unsupported suffix,
