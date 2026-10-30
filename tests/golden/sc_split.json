@@ -1,0 +1,2288 @@
+{
+ "name": "sc_ribbon_v1",
+ "registered_on": "2026-10-23",
+ "protocol": "C:/Users/ryane/sc_ribbon_work/VALIDATION_PROTOCOL.md (to be copied to docs/SC_VALIDATION_PROTOCOL.md)",
+ "sealed": true,
+ "guard": "while sealed is true, germquant sc-straighten refuses any image whose stem is the image_stem of a test or reserved gonad unless --allow-sealed is given, and the truth loaders refuse test and reserved gonads unless final=True",
+ "frame_rule": "zone polyline (Imaris stage um) to the pipeline frame: continuous index = (coord - ExtMin) / imaris_voxel - 0.5, pipeline um = index x nd2 voxel; ExtMin from the .ims header attributes, except the four RAD-51 test gonads, whose .ims is never opened: ExtMin xy = nd2 stage xy",
+ "synthetic": {
+  "generator": "germquant.sc_straighten.synth, distributions fixed in VALIDATION_PROTOCOL.md section 2.3",
+  "dev_seeds": "any seed below 7000000",
+  "sealed_seed_ranges": {
+   "iso": [
+    7100000,
+    7100199
+   ],
+   "dense": [
+    7200000,
+    7200099
+   ],
+   "gaps": [
+    7300000,
+    7300099
+   ],
+   "foci": [
+    7400000,
+    7400099
+   ],
+   "pairs": [
+    7500000,
+    7500099
+   ],
+   "noise": [
+    7600000,
+    7600049
+   ],
+   "snr": [
+    7700000,
+    7700099
+   ]
+  }
+ },
+ "order_key": "sha256('sc-split-v1:' + gonad)",
+ "cell_sequences": {
+  "20251021/noHS/herm": [
+   "test",
+   "reserved"
+  ],
+  "20251021/noHS/male": [
+   "dev",
+   "test",
+   "reserved"
+  ],
+  "20260105/HS/herm": [
+   "test",
+   "dev",
+   "reserved",
+   "test",
+   "dev",
+   "reserved",
+   "reserved"
+  ],
+  "20260105/HS/male": [
+   "test",
+   "reserved",
+   "test",
+   "reserved",
+   "reserved"
+  ],
+  "20260105/noHS/herm": [
+   "dev",
+   "test"
+  ],
+  "20260105/noHS/male": [
+   "dev",
+   "test",
+   "reserved"
+  ]
+ },
+ "counts": {
+  "N2": {
+   "dev": 18,
+   "test": 12,
+   "reserved": 9
+  },
+  "spo11": {
+   "reserved": 12
+  },
+  "syp2_3": {
+   "reserved": 9
+  },
+  "syp3": {
+   "excluded": 42
+  }
+ },
+ "masters": {
+  "n2_and_dlw190_jan": {
+   "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260120_measurement_points_SC.xlsx",
+   "size_bytes": 20892,
+   "sha256": "7bb6c55a9c767b2c83c270e82a1758ddba74738f6f92e5ce14e1afccc89ebf71"
+  },
+  "ir": {
+   "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/20260904_measurement_points_SC_ir.xlsx",
+   "size_bytes": 18036,
+   "sha256": "f73432016c790fb9dcb9763805c1030c86c34314015399e83657d1ad1ff1ed85"
+  },
+  "ccw69": {
+   "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_syp2_3_double_hets/20260904_measurement_points_SC.xlsx",
+   "size_bytes": 18219,
+   "sha256": "02ac81b9d814ebe98da3a94186a5a517878a9680c05dcc2d4e2fa34067852e50"
+  },
+  "zone_r_script": {
+   "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/20260121_SC_zone_analysis.R",
+   "size_bytes": 12420,
+   "sha256": "e9cc665cd7c306bffedbd53dc202c08229eec6a3f86e37ae7810442892f3469c"
+  }
+ },
+ "filament_truth": {
+  "role": "test",
+  "check": "S3 (descriptive)",
+  "ims": {
+   "path": "E:/2025_12_05_dlw193_mch_syp3_male1_nohs image 1_twonucleiSCtraced.ims",
+   "size_bytes": 33479048817,
+   "sha256": "compute at scoring (33 GB)"
+  },
+  "nas_copy": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/SC_tracing/SC_filaments_traced/2025_12_05_dlw193_mch_syp3_male1_nohs image 1_twonucleiSCtraced_midpachytene.ims",
+  "image_tif": {
+   "path": "E:/2025_12_05_dlw193_mch_syp3_male1_nohs image 1_twonucleiSCtraced_time61_allz.tif",
+   "size_bytes": 879710892,
+   "z_um": 0.223077,
+   "xy_um": 0.108,
+   "note": "65 planes stored as ImageJ frames"
+  },
+  "time_index": 60,
+  "content": "2 mid-pachytene male nuclei, 5 ribbons each, 3 single-vertex stubs (ignored)"
+ },
+ "gonads": [
+  {
+   "gonad": "20251021_n2_nohs_HERM_2",
+   "geno": "N2",
+   "session": "20251021",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20251021_n2_nohs_HERM_2",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_n2_nohs_HERM_2.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_N2_noHS_imsfiles/20251021_n2_nohs_HERM_2.ims",
+   "sc_channel": "545",
+   "role": "dev",
+   "rule": "2: example rows printed by the inventory agent",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251021_n2_nohs_HERM_2.xlsx",
+    "size_bytes": 23150,
+    "sha256": "b8ed503b5296e8d1e65ce2e0c64a97659c9a2274c856d473d215e254aec74909"
+   }
+  },
+  {
+   "gonad": "20251021_n2_nohs_HERM_3",
+   "geno": "N2",
+   "session": "20251021",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20251021_n2_nohs_HERM_3",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_n2_nohs_HERM_3.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_N2_noHS_imsfiles/20251021_n2_nohs_HERM_3.ims",
+   "sc_channel": "545",
+   "role": "test",
+   "rule": "4: cell 20251021/noHS/herm, sha256 order position 1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251021_n2_nohs_HERM_3.xlsx",
+    "size_bytes": 21313,
+    "sha256": "dec1e96453370b3796cba05525a0d61c0eec74dd8a8219eb963da31407a2bde9"
+   }
+  },
+  {
+   "gonad": "20251021_n2_nohs_HERM_4",
+   "geno": "N2",
+   "session": "20251021",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20251021_n2_nohs_HERM_4",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_n2_nohs_HERM_4.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_N2_noHS_imsfiles/20251021_n2_nohs_HERM_4.ims",
+   "sc_channel": "545",
+   "role": "reserved",
+   "rule": "4: cell 20251021/noHS/herm, sha256 order position 2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251021_n2_nohs_HERM_4.xlsx",
+    "size_bytes": 23920,
+    "sha256": "a8e919b4a868ea4441c445a1182a3792b7d7c91ceb284de8aa30b2b4b188d117"
+   }
+  },
+  {
+   "gonad": "20251021_n2_nohs_MALE_2",
+   "geno": "N2",
+   "session": "20251021",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20251021_n2_nohs_MALE_2",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_n2_nohs_MALE_2.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_N2_noHS_imsfiles/20251021_n2_nohs_MALE_2.ims",
+   "sc_channel": "545",
+   "role": "dev",
+   "rule": "4: cell 20251021/noHS/male, sha256 order position 1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251021_n2_nohs_MALE_2.xlsx",
+    "size_bytes": 24305,
+    "sha256": "18097173d86e5fb8149c3ff0900ee8647ab5d90e37d23ec33773b2cc5fbfab0e"
+   }
+  },
+  {
+   "gonad": "20251021_n2_nohs_MALE_3",
+   "geno": "N2",
+   "session": "20251021",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20251021_n2_nohs_MALE_3",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_n2_nohs_MALE_3.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_N2_noHS_imsfiles/20251021_n2_nohs_MALE_3.ims",
+   "sc_channel": "545",
+   "role": "test",
+   "rule": "4: cell 20251021/noHS/male, sha256 order position 2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251021_n2_nohs_MALE_3.xlsx",
+    "size_bytes": 25084,
+    "sha256": "fb3f30b1ae9381679ddcd9cbdd20f241b78462da7d99ea27a162458e54627b6a"
+   }
+  },
+  {
+   "gonad": "20251021_n2_nohs_MALE_4",
+   "geno": "N2",
+   "session": "20251021",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20251021_n2_nohs_MALE_4",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_n2_nohs_MALE_4.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20251021_N2_noHS/20251021_N2_noHS_imsfiles/20251021_n2_nohs_MALE_4.ims",
+   "sc_channel": "545",
+   "role": "reserved",
+   "rule": "4: cell 20251021/noHS/male, sha256 order position 3",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251021_n2_nohs_MALE_4.xlsx",
+    "size_bytes": 25902,
+    "sha256": "d3d8efa6687eb2e202cc9052431882819dfd999204e0a7664afa12907217ec55"
+   }
+  },
+  {
+   "gonad": "20251105_n2_hs_HERM_1",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20251105_n2_hs_HERM _001",
+   "rad51_tag": "n2rad51_HS_herm_001",
+   "rad51_role": "val",
+   "frame_source": "ims header",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_HERM _001.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_HERM _001.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_HS_herm_001",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_n2_hs_HERM_1.xlsx",
+    "size_bytes": 22670,
+    "sha256": "6d75f75cef2903dfad5446bad882edf4a3ad19aff70b85f03d714bbd50d9d1d3"
+   }
+  },
+  {
+   "gonad": "20251105_n2_hs_HERM_2",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20251105_n2_hs_HERM _002",
+   "rad51_tag": "n2rad51_HS_herm_002",
+   "rad51_role": "test",
+   "frame_source": "nd2 stage rule",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_HERM _002.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_HERM _002.ims (not opened)",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_HS_herm_002",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_n2_hs_HERM_2.xlsx",
+    "size_bytes": 22256,
+    "sha256": "80067fc679cfb4eed601eb218a966dd7ab35d6c5d483cacbdce17b14cc602f7a"
+   }
+  },
+  {
+   "gonad": "20251105_n2_hs_HERM_3",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20251105_n2_hs_HERM _",
+   "rad51_tag": "n2rad51_HS_herm_000",
+   "rad51_role": "train",
+   "frame_source": "ims header",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_HERM _.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_HERM _.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_HS_herm_000",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_n2_hs_HERM_3.xlsx",
+    "size_bytes": 24648,
+    "sha256": "35ad3d43e5aa1741e5e03103092b994715cc2b116ff36af141157cfabcfada24"
+   }
+  },
+  {
+   "gonad": "20251105_n2_hs_MALE_1",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20251105_n2_hs_MALE _001",
+   "rad51_tag": "n2rad51_HS_male_001",
+   "rad51_role": "test",
+   "frame_source": "nd2 stage rule",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_MALE _001.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _001.ims (not opened)",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_HS_male_001",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_n2_hs_MALE_1.xlsx",
+    "size_bytes": 23946,
+    "sha256": "812ed1c778621ff638c5ca7910dd04043241a53c9f2ae5195b88bbc7fdcd34e1"
+   }
+  },
+  {
+   "gonad": "20251105_n2_hs_MALE_2",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20251105_n2_hs_MALE _002",
+   "rad51_tag": "n2rad51_HS_male_002",
+   "rad51_role": "train",
+   "frame_source": "ims header",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_MALE _002.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _002.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_HS_male_002",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_n2_hs_MALE_2.xlsx",
+    "size_bytes": 23608,
+    "sha256": "9c2ba72952845af3bf8efea37774b9a425b60e77fbbc510741102f6a4b683e35"
+   }
+  },
+  {
+   "gonad": "20251105_n2_hs_MALE_3",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20251105_n2_hs_MALE _",
+   "rad51_tag": "n2rad51_HS_male_000",
+   "rad51_role": "train",
+   "frame_source": "ims header",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_HS/20251105_n2_hs_MALE _.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/HS_ims2/20251105_n2_hs_MALE _.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_HS_male_000",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_n2_hs_MALE_3.xlsx",
+    "size_bytes": 23149,
+    "sha256": "385574e2ea68877472f972fbe12a8549d98993cffb57e51837b874472c42dd20"
+   }
+  },
+  {
+   "gonad": "20251105_N2_nohs_HERM_1",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20251105_N2_nohs_HERM _001",
+   "rad51_tag": "n2rad51_noHS_herm_001",
+   "rad51_role": "val",
+   "frame_source": "ims header",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_HERM _001.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_HERM _001.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_noHS_herm_001",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_N2_nohs_HERM_1.xlsx",
+    "size_bytes": 22206,
+    "sha256": "5258d4f237c01a147093420d5374059fb5c7804a2e3eff43823467be200f2f5c"
+   }
+  },
+  {
+   "gonad": "20251105_N2_nohs_HERM_2",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20251105_N2_nohs_HERM _002",
+   "rad51_tag": "n2rad51_noHS_herm_002",
+   "rad51_role": "test",
+   "frame_source": "nd2 stage rule",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_HERM _002.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_HERM _002.ims (not opened)",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_noHS_herm_002",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_N2_nohs_HERM_2.xlsx",
+    "size_bytes": 23106,
+    "sha256": "6b9c051e06e2d250798422c641a8f7999dbd7a64977873f4ffb75265483ff1c3"
+   }
+  },
+  {
+   "gonad": "20251105_N2_nohs_HERM_3",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20251105_N2_nohs_HERM _",
+   "rad51_tag": "n2rad51_noHS_herm_000",
+   "rad51_role": "train",
+   "frame_source": "ims header",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_HERM _.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_HERM _.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_noHS_herm_000",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_N2_nohs_HERM_3.xlsx",
+    "size_bytes": 21793,
+    "sha256": "493df093fbb04510792f79cbf50539890d5206ee62c270b1f32100f5cf073f61"
+   }
+  },
+  {
+   "gonad": "20251105_N2_nohs_MALE_1",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20251105_N2_nohs_MALE _001",
+   "rad51_tag": "n2rad51_noHS_male_001",
+   "rad51_role": "train",
+   "frame_source": "ims header",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_MALE _001.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_MALE _001.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_noHS_male_001",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_N2_nohs_MALE_1.xlsx",
+    "size_bytes": 23591,
+    "sha256": "ca21f858bff0949c5bf9a9cef6d1ae534465060b9983a0d515fadd6c688a599b"
+   }
+  },
+  {
+   "gonad": "20251105_N2_nohs_MALE_2",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20251105_N2_nohs_MALE _002",
+   "rad51_tag": "n2rad51_noHS_male_002",
+   "rad51_role": "test",
+   "frame_source": "nd2 stage rule",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_MALE _002.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_MALE _002.ims (not opened)",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_noHS_male_002",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_N2_nohs_MALE_2.xlsx",
+    "size_bytes": 23111,
+    "sha256": "e38cdb7c9623bd72b8e004b0c3a28077f083a239b2a4ae505121b732d62e55dd"
+   }
+  },
+  {
+   "gonad": "20251105_N2_nohs_MALE_3",
+   "geno": "N2",
+   "session": "20251105",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20251105_N2_nohs_MALE _",
+   "rad51_tag": "n2rad51_noHS_male_000",
+   "rad51_role": "train",
+   "frame_source": "ims header",
+   "nd2": "C:/Users/ryane/n2_rad51_local/20251105_N2_noHS/20251105_N2_nohs_MALE _.nd2",
+   "ims": "C:/Users/ryane/n2_rad51_local/imaris/noHS_ims2/20251105_N2_nohs_MALE _.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "1: RAD-51 split (test stays test; train and val are development)",
+   "golden_dir": "C:/Users/ryane/germquant_golden/bc62476/n2rad51_noHS_male_000",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251105_N2_nohs_MALE_3.xlsx",
+    "size_bytes": 24010,
+    "sha256": "2eef537e625ce686a54929af1c306fb28e39696574650e300c68a99d823adbcb"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_1_HERM_1",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20260105_n2_hs_1_HERM_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_HERM_1.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_HERM_1.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "4: cell 20260105/HS/herm, sha256 order position 5",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_1_HERM_1.xlsx",
+    "size_bytes": 20576,
+    "sha256": "bbc097a354146bb146b92bdf6735d6fa6f7c6f7c0932ba12d440816c48d52e57"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_2_HERM_1",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20260105_n2_hs_2_HERM_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_HERM_1.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_HERM_1.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "4: cell 20260105/HS/herm, sha256 order position 3",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_2_HERM_1.xlsx",
+    "size_bytes": 20033,
+    "sha256": "9a72c5151f6fa7bb2c5dd8b29141fbc1c5b361cdf2b5f33423bbbea285f36a31"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_2_HERM_2",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20260105_n2_hs_2_HERM_2",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_HERM_2.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_HERM_2.ims",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "4: cell 20260105/HS/herm, sha256 order position 4",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_2_HERM_2.xlsx",
+    "size_bytes": 21658,
+    "sha256": "549f95026a8051a22c778a2650ec1c85ae34f3e4ab76024f60f3fd966b093f86"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_2_HERM_4",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20260105_n2_hs_2_HERM_4",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_HERM_4.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_HERM_4.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "4: cell 20260105/HS/herm, sha256 order position 7",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_2_HERM_4.xlsx",
+    "size_bytes": 23600,
+    "sha256": "c2b1de61dbf057fc5d73e52085679e4618ac0dfd8416d762a968433a03fef4a8"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_HERM_1",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20260105_n2_hs_HERM_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_HERM_1.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_HERM_1.ims",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "4: cell 20260105/HS/herm, sha256 order position 1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_HERM_1.xlsx",
+    "size_bytes": 22016,
+    "sha256": "d1e97e2ff8294730530d64031823f189103b65f2426ace120538364bbb507a71"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_HERM_2",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20260105_n2_hs_HERM_2",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_HERM_2.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_HERM_2.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "4: cell 20260105/HS/herm, sha256 order position 2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_HERM_2.xlsx",
+    "size_bytes": 20473,
+    "sha256": "aac1f83db756ed6d92f6bc2a569cd766ec28c5cb03053ac921ee49fe5826bc26"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_HERM_3",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20260105_n2_hs_HERM_3",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_HERM_3.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_HERM_3.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "4: cell 20260105/HS/herm, sha256 order position 6",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_HERM_3.xlsx",
+    "size_bytes": 21984,
+    "sha256": "8391c369cb5fb2587a2abc928f98d3fb0b980c4946a6adf162126516bf3b84de"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_1_MALE_1",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260105_n2_hs_1_MALE_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_MALE_1.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_MALE_1.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "3: 2026-01-05 heat-shock male with a local copy",
+   "nd2_local": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS_1/20260105_n2_hs_1_MALE_1.nd2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_1_MALE_1.xlsx",
+    "size_bytes": 22692,
+    "sha256": "cf36f9b459a79a57656c19c311a0429ad47fa4d6665a901aa12d02ec2162f96a"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_1_MALE_2",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260105_n2_hs_1_MALE_2",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_MALE_2.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_MALE_2.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "4: cell 20260105/HS/male, sha256 order position 5",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_1_MALE_2.xlsx",
+    "size_bytes": 22392,
+    "sha256": "b5a926267c721f9d739cf721625b21f294d5b1ec4de30daf62a20fc5b211c168"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_1_MALE_3",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260105_n2_hs_1_MALE_3",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_MALE_3.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_1/20260105_n2_hs_1_MALE_3.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "4: cell 20260105/HS/male, sha256 order position 2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_1_MALE_3.xlsx",
+    "size_bytes": 22753,
+    "sha256": "1b99172e602bc8ad13b3f52510875f569cd54f8439b9899e8cc0fc6af37b34e2"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_2_MALE_1",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260105_n2_hs_2_MALE_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_MALE_1.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_MALE_1.ims",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "4: cell 20260105/HS/male, sha256 order position 1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_2_MALE_1.xlsx",
+    "size_bytes": 21716,
+    "sha256": "ec6cd27356e9bc05ba1cb54f8afdc5b477c210dd9d766e9bf4d732c50f815cb2"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_2_MALE_2",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260105_n2_hs_2_MALE_2",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_MALE_2.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_MALE_2.ims",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "4: cell 20260105/HS/male, sha256 order position 3",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_2_MALE_2.xlsx",
+    "size_bytes": 23589,
+    "sha256": "697a00877ea849c7778025c1fcac642096de0964ca48bcd0bd7c3e832971b1f1"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_2_MALE_3",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260105_n2_hs_2_MALE_3",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_MALE_3.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS_2/20260105_n2_hs_2_MALE_3.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "4: cell 20260105/HS/male, sha256 order position 4",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_2_MALE_3.xlsx",
+    "size_bytes": 22030,
+    "sha256": "693071c0aa486a186b3ac72e54510184b47a36c7fef19cd42c3fe7d57cec9a72"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_MALE_1",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260105_n2_hs_MALE_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_1.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_1.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "3: 2026-01-05 heat-shock male with a local copy",
+   "nd2_local": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_1.nd2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_MALE_1.xlsx",
+    "size_bytes": 23499,
+    "sha256": "e89b996e1404c3d8a18ab8fa80a76de93c3cd50c4649a24241b316a846b08cb4"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_MALE_2",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260105_n2_hs_MALE_2",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_2.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_2.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "3: 2026-01-05 heat-shock male with a local copy",
+   "nd2_local": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_2.nd2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_MALE_2.xlsx",
+    "size_bytes": 23527,
+    "sha256": "80be1e968dc59bc9817be9458362ebaa65066aa28c5c4a62837266c663e8208e"
+   }
+  },
+  {
+   "gonad": "20260105_n2_hs_MALE_3",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260105_n2_hs_MALE_3",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_3.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_HS/20260105_n2_hs_MALE_3.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "3: 2026-01-05 heat-shock male with a local copy",
+   "nd2_local": "C:/Users/ryane/n2_rad51_hs_2026/20260105_N2_HS/20260105_n2_hs_MALE_3.nd2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_hs_MALE_3.xlsx",
+    "size_bytes": 23476,
+    "sha256": "a05e1ffca691da7e132f36229facedbecb20603ce42afa9339ec840f25534d27"
+   }
+  },
+  {
+   "gonad": "20260105_n2_nohs_HERM_1",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20260105_n2_nohs_HERM_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_HERM_1.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_HERM_1.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "4: cell 20260105/noHS/herm, sha256 order position 1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_nohs_HERM_1.xlsx",
+    "size_bytes": 22463,
+    "sha256": "d55c7f38ea7fe3b26356d4e68a037803b9f8fb66fbb8951e4d6589cea9321fbf"
+   }
+  },
+  {
+   "gonad": "20260105_n2_nohs_HERM_4",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20260105_n2_nohs_HERM_4",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_HERM_4.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_HERM_4.ims",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "4: cell 20260105/noHS/herm, sha256 order position 2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_nohs_HERM_4.xlsx",
+    "size_bytes": 23441,
+    "sha256": "b702f10175b05b110d8125ce9643a02c42094e86db7c883b834caa6b3e203416"
+   }
+  },
+  {
+   "gonad": "20260105_n2_nohs_MALE_1",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20260105_n2_nohs_MALE_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_MALE_1.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_MALE_1.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "4: cell 20260105/noHS/male, sha256 order position 3",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_nohs_MALE_1.xlsx",
+    "size_bytes": 22071,
+    "sha256": "cac846628d6d7a21e3ef0a6f921f59c8852c12447f69f56d690d9359c6a20697"
+   }
+  },
+  {
+   "gonad": "20260105_n2_nohs_MALE_2",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20260105_n2_nohs_MALE_2",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_MALE_2.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_MALE_2.ims",
+   "sc_channel": "477",
+   "role": "test",
+   "rule": "4: cell 20260105/noHS/male, sha256 order position 2",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_nohs_MALE_2.xlsx",
+    "size_bytes": 22021,
+    "sha256": "9e443e1fb174218439bf655a8912752798256d5bc563b485fcc3727700f2386d"
+   }
+  },
+  {
+   "gonad": "20260105_n2_nohs_MALE_3",
+   "geno": "N2",
+   "session": "20260105",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20260105_n2_nohs_MALE_3",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_MALE_3.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/Tiny Storage Madeleine/Madeleine/N2/20260105_N2_noHS/20260105_n2_nohs_MALE_3.ims",
+   "sc_channel": "477",
+   "role": "dev",
+   "rule": "4: cell 20260105/noHS/male, sha256 order position 1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260105_n2_nohs_MALE_3.xlsx",
+    "size_bytes": 22074,
+    "sha256": "2993c981e0ec3d0eea8579bada53190656a157423b8cfc61b86e062e072a8e78"
+   }
+  },
+  {
+   "gonad": "20251022_dlw190_hs_HERM_2",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": "20251022_dlw190_hs_HERM_2",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "nd2 stage rule",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/images_presentations/herm_syp3_hs/20251022_dlw190_hs_HERM_2.nd2",
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251022_dlw190_hs_HERM_2.xlsx",
+    "size_bytes": 22675,
+    "sha256": "390b3e14340bd0c5de6767e771295bbe5430bbbf86efe60843aefdef253cea0b"
+   }
+  },
+  {
+   "gonad": "20251022_dlw190_hs_HERM_3",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251022_dlw190_hs_HERM_3.xlsx",
+    "size_bytes": 21338,
+    "sha256": "f9858816cc742039c81dbc6044d5896894ae6b5c9e5ad143735dda96c8c7befe"
+   }
+  },
+  {
+   "gonad": "20251022_dlw190_hs_HERM_4",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251022_dlw190_hs_HERM_4.xlsx",
+    "size_bytes": 21801,
+    "sha256": "d8261a2360e5b037d2793e62925f62292aaeb38bcb1ce6d24247ed212661d20d"
+   }
+  },
+  {
+   "gonad": "20251022_dlw190_hs_MALE_2",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251022_dlw190_hs_MALE_2.xlsx",
+    "size_bytes": 23966,
+    "sha256": "44fa10f90b40d5b8939e654f6d7b7e9c2ef3910711ca07af24466da2e109198c"
+   }
+  },
+  {
+   "gonad": "20251022_dlw190_hs_MALE_3",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251022_dlw190_hs_MALE_3.xlsx",
+    "size_bytes": 23539,
+    "sha256": "7a2457b9052e89c6576d385098daffb1fe095f59893ff336ab0eebd4bed982a0"
+   }
+  },
+  {
+   "gonad": "20251022_dlw190_hs_MALE_4",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251022_dlw190_hs_MALE_4.xlsx",
+    "size_bytes": 22685,
+    "sha256": "2628636803fdde75182a57def0a6882f97292676562b52a49d9aa0e7d5babe35"
+   }
+  },
+  {
+   "gonad": "20251022_dlw190_nohs_HERM_1",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251022_dlw190_nohs_HERM_1.xlsx",
+    "size_bytes": 22247,
+    "sha256": "e9f4e59f3d6b4df3e4ab76ecba62c3bf5fc725a0d3d94cd8ecfb8307076f9db4"
+   }
+  },
+  {
+   "gonad": "20251022_dlw190_nohs_HERM_2",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": null
+  },
+  {
+   "gonad": "20251022_dlw190_nohs_HERM_3",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251022_dlw190_nohs_HERM_3.xlsx",
+    "size_bytes": 24689,
+    "sha256": "331066e422977f804605d47a8eb2f3b6eaf46fd171fb5d90ac9a98c8edb86cad"
+   }
+  },
+  {
+   "gonad": "20251022_dlw190_nohs_HERM_4",
+   "geno": "syp3",
+   "session": "20251022",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251022_dlw190_nohs_HERM_4.xlsx",
+    "size_bytes": 26281,
+    "sha256": "8199578f9541285134c446a4fa1261f429295b169f6993519c0b6d9cd919d471"
+   }
+  },
+  {
+   "gonad": "20251110_dlw190_hs_HERM_1",
+   "geno": "syp3",
+   "session": "20251110",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251110_dlw190_hs_HERM_1.xlsx",
+    "size_bytes": 22247,
+    "sha256": "9833a6b12a4f336678f0ac00822b7217bbea74cd9cc3cfb528d52805fa6aaa08"
+   }
+  },
+  {
+   "gonad": "20251110_dlw190_hs_HERM_2",
+   "geno": "syp3",
+   "session": "20251110",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251110_dlw190_hs_HERM_2.xlsx",
+    "size_bytes": 24972,
+    "sha256": "6c3235056efbe8503f1e9e4ef70e49d6bf56a56380605959b6a31d4e6468be31"
+   }
+  },
+  {
+   "gonad": "20251110_dlw190_hs_HERM_3",
+   "geno": "syp3",
+   "session": "20251110",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251110_dlw190_hs_HERM_3.xlsx",
+    "size_bytes": 23161,
+    "sha256": "d44fc145b9c6a3e2883a3b8819d7adc05fde22a4bc115e94964d5538fe9d7275"
+   }
+  },
+  {
+   "gonad": "20251110_DLW190_HS_MALE_1_Stitched",
+   "geno": "syp3",
+   "session": "20251110",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251110_DLW190_HS_MALE_1_Stitched.xlsx",
+    "size_bytes": 23446,
+    "sha256": "5202e5e4edb336f7d9928f2259bcf049c8a4af7b981d31b0b4d817959ff65034"
+   }
+  },
+  {
+   "gonad": "20251110_dlw190_hs_MALE_3",
+   "geno": "syp3",
+   "session": "20251110",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251110_dlw190_hs_MALE_3.xlsx",
+    "size_bytes": 24838,
+    "sha256": "576811e7ea258948d6bf3628ecd259c5a8ac8705bc03712dc4eae72af9f34bac"
+   }
+  },
+  {
+   "gonad": "20251110_dlw190_nohs_HERM_1",
+   "geno": "syp3",
+   "session": "20251110",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20251110_dlw190_nohs_HERM _001",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "nd2 stage rule",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/images_presentations/herm_syp3/20251110_dlw190_nohs_HERM _001.nd2",
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251110_dlw190_nohs_HERM_1.xlsx",
+    "size_bytes": 21817,
+    "sha256": "26b490e10f815dac56711eaa1f76ea2a3f0f24a4ff345c4750f664b65fe010e4"
+   }
+  },
+  {
+   "gonad": "20251110_dlw190_nohs_HERM_2",
+   "geno": "syp3",
+   "session": "20251110",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251110_dlw190_nohs_HERM_2.xlsx",
+    "size_bytes": 21616,
+    "sha256": "c5059884fb1ea6d9f683840a2b2bc30f4f548b9d83f98f56505ecdac43837fd8"
+   }
+  },
+  {
+   "gonad": "20251110_dlw190_nohs_MALE_2",
+   "geno": "syp3",
+   "session": "20251110",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20251110_dlw190_nohs_MALE_2.xlsx",
+    "size_bytes": 25102,
+    "sha256": "c0fdfc77ee0bffcc2e4bd4e224d1e5937c20ca2d5e1398ee28479f95b40f366b"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_1_HERM_1",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_1_HERM_1.xlsx",
+    "size_bytes": 19565,
+    "sha256": "bcd352fdb12d10425b03d4484d7433f87519a628777f9c1b1ae492a4a487eb10"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_1_HERM_2",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_1_HERM_2.xlsx",
+    "size_bytes": 20891,
+    "sha256": "e13a6a2439b67b498472b540cb6648fd0db531e9dcc3667d3601b48cfbf37333"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_1_HERM_3",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_1_HERM_3.xlsx",
+    "size_bytes": 20500,
+    "sha256": "6bc5b45c83f17027ecc1e13205ea801545ba30e37569a6c5ec8e8512ee5d3133"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_2_HERM_1",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_2_HERM_1.xlsx",
+    "size_bytes": 22478,
+    "sha256": "92ca27bc8875dd2647fdec2b2bc85b28a65e261c61439120282248765d4926f6"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_2_HERM_2",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_2_HERM_2.xlsx",
+    "size_bytes": 20486,
+    "sha256": "1a263ff7cfd609ba00fe8904952e95319662533eb509656ed178fa5d09c192bc"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_2_HERM_3",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_2_HERM_3.xlsx",
+    "size_bytes": 19529,
+    "sha256": "d3cb1f1f08ecae3ffb2b105f9da28d0226507cae4171ac07fd3ac01f581b06f8"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_1_MALE_1",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260106_190_hs_1_MALE_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "nd2 stage rule",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/images_presentations/male_syp3_hs/20260106_190_hs_1_MALE_1.nd2",
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_1_MALE_1.xlsx",
+    "size_bytes": 21328,
+    "sha256": "48d83a25d38ce06a670aa2676e19003e9780e8711db32cf402952f85c601a57e"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_1_MALE_2",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_1_MALE_2.xlsx",
+    "size_bytes": 20516,
+    "sha256": "49c69aeac7c748a63ce278ed53d710b8babe7a92bd178f0e68d54bb549c56c09"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_1_MALE_3",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_1_MALE_3.xlsx",
+    "size_bytes": 22851,
+    "sha256": "6d17892bbaaee4dd3158cffa3844cfa1e9a3bdcff6c5800d6c510f225acf5b61"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_2_MALE_1",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_2_MALE_1.xlsx",
+    "size_bytes": 22752,
+    "sha256": "4cbed4843353efc4e66a56e124054acf882a7f77597c1a56febdb3290f12be81"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_2_MALE_2",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_2_MALE_2.xlsx",
+    "size_bytes": 22116,
+    "sha256": "133c621ceeafa743c473f4eb40dcd58c62aeb5bb030eb923e375662a21199b03"
+   }
+  },
+  {
+   "gonad": "20260106_190_hs_2_MALE_3",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_hs_2_MALE_3.xlsx",
+    "size_bytes": 22028,
+    "sha256": "eaa38673fab0c79d89843578983702c7740139a92372c360d92015529b5169e6"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_1_HERM_1",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_1_HERM_1.xlsx",
+    "size_bytes": 21656,
+    "sha256": "30d543431e7f93aa4c8115a9543acbd8f6e362cd700c3800fbfeade97a734a33"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_1_HERM_2",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_1_HERM_2.xlsx",
+    "size_bytes": 20524,
+    "sha256": "7d449530a83265c933a8f3f44de1edea9044f1a799cadbe90d6d2c4ddab31e65"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_1_HERM_3",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_1_HERM_3.xlsx",
+    "size_bytes": 21324,
+    "sha256": "0ef19234529d1d8f06ffb417d50f6f055688b76cf9e540273e4de15d948f6444"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_2_HERM_1",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_2_HERM_1.xlsx",
+    "size_bytes": 20821,
+    "sha256": "f8e7a16b9c077a7fd533bc90e061a67f5a4db8ed29309a14474598c9de8d8a99"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_2_HERM_2",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_2_HERM_2.xlsx",
+    "size_bytes": 22433,
+    "sha256": "f79080d81204d0209cee12e9dd6ba06b3d3ef12439ceb78b08b90a34f6784276"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_2_HERM_3",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_2_HERM_3.xlsx",
+    "size_bytes": 23256,
+    "sha256": "a73b1b7c72a15167d1dcc4115bf8da8cd3cc2d0f76e51a3bf80759721162bef5"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_1_MALE_1",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_1_MALE_1.xlsx",
+    "size_bytes": 22370,
+    "sha256": "9ff125f567d0ce060f9f0d09450586b5d7a7192de6b3bcf2c42c5da375cec7a0"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_1_MALE_2",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_1_MALE_2.xlsx",
+    "size_bytes": 22762,
+    "sha256": "140dae59599a95d33fe080371b3ce93be4177595188909fa0887552d54b48b5b"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_1_MALE_3",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_1_MALE_3.xlsx",
+    "size_bytes": 21688,
+    "sha256": "70f31b5ffde1c37f7ff200c39f29105ec29ed24440672e3121aaec39b98b5584"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_2_MALE_1",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_2_MALE_1.xlsx",
+    "size_bytes": 21704,
+    "sha256": "5de47ba0089ed985d9e4db1c140e2dcbdea1031ffb2231fbf676d29f04fead8f"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_2_MALE_2",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_2_MALE_2.xlsx",
+    "size_bytes": 23169,
+    "sha256": "2abf0bd356a03e5ade80513594c0d57c2dbcca92b9c61aaf11e8ebe4b7d256c1"
+   }
+  },
+  {
+   "gonad": "20260106_190_nohs_2_MALE_3",
+   "geno": "syp3",
+   "session": "20260106",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20260106_190_nohs_2_MALE_3",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "nd2 stage rule",
+   "nd2": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/images_presentations/male_syp3/20260106_190_nohs_2_MALE_3.nd2",
+   "ims": null,
+   "sc_channel": "477",
+   "role": "excluded",
+   "rule": "5: DLW190, 38 of 42 images missing; marker not checked",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/TS_20260120_SC_lengths_syp3/excel/20260106_190_nohs_2_MALE_3.xlsx",
+    "size_bytes": 22058,
+    "sha256": "6b930d2c397f4560a9dbf3b546f4fd1cf72bf304af88aec6be6946c99efe6e92"
+   }
+  },
+  {
+   "gonad": "20260629_ccw69_1_hs_dapi_rad51_syp1_1",
+   "geno": "syp2_3",
+   "session": "20260629",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260629_ccw69_1_hs_dapi_rad51_syp1_1",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/syp2_syp3_raw_files/20260629_ccw69_1_HS_DAPI_RAD51_SYP1/20260629_ccw69_HS_DAPI_RAD51_SYP1_1.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/syp2_syp3_ims_files/20260629_ccw69_1_hs_dapi_rad51_syp1_ims/20260629_ccw69_1_hs_dapi_rad51_syp1_1.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_syp2_3_double_hets/xlsx/20260629_ccw69_1_hs_dapi_rad51_syp1_1.xlsx",
+    "size_bytes": 22553,
+    "sha256": "b24af0576c05e0b4f2eb06641dc3052050ba88365847b155bb47d13756acad0f"
+   }
+  },
+  {
+   "gonad": "20260629_ccw69_1_hs_dapi_rad51_syp1_m",
+   "geno": "syp2_3",
+   "session": "20260629",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260629_ccw69_1_hs_dapi_rad51_syp1_m",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/syp2_syp3_raw_files/20260629_ccw69_1_HS_DAPI_RAD51_SYP1/20260629_ccw69_hs_dapi_rad51_syp1_M.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/syp2_syp3_ims_files/20260629_ccw69_1_hs_dapi_rad51_syp1_ims/20260629_ccw69_1_hs_dapi_rad51_syp1_m.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_syp2_3_double_hets/xlsx/20260629_ccw69_1_hs_dapi_rad51_syp1_m.xlsx",
+    "size_bytes": 20659,
+    "sha256": "6f4bd91e0c7e97f3c587a59a36ae74a05a10c62b99cadb4d5400e4ba14eec9cc"
+   }
+  },
+  {
+   "gonad": "20260629_ccw69_1_hs_dapi_rad51_syp1_m001",
+   "geno": "syp2_3",
+   "session": "20260629",
+   "condition": "HS",
+   "sex": "male",
+   "image_stem": "20260629_ccw69_1_hs_dapi_rad51_syp1_m001",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/syp2_syp3_raw_files/20260629_ccw69_1_HS_DAPI_RAD51_SYP1/20260629_ccw69_hs_dapi_rad51_syp1_M001.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/syp2_syp3_ims_files/20260629_ccw69_1_hs_dapi_rad51_syp1_ims/20260629_ccw69_1_hs_dapi_rad51_syp1_m001.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_syp2_3_double_hets/xlsx/20260629_ccw69_1_hs_dapi_rad51_syp1_m001.xlsx",
+    "size_bytes": 24376,
+    "sha256": "2273546ad85ee47927d27317e9fd38ab81037f93762913a0a5a9c6da9e5ad76c"
+   }
+  },
+  {
+   "gonad": "20260629_ccw69_nohs_dapi_rad51_syp1_h",
+   "geno": "syp2_3",
+   "session": "20260629",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20260629_ccw69_nohs_dapi_rad51_syp1_h",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/syp2_syp3_raw_files/20260629_ccw69_noHS_DAPI_RAD51_SYP1/20260629_ccw69_nohs_dapi_rad51_syp1_H.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/syp2_syp3_ims_files/20260629_ccw69_nohs_dapi_rad51_syp1_ims/20260629_ccw69_nohs_dapi_rad51_syp1_h.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_syp2_3_double_hets/xlsx/20260629_ccw69_nohs_dapi_rad51_syp1_h.xlsx",
+    "size_bytes": 20655,
+    "sha256": "7e6c75ab6ee78d181b9b450b92c8b850b0cf583c51b5bccc6196929956ce348d"
+   }
+  },
+  {
+   "gonad": "20260629_ccw69_nohs_dapi_rad51_syp1_h002",
+   "geno": "syp2_3",
+   "session": "20260629",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20260629_ccw69_nohs_dapi_rad51_syp1_h002",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/syp2_syp3_raw_files/20260629_ccw69_noHS_DAPI_RAD51_SYP1/20260629_ccw69_nohs_dapi_rad51_syp1_H002.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/syp2_syp3_ims_files/20260629_ccw69_nohs_dapi_rad51_syp1_ims/20260629_ccw69_nohs_dapi_rad51_syp1_h002.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_syp2_3_double_hets/xlsx/20260629_ccw69_nohs_dapi_rad51_syp1_h002.xlsx",
+    "size_bytes": 21597,
+    "sha256": "41fea69e68d34e6e926bbab4611fe019853ba6780ae957f5858b3fd5fef7f40c"
+   }
+  },
+  {
+   "gonad": "20260629_ccw69_nohs_dapi_rad51_syp1_h003",
+   "geno": "syp2_3",
+   "session": "20260629",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": null,
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": null,
+   "nd2": null,
+   "ims": null,
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": null
+  },
+  {
+   "gonad": "20260629_ccw69_nohs_dapi_rad51_syp1_m001",
+   "geno": "syp2_3",
+   "session": "20260629",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20260629_ccw69_nohs_dapi_rad51_syp1_m001",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/syp2_syp3_raw_files/20260629_ccw69_noHS_DAPI_RAD51_SYP1/20260629_ccw69_nohs_dapi_rad51_syp1_M001.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/syp2_syp3_ims_files/20260629_ccw69_nohs_dapi_rad51_syp1_ims/20260629_ccw69_nohs_dapi_rad51_syp1_m001.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_syp2_3_double_hets/xlsx/20260629_ccw69_nohs_dapi_rad51_syp1_m001.xlsx",
+    "size_bytes": 21232,
+    "sha256": "5d2f247456fe0fc60fd7d9e69b724b91c510776e4473173ca8536a13372644f0"
+   }
+  },
+  {
+   "gonad": "20260630_ccw69_nohs_dapi_rad51_syp1_h005",
+   "geno": "syp2_3",
+   "session": "20260630",
+   "condition": "noHS",
+   "sex": "herm",
+   "image_stem": "20260630_ccw69_nohs_dapi_rad51_syp1_h005",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/syp2_syp3_raw_files/20260630_ccw69_noHS_DAPI_RAD51_SYP1/20260630_ccw69_nohs_dapi_rad51_syp1_H005.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/syp2_syp3_ims_files/20260630_ccw69_nohs_dapi_rad51_syp1_ims/20260630_ccw69_nohs_dapi_rad51_syp1_h005.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_syp2_3_double_hets/xlsx/20260630_ccw69_nohs_dapi_rad51_syp1_h005.xlsx",
+    "size_bytes": 23433,
+    "sha256": "68e5336b4f7dc19dbd7584955163ba1d204f2f7935112a35e1d1a755f67eecb7"
+   }
+  },
+  {
+   "gonad": "20260630_ccw69_nohs_dapi_rad51_syp1_m001",
+   "geno": "syp2_3",
+   "session": "20260630",
+   "condition": "noHS",
+   "sex": "male",
+   "image_stem": "20260630_ccw69_nohs_dapi_rad51_syp1_m001",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/syp2_syp3_raw_files/20260630_ccw69_noHS_DAPI_RAD51_SYP1/20260630_ccw69_nohs_dapi_rad51_syp1_M001.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/syp2_syp3_ims_files/20260630_ccw69_nohs_dapi_rad51_syp1_ims/20260630_ccw69_nohs_dapi_rad51_syp1_m001.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_syp2_3_double_hets/xlsx/20260630_ccw69_nohs_dapi_rad51_syp1_m001.xlsx",
+    "size_bytes": 20646,
+    "sha256": "3dea51646831ca4bceeb1a7a3b96e6adca92b91f6948ba032c28c6b705152f38"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_1k_ir_syp1_rad51_dapi001_h",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "1K",
+   "sex": "herm",
+   "image_stem": "20260714_dlw251_1k_ir_syp1_rad51_dapi001_h",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_1K_IR_SYP1_RAD51_DAPI/20260714_dlw251_1k_ir_syp1_rad51_dapi001_H.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_1k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_1k_ir_syp1_rad51_dapi001_h.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_1k_ir_syp1_rad51_dapi001_h.xlsx",
+    "size_bytes": 22140,
+    "sha256": "8e71b77187c7acaaecf0022045a817fbf13fbc7cb0e44f89cf9b2758e132c30d"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_1k_ir_syp1_rad51_dapi001_m001",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "1K",
+   "sex": "male",
+   "image_stem": "20260714_dlw251_1k_ir_syp1_rad51_dapi001_m001",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_1K_IR_SYP1_RAD51_DAPI/20260714_dlw251_1k_ir_syp1_rad51_dapi001_M001.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_1k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_1k_ir_syp1_rad51_dapi001_m001.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_1k_ir_syp1_rad51_dapi001_m001.xlsx",
+    "size_bytes": 23447,
+    "sha256": "69a5c1715f2f243763cee30daf8f185105790f4a3e77530c54e26207d109ad7b"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_1k_ir_syp1_rad51_dapi001_m003",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "1K",
+   "sex": "male",
+   "image_stem": "20260714_dlw251_1k_ir_syp1_rad51_dapi001_m003",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_1K_IR_SYP1_RAD51_DAPI/20260714_dlw251_1k_ir_syp1_rad51_dapi001_M003.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_1k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_1k_ir_syp1_rad51_dapi001_m003.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_1k_ir_syp1_rad51_dapi001_m003.xlsx",
+    "size_bytes": 22159,
+    "sha256": "20b5acba5f1d08b8ed6f8a0a06fb034edf37039a13e3ff8e27537552f4bc9094"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_5k_ir_syp1_rad51_dapi_h001",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "5K",
+   "sex": "herm",
+   "image_stem": "20260714_dlw251_5k_ir_syp1_rad51_dapi_h001",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_5K_IR_SYP1_RAD51_DAPI/20260714_dlw251_5k_ir_syp1_rad51_dapi_H001.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_5k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_5k_ir_syp1_rad51_dapi_h001.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_5k_ir_syp1_rad51_dapi_h001.xlsx",
+    "size_bytes": 21215,
+    "sha256": "1f23226c7a18210cd99cf702b9df3f097bee2efc06c7a41a78e0d73a74818959"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_5k_ir_syp1_rad51_dapi_h002",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "5K",
+   "sex": "herm",
+   "image_stem": "20260714_dlw251_5k_ir_syp1_rad51_dapi_h002",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_5K_IR_SYP1_RAD51_DAPI/20260714_dlw251_5k_ir_syp1_rad51_dapi_H002.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_5k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_5k_ir_syp1_rad51_dapi_h002.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_5k_ir_syp1_rad51_dapi_h002.xlsx",
+    "size_bytes": 21639,
+    "sha256": "18cf0fd1c6831908576a9eccfe37950719c9836c857107d09eb3a81cc1e7a72b"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_5k_ir_syp1_rad51_dapi_m",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "5K",
+   "sex": "male",
+   "image_stem": "20260714_dlw251_5k_ir_syp1_rad51_dapi_m",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_5K_IR_SYP1_RAD51_DAPI/20260714_dlw251_5k_ir_syp1_rad51_dapi_M.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_5k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_5k_ir_syp1_rad51_dapi_m.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_5k_ir_syp1_rad51_dapi_m.xlsx",
+    "size_bytes": 24306,
+    "sha256": "a301f15c5e492f80fe77c85958719ab28cf1137a87c966f4d953b6963a934bb2"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_5k_ir_syp1_rad51_dapi_m004",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "5K",
+   "sex": "male",
+   "image_stem": "20260714_dlw251_5k_ir_syp1_rad51_dapi_m004",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_5K_IR_SYP1_RAD51_DAPI/20260714_dlw251_5k_ir_syp1_rad51_dapi_M004.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_5k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_5k_ir_syp1_rad51_dapi_m004.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_5k_ir_syp1_rad51_dapi_m004.xlsx",
+    "size_bytes": 21615,
+    "sha256": "55b6fc92136dd29643ed7f559f71d3094843c5bdd1f964588160c2963e6d6e5f"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_7_5k_ir_syp1_rad51_dapi_h001",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "7.5K",
+   "sex": "herm",
+   "image_stem": "20260714_dlw251_7_5k_ir_syp1_rad51_dapi_h001",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_7.5K_IR_SYP1_RAD51_DAPI/20260714_dlw251_7_5k_ir_syp1_rad51_dapi_H001.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_7_5k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_7_5k_ir_syp1_rad51_dapi_h001.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_7_5k_ir_syp1_rad51_dapi_h001.xlsx",
+    "size_bytes": 19930,
+    "sha256": "3f38541e4f122a31082ca351168d1711c456a60568722a44c408223c3bea16e7"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_7_5k_ir_syp1_rad51_dapi_m001",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "7.5K",
+   "sex": "male",
+   "image_stem": "20260714_dlw251_7_5k_ir_syp1_rad51_dapi_m001",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_7.5K_IR_SYP1_RAD51_DAPI/20260714_dlw251_7_5k_ir_syp1_rad51_dapi_M001.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_7_5k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_7_5k_ir_syp1_rad51_dapi_m001.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_7_5k_ir_syp1_rad51_dapi_m001.xlsx",
+    "size_bytes": 21125,
+    "sha256": "faacb8b02f2e7accaf715576fe6302f53131eddfe4e500d70dac2598d44d5151"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_7_5k_ir_syp1_rad51_dapi_m002",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "7.5K",
+   "sex": "male",
+   "image_stem": "20260714_dlw251_7_5k_ir_syp1_rad51_dapi_m002",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_7.5K_IR_SYP1_RAD51_DAPI/20260714_dlw251_7_5k_ir_syp1_rad51_dapi_M002.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_7_5k_ir_syp1_rad51_dapi001_ims/20260714_dlw251_7_5k_ir_syp1_rad51_dapi_m002.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_7_5k_ir_syp1_rad51_dapi_m002.xlsx",
+    "size_bytes": 21977,
+    "sha256": "f503a62c5d4d4472f648c9390793f2f3a2e6748b713cd8a73829747fd9f582cf"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_no_ir_syp1_rad51_dapi_H009",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "none",
+   "sex": "herm",
+   "image_stem": "20260714_dlw251_no_ir_syp1_rad51_dapi_H009",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_no_IR_SYP1_RAD51_DAPI/20260714_dlw251_no_ir_syp1_rad51_dapi_H009.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_no_ir_syp1_rad51_dapi_ims/20260714_dlw251_no_ir_syp1_rad51_dapi_H009.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_no_ir_syp1_rad51_dapi_H009.xlsx",
+    "size_bytes": 18486,
+    "sha256": "85e7e41cb7930b0b8494689e67eb653a4315f88a267ec97a344b0b209acc4389"
+   }
+  },
+  {
+   "gonad": "20260714_dlw251_no_ir_syp1_rad51_dapi_m005",
+   "geno": "spo11",
+   "session": "20260714",
+   "condition": "none",
+   "sex": "male",
+   "image_stem": "20260714_dlw251_no_ir_syp1_rad51_dapi_m005",
+   "rad51_tag": null,
+   "rad51_role": null,
+   "frame_source": "ims header",
+   "nd2": "//129.82.125.105/SpermBank/ScopeData/Madeleine/raw_data_files/spo11_ir_raw_files/20260714_DLW251_no_IR_SYP1_RAD51_DAPI/20260714_dlw251_no_ir_syp1_rad51_dapi_M005.nd2",
+   "ims": "//129.82.125.105/SpermBank/CahoonLab/Madeleine Coffman/imaris_files/spo11_ir_ims_files/20260714_dlw251_no_ir_syp1_rad51_dapi_ims/20260714_dlw251_no_ir_syp1_rad51_dapi_m005.ims",
+   "sc_channel": "477",
+   "role": "reserved",
+   "rule": "5: other genotype, sealed and not scored in v1",
+   "zone_export_copy": {
+    "path": "C:/Users/ryane/sc_ribbon_work/truth_copies/MC_SC_lengths_ir/xlsx/20260714_dlw251_no_ir_syp1_rad51_dapi_m005.xlsx",
+    "size_bytes": 22306,
+    "sha256": "b106914f4c4d4921473c32c715411daae1f187cf4a6b96b5eebf55758bb33ec0"
+   }
+  }
+ ]
+}

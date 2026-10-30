@@ -41,3 +41,14 @@ baked in as a length multiplier.
 with tracing and is known to leak into the perinuclear shell. `sc.trace.enabled` is the tracer. They
 are not unified until the tracer is calibrated; the rename of `sc.enabled` to
 `coloc.sc_ribbon_operand` waits for the deliberate config-hash bump release.
+
+## Ribbon straightening: a separate, opt-in command
+
+`germquant sc-straighten` (docs/SC_STRAIGHTEN.md) traces each SC ribbon in 3D on finished results,
+straightens it along its centreline and measures it (length, profile, gaps, width, foci positions). It
+is a post-run command that writes only new files; this stage, its tables and its switch are unchanged.
+On real data this stage's `sc_total_length_um` follows nucleus volume and background rather than SC
+content (golden n2rad51_noHS_herm_000, untuned, 2026-10-23): the percentile thresholds keep a fixed
+volume fraction of every nucleus (about 43 percent of the eroded interior), the dimmest nuclei get the
+longest skeletons and a nucleus filled with background-level noise yields about 190 um; read it as
+uncalibrated.

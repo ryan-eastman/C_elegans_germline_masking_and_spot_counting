@@ -1,0 +1,283 @@
+"""The resolved ``sc_straighten`` parameter section (docs/SC_STRAIGHTEN.md, "Config").
+
+Precedence: the code defaults below < the ``sc_straighten`` section of ``--config`` / ``--profile`` <
+``--set KEY=VALUE``. No shipped config or profile names the section, so no config_hash moves. Axis order is
+(z, lateral) wherever two values appear and (z, y, x) for three. ``params_hash`` (12 hex) is the sha256 of the
+canonical JSON of the resolved section; it enters the image sub-hash and every output row.
+"""
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+from typing import Any
+
+DEFAULTS: dict[str, Any] = {
+    "enabled": False,               # reserved for a later registry stage; the command ignores it
+    "nuclei": "germline",           # germline | pachytene | all
+    "territory_reach_um": 0.4,
+    "crop_pad_um": [0.6, 0.5, 0.5],
+    "profile": {"roles": ["foci"], "ds_um": 0.05, "core_um": [0.25, 0.12], "integrate_um": [0.7, 0.35],
+                "background_pct": 15},
+    "noise": {"planes": 12, "bins": 30, "qmax": 0.85, "poor_rel_rms": 0.15, "nucleus_sd_range": [0.7, 1.4],
+              "var_floor": 1.0},
+    "fields": {"sigma_um": [0.2, 0.108, 0.108], "null_quantile": 0.999, "null_shape": [40, 96, 96],
+               "null_seed": 0, "crest_offset_max": 0.6},
+    "follow": {"seed_min": 2.5, "lo": 1.5, "step_um": 0.1, "momentum": 0.5, "max_correction_um": 0.15,
+               "lineness_max": 0.5, "weak_run_um": 0.6, "claim_vox": [1, 2, 2], "contact_cos": 0.85,
+               "loop_back_um": 0.6, "min_length_um": 0.5, "max_length_um": 30.0, "stack_edge_um": 0.4,
+               "contact_um": [0.3, 0.15], "max_turn_deg": 30.0, "contact_free_um": [0.6, 0.4],
+               # v2 (protocol changelog entry 20): the contact stop against the claiming strand's tangent
+               # ("claim_tangent"); its tuning failed and entry 21 withdrew it, so the default is v1's "local"
+               "contact_test": "local"},
+    "link": {"max_gap_um": 1.0, "max_gap_contact_um": 1.5, "max_angle_deg": 50.0, "max_skew_um": None,
+             "gap_cost_per_um": 40.0, "skew_cost_per_um": 100.0, "unlinked_cost": 60.0, "tip_um": 0.3,
+             "dir_window_um": [0.3, 1.2],
+             # v2 (protocol changelog entry 21): end directions outside junction zones; the chain bound (9.0 um),
+             # withdrawn by entry 22 (null); entry 22 (revision 1 of entry 21): such pairs judged from the tips.
+             # Entry 23 withdrew the change (the tuning of entry 22 failed): junction_dirs is false by default
+             "junction_dirs": False, "max_chain_um": None, "junction_gap": "tips"},
+    "dedupe": {"lateral_um": 0.15, "axial_um": 0.3, "min_run_um": 0.4, "parallel_cos": 0.9,
+               "min_remainder_um": 0.5, "ghost_max_um": 1.5, "ghost_tz_min": 0.7, "ghost_reach_um": [1.0, 0.35],
+               "shadow_frac": 0.8},
+    "refine": {"ds_um": 0.1, "window_um": [0.30, 0.15], "grid_um": [0.6, 0.4], "max_shift_um": 0.3,
+               "iterations": 4, "knot_um": 0.5, "sigma_loc_um": [0.06, 0.03, 0.03], "lambda": 0.1,
+               "lambda_imported": 0.01, "se_curve_um": 0.10},
+    "ends": {"anchor_um": 0.6, "inside_um": 0.6, "outside_um": 1.4, "step_um": 0.05, "max_recentre_um": 0.2,
+             "sigma_bounds": [0.6, 1.6], "fit_min_amp_se": 5.0, "fit_max_rel_rms": 0.25, "max_extension_um": 0.5},
+    "psf": {"mode": "auto", "fallback_sigma_um": [0.365, 0.15], "min_stretches": 20, "flat_tz_max": 0.3,
+            "isolation_um": 1.0, "min_snr": 10.0, "min_stretch_um": 1.0,
+            # v2 (protocol changelog entries 12 to 15): the foci estimate of the image PSF ("off" gives v1); withdrawn
+            # by entry 16 (its confirmation failed at sigma_z 0.33 um), so the default is off
+            "foci": "off", "foci_min": 15, "foci_window_um": [1.2, 0.54], "foci_isolation_um": 1.0,
+            "foci_max_sigma_xy_um": 0.25, "foci_max_ratio": 1.5, "foci_max_rel_rms": 0.2, "foci_min_snr": 8.0,
+            # v3 (protocol changelog entry 32): the depth term of the measured axial reference of the v3 rules
+            # (psf.axial_reference) needs this many kept foci fits spanning this depth (5th to 95th percentile)
+            "ref_depth_min_fits": 30, "ref_depth_min_span_um": 3.0},
+    "gaps": {"q": 0.6, "window_frac": 0.9, "min_um": 0.25, "z": 3.0, "smooth_um": 0.1, "ring_um": 0.45,
+             "tail_sigmas": 1.0, "plateau_um": 0.4,
+             # v3 (protocol changelog entry 33): a candidate whose dip is shallower than an empty gap of its
+             # measured length can be after the blur along the strand, keeping a fill fraction above dim_fill
+             # of its flanks' signal at more than dim_z standard errors, inside one traced member and away from
+             # other strands, is a dim stretch and not a gap (dim_stretch false gives v1); dim_sigma_source names
+             # the axial sigma of that blur ("psf": the image PSF; "foci", "foci_depth": the image's measured
+             # axial reference, as punctum.sigma_source)
+             # dim_fill and dim_z: the pair that the rule of entry 33 took on the tuning seeds (entry 34: no pair of
+             # the grid was eligible, so the strictest); the rule was withdrawn there
+             "dim_stretch": False, "dim_fill": 0.35, "dim_z": 3.0, "dim_sigma_source": "psf"},
+    "contamination_um": [0.7, 0.35],
+    # v2 (protocol changelog entries 16 to 18): the punctum class (enabled false gives v1). Entry 18 kept it as a
+    # label (exclude false counts punctum strands in every nucleus column as v1 does; before_linking false keeps
+    # the end matching of v1); its confirmation failed, so the class is off by default (entry 19).
+    # v3 (protocol changelog entry 32): sigma_source "foci" or "foci_depth" takes the reference axial sigma of the
+    # rule from the image's compact RAD-51 foci (the foci estimate of entry 12, scaled to the central_element
+    # wavelength; with a depth term fitted on them for foci_depth) instead of the image PSF ("psf", v2), and
+    # one_gaussian asks the core profile to be one Gaussian (centre on the strand, relative residual RMS at most
+    # max_rel_rms); the image PSF itself stays that of v1
+    "punctum": {"enabled": False, "exclude": False, "max_xy_um": 0.5, "sigma_ratio": 1.3, "before_linking": False,
+                "sigma_source": "psf", "one_gaussian": False, "max_rel_rms": 0.2},
+    "strips": {"write": True, "ds_um": 0.05, "du_um": 0.05, "dv_um": 0.1, "half_um": [1.0, 0.6],
+               "extend_um": 0.5, "flat_v_um": 0.3, "axial_u_um": 0.15, "roles": ["central_element", "foci"]},
+    "samples": {"step_um": 0.1},
+    "foci": {"tables": "auto", "max_um": [0.6, 0.3], "ambiguity_ratio": 1.25},
+    "classes": {"min_complete_um": 1.0, "max_link_cost": 60.0, "max_contaminated": 0.3,
+                "merged_multiplicity": 1.7, "merged_run_um": 0.5, "min_frac_in_label": 0.8,
+                # v2 (protocol changelog entry 23): the complete guard; complete_guard_fwhm chosen on the tuning
+                # seeds from {1.0, 1.5, 2.0} by the rule of entry 23 (2.0: entry 24); its confirmation failed and
+                # entry 25 withdrew it, so the guard is off by default
+                "complete_guard": False, "complete_guard_fwhm": 2.0, "max_complete_um": 9.0},
+    "qc": {"low_snr_review": 4.0, "low_snr_fail": 2.5, "steep_frac_review": 0.5, "long_um": 10.0,
+           "kink_deg": 60.0, "kink_um": 0.3, "fit_rms_review_um": 0.12, "gap_long_um": 0.6,
+           "stack_edge_um": 0.4, "merged_label_ratio": 1.6, "double_width_ratio": 1.6,
+           "near_other_label_fail": 0.5, "saturated_frac": 0.01, "sc_channel_suspect_frac": 0.2,
+           "merged_label_window_um": 15.0},
+    "nucleus": {"present_min_um": 1.0, "present_min_snr": 3.0, "expected": {"oocyte": 6, "spermatocyte": 5},
+                "male_x_rule": False},
+    "budget_s": 60,
+    "workers": 1,
+    "overview": True,
+}
+
+# The value of every v2 switch that gives the behaviour of v1 (commit 5cb3cb6), one per change of the v2 round
+# (protocol changelog entries 12 on); tests/test_sc_straighten_v2_compat.py runs them all against v1's outputs.
+V1_VALUES: dict[str, Any] = {
+    "psf.foci": "off",
+    "psf.min_stretches": 20,
+    "punctum.enabled": False,
+    "follow.contact_test": "local",
+    "link.junction_dirs": False,
+    "link.max_chain_um": None,
+    "link.junction_gap": "anchors",
+    "classes.complete_guard": False,
+    "classes.max_complete_um": None,
+    # v3 (protocol changelog entries 32 and 33)
+    "punctum.sigma_source": "psf",
+    "punctum.one_gaussian": False,
+    "gaps.dim_stretch": False,
+    "gaps.dim_sigma_source": "psf",
+}
+
+# The configurations of the two rules of the v3 round, both off by default: entry 32 (the punctum class B1 with the
+# image's measured axial sigma, a class left out of the ribbon tier) and entry 33 (dim stretches are not gaps).
+# Whether each is adopted is decided by its entry; the defaults stay those of v1 either way.
+V3_PUNCTUM: dict[str, Any] = {
+    "punctum.enabled": True,
+    "punctum.exclude": True,
+    "punctum.sigma_source": "foci_depth",
+    "punctum.one_gaussian": True,
+}
+V3_GAPS: dict[str, Any] = {
+    "gaps.dim_stretch": True,
+    "gaps.dim_sigma_source": "foci_depth",
+}
+V3_VALUES: dict[str, Any] = {**V3_PUNCTUM, **V3_GAPS}
+
+
+def v1_sets() -> list[str]:
+    """``--set`` assignments that switch every v2 change back to v1."""
+    return [f"{k}={json.dumps(v)}" for k, v in V1_VALUES.items()]
+
+
+def v3_sets(rules: tuple[str, ...] = ("punctum", "gaps")) -> list[str]:
+    """``--set`` assignments of the v3 rules (``rules``: "punctum" for entry 32, "gaps" for entry 33)."""
+    d: dict[str, Any] = {}
+    for r in rules:
+        d.update({"punctum": V3_PUNCTUM, "gaps": V3_GAPS}[r])
+    return [f"{k}={json.dumps(v)}" for k, v in d.items()]
+
+
+def switch_on(value) -> bool:
+    """A v2 switch value: "on" (or YAML true) is on; "off" (YAML reads an unquoted off as false) is off."""
+    return value is True or str(value).strip().lower() in ("on", "true", "yes")
+
+
+# the values resolve() accepts for the v2 switches (protocol changelog entry 27): an unknown value is refused, so a
+# typo can never silently give another configuration
+SWITCH_KEYS = ("psf.foci", "punctum.enabled", "punctum.exclude", "punctum.before_linking", "link.junction_dirs",
+               "classes.complete_guard", "punctum.one_gaussian", "gaps.dim_stretch")
+SWITCH_WORDS = ("on", "off", "true", "false", "yes", "no")
+ENUM_KEYS: dict[str, tuple[str, ...]] = {"follow.contact_test": ("local", "claim_tangent"),
+                                         "link.junction_gap": ("anchors", "tips"),
+                                         "punctum.sigma_source": ("psf", "foci", "foci_depth"),
+                                         "gaps.dim_sigma_source": ("psf", "foci", "foci_depth")}
+
+
+def _check_switches(p: Params) -> None:
+    for key in SWITCH_KEYS:
+        v = p.get(key)
+        if isinstance(v, bool) or (isinstance(v, str) and v.strip().lower() in SWITCH_WORDS):
+            continue
+        raise ValueError(f"sc_straighten.{key} is an on/off switch: true, false, on, off, yes or no; got {v!r}")
+    for key, allowed in ENUM_KEYS.items():
+        v = p.get(key)
+        if v not in allowed:
+            raise ValueError(f"sc_straighten.{key} is one of {', '.join(allowed)}; got {v!r}")
+
+
+# keys a development sweep may tune (DESIGN section 8); everything else is fixed unless the protocol changelog
+# says otherwise
+TUNABLE_PREFIXES = ("follow.seed_min", "follow.lo", "link.", "refine.knot_um", "refine.lambda",
+                    "refine.sigma_loc_um", "gaps.", "classes.")
+
+
+class Params:
+    """A resolved, read-only view of the section: ``p["follow.seed_min"]`` or ``p.get("follow.seed_min")``."""
+
+    def __init__(self, data: dict):
+        self._d = copy.deepcopy(data)
+
+    def get(self, dotted: str, default: Any = None) -> Any:
+        node: Any = self._d
+        for part in dotted.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return default
+            node = node[part]
+        return node
+
+    def __getitem__(self, dotted: str) -> Any:
+        sentinel = object()
+        v = self.get(dotted, sentinel)
+        if v is sentinel:
+            raise KeyError(dotted)
+        return v
+
+    def as_dict(self) -> dict:
+        return copy.deepcopy(self._d)
+
+    @property
+    def hash(self) -> str:
+        return params_hash(self._d)
+
+    def __getstate__(self):
+        return self._d
+
+    def __setstate__(self, state):
+        self._d = state
+
+
+def canonical_json(obj) -> str:
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
+
+
+def params_hash(d: dict) -> str:
+    return hashlib.sha256(canonical_json(d).encode()).hexdigest()[:12]
+
+
+def _merge(base: dict, overlay: dict, path: str = "") -> dict:
+    out = copy.deepcopy(base)
+    for k, v in (overlay or {}).items():
+        key = f"{path}{k}"
+        if k not in out:
+            raise KeyError(f"unknown sc_straighten key {key!r} (docs/SC_STRAIGHTEN.md lists the keys)")
+        if isinstance(out[k], dict):
+            if not isinstance(v, dict):
+                raise ValueError(f"sc_straighten.{key} is a section; got {v!r}")
+            out[k] = _merge(out[k], v, key + ".")
+        else:
+            out[k] = copy.deepcopy(v)
+    return out
+
+
+def parse_value(text: str) -> Any:
+    """A ``--set`` value: YAML scalar or flow sequence (``3.5``, ``true``, ``[1, 2, 2]``, ``null``)."""
+    import yaml
+
+    return yaml.safe_load(text)
+
+
+def apply_set(d: dict, assignment: str) -> dict:
+    """One ``KEY=VALUE`` (the key relative to the section, for example ``follow.seed_min=3.5``)."""
+    if "=" not in assignment:
+        raise ValueError(f"--set wants KEY=VALUE, got {assignment!r}")
+    key, text = assignment.split("=", 1)
+    key = key.strip()
+    if key.startswith("sc_straighten."):
+        key = key[len("sc_straighten."):]
+    parts = key.split(".")
+    node = d
+    for part in parts[:-1]:
+        if part not in node or not isinstance(node[part], dict):
+            raise KeyError(f"unknown sc_straighten key {key!r}")
+        node = node[part]
+    if parts[-1] not in node:
+        raise KeyError(f"unknown sc_straighten key {key!r}")
+    if isinstance(node[parts[-1]], dict):
+        raise ValueError(f"sc_straighten.{key} is a section, not a value")
+    node[parts[-1]] = parse_value(text)
+    return d
+
+
+def resolve(section: dict | None = None, sets: list[str] | tuple[str, ...] = ()) -> Params:
+    """Code defaults, then the config's ``sc_straighten`` section, then each ``--set``."""
+    d = _merge(DEFAULTS, section or {})
+    for s in sets or ():
+        d = apply_set(d, s)
+    p = Params(d)
+    _check_switches(p)
+    return p
+
+
+def from_config(cfg, sets=()) -> Params:
+    """The section of a loaded germquant Config (``cfg.get("sc_straighten")``), or the defaults for None."""
+    section = cfg.get("sc_straighten", None) if cfg is not None else None
+    return resolve(section if isinstance(section, dict) else None, sets)
