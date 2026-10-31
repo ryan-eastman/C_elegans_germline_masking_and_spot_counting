@@ -1,0 +1,3 @@
+image_id,genotype,sex,treatment,replicate,acquisition_date,slide
+20251105_n2_nohs_HERM_001,syp-2(ok307),male,control,3,2025-11-05,S12
+20251105_n2_nohs_HERM_009,N2,herm,heat,1,2025-11-05,S13

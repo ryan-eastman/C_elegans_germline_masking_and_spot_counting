@@ -22,8 +22,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import __version__
-from .batch import collect, discover_files, enabled_stage_names, is_done, load_exclusions
+from .batch import collect, discover_files, discover_options, enabled_stage_names, is_done, load_exclusions
 from .config import Config, default_config_path, find_profile, load_config
+from .import_labels import import_labels
 from .io import (
     SUPPORTED_SUFFIXES,
     Stack,
@@ -35,14 +36,46 @@ from .io import (
     read_nd2_metadata,
     read_stack,
 )
+from .io.sample_sheet import (
+    SampleRow,
+    SampleSheet,
+    SampleSheetError,
+    SampleSheetWarning,
+    read_sample_sheet,
+    write_sample_sheet,
+)
 from .models_registry import get_model, known_models, register_local_model
 from .packs import fetch_example, fetch_pack_models, find_pack, install_pack, list_packs, load_pack, pack_status
 from .pipeline import process_image, resolve_model_path, spot_instances
+from .project import (
+    Project,
+    ProjectError,
+    ProjectLockedError,
+    RunError,
+    add_images,
+    break_lock,
+    collect_project,
+    export_commands,
+    list_rounds,
+    new_project,
+    new_round,
+    open_project,
+    preview_roles,
+    project_config,
+    project_status,
+    revert_recipe,
+    run_project,
+    save_project,
+    use_model,
+    write_recipe,
+)
+from .project.headers import read_header
 from .provenance import read_done_marker
 from .segment import segment_nuclei
 from .spots import detect_spots
 from .stages import STAGES, apply_cli_switches, cli_switches, stage_enabled
 from .timelapse import parse_timepoints, process_series, register_series
+from .tune import GridError, TuneRefused, TuningWarning, apply_tuning, tune_spots
 
 # one image (run, run_loaded, resolve_config, default_out_dir, process_image); a time-lapse (process_series,
 # parse_timepoints: the loop `germquant run --t` runs; register_series: `germquant register`, the drift of a
@@ -51,7 +84,15 @@ from .timelapse import parse_timepoints, process_series, register_series
 # image_format, image_stem, read_image, read_image_metadata, read_nd2_metadata, read_stack); stages
 # (STAGES, stage_enabled, cli_switches, apply_cli_switches, spot_instances); the heavy building blocks
 # (segment_nuclei, detect_spots); models (resolve_model_path, get_model); batch helpers and the completion
-# marker (discover_files, load_exclusions, collect, is_done, enabled_stage_names, read_done_marker).
+# marker (discover_files, load_exclusions, collect, is_done, enabled_stage_names, read_done_marker); projects
+# (germquant.project, docs/PROJECTS.md: Project, new_project to run_project and export_commands, the light header
+# read_header; importing germquant.project alone loads no torch); spot tuning from truth points (tune_spots and
+# apply_tuning: `germquant tune-spots`, docs/TUNING.md, with TuneRefused, GridError and TuningWarning; germquant.tune
+# holds the tuners, grids and point files); training pairs from labels drawn in another program (import_labels:
+# `germquant import-labels`, docs/TRAINING.md); the sample sheet (SampleRow, SampleSheet, read_sample_sheet,
+# write_sample_sheet, with SampleSheetError and SampleSheetWarning: `--samples`, docs/PROJECTS.md "Sample sheet";
+# run and run_loaded take a row as sample=); batch formats (discover_options: the io.input_suffixes keywords
+# `germquant batch` gives discover_files).
 __all__ = [
     "STAGES",
     "SUPPORTED_SUFFIXES",
@@ -102,6 +143,51 @@ __all__ = [
     "list_spot_backends",
     "known_models",
     "register_local_model",
+    # projects (docs/PROJECTS.md); germquant.project offers the same names, and its light entry the writes, without torch
+    "Project",
+    "ProjectError",
+    "ProjectLockedError",
+    "RunError",
+    "new_project",
+    "open_project",
+    "save_project",
+    "add_images",
+    "read_header",
+    "project_config",
+    "preview_roles",
+    "write_recipe",
+    "revert_recipe",
+    "use_model",
+    "run_project",
+    "project_status",
+    "collect_project",
+    "export_commands",
+    "break_lock",
+    "list_rounds",
+    "new_round",
+    # spot tuning (docs/TUNING.md); importing germquant.tune alone loads no torch, and each tuner imports the pipeline;
+    # TuneRefused (a ValueError) and GridError (a TuneRefused) are the refusals of tune_spots and apply_tuning, and
+    # TuningWarning the warning of apply_tuning (PLAN.md 9.4 #12)
+    "tune_spots",
+    "apply_tuning",
+    "TuneRefused",
+    "GridError",
+    "TuningWarning",
+    # training pairs (docs/TRAINING.md); importing germquant.import_labels alone loads no torch, and the call
+    # imports the pipeline before it reads the image
+    "import_labels",
+    # the sample sheet (docs/PROJECTS.md, "Sample sheet"); importing germquant.io.sample_sheet alone loads no torch
+    "SampleRow",
+    "SampleSheet",
+    "read_sample_sheet",
+    "write_sample_sheet",
+    # SampleSheetError (a ValueError): a sheet read_sample_sheet cannot read or write_sample_sheet refuses, or a row
+    # given to run with t; SampleSheetWarning (a UserWarning): each warning of a sheet that is read (PLAN.md 9.4 #13)
+    "SampleSheetError",
+    "SampleSheetWarning",
+    # batch formats (README, "Other file formats"; PLAN.md 9.1 with 9.4 #13): {} for a recipe without
+    # io.input_suffixes, so discover_files keeps the .nd2 files it always has
+    "discover_options",
 ]
 
 
@@ -170,6 +256,7 @@ def run(
     t: int | None = None,
     pack: str | None = None,
     recipe: str | None = None,
+    sample=None,
 ) -> dict:
     """Process one image exactly as ``germquant run`` does and return its result record.
 
@@ -186,7 +273,10 @@ def run(
     None, the default, for a fixed image. ``pack`` (``id`` or ``id@version``) and ``recipe`` run a system
     pack's recipe instead of config or profile (docs/PACKS.md), as ``germquant run --pack`` does; the run
     also records the pack and the runtime in its manifest. This call does not run the pack check: call
-    ``pack_status`` first, as the command line does.
+    ``pack_status`` first, as the command line does. ``sample`` is the image's row of a sample sheet
+    (``germquant.io.sample_sheet.read_sample_sheet(path).row(image_id, image)``, a SampleRow; docs/PROJECTS.md,
+    "Sample sheet"), as ``germquant run --samples`` passes it: its design columns replace the file name's; None, the
+    default, for none. A sample row with ``t`` is refused.
 
     Returns the dict process_image returns: ``image_id``, ``n_nuclei``, ``qc_pass``, ``qc_flags``,
     ``out_dir``, ``tables`` (one DataFrame per output table) and ``stages`` (the per-stage record). A QC
@@ -195,7 +285,8 @@ def run(
     cfg = resolve_config(config, profile, pack=pack, recipe=recipe)
     for key, value in (overrides or {}).items():
         cfg.set(str(key), value)
-    return run_loaded(image, cfg, out, xy_stride=xy_stride, z_range=z_range, t=t)
+    return run_loaded(image, cfg, out, xy_stride=xy_stride, z_range=z_range, t=t,
+                      **({} if sample is None else {"sample": sample}))
 
 
 def run_loaded(
@@ -206,13 +297,17 @@ def run_loaded(
     xy_stride: int | None = None,
     z_range: tuple[int, int] | list[int] | None = None,
     t: int | None = None,
+    sample=None,
 ) -> dict:
     """``run`` once the config is resolved and every override applied: the single call that the command
-    line and the API share, so there is one code path to a results folder."""
+    line and the API share, so there is one code path to a results folder. ``sample``: the image's sample sheet
+    row (see ``run``)."""
     out_dir = Path(out) if out is not None else default_out_dir(image)
     stride = int(xy_stride) if xy_stride else 1
     zr = (int(z_range[0]), int(z_range[1])) if z_range else None
     # process_image writes run_manifest.json itself (run geometry and per-stage hashes), hence prov=None;
     # t goes along only when given, so a fixed image is the call it has always been
     kw = {} if t is None else {"t": t}
+    if sample is not None:
+        kw["sample"] = sample              # a sample sheet row, passed on only when given (D40)
     return process_image(image, cfg, out_dir, xy_stride=stride, z_range=zr, prov=None, **kw)

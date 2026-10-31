@@ -263,8 +263,18 @@ puncta channel, with every *C. elegans* stage (germline isolation, gonad axis, s
 SC tracing, partitioning) switched off; `in_germline` then reads True for every nucleus. Its channel
 map, `config/channel_maps/generic_nuclei_puncta.yaml`, resolves channels by descriptive name or by
 position. `docs/GENERIC_PROFILE.md` says what each output column means outside the worm, how to
-adapt the recipe in a study profile (your channel names, spot radius, filename pattern), and why
-single-plane (2D) images are not supported yet.
+adapt the recipe in a study profile (your channel names, spot radius, filename pattern).
+
+### Single-plane (2D) images
+
+`--profile generic_2d` is the same recipe for images with one plane: an image whose header and stack have
+one plane runs as a 2D image (objects segmented on the plane, `area_um2` instead of a volume, every spot at
+z 0, label and spot images written as YX, the pixel size taken from the file's own xy calibration), and a 3D
+stack runs as a 3D stack (without the z-column merge of spots, which `generic_2d` switches off, so its spot
+counts can differ from those of `--profile generic`). The key behind it, `io.planar`, and `io.voxel_size_um`
+for files without a pixel size, are described in `docs/PLANAR.md` ("Single-plane runs");
+`germquant info IMAGE` says whether an image has a single plane. Single-plane time series are refused in this
+release.
 
 ### System packs (new in 0.2)
 
@@ -288,6 +298,30 @@ and DNA repair foci) and `budding_yeast` (whole cells and spots). Each can fetch
 
 `germquant assemble` stacks images kept as one TIFF per channel into the one OME-TIFF germquant reads
 (`docs/PACKS.md`).
+
+### Projects (new in 0.2)
+
+A project is a folder that holds one study: the pack and recipe it uses, its images, any changes to the
+recipe, the models trained for it and the results. A project made in napari and one run from a terminal or a
+cluster are the same folder, and they write the same files.
+
+Without typing commands: in napari, the Project dock of the germquant plugin (napari-germquant 0.2) makes a
+project from a pack, adds the images, sets the channel roles and the recipe's parameters, runs the images and
+shows which are done, stale or failed. It runs the engine's own commands, below, so its numbers are those of a
+terminal run.
+
+From a terminal (the same commands on Windows and on a Mac, with the environment active):
+
+    germquant project new STUDY --pack cultured_cells --images "D:/scope/2026-10-20/*.ome.tif"
+    germquant project edit STUDY --role foci="Cy3 RAD-51" --dry-run
+    germquant project run STUDY
+    germquant project status STUDY
+    germquant project collect STUDY
+
+`project run` skips the images already done, and `--shard 1/3` (with 2/3 and 3/3) splits a project over three
+jobs, for example a SLURM array; `project export-commands` writes these commands into a script.
+`docs/PROJECTS.md` explains the project folder, recipe edits and channel roles, project models, the run logs,
+status, Snakemake and moving a project to another computer.
 
 ### Segmentation only (no spot counting)
 
@@ -333,7 +367,31 @@ them, so the channel map matches by those names, and a file without a readable v
 `voxel:UNREADABLE_assumed_isotropic_1um` exactly as an `.nd2` would be. One image per file for now: a
 time-lapse (more than one time point) or a file with several scenes or positions stops with a message
 asking for a single scene (time-lapse support is planned). `germquant info` and `germquant run` take
-these files; `germquant batch` still expects a folder of `.nd2` files.
+these files. `germquant batch` (and the Snakemake workflow) take a folder of them when the config lists their
+suffixes in `io.input_suffixes`, as `config/profiles/generic_2d.yaml` does; in a study profile of your own:
+
+```yaml
+io:
+  input_glob: "**/*"
+  input_suffixes: [".ome.tif", ".tif"]
+```
+
+A suffix is the whole format suffix, so `.tif` does not pick up `x.ome.tif`. Each image's id, which names its
+results folder, is the file name without that suffix (`x.ome.tif` is the image `x`). Two files of one folder with
+one id in different formats (`x.nd2` and an export `x.tif`), or twice in one format (`x.tif` and `x.TIF`, where the
+file system tells letter case apart), would share that folder, so the batch keeps the first by name (`x.nd2` before
+`x.ome.tif` before `x.tif`) and prints the others as left out. germquant's own output images
+(`<id>__nuclei_labels.tif` and the like) are never taken for inputs, and with `io.input_suffixes` set nothing under
+an `--out` folder inside the input folder is either (results next to the images, `--out` the input folder itself,
+are fine). Label images of other tools kept next to the images, such as Cellpose's `x_masks.tif` or the labels files
+of docs/LABELS.md, match a listed suffix too and would be taken for images: leave them out with
+`io.exclude_patterns`, which replaces config.yaml's list, so keep its entries, for example
+`exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*", "*_masks.tif"]`. Without `io.input_suffixes` a batch
+processes the `.nd2` files of the folder, as it always has.
+
+A sample sheet gives each image's design columns (genotype, sex, treatment, replicate and the others) when the
+file names do not follow the naming convention: `germquant batch FOLDER ... --samples samples.csv` (also on
+`germquant run` and `germquant collect`). docs/PROJECTS.md, "Sample sheet", describes the file.
 
 ### Checking the graphics chip is being used
 

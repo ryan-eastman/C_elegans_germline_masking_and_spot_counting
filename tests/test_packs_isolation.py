@@ -3,6 +3,8 @@
 * In a fresh interpreter, germquant.packs.list_packs, a shallow germquant.packs.pack_status and
   ``python -m germquant.packs list --json`` leave torch, cupy, spotmax and cellpose out of sys.modules; a
   malformed pack under $GERMQUANT_PACKS is listed as unusable, and a generic-profile run still resolves cpsam.
+  So do ``python -m germquant.packs derive``, ``list --json --project DIR`` and ``--version --json`` (Train B,
+  P5-DERIVE), which also leave bioio and dask.array out.
 * ``python -m germquant --help`` works and imports torch before anything else of germquant.
 * ``germquant --version`` and ``python -m germquant.packs --version`` print the engine version, git sha and
   python.
@@ -74,6 +76,46 @@ def test_python_m_germquant_packs_list_json_stays_free_of_torch(tmp_path):
     listing = json.loads(r.stdout)
     assert listing["builtin_root_found"] is True
     assert {"celegans_germline", "test_pack"} <= {p["id"] for p in listing["packs"]}
+
+
+def test_derive_and_the_project_listing_stay_free_of_torch(tmp_path):
+    """Gate G6 for `pack derive` and `--project` (Train B P5-DERIVE): in one fresh interpreter, `python -m
+    germquant.packs derive` into a project's packs/ folder, `list --json --all --project DIR` and `--version
+    --json` (the features) load neither torch, CuPy, SpotMAX or Cellpose nor bioio or dask.array, and the listing
+    shows the derived pack and the parent's copy as the project's."""
+    proj = tmp_path / "proj"
+    mdir = proj / "training" / "r01" / "models" / "m1"
+    mdir.mkdir(parents=True)
+    model = mdir / "m1"
+    model.write_bytes(b"a stand-in model, not weights\n")
+    card = mdir / "m1.card.json"
+    card.write_text(json.dumps({"name": "m1", "model_file": str(model), "base_model": {"name": "none"}}),
+                    encoding="ascii")
+    code = ("import json, runpy, sys\n"
+            "def run(argv):\n"
+            "    sys.argv = ['germquant.packs', *argv]\n"
+            "    try:\n"
+            "        runpy.run_module('germquant.packs', run_name='__main__', alter_sys=True)\n"
+            "    except SystemExit as e:\n"
+            "        assert not e.code, (argv, e.code)\n"
+            f"run(['derive', '--from', 'test_pack@0.1.0', '--recipe', 'with_model', '--model', {str(model)!r},\n"
+            f"     '--card', {str(card)!r}, '--out', {str(proj / 'packs')!r}, '--json'])\n"
+            f"run(['list', '--json', '--all', '--project', {str(proj)!r}])\n"
+            "run(['--version', '--json'])\n")
+    heavy, r = _heavy_after(code, heavy=HEAVY + READERS, GERMQUANT_PACKS=FIXTURE_PACKS,
+                            GERMQUANT_MODELS=tmp_path / "models")
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert heavy == "", f"pack derive, the --project listing or the features loaded {heavy}"
+    dec, text, docs = json.JSONDecoder(), r.stdout.strip(), []
+    while text:
+        doc, end = dec.raw_decode(text)
+        docs.append(doc)
+        text = text[end:].strip()
+    derived, listing, version = docs
+    assert derived["ok"] and derived["pack"].startswith("test_pack_derived_")
+    sources = {(p["id"], p["source"]) for p in listing["packs"]}
+    assert {(derived["id"], "project"), ("test_pack", "project")} <= sources
+    assert version["features"][0] == "packs" and "pack_derive" in version["features"]
 
 
 def test_shallow_check_with_an_image_stays_free_of_torch_and_cupy(tmp_path):

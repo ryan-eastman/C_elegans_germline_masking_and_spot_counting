@@ -1,0 +1,4 @@
+role_a,role_b,region,n_voxels,pearson_r,slope,image_id,genotype,sex,germ_cell,treatment,replicate,acquisition_date,voxel_dz_um,voxel_dy_um,voxel_dx_um,n_channels,dapi_present,channel_map_json
+dna,foci,nuclei,72,0.008053569646952866,0.3339985948048502,plane_001,unknown,unknown,unknown,unknown,,,,0.8,0.8,2,True,"{""dna"": 0, ""foci"": 1, ""granule"": null}"
+dna,foci,perinuclear_ring,0,,,plane_001,unknown,unknown,unknown,unknown,,,,0.8,0.8,2,True,"{""dna"": 0, ""foci"": 1, ""granule"": null}"
+dna,foci,cytoplasm,0,,,plane_001,unknown,unknown,unknown,unknown,,,,0.8,0.8,2,True,"{""dna"": 0, ""foci"": 1, ""granule"": null}"
