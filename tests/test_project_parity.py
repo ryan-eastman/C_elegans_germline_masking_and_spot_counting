@@ -9,6 +9,11 @@ PLAN.md 4.4 P5-RUN and D25; P5 acceptance 2, 4 and 12).
   stage hashes under both roots and with the engine config root moved.
 * Where a snakemake executable is available (D25: a throwaway environment, never the .venv), a dry run of the
   Snakefile's project mode lists one job per image under its image_stem id; it skips everywhere else.
+* With the fixture post-stage switched on (P5b acceptance 6): a project of the post-stage pack (its recipe basic
+  switches the fixture on in post_stages/basic.yaml), `germquant run --pack` and api.run(pack=) write the same file
+  list, post table and __post.json included, the same tables, markers, stage hashes and label pixels, and post
+  records equal in every field but those that follow the run (the time stamp, and the digests of files that hold
+  it); config_hash stays the test pack's basic hash.
 """
 from __future__ import annotations
 
@@ -18,10 +23,13 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
+import tifffile
 from packs_helpers import CELEGANS_PACK, ROOT, TEST_PACK, pack_env, subprocess_env  # noqa: F401
 from project_helpers import BASIC_HASH, TEST_PACK_REF, new_test_project, project_env  # noqa: F401
+from post_helpers import POST_PACK_PARAMS, POST_PACK_REF, counting_fixture, post_pack_env  # noqa: F401
 from test_project_run import example_copy, need_readers
 
 import germquant.project as P
@@ -34,7 +42,9 @@ ROLES = {"dna": 0, "central_element": 1, "foci": 2, "granule": None, "lamin": No
 
 
 def _tables(out: Path) -> dict[str, pd.DataFrame]:
-    return {f.name: pd.read_csv(f, low_memory=False, float_precision="round_trip").drop(columns=["run_timestamp"])
+    # a post table carries no run_timestamp column (only the columns its post-stage declares)
+    return {f.name: pd.read_csv(f, low_memory=False, float_precision="round_trip").drop(columns=["run_timestamp"],
+                                                                                      errors="ignore")
             for f in sorted(out.glob(f"{IID}__*.csv"))}
 
 
@@ -77,6 +87,52 @@ def test_project_route_equals_pack_routes(project_env, tmp_path):  # noqa: F811
         ref = pd.read_csv(gold / f"{t}.csv", low_memory=False, float_precision="round_trip")
         assert packs_golden.compare_table(got, ref, t) == []
     assert (gold / "config_hash.txt").read_text(encoding="ascii").strip() == BASIC_HASH
+
+
+def _post_fields(out: Path) -> dict:
+    """__post.json without what follows the run's time stamp: each stage's sub_hash and finished, and of its inputs
+    main_run and the file digests of the tables (every table holds run_timestamp) and of the label image (its TIFF
+    tags record the run; its pixels are compared on their own)."""
+    rec = json.loads((out / f"{IID}__post.json").read_text(encoding="ascii"))
+    for st in rec["stages"].values():
+        st.pop("sub_hash"), st.pop("finished")
+        st["inputs"].pop("main_run"), st["inputs"].pop("tables"), st["inputs"].pop("labels")
+    return rec
+
+
+def test_project_parity_with_fixture_post_stage(post_pack_env, counting_fixture, tmp_path):  # noqa: F811
+    """P5b acceptance 6: the parity of the first test with the fixture post-stage switched on, here by the pack
+    itself (post_stages/basic.yaml of the post-stage pack): the project route, `germquant run --pack` and
+    api.run(pack=) each call it once and write the same files."""
+    need_readers()
+    proj = P.new_project(tmp_path / "proj", POST_PACK_REF, "basic")
+    image = example_copy(proj.root / "images")
+    P.add_images(proj, [image])
+    assert P.run_project(proj)["exit_code"] == 0
+    routes = {"project": proj.root / "results" / IID, "cli": tmp_path / "cli", "api": tmp_path / "api"}
+    assert cli.main(["run", str(image), "--pack", POST_PACK_REF, "--recipe", "basic", "--out", str(routes["cli"])]) == 0
+    api.run(image, pack=POST_PACK_REF, recipe="basic", out=routes["api"])
+    assert counting_fixture == [IID, IID, IID]
+    names = {k: sorted(f.name for f in v.iterdir()) for k, v in routes.items()}
+    assert names["project"] == names["cli"] == names["api"]
+    assert {f"{IID}__post.json", f"{IID}__post_fixture_nuclei_per_nucleus.csv"} <= set(names["project"])
+    tables = {k: _tables(v) for k, v in routes.items()}
+    assert f"{IID}__post_fixture_nuclei_per_nucleus.csv" in tables["project"]
+    for other in ("cli", "api"):
+        assert tables["project"].keys() == tables[other].keys()
+        for name in tables["project"]:
+            pd.testing.assert_frame_equal(tables["project"][name], tables[other][name], check_exact=True, obj=name)
+    markers = {k: _marker(v) for k, v in routes.items()}
+    assert markers["project"] == markers["cli"] == markers["api"]
+    assert markers["project"]["config_hash"] == BASIC_HASH                 # the post-stage is never hashed
+    manifests = {k: json.loads((v / "run_manifest.json").read_text("utf-8")) for k, v in routes.items()}
+    assert manifests["project"]["stage_hashes"] == manifests["cli"]["stage_hashes"] == manifests["api"]["stage_hashes"]
+    posts = {k: _post_fields(v) for k, v in routes.items()}
+    assert posts["project"] == posts["cli"] == posts["api"]
+    labels = {k: tifffile.imread(v / f"{IID}__nuclei_labels.tif") for k, v in routes.items()}
+    assert np.array_equal(labels["project"], labels["cli"]) and np.array_equal(labels["project"], labels["api"])
+    stage = posts["project"]["stages"]["fixture_nuclei"]
+    assert stage["done"] is True and {k: stage["params"][k] for k in POST_PACK_PARAMS} == POST_PACK_PARAMS
 
 
 def test_project_moves_between_roots(project_env, tmp_path):  # noqa: F811

@@ -138,10 +138,12 @@ def verify_pack(ref_or_folder) -> list[str]:
 # The features `python -m germquant.packs --version --json` lists (docs/PACKS.md, "Versions and features"), in
 # the order of the Train B contract. The version string stays 0.2.0.dev0 through tranche 5, so a client such as
 # the napari plugin gates on these names. A feature is listed when its code is in this engine: its module file
-# exists and, where a name is given (for planar, projects and train_curve, whose module or package exists before
-# the feature does), the module defines that name at top level. projects waits for project/run.py and its
-# run_project: the package's first stubs (every call raising NotImplementedError) are not the feature. Files are
-# read, never imported (gate G6), so an engine that lacks a feature never claims it.
+# exists and, where a name is given (for planar, projects, train_curve and post_stages, whose module or package
+# exists before the feature does), the module defines that name at top level. projects waits for project/run.py and
+# its run_project: the package's first stubs (every call raising NotImplementedError) are not the feature; so does
+# post_stages wait for the run commands to take post-stages, marked by api.py's list_post_stages (the
+# germquant.post_stages package of phase CORE alone is not the feature). Files are read, never imported (gate G6),
+# so an engine that lacks a feature never claims it.
 FEATURE_PROBES = (
     ("packs", "packs/__init__.py", None),
     ("planar", "planar.py", "PLANAR_DZ"),
@@ -152,6 +154,7 @@ FEATURE_PROBES = (
     ("train_curve", "segment/training.py", "train_curve"),
     ("pack_derive", "packs/derive.py", None),
     ("tune_spots", "tune/__init__.py", None),
+    ("post_stages", "api.py", "list_post_stages"),
 )
 
 

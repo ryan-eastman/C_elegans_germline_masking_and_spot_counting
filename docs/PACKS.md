@@ -57,6 +57,13 @@ environment (`source .venv/bin/activate`); on Windows use the command prompt or 
 picks a recipe (the pack's default otherwise). `run --pack` and `batch --pack` refuse a recipe that `pack check`
 reports unusable; `--no-pack-check` runs it anyway.
 
+A recipe may switch post-stages on (docs/POST_STAGES.md): measurement steps from packages installed into the
+environment, which run after the image and write only tables of their own. The pack ships the list as
+`post_stages/<recipe>.yaml`, and a recipe that cannot run without a post-stage names it in `needs.post_stages`, so
+`pack check` greys the recipe where that post-stage is not installed (reading metadata only). `--post-stages FILE`
+on `run` and `batch`, or a project's own post_stages.yaml, replaces the pack's list; a file holding `[]` switches
+them off. The list is not hashed: config_hash and the numbers of the main tables stay the recipe's.
+
 The same numbers: a pack recipe is a profile file that the engine reads like any other, so
 
     germquant run GONAD.nd2 --pack celegans_germline
@@ -352,11 +359,13 @@ through tranche 5. The napari plugin gates its docks on these names.
 | train_curve | `germquant train-curve` |
 | pack_derive | `germquant pack derive`, and `--project DIR` on pack list, show, check and fetch-models |
 | tune_spots | `germquant tune-spots` |
+| post_stages | post-stages in the run commands (`--post-stages`, a project's post_stages.yaml, docs/POST_STAGES.md) |
 
 A feature is listed when its code is in the engine (`germquant.packs.FEATURE_PROBES`): its module file exists
-and, for planar, projects and train_curve, whose module or package exists before the feature does, the module
-defines `PLANAR_DZ`, `run_project` (in `germquant/project/run.py`) or `train_curve`. So projects is listed once
-`germquant project run` exists, not while the package holds only its first stubs or commands. Nothing is
+and, for planar, projects, train_curve and post_stages, whose module or package exists before the feature does,
+the module defines `PLANAR_DZ`, `run_project` (in `germquant/project/run.py`), `train_curve` or
+`list_post_stages` (in `germquant/api.py`). So projects is listed once `germquant project run` exists, not while
+the package holds only its first stubs or commands, and post_stages once the run commands take post-stages. Nothing is
 imported to find out, so the command stays torch-free, and an engine that lacks a feature never lists it.
 
 ## Making a pack
@@ -372,6 +381,7 @@ The layout (docs/DESIGN_system_packs.md, section 3.2):
       config/profiles/pack_base.yaml    the frozen base every outside recipe extends (hashed with it)
       config/channel_maps/<map>.yaml    channel map (hashed with the recipe)
       models/<model>.card.json          model cards; weights never live in a pack
+      post_stages/<recipe>.yaml         optional: the post-stages the recipe switches on (not hashed; docs/POST_STAGES.md)
       example/<name>.ome.tif            a tiny synthetic example, under 2 MB
       example/expected/recipe/<recipe>/ the recipe golden: nuclei.csv, spots.csv, image_summary.csv, config_hash.txt
       validation/<recipe>.json          validation records, written only by the benchmark tool
