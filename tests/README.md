@@ -82,6 +82,50 @@ gonads are built inside the fixtures.
   refused with its key named; and `process_image` refuses it before any stage runs or any file is
   written, also under `method: auto`, where the watershed fallback would otherwise hide a bad Cellpose
   setting.
+- Tranche 5 Train B (single-plane images, labels from files, projects, the sample sheet and batch formats, the
+  training and tuning engine, post-stages; docs/PLANAR.md, docs/LABELS.md, docs/PROJECTS.md, docs/TRAINING.md,
+  docs/TUNING.md, docs/POST_STAGES.md):
+  - single-plane images: `test_planar_single.py` (planar.decide, the spacing of a single-plane run, the `info`
+    line), `test_planar_bioio.py` (single-plane OME-TIFFs through bioio, against the single_plane_legacy and
+    synthetic_2d goldens; skips without the readers, which CI installs), `test_planar_spots.py` (today's SpotMAX
+    calls without planar, the planar branch with it), `test_planar_run.py` (single-plane runs through
+    process_image under config/profiles/generic_2d.yaml, the synthetic_2d golden, a default batch resume deciding
+    as before) and `test_planar_series.py` (single-plane time series refused), with the helpers of
+    `planar_helpers.py`;
+  - labels from files: `test_labels_io.py` (the readers of segmentation.nuclei.labels_from) and `test_labels_run.py`
+    (labels runs through process_image and `batch`, the synthetic_labels golden), with `labels_helpers.py`;
+  - projects: `test_project_manifest.py` (manifest, lock, new, open, add, the light header reads),
+    `test_project_recipe.py` (recipe edits, channel roles, project models), `test_project_light.py` (the frozen
+    signatures of PLAN section 9.1 and the torch-free entry, in fresh interpreters), `test_project_run.py`
+    (run_project, its run log, models, devices, time series, collect, export-commands, the api re-exports),
+    `test_project_status.py` (every status and reason code), `test_project_shards.py` (shards and three parallel
+    processes) and `test_project_parity.py` (the project route against `run --pack` and api.run, also with a
+    post-stage on, roots that move, the Snakemake project mode), with `project_helpers.py`;
+  - the sample sheet and batch formats: `test_sample_sheet.py` (the sheet end to end, the row hash, the
+    synthetic_sheet golden) and `test_batch_formats.py` (a default batch discovers exactly what 8eb73de does; other
+    formats with io.input_suffixes, their ids and the duplicate_id rule);
+  - training: `test_training_export_geometry.py` (export-training by run geometry, the 3D export unchanged),
+    `test_import_labels.py` (import-labels from TIFF, PNG and Cell-ACDC files) and `test_train_curve.py` (the card
+    fields and the learning curve, with the Cellpose seams replaced);
+  - `test_pack_derive.py`: `pack derive`, `--project` on the pack entry and the version features, with new cases in
+    `test_packs_isolation.py` (the --project listing and a recipe's needs.post_stages load no torch);
+  - tuning: `test_tune_effect_filter.py`, `test_tune_spots.py` (the planted optimum in 3D and 2D, the synthetic_tune
+    golden), `test_tune_points.py` and `test_tune_seal.py` (the allow-list and the import order, in fresh
+    interpreters), with `tune_helpers.py`;
+  - post-stages: `test_post_stages_discovery.py` (discovery from metadata and the declaration file, never importing
+    a post-stage, and the torch-free `python -m germquant.post_stages list` and `write`),
+    `test_post_stages_runner.py` (the runner on a hand-made results folder: only the declared tables and
+    __post.json, the sub-hash, resume, a failure recorded while the image stays done) and
+    `test_post_stages_wiring.py` (the wiring into `run`, `batch`, `project run` and `project status`, an error of
+    the runner that never fails the image, collect's batch_post tables, pack status, the series refusals, the
+    synthetic_post golden), with `post_helpers.py` (it builds the post_pack fixture pack in a temporary folder at
+    test time; none is committed);
+  - `test_t5_style_check.py`: `scripts/t5_style_check.py`, gate G7, on throwaway repositories, and on this checkout
+    on tranche 5 branch names only (decision D55 in docs/DESIGN_system_packs.md, section 14).
+  The six goldens of Train B, each with its `config_hash.txt` sentinel pinned in `golden/default_invariants.json`:
+  `golden/single_plane_legacy/` (made on the base code before P2b changed anything), `golden/synthetic_2d/`,
+  `golden/synthetic_labels/`, `golden/synthetic_sheet/`, `golden/synthetic_tune/` and `golden/synthetic_post/`;
+  the pins file also gains the config hash of `config/profiles/generic_2d.yaml`.
 - `test_peak_filter.py`: the exact replica of SpotMAX's minimum-distance peak filter
   (`germquant.spots.peak_filter`, `docs/PERFORMANCE.md`) against the installed SpotMAX function on
   random inputs with tied intensities, duplicate points and boundary distances, its fallback domain,
@@ -258,6 +302,13 @@ Opt-ins driven by environment variables rather than markers:
   `train_nuclei` and checks the model file, log and card. It takes about 90 seconds and writes a 1.2 GB
   model file under the test's temporary folder, which is why it is not in the default suite; set
   `OMP_NUM_THREADS` to leave cores free for other work.
+- `GERMQUANT_SNAKEMAKE=<snakemake executable>`: `test_batch_formats.py` and `test_project_parity.py` run their
+  Snakemake dry runs (the formats and pack mode, and the project mode) with that executable, else with one on PATH;
+  without either they skip. Snakemake is never installed into the .venv: it lives in a throwaway environment (the
+  Train B plan's decision D25).
+- `GERMQUANT_TRAIN_CARD_BASE=cpsam_v2@0f1cc3f7` (with `GERMQUANT_MODELS` pointing at a store that holds that blob):
+  `test_train_curve.py::test_card_with_a_real_pack_base` writes a model card with a real pack base; the Cellpose
+  seams stay replaced, so nothing trains.
 
 Other automatic skips: the extended-path check in `test_fsutil.py` runs only on Windows, its
 POSIX twin only elsewhere, `test_staging.py` skips its comparison with the August staging tables
@@ -276,8 +327,11 @@ PowerShell, keeping the GPU out of it:
     $env:CUDA_VISIBLE_DEVICES = "-1"
     .venv\Scripts\python.exe -m pytest -q
 
-Mac or Linux, in the activated environment: `pytest -q`. The whole suite is 136 tests and takes
-about 75 s on the workstation (134 pass, 2 skip, or 3 skip with the GPU hidden). Useful selections:
+Mac or Linux, in the activated environment: `pytest -q`. The whole suite is 1557 tests;
+`pytest -q -m "not model"`, what CI and `scripts/t5_gate.py` run, passes 1547, skips 9 and deselects 1 in about
+11 minutes on the workstation's CPU. The skips are the environment and opt-in skips of the lists above and
+below (the workstation pins, the POSIX twin of the long-path check, the real goldens, the Snakemake dry runs
+without `GERMQUANT_SNAKEMAKE`, the card with a real pack base, the training smoke). Useful selections:
 
     pytest tests/test_golden.py -q        # just the numeric gate
     pytest -q -m "not model"              # what CI runs
@@ -297,8 +351,9 @@ works without installing ruff). The rule set is written out in `pyproject.toml` 
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push to `main` and to `feat/**` branches, on pull requests
-and on demand (the "Run workflow" button). One job per OS, `ubuntu-latest`, `windows-latest` and
-`macos-14` (Apple Silicon, from tranche 5 package P1), with Python 3.11:
+and on demand (the "Run workflow" button). Four jobs, with Python 3.11: `ubuntu-latest`, `macos-15` (Apple
+Silicon; `macos-14` until 2026-10-30, as GitHub retires the macOS 14 images on 2026-11-02) and `windows-latest`
+twice, as shards 0 and 1, because one Windows job took 15.4 minutes against the 15-minute budget of gate G1:
 
 1. `uv` installs torch and torchvision as CPU wheels from the PyTorch CPU index (on macOS, the arm64
    wheels from PyPI, the CPU and Metal build), then germquant with the `gpu`, `spots`, `sc`, `dev` and
@@ -306,16 +361,29 @@ and on demand (the "Run workflow" button). One job per OS, `ubuntu-latest`, `win
    `constraints/ci-cpu-2026-10.txt` (macOS: `constraints/ci-mac-arm64-2026-10.txt`, the same pins): the
    validated workstation versions minus the CUDA-only packages. The uv cache directory is saved between
    runs. A test that cannot pass on macOS for an environment reason is marked with the reason.
-2. `ruff check src tests scripts`.
-3. `pytest -q -rs -m "not model" --strict-markers`: the full suite including the synthetic golden
-   tests; `test_gpu.py` reports itself as skipped.
+2. The two bioio TIFF readers (bioio, bioio-base, bioio-tifffile and bioio-ome-tiff) against
+   `constraints/readers-2026-10.txt`, the workstation .venv's versions, and a step that fails the job when they
+   do not import: the tests that read single-plane and OME-TIFF files through germquant.io skip without them, so a
+   broken install would otherwise pass as skips.
+3. `ruff check src tests scripts`.
+4. `pytest -q -rs -m "not model" --strict-markers`: the full suite including the synthetic golden
+   tests; `test_gpu.py` reports itself as skipped. On Windows each shard takes every other file of the sorted
+   `tests/test_*.py` list (shard 0 the first, third, ...), so the two run every test file once; a shard fails first
+   when pytest would collect a test file outside that list, or when its own list is empty.
+5. On tranche 5 branches only (a name that contains `tranche5` or `/t5`, or starts with `t5`), on the Linux job:
+   the scope check (`scripts/t5_scope_check.py`: no frozen path modified or deleted, no fence pin changed) and the
+   style check (`scripts/t5_style_check.py`, gate G7: no en or em dash in a line the diff adds, pure ASCII in the
+   text files it adds under config/, packs/, tests/fixtures/ and tests/golden/ and in every YAML file it adds).
+   Both always run, also after a failed Test step, and the step fails when either fails.
 
-`QT_QPA_PLATFORM=offscreen` and `CUDA_VISIBLE_DEVICES=-1` are set for the whole job. So is `GERMQUANT_GOLDEN_RTOL=1e-12`: the synthetic goldens are compared exactly on the
-workstation that made them, but the GitHub runners have other CPUs and sum floats in a different vector order,
-which moved `coloc.pearson_r` by one part in 1e14 on the first CI run; the tolerance allows that and nothing
-more (leave the variable unset locally so any real change fails). The README
-badge shows the result of the latest run on the default branch.
+`QT_QPA_PLATFORM=offscreen` and `CUDA_VISIBLE_DEVICES=-1` are set for the whole job. So is `GERMQUANT_GOLDEN_RTOL`,
+1e-12, and 1e-6 on macOS, whose arm64 runner sums float32 intensity means in another order: the synthetic goldens
+are compared exactly on the workstation that made them, but the GitHub runners have other CPUs and sum floats in a
+different vector order, which moved `coloc.pearson_r` by one part in 1e14 on the first CI run; the tolerance
+allows that and nothing more (leave the variable unset locally so any real change fails). The README badge shows
+the result of the latest run on the default branch.
 
+The rehearsal below predates the Windows split and the readers step (both from Train B, 2026-10-23).
 Rehearsal on the workstation (2026-10-09, the same commands in a fresh `uv` environment with a cold
 cache): torch and torchvision 39 s, the rest of the packages 31 s, ruff clean, pytest about 120 s.
 Three and a half minutes in all, well inside the budget; a GitHub runner is slower, but not by

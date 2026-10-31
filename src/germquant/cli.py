@@ -6,24 +6,53 @@
   germquant register results/SERIES [--reference previous|t0] [--upsample 10] [--max-step-um 5] [--channel ROLE] [--rigid]
   germquant register results/SERIES --mode piecewise [--segments 4] [--margin-um 6] [--taper 0.25]
   germquant batch /nas/folder --config config/config.yaml --out /nas/folder_results
+  germquant collect /nas/folder_results [--samples samples.csv]
   germquant run   STACK.nd2 --pack celegans_germline [--recipe rad51_foci] --out results/   (a system pack)
-  germquant pack  list | show | check | fetch-models | fetch-example | install | verify | build-sums | lint | golden
+  germquant pack  list | show | check | fetch-models | fetch-example | install | verify | build-sums | lint | derive | golden
   germquant assemble --channels A.tif B.tif --names Bright Cy3 --spacing DZ DY DX --out X.ome.tif
   germquant --version
 
 System packs (docs/PACKS.md) bundle the recipes and pinned models for one kind of sample; `--pack ID[@VER]`
-runs one of a pack's recipes with the config_hash of `--config <that recipe file>`.
+runs one of a pack's recipes with the config_hash of `--config <that recipe file>`. `pack derive` turns a model
+trained in a project into a derived pack, and `pack list | show | check | fetch-models --project DIR` also see a
+project's own packs.
 
 `info` and `run` also take TIFF / OME-TIFF, CZI, LIF and OME-Zarr files when the optional `readers`
-extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders.
+extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders, and
+on the formats a config lists in io.input_suffixes (README, "Other file formats"). `info` names a single plane, and
+a single-plane run follows docs/PLANAR.md. `run`, `batch` and `collect` take `--samples FILE`, a sample sheet that
+gives each image its design columns (docs/PROJECTS.md, "Sample sheet"); `run --t` refuses it. `run` and `batch`
+also take `--post-stages FILE`, the post-stages to run after each image (docs/POST_STAGES.md); `run --t` refuses
+a list that switches one on. `python -m germquant.post_stages list | write` lists the post-stages installed here
+and writes a project's list (its post_stages.yaml) without loading torch.
 `run --t` processes the named timepoints of a time-lapse one by one into results/t<NNN>/ and writes the
 series record and summary next to them (docs/TIMELAPSE.md); without --t a run is the single-image run.
 
-The nucleus training loop (docs/TIMELAPSE.md, "Segmenting without DAPI: the training loop"):
+Projects (docs/PROJECTS.md): one folder per study that pins a pack version and holds its images, recipe edits,
+sample sheet, post-stage list, runs and training rounds:
 
-  germquant export-training RESULTS_OR_SERIES_DIR --out PAIRS [--orientations xy,xz,yz] [--slices-per-image 3]
+  germquant project new DIR --pack ID[@VER] [--recipe R] [--images GLOB ...]
+  germquant project add DIR PATH|FOLDER|GLOB ...
+  germquant project edit DIR [--set KEY=VALUE ...] [--role ROLE=CHANNEL ...] [--samples FILE] [--dry-run]
+  germquant project run DIR [--images ID ...] [--shard K/N] [--device auto|cuda|mps|cpu]
+  germquant project status | collect | export-commands DIR
+  germquant project use-model | rounds | unlock DIR ...
+
+`python -m germquant.project new|add|edit|use-model|rounds|unlock ...` makes the same changes without loading torch.
+
+The nucleus training loop (docs/TRAINING.md):
+
+  germquant export-training RESULTS_OR_SERIES_DIR --out PAIRS [--orientations auto|xy,xz,yz] [--slices-per-image 3]
+  germquant import-labels SRC --format tiff|png|cellacdc-npz|cellpose-npy --image IMG --pairs PAIRS [--channel C]
   germquant train-nuclei --pairs PAIRS --out MODELDIR [--base cpsam] [--epochs 150] [--split-by series] [--cpu]
+                         [--system S] [--kind K] [--dataset D]
+  germquant train-curve --pairs PAIRS --out DIR --sizes 1,2,4,8,16,all --repeats 3 --seed S --base B
   germquant register-model --model MODELDIR/NAME --card MODELDIR/NAME.card.json [--name NAME]
+
+Spot tuning on the truth points of a project (docs/TUNING.md):
+
+  germquant tune-spots --project DIR [--points annotations/] [--grid FILE] [--max-runs N]
+  germquant tune-spots --project DIR --apply tuning/<run>
 
 The EXPERIMENTAL net3d RAD-51 foci detector (docs/BENCHMARK.md, "net3d"), trained on the bench cache against
 the Imaris spots of the train gonads, selected on the val gonads, never on test:
@@ -114,9 +143,21 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--resume", action="store_true",
                     help="with --t: skip timepoints whose completion marker matches this config, geometry and "
                          "segment stage (an interrupted series picks up where it stopped)")
+    pr.add_argument("--samples", default=None, metavar="FILE",
+                    help="a sample sheet (a CSV naming each image by image_id or file, with any of genotype, sex, "
+                         "germ_cell, treatment, replicate and acquisition_date): this image's row gives its design "
+                         "columns instead of the file name; without a row the file name's are kept and the image is "
+                         "flagged metadata:not_in_sample_sheet (docs/PROJECTS.md, \"Sample sheet\"). Refused with --t")
+    pr.add_argument("--post-stages", default=None, metavar="FILE",
+                    help="a post_stages.yaml (a list of {name, params}; docs/POST_STAGES.md): the post-stages to run on "
+                         "the results folder after the image, each writing only its own new tables and "
+                         "<image_id>__post.json; it replaces a --pack recipe's post_stages/<recipe>.yaml, and a file "
+                         "holding [] switches every post-stage off. Not part of config_hash. With --t a list that "
+                         "switches a post-stage on is refused")
     _add_stage_switches(pr)
 
-    pb = sub.add_parser("batch", help="process every .nd2 under a folder, mirroring the tree")
+    pb = sub.add_parser("batch", help="process every .nd2 under a folder (or the formats the config lists in "
+                                      "io.input_suffixes), mirroring the tree")
     pb.add_argument("folder")
     _add_config_args(pb, packs=True)
     pb.add_argument("--out", required=True)
@@ -124,11 +165,24 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("--resume", action="store_true",
                     help="skip images whose results folder holds a completion marker written with the "
                          "same config and the same stages (an interrupted batch picks up where it stopped)")
+    pb.add_argument("--samples", default=None, metavar="FILE",
+                    help="a sample sheet: each image's row gives its design columns instead of the file name; an "
+                         "image without a row keeps the file name's and is flagged metadata:not_in_sample_sheet; "
+                         "--resume reruns an image whose row changed, and joins the sheet's own columns into the "
+                         "batch tables (docs/PROJECTS.md, \"Sample sheet\")")
+    pb.add_argument("--post-stages", default=None, metavar="FILE",
+                    help="a post_stages.yaml (docs/POST_STAGES.md): the post-stages to run on each image after it is "
+                         "processed; it replaces a --pack recipe's post_stages/<recipe>.yaml ([] switches them off). "
+                         "Not part of config_hash: --resume skips a finished image and runs only those of its "
+                         "post-stages whose parameters, file or inputs changed")
     _add_stage_switches(pb)
 
     pc = sub.add_parser("collect", help="stack the per-image tables under a results folder into batch_<table>.csv "
                                         "and rebuild batch_summary.csv (safe to rerun any time)")
     pc.add_argument("results_root")
+    pc.add_argument("--samples", default=None, metavar="FILE",
+                    help="a sample sheet whose own columns (neither the key nor a design column) are joined into "
+                         "every batch_<table>.csv by image id (docs/PROJECTS.md, \"Sample sheet\")")
 
     prg = sub.add_parser("register", help="time-lapse drift as a shift table: phase correlation of the reference "
                                           "volumes `run --t` kept per timepoint, accumulated to the first timepoint, "
@@ -287,15 +341,18 @@ def main(argv: list[str] | None = None) -> int:
                           "the spot-sources record. It must be the registered split file (its pinned digests)")
 
     pe = sub.add_parser("export-training",
-                        help="write paired 2D training slices (image/ and labels/ TIFs plus manifest.csv) from the "
-                             "nucleus labels of every finished run under a results or series folder, for correction "
-                             "in napari or the Cellpose GUI (docs/TIMELAPSE.md)")
+                        help="write paired 2D training images (image/ and labels/ TIFs plus manifest.csv) from the "
+                             "nucleus labels of every finished run under a results or series folder, by the run's "
+                             "geometry, for correction in napari or the Cellpose GUI (docs/TRAINING.md)")
     pe.add_argument("results_dir", help="a results folder, a time-lapse series folder (its t<NNN>/ subfolders are "
                                         "the runs) or a batch tree")
     pe.add_argument("--out", required=True, help="the training folder: image/, labels/, manifest.csv, export.json")
-    pe.add_argument("--orientations", default="xy,xz,yz",
-                    help="comma-separated subset of xy,xz,yz; xz and yz slices are resampled along z to the xy "
-                         "pixel size so every slice is isotropic (default: all three)")
+    pe.add_argument("--orientations", default="auto",
+                    help="auto (the default): by the run's geometry, xy, xz and yz slices of a 3D run, one proj "
+                         "pair of a projected run (the 2D image its segmenter saw) and the plane of a single-plane "
+                         "run as xy (tiles of at most 1024 px above that size); or a comma-separated subset of "
+                         "xy,xz,yz for the 3D runs. xz and yz slices are resampled along z to the xy pixel size so "
+                         "every slice is isotropic (docs/TRAINING.md)")
     pe.add_argument("--slices-per-image", type=int, default=3, metavar="N",
                     help="slices per run and orientation, drawn at random (seeded) from slices that cut at least "
                          "--min-labels nuclei (default 3)")
@@ -311,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
     ptn = sub.add_parser("train-nuclei",
                          help="train a Cellpose nucleus model on corrected slice pairs (cellpose.train.train_seg in "
                               "process), split by image or series, never by slice; writes the model file, "
-                              "training_log.json and a model card with hold-out F1 (docs/TIMELAPSE.md)")
+                              "training_log.json and a model card with hold-out F1 (docs/TRAINING.md)")
     ptn.add_argument("--pairs", required=True, help="the folder export-training wrote (image/, labels/, manifest.csv)")
     ptn.add_argument("--base", default="cpsam",
                      help="starting weights: a registered model name, a model file, a Cellpose built-in name "
@@ -330,6 +387,17 @@ def main(argv: list[str] | None = None) -> int:
     ptn.add_argument("--learning-rate", type=float, default=1e-5, help="AdamW learning rate (default 1e-5)")
     ptn.add_argument("--min-train-masks", type=int, default=5,
                      help="Cellpose drops training slices with fewer nuclei than this (default 5)")
+    from .packs.format import OBJECT_KINDS
+
+    ptn.add_argument("--system", default=None,
+                     help="the biological system the pairs show, written to the card's system (free text, for "
+                          "example 'budding yeast'; default none)")
+    ptn.add_argument("--kind", choices=list(OBJECT_KINDS), default=None,
+                     help="what one label is, written to the card's object_kind (default: the object kind of the "
+                          "pack the pairs' runs used, else nucleus)")
+    ptn.add_argument("--dataset", default=None,
+                     help="public data: the dataset id of benchmarks/ext/<id>/, written to the card with its "
+                          "licence and the sha256 of its split.json (docs/TRAINING.md)")
 
     pts = sub.add_parser("train-spots",
                          help="train the EXPERIMENTAL net3d RAD-51 foci detector (a residual 3D U-Net heatmap) on the "
@@ -448,12 +516,17 @@ def main(argv: list[str] | None = None) -> int:
     prm.add_argument("--model", required=True, help="the model file `train-nuclei` wrote")
     prm.add_argument("--card", help="its model card JSON (<name>.card.json next to the model file)")
     prm.add_argument("--name", help="registry name (default: the card's name, else the file name)")
+    from . import cli_tune
+    cli_tune.add_parsers(sub)                      # germquant tune-spots (docs/TUNING.md)
 
     _add_track_parsers(sub)
-    from . import cli_assemble, cli_packs
+    from . import cli_assemble, cli_packs, cli_training
 
     cli_packs.add_parsers(sub)                     # germquant pack ... (docs/PACKS.md)
     cli_assemble.add_parsers(sub)                  # germquant assemble (one TIFF per channel -> one OME-TIFF)
+    from . import cli_projects                     # germquant project ... (docs/PROJECTS.md)
+    cli_projects.add_parsers(sub)
+    cli_training.add_parsers(sub)                  # germquant train-curve, import-labels (docs/TRAINING.md)
 
     args = p.parse_args(argv)
     _force_utf8_stdio()
@@ -462,6 +535,8 @@ def main(argv: list[str] | None = None) -> int:
     return {
         "pack": lambda: cli_packs.dispatch(args),
         "assemble": lambda: cli_assemble.dispatch(args),
+        "project": lambda: cli_projects.dispatch(args),
+        **dict.fromkeys(cli_training.COMMANDS, lambda: cli_training.dispatch(args)),
         "info": lambda: _info(args.nd2),
         "run": lambda: _run(args),
         "batch": lambda: _batch(args),
@@ -480,6 +555,7 @@ def main(argv: list[str] | None = None) -> int:
         "train-spots": lambda: _train_spots(args),
         "train-nuclei3d": lambda: _train_nuclei3d(args),
         "register-model": lambda: _register_model(args),
+        "tune-spots": lambda: cli_tune.dispatch(args),
 
         "track-export": lambda: _track_export(args),
         "track-link": lambda: _track_link(args),
@@ -792,6 +868,13 @@ def _info(nd2: str) -> int:
     dz, dy, dx = m["spacing"]
     print(f"voxel µm   : dz={dz:.4f} dy={dy:.4f} dx={dx:.4f}  (anisotropy z/xy={dz/dy:.2f})")
     print(f"channels   : {m['channel_names']}")
+    from .planar import one_plane_header
+
+    if one_plane_header(m):            # no Z axis, or a Z of 1 (D11): what io.planar auto runs as a 2D image
+        yx = m.get("spacing_yx_um") or (m["spacing"][1:] if m.get("spacing_ok") else None)
+        cal = (f"dy={yx[0]:.4f} dx={yx[1]:.4f} um from the file" if yx else
+               "no xy calibration in the file (set io.voxel_size_um)")
+        print(f"planes     : single plane, {cal}; io.planar auto or true runs it as a 2D image (docs/PLANAR.md)")
     if int(m.get("n_timepoints", 1) or 1) > 1:       # a time series: say so (fixed images print nothing here)
         period = m.get("period_s")
         every = f" every {period:g} s" if period else ""
@@ -830,14 +913,24 @@ def _run(args) -> int:
         return _run_series(args, cfg)
     if getattr(args, "resume", False):
         raise SystemExit("--resume applies to a time series: give --t as well (for example --t all)")
+    sheet = _sample_sheet(args)           # --samples FILE: this image's row (None without the option)
+    kw = {} if sheet is None else {"sample": _sheet_row(sheet, Path(args.nd2))}
+    post, refused = _post_stages(args)     # --post-stages FILE or a --pack recipe's list, checked; None without
+    if refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        return 2
+    if post is not None:
+        kw["post_stages"] = post           # passed on only when there is one (D40)
     # germquant.api.run is the one path to a results folder: a GUI or a notebook calling it with the same
     # settings writes the same files (process_image writes run_manifest.json itself)
-    res = run(args.nd2, config=cfg, out=args.out, xy_stride=args.xy_stride, z_range=args.z_range)
+    res = run(args.nd2, config=cfg, out=args.out, xy_stride=args.xy_stride, z_range=args.z_range, **kw)
     mark = "✓" if res["qc_pass"] else "⚠"
     print(f"\n{mark} {res['image_id']}: {res['n_nuclei']} nuclei, qc_pass={res['qc_pass']}")
     if res["qc_flags"]:
         print("  flags:", "; ".join(res["qc_flags"]))
     print(f"  -> {res['out_dir']}")
+    if "post" in res:
+        _print_post(res["post"], "  ")
     # QC status is recorded in the output tables; a flagged image is NOT a process
     # failure (so unattended Snakemake batches complete). Only exceptions are errors.
     return 0
@@ -846,9 +939,24 @@ def _run(args) -> int:
 def _run_series(args, cfg) -> int:
     """``germquant run SERIES.nd2 --t ...``: the per-timepoint loop (timelapse.series.process_series). A
     timepoint that raises is recorded in the series record and the loop goes on; the exit code is 0 when at
-    least one requested timepoint finished and 1 when none did."""
+    least one requested timepoint finished and 1 when none did, and 2 when the series is refused before any
+    timepoint (_series_refusal)."""
     from .timelapse import process_series
 
+    # the post-stage list in force (--post-stages FILE, or a --pack recipe's own): a series takes none in this release
+    source, origin = _post_stages_source(args)
+    entries, refused = _post_stages_entries(source)
+    if not refused:
+        refused = _series_refusal(cfg, args.nd2, samples=getattr(args, "samples", None), post_stages=entries or None)
+        if refused and entries and origin == "pack":
+            from .post_stages import SERIES_REFUSAL as POST_SERIES_REFUSAL
+
+            if refused == POST_SERIES_REFUSAL:
+                refused += (f" (the pack recipe's {source} switches them on: give --post-stages with a file that "
+                            f"holds [] to switch them off)")
+    if refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)       # one prefix for every series refusal (D45)
+        return 2
     res = process_series(args.nd2, cfg, args.out, timepoints=args.t, xy_stride=args.xy_stride,
                          z_range=args.z_range, resume=bool(getattr(args, "resume", False)))
     rec = res["record"]
@@ -863,10 +971,163 @@ def _run_series(args, cfg) -> int:
     return 0 if n_done else 1
 
 
+def _series_refusal(cfg, path, *, samples=None, post_stages=None) -> str | None:
+    """Why ``run --t`` cannot run this series in this release, or None; _run_series prints it as "REFUSED:
+    <message>" (D45). A labels recipe (segmentation.nuclei.labels_from, D15, docs/LABELS.md) is refused first,
+    with no header read; then a single-plane run (io.planar true, or auto on a file whose header has one plane;
+    D9, docs/PLANAR.md), or a malformed io.planar: these two checks are project run's own
+    (germquant.project.run.series_refusal; reviews/final_partA.md N2), so both routes refuse a series alike. Then a
+    sample sheet (``samples``, the --samples file, which is not read: the series loop gives its timepoints no
+    sample row, D21, docs/PROJECTS.md), any sheet here where a project refuses only a series with a row; then
+    post-stages (``post_stages``, the entries of the list in force when it switches one on: D33,
+    docs/POST_STAGES.md). process_image refuses each labels, single-plane or sample timepoint as well."""
+    from .project.run import series_refusal
+
+    why = series_refusal(cfg, path)                # labels_from, then a single plane (both loaded lazily)
+    if why:
+        return why
+    if samples:
+        from .io.sample_sheet import SERIES_REFUSAL as SHEET_SERIES_REFUSAL
+
+        return SHEET_SERIES_REFUSAL
+    if post_stages:
+        from .post_stages import SERIES_REFUSAL as POST_SERIES_REFUSAL
+
+        return POST_SERIES_REFUSAL
+    return None
+
+
+def _sample_sheet(args):
+    """The sample sheet of ``--samples FILE`` (germquant.io.sample_sheet), or None without the option. Its warnings
+    (a cp1252 file, a non-ISO date) are printed; a sheet that cannot be read is refused before any image, with
+    "REFUSED:" and exit 2 (D49)."""
+    path = getattr(args, "samples", None)
+    if not path:
+        return None
+    import warnings
+
+    from .io.sample_sheet import SampleSheetError, SampleSheetWarning, read_sample_sheet
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SampleSheetWarning)      # printed below, once, as the CLI prints
+            sheet = read_sample_sheet(path)
+    except (SampleSheetError, OSError) as e:
+        # an OSError's own text names the \\?\ long-path form of the file (fsutil.long_path): name the sheet instead
+        print(f"REFUSED: sample sheet {Path(path).absolute()}: {e.strerror or e}" if isinstance(e, OSError)
+              else f"REFUSED: {e}", file=sys.stderr)
+        raise SystemExit(2) from None
+    for w in sheet.warnings:
+        print(f"warning: {w}")
+    return sheet
+
+
+def _sheet_row(sheet, path: Path, indent: str = ""):
+    """The image's row of the sheet (a SampleRow), saying so when the sheet has none for it."""
+    from .io.formats import image_stem
+
+    row = sheet.row(image_stem(path), path)
+    if row.row_sha256 is None:
+        print(f"{indent}not in the sample sheet {sheet.path.name}: the design columns come from the file name "
+              f"(flag metadata:not_in_sample_sheet)")
+    return row
+
+
+def _post_stages_source(args):
+    """``(source, origin)``: the post-stage list a run of `run` or `batch` uses (docs/POST_STAGES.md;
+    germquant.post_stages.post_stages_in_force): ``--post-stages FILE`` (origin "given"), else the
+    post_stages/<recipe>.yaml a --pack recipe ships (origin "pack"), else (None, None). A run of a recipe file or
+    a profile without --post-stages imports nothing of germquant.post_stages."""
+    given = getattr(args, "post_stages", None)
+    pack_ref = None if given is not None else getattr(args, "pack", None)
+    if given is None and not pack_ref:
+        return None, None
+    from .post_stages import post_stages_in_force
+
+    folder = recipe = None
+    if pack_ref:
+        from . import packs as P
+
+        pack = P.find_pack(pack_ref)           # the pack the run resolved (the pack check found it already)
+        folder, recipe = pack.folder, pack.recipe(getattr(args, "recipe", None)).id
+    return post_stages_in_force(None if given is None else Path(given), pack_folder=folder, recipe=recipe)
+
+
+def _post_stages_entries(source) -> tuple[list, str | None]:
+    """``(entries, refusal)`` of the post-stage list ``source`` (None: none): a file that cannot be opened is
+    refused as "post-stages <absolute path>: <strerror>", one that cannot be read as a list with the reader's
+    message (it names the file)."""
+    if source is None:
+        return [], None
+    from .post_stages import entries_of
+
+    try:
+        return entries_of(source), None
+    except OSError as e:
+        # an OSError's own text names the long-path form of the file (fsutil.long_path): name the file instead
+        return [], f"post-stages {Path(source).absolute()}: {e.strerror or e}"
+    except ValueError as e:
+        return [], str(e)
+
+
+def _post_stages(args) -> tuple[str | None, str | None]:
+    """``(path, refusal)``: the post-stage list this run of `run` or `batch` uses (_post_stages_source), checked
+    before any image against the post-stages of this environment (germquant.post_stages.validate_post_stages).
+    ``path`` is None when there is none; ``refusal`` is the message the caller prints as "REFUSED:" with exit 2
+    (D49): a list that cannot be read, or holds an entry that cannot run here. Under --no-pack-check a pack's own
+    list that cannot run here is a warning instead, and each image records the failure in its __post.json."""
+    source, origin = _post_stages_source(args)
+    entries, refused = _post_stages_entries(source)
+    if source is None or refused:
+        return None, refused
+    from .post_stages import validate_post_stages
+
+    problems = validate_post_stages(entries)
+    if problems:
+        text = f"post-stages {Path(source).absolute()}: " + "; ".join(problems)
+        if not (origin == "pack" and getattr(args, "no_pack_check", False)):
+            return None, text
+        print(f"warning: {text} (--no-pack-check: each image records the failure in its __post.json)")
+    names = ", ".join(e["name"] for e in entries) or "none: every post-stage is switched off"
+    print(f"Post-stages {source}: {names}")
+    return str(source), None
+
+
+def _print_post(res: dict, indent: str) -> None:
+    """What germquant.post_stages.run_post_stages did on one image: a line per post-stage (done, up to date, or
+    FAILED with the reason), and the reason when the list itself could not be run."""
+    if res.get("error"):
+        print(f"{indent}post-stages not run: {res['error']}")
+    stages = (res.get("post") or {}).get("stages") or {}
+    for name in res.get("ran") or []:
+        print(f"{indent}post-stage {name}: done")
+    for name in res.get("skipped") or []:
+        print(f"{indent}post-stage {name}: up to date")
+    for name in res.get("failed") or []:
+        print(f"{indent}post-stage {name}: FAILED ({(stages.get(name) or {}).get('error')})")
+
+
+def _batch_post(out_dir: Path, image_id: str, post: str, cfg, image: Path, *, stack=None, indent: str = "    ") -> None:
+    """The post-stages of a batch on one finished image (germquant.post_stages.run_post_stages): after the image,
+    with the stack it read, or for an image the batch resumes, the due ones only (a post-only rerun reads the image
+    again when a post-stage reads it, D34). A post-stage's failure is recorded in <image_id>__post.json; nothing
+    here fails the image or the batch."""
+    from .post_stages import run_post_stages
+
+    try:
+        res = run_post_stages(out_dir, image_id, post, cfg=cfg, image_path=image, stack=stack)
+    except Exception as e:  # noqa: BLE001 - a post-stage never fails the image (design 5.6)
+        logging.exception("post-stages of %s", image_id)
+        print(f"{indent}post-stages not run: {type(e).__name__}: {e}")
+        return
+    _print_post(res, indent)
+
+
 def _batch(args) -> int:
     import pandas as pd
 
     from . import batch as B
+    from .io.formats import image_stem
     from .pipeline import process_image
 
     cfg = _pack_config(args)               # --pack ID[@VER] [--recipe R]: None for --config / --profile
@@ -878,13 +1139,30 @@ def _batch(args) -> int:
     glob = cfg.get("io.input_glob", "**/*.nd2")
     excludes = cfg.get("io.exclude_patterns", [])
     exclusions = B.load_exclusions(cfg.get("qc.exclusions_file"), cfg.base_dir)
+    # batch formats (io.input_suffixes, docs/DESIGN_system_packs.md 7.8): {} for a recipe that does not set the key,
+    # so a default batch discovers the .nd2 files it always has (D20); a malformed value is refused here
+    try:
+        formats_kw = B.discover_options(cfg, out_root)
+    except ValueError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+    sheet = _sample_sheet(args)            # --samples FILE (docs/PROJECTS.md, "Sample sheet"); None without it
+    post, refused = _post_stages(args)     # --post-stages FILE or a --pack recipe's list, checked before any image
+    if refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        return 2
 
-    files, dropped = B.discover_files(root, glob, excludes, exclusions)
+    files, dropped = B.discover_files(root, glob, excludes, exclusions, **formats_kw)
     for f, why in dropped:
         if why.startswith("exclusions_file"):
             print(f"excluded by {why}: {f.name}")
+        elif why.startswith("duplicate_id"):
+            # one image id twice in one folder (io.input_suffixes): in two formats (x.nd2 and x.tif), or in one
+            # format where the file system tells letter case apart (x.tif and x.TIF)
+            print(f"left out {f.name}: {why}")
     if not files:
-        print(f"No .nd2 files matched {glob} under {root}", file=sys.stderr)
+        what = f"files with the suffixes {', '.join(formats_kw['suffixes'])}" if formats_kw else ".nd2 files"
+        print(f"No {what} matched {glob} under {root}", file=sys.stderr)
         return 1
 
     # image-independent provenance, computed once per batch: the segment sub-hash lets --resume notice a
@@ -892,11 +1170,25 @@ def _batch(args) -> int:
     from .pipeline import resolve_model_path, segment_backend_provenance
     from .stages import stage_hashes as stage_hashes_fn
 
-    model_sha = (provenance.file_sha256(resolve_model_path(cfg))
-                 if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
+    labels_run = cfg.get("segmentation.nuclei.labels_from") is not None
+    if labels_run:
+        # labels from files (docs/LABELS.md): process_image's rule, no model is resolved; the segment hashes are
+        # computed per image below, with that image's labels sha256
+        from .io import labels as labels_io
+
+        model_sha = "unused"
+    else:
+        model_sha = (provenance.file_sha256(resolve_model_path(cfg))
+                     if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
     # the segmentation backend's own provenance ({} on the default run), as process_image hashes it
     segment_hash = stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
                                    segment_backend=segment_backend_provenance(cfg))["segment"]
+    # a recipe that sets io.planar can write single-plane markers, whose segment sub-hash carries "planar"
+    # (docs/PLANAR.md): that hash is computed once too and passed to is_done, which picks by the marker's flag
+    planar_kw = ({} if cfg.get("io.planar") in (None, False) else
+                 {"segment_hash_planar": stage_hashes_fn(cfg, {}, provenance.tool_versions(), model_sha,
+                                                         segment_backend=segment_backend_provenance(cfg),
+                                                         planar=True)["segment"]})
     batch_extra = {"n_files": len(files), "input_root": str(root), "excluded": [str(f) for f, _ in dropped],
                    "xy_stride": int(args.xy_stride), "model_sha256": model_sha,
                    "enabled_stages": B.enabled_stage_names(cfg)}
@@ -909,21 +1201,44 @@ def _batch(args) -> int:
         batch_extra["runtime"] = runtime_record(cfg.get("segmentation.nuclei.device"))
     prov = provenance.write_manifest(out_root, config_hash=cfg.hash, config=cfg.as_dict(), extra=batch_extra)
     print(f"Processing {len(files)} files -> {out_root}")
+    if sheet is not None:
+        n_rows = sum(1 for f in files if sheet.row(image_stem(f), f).row_sha256 is not None)
+        print(f"Sample sheet {sheet.source}: a row for {n_rows} of the {len(files)} images")
     summaries = []
     resume = bool(getattr(args, "resume", False))
     for i, f in enumerate(files, 1):
         rel = f.relative_to(root).parent
-        out_dir = out_root / rel / f.stem
+        image_id = image_stem(f)           # the image id: Path.stem for an .nd2, x for x.ome.tif (io.formats)
+        out_dir = out_root / rel / image_id
         print(f"[{i}/{len(files)}] {f.name}")
+        row = _sheet_row(sheet, f, indent="    ") if sheet is not None else None
         if resume:
-            done, why = B.is_done(out_dir, f.stem, cfg, xy_stride=args.xy_stride, segment_hash=segment_hash)
+            seg, seg_kw = segment_hash, planar_kw
+            if labels_run:
+                # this image's segment hashes, its labels file's sha256 in the payload, the single-plane one only
+                # for a recipe that sets io.planar (D44, D46); a file that cannot be hashed matches no marker, so
+                # the image is reprocessed and fails with process_image's message
+                seg, seg_planar, problem = labels_io.segment_hashes(cfg, f, model_sha=model_sha)
+                seg_kw = {} if seg_planar is None else {"segment_hash_planar": seg_planar}
+                if problem:
+                    print(f"    {problem}")
+            # the image's sample sheet row, compared only for a row the sheet has (D40, D44's call shape)
+            row_kw = {} if row is None or row.row_sha256 is None else {"sample_row_sha256": row.row_sha256}
+            done, why = B.is_done(out_dir, image_id, cfg, xy_stride=args.xy_stride, segment_hash=seg, **seg_kw,
+                                  **row_kw)
             if done:
                 print("    already done (completion marker matches); skipping")
+                if post is not None:
+                    _batch_post(out_dir, image_id, post, cfg, f)     # its due post-stages only (3.3 c)
                 continue
             if why != "no completion marker":
                 print(f"    reprocessing: {why}")
+        kept: dict = {}
         try:
-            res = process_image(f, cfg, out_dir, xy_stride=args.xy_stride, prov=prov)
+            kw = {} if row is None else {"sample": row}      # a sheet run only (D40)
+            if post is not None:
+                kw["on_stack"] = kept.update                 # D34: the post-stages take the stack the run read
+            res = process_image(f, cfg, out_dir, xy_stride=args.xy_stride, prov=prov, **kw)
             isum = res["tables"]["image_summary"]
             n_germ = int(isum["n_germline_nuclei"].iloc[0]) if "n_germline_nuclei" in isum else 0
             summaries.append({"image_id": res["image_id"], "n_nuclei": res["n_nuclei"],
@@ -931,8 +1246,11 @@ def _batch(args) -> int:
                               "qc_flags": ";".join(res["qc_flags"]), "out_dir": res["out_dir"]})
         except Exception as e:  # noqa: BLE001
             logging.exception("FAILED %s", f.name)
-            summaries.append({"image_id": f.stem, "n_nuclei": 0, "n_germline": 0, "qc_pass": False,
+            summaries.append({"image_id": image_id, "n_nuclei": 0, "n_germline": 0, "qc_pass": False,
                               "qc_flags": f"EXCEPTION:{e}", "out_dir": str(out_dir)})
+        else:
+            if post is not None:
+                _batch_post(out_dir, res["image_id"], post, cfg, f, stack=kept.pop("stack", None))
 
     # Framing QC: flag images whose germline count is a strong outlier vs the batch median (a robust,
     # threshold-free proxy for "two gonad arms / extra tissue / fuller distal capture in frame", worth
@@ -943,13 +1261,18 @@ def _batch(args) -> int:
     if resume:
         # a resumed batch: every completed folder of THIS study on disk, plus this pass's failures
         failed = [s for s in summaries if not s["qc_pass"] and str(s["qc_flags"]).startswith("EXCEPTION")]
-        counts = B.collect(out_root, image_ids={f.stem for f in files}, extra_rows=failed, outlier_factor=factor)
+        counts = B.collect(out_root, image_ids={image_stem(f) for f in files}, extra_rows=failed, outlier_factor=factor,
+                           **({} if sheet is None else {"sample_sheet": sheet}))
         print(f"\nDone. Resumed batch collected: {counts}. Summary -> {out_root / 'batch_summary.csv'}")
         return 0
     summaries = B.apply_framing_qc(summaries, factor)
     pd.DataFrame(summaries, columns=B.SUMMARY_COLS).to_csv(long_path(out_root / "batch_summary.csv"), index=False)
     n_pass = sum(s["qc_pass"] for s in summaries)
     print(f"\nDone. {n_pass}/{len(files)} passed QC. Summary -> {out_root / 'batch_summary.csv'}")
+    if sheet is not None and sheet.extra_columns:
+        # both paths quoted, so the line pastes as one command when a folder name holds a space
+        print(f"  the sheet's own columns ({', '.join(sheet.extra_columns)}) are joined into the batch tables by "
+              f"`germquant collect \"{out_root}\" --samples \"{args.samples}\"`")
     return 0
 
 
@@ -1101,9 +1424,13 @@ def _register_piecewise(args) -> int:
 def _collect(args) -> int:
     from . import batch as B
 
-    counts = B.collect(args.results_root)
+    sheet = _sample_sheet(args)            # --samples FILE: its own columns are joined into every batch table
+    counts = B.collect(args.results_root, **({} if sheet is None else {"sample_sheet": sheet}))
     for k, v in counts.items():
         print(f"  {k}: {v} rows")
+    if sheet is not None:
+        joined = ", ".join(sheet.extra_columns) or "none: the sheet has no column of its own"
+        print(f"  sample sheet {sheet.source}: columns joined: {joined}")
     print(f"  -> {Path(args.results_root) / 'batch_<table>.csv'} and batch_summary.csv")
     return 0
 
@@ -1182,7 +1509,9 @@ def _get_model(args) -> int:
 def _export_training(args) -> int:
     from .segment.training import export_training_pairs
 
-    orientations = tuple(o.strip() for o in str(args.orientations).split(",") if o.strip())
+    text = str(args.orientations).strip()
+    # auto: by run geometry; a list goes on as today's tuple, the call the plugin's in-process export makes
+    orientations = None if text.lower() == "auto" else tuple(o.strip() for o in text.split(",") if o.strip())
     manifest = export_training_pairs(args.results_dir, args.out, orientations=orientations,
                                      slices_per_image=args.slices_per_image, seed=args.seed,
                                      zone_column=args.zone_column or None, min_labels=args.min_labels,
@@ -1202,7 +1531,9 @@ def _train_nuclei(args) -> int:
     res = train_nuclei(args.pairs, args.out, base=args.base, name=args.name, epochs=args.epochs,
                        split_by=args.split_by, val_frac=args.val_frac, seed=args.seed, cpu=args.cpu,
                        learning_rate=args.learning_rate, batch_size=args.batch_size,
-                       min_train_masks=args.min_train_masks)
+                       min_train_masks=args.min_train_masks,
+                       **{k: v for k, v in (("system", args.system), ("kind", args.kind), ("dataset", args.dataset))
+                          if v is not None})                # the card options only when given (D40)
     sp = res["split"]
     print(f"\n{res['name']}: trained on {sp['n_train']} slice(s) from {len(sp['train_groups'])} {sp['by']} group(s), "
           f"{sp['n_val']} held out from {len(sp['val_groups'])}, device {res['device']}")
@@ -1217,6 +1548,15 @@ def _train_nuclei(args) -> int:
         print(f"  hold-out metrics missing: {res['metrics']['error']}")
     print(f"  model -> {res['model_path']} (sha256 {res['model_sha256'][:12]}...)")
     print(f"  card  -> {res['card_path']}")
+    card = res["card"]
+    pack = card.get("pack")
+    pack_text = "none" if not pack else (f"{pack['id']}@{pack['version']}/{pack['recipe']}"
+                                         + (" (edited)" if pack.get("edited") else ""))
+    # one value, or every value when the pairs differ (the card's pixel_um_values and segmented_roles)
+    pixel = card.get("pixel_um") if card.get("pixel_um") is not None else card.get("pixel_um_values")
+    role = card.get("segmented_role") if card.get("segmented_role") is not None else card.get("segmented_roles")
+    print(f"  card says: {card.get('dims')} {card.get('object_kind')} model, pixel {pixel} um, "
+          f"segmented role {role}, pack {pack_text}")
     print(f"  register it:  germquant register-model --model \"{res['model_path']}\" --card \"{res['card_path']}\"")
     return 0
 

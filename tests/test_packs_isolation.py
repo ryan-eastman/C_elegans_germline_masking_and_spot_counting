@@ -3,6 +3,9 @@
 * In a fresh interpreter, germquant.packs.list_packs, a shallow germquant.packs.pack_status and
   ``python -m germquant.packs list --json`` leave torch, cupy, spotmax and cellpose out of sys.modules; a
   malformed pack under $GERMQUANT_PACKS is listed as unusable, and a generic-profile run still resolves cpsam.
+  So do ``python -m germquant.packs derive``, ``list --json --project DIR`` and ``--version --json`` (Train B,
+  P5-DERIVE), which also leave bioio and dask.array out, and a pack status of a recipe that needs a post-stage
+  (Train B, P5b), which reads the post-stage from metadata and never imports it.
 * ``python -m germquant --help`` works and imports torch before anything else of germquant.
 * ``germquant --version`` and ``python -m germquant.packs --version`` print the engine version, git sha and
   python.
@@ -76,6 +79,46 @@ def test_python_m_germquant_packs_list_json_stays_free_of_torch(tmp_path):
     assert {"celegans_germline", "test_pack"} <= {p["id"] for p in listing["packs"]}
 
 
+def test_derive_and_the_project_listing_stay_free_of_torch(tmp_path):
+    """Gate G6 for `pack derive` and `--project` (Train B P5-DERIVE): in one fresh interpreter, `python -m
+    germquant.packs derive` into a project's packs/ folder, `list --json --all --project DIR` and `--version
+    --json` (the features) load neither torch, CuPy, SpotMAX or Cellpose nor bioio or dask.array, and the listing
+    shows the derived pack and the parent's copy as the project's."""
+    proj = tmp_path / "proj"
+    mdir = proj / "training" / "r01" / "models" / "m1"
+    mdir.mkdir(parents=True)
+    model = mdir / "m1"
+    model.write_bytes(b"a stand-in model, not weights\n")
+    card = mdir / "m1.card.json"
+    card.write_text(json.dumps({"name": "m1", "model_file": str(model), "base_model": {"name": "none"}}),
+                    encoding="ascii")
+    code = ("import json, runpy, sys\n"
+            "def run(argv):\n"
+            "    sys.argv = ['germquant.packs', *argv]\n"
+            "    try:\n"
+            "        runpy.run_module('germquant.packs', run_name='__main__', alter_sys=True)\n"
+            "    except SystemExit as e:\n"
+            "        assert not e.code, (argv, e.code)\n"
+            f"run(['derive', '--from', 'test_pack@0.1.0', '--recipe', 'with_model', '--model', {str(model)!r},\n"
+            f"     '--card', {str(card)!r}, '--out', {str(proj / 'packs')!r}, '--json'])\n"
+            f"run(['list', '--json', '--all', '--project', {str(proj)!r}])\n"
+            "run(['--version', '--json'])\n")
+    heavy, r = _heavy_after(code, heavy=HEAVY + READERS, GERMQUANT_PACKS=FIXTURE_PACKS,
+                            GERMQUANT_MODELS=tmp_path / "models")
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert heavy == "", f"pack derive, the --project listing or the features loaded {heavy}"
+    dec, text, docs = json.JSONDecoder(), r.stdout.strip(), []
+    while text:
+        doc, end = dec.raw_decode(text)
+        docs.append(doc)
+        text = text[end:].strip()
+    derived, listing, version = docs
+    assert derived["ok"] and derived["pack"].startswith("test_pack_derived_")
+    sources = {(p["id"], p["source"]) for p in listing["packs"]}
+    assert {(derived["id"], "project"), ("test_pack", "project")} <= sources
+    assert version["features"][0] == "packs" and "pack_derive" in version["features"]
+
+
 def test_shallow_check_with_an_image_stays_free_of_torch_and_cupy(tmp_path):
     """Gate G6 with an image: the expects check reads the TIFF header with tifffile, never through bioio (whose
     dask import loads CuPy before torch where CuPy is installed, the cuBLAS hazard of rule R5)."""
@@ -101,6 +144,33 @@ def test_python_m_germquant_packs_check_with_an_image_stays_free_of_torch_and_cu
     assert r.returncode == 0 and re.search(r"EXIT (0|2)\b", r.stderr), r.stderr[-2000:]
     assert json.loads(r.stdout)["pack"] == "test_pack"
     assert heavy == "", f"python -m germquant.packs check --image loaded {heavy}"
+
+
+def test_needs_post_stages_check_stays_free_of_torch(tmp_path):
+    """Gate G6 for needs.post_stages (Train B P5b, acceptance 5): in one fresh interpreter, the shallow pack_status
+    of the post-stage pack (plan D35: its recipe basic needs the fixture post-stage) greys the recipe while the
+    fixture is not installed and passes it once the on-disk fixture distribution is on sys.path. It reads metadata
+    and the declaration file only: the fixture's package is never imported, and neither torch, CuPy, SpotMAX,
+    Cellpose, bioio nor dask.array is loaded."""
+    from post_helpers import POST_PACK_REF, make_post_pack
+
+    from germquant.post_stages.testing import FIXTURE_NAME, FIXTURE_PACKAGE, write_fixture_distribution
+
+    make_post_pack(tmp_path / "packs")
+    dist = write_fixture_distribution(tmp_path / "dist")
+    code = ("import importlib, sys\n"
+            "import germquant.packs as P\n"
+            f"st = P.pack_status({POST_PACK_REF!r}, recipe='basic')\n"
+            f"assert not st['usable'] and any({FIXTURE_NAME!r} in b['what'] for b in st['blockers']), st\n"
+            f"sys.path.append({str(dist)!r})\n"
+            "importlib.invalidate_caches()\n"
+            f"st = P.pack_status({POST_PACK_REF!r}, recipe='basic')\n"
+            "assert st['usable'], st['blockers']\n"
+            f"assert {FIXTURE_PACKAGE!r} not in sys.modules\n")
+    heavy, r = _heavy_after(code, heavy=HEAVY + READERS, GERMQUANT_PACKS=tmp_path / "packs",
+                            GERMQUANT_MODELS=tmp_path / "models")
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert heavy == "", f"pack status of needs.post_stages loaded {heavy}"
 
 
 def test_deep_check_imports_torch_before_any_backend(tmp_path):

@@ -5,6 +5,9 @@ small registry, so that another segmenter can be plugged in without forking the 
 head-to-head against the current model is a config change, not a rewrite. This document is the
 contract a backend has to meet.
 
+A measurement step that runs after the pipeline and writes tables of its own, without replacing a step,
+is not a backend but a post-stage: its contract is docs/POST_STAGES.md.
+
 ## Nucleus segmentation backends
 
 ### Picking one
@@ -69,7 +72,9 @@ and the fixes (fetch the release model with `germquant get-model <name>`, set `G
 that holds `models/<name>`, or give the file's absolute path). Cellpose itself would not stop: it would log
 "pretrained model ... not found, using default model" and segment with its stock weights, and the run would
 record `model_sha256: absent`. A run that loads no Cellpose model is not checked: method `classical`, another
-backend, or method `auto` where Cellpose is not installed (the classical watershed runs, as before). Every
+backend, method `auto` where Cellpose is not installed (the classical watershed runs, as before), or a recipe
+that reads its nuclei from labels files (`segmentation.nuclei.labels_from`, docs/LABELS.md: no model is
+resolved at all, decision D12). Every
 path that resolves behaves as before. To segment with the stock weights on purpose, name them:
 `cellpose_model: cpsam`. The check covers config-driven runs (`germquant run`, `run --t`, `batch`,
 `api.run`); a direct call of a building block (`api.segment_nuclei`, a backend called with `model=`) hands
@@ -334,6 +339,8 @@ without them is called exactly as before, so `spotmax` and `log` never see a dif
   extra role, to the spots stage sub-hash and to `run_manifest.json` (`spot_backend`); on the default run
   it is empty and both are unchanged. `backend_provenance(name, cfg_section)` reads it and never raises.
 
+A third optional attribute, `planar_ok = True`, is for single-plane images (`docs/PLANAR.md`): in a single-plane run the backend gets the (1, Y, X) plane and the keyword `planar=True`. `spotmax` declares it; `log` and `net3d` do not, and a single-plane run that selects them is refused before any pixel is processed.
+
 ### Selecting a backend
 
 `spots.backend` names the backend for the RAD-51 instance (code default `spotmax`); an entry of
@@ -577,3 +584,5 @@ whether a pack can run without loading anything.
 - The pack rule: a pack recipe sets `segmentation.nuclei.method: cellpose` (with whatever backend it names)
   or `classical`, never `auto`, so a missing Cellpose or a missing plugin fails loudly instead of falling
   back to the classical watershed.
+- Post-stages are named the same way: `needs.post_stages` lists the post-stages a recipe needs, and `germquant
+  pack check` greys the recipe where one is not offered, reading metadata only (docs/POST_STAGES.md).

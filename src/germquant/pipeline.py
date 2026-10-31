@@ -125,15 +125,32 @@ def spot_backend_provenance(cfg, role_to_idx: dict) -> dict:
     return out
 
 
+def _planar_stage_flags(*tables) -> list[str]:
+    """The stage flags a single-plane spot detection hands back in ``attrs["stage_flags"]`` of its tables
+    (spots.detect_spots(planar=True): z_merge_off_planar when the call asked for the z-split merge), for the
+    calling stage to raise under its own prefix; empty when there is none. The key is removed from every table,
+    so it never reaches a written file (to_parquet stores attrs as PANDAS_ATTRS)."""
+    found: list[str] = []
+    for table in tables:
+        attrs = getattr(table, "attrs", None)
+        got = attrs.pop("stage_flags", None) if attrs else None
+        if got and not found:
+            found = [str(f) for f in got]
+    return found
+
+
 def segment_backend_provenance(cfg) -> dict:
     """The provenance the configured segmentation backend declares (nuclei3d: the model file and its
     sha256), or ``{}``: for the default cellpose backend and the classical one (no ``provenance``
-    attribute), and whenever ``segmentation.nuclei.method`` is classical (the backend is never called).
+    attribute), whenever ``segmentation.nuclei.method`` is classical (the backend is never called), and in a
+    labels run (``segmentation.nuclei.labels_from`` set: nothing is segmented, docs/LABELS.md).
     A non-empty record enters the segment stage sub-hash and run_manifest.json (``segment_backend``); the
     default run's hashes and manifest are unchanged."""
     from .segment.backends import backend_provenance
 
     if str(cfg.get("segmentation.nuclei.method", "auto")) == "classical":
+        return {}
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
         return {}
     return backend_provenance(cfg.get("segmentation.nuclei.backend", "cellpose"),
                               cfg.get("segmentation.nuclei", {}) or {})
@@ -272,6 +289,7 @@ def process_image(
     t: int | None = None,
     on_stack=None,
     read_fn=None,
+    sample=None,
 ) -> dict:
     """Run every enabled stage on one image and write its results folder. ``nd2_path`` (the name is kept
     for compatibility) is any supported image: an ``.nd2``, or a TIFF / OME-TIFF, CZI, LIF or OME-Zarr
@@ -289,10 +307,34 @@ def process_image(
     ``spacing`` and ``t``: the time-lapse loop keeps a downsampled reference volume for registration with it
     (timelapse.series, docs/TIMELAPSE.md). It changes no stage and no output; a fixed image passes nothing.
 
+    A recipe with ``io.planar`` auto or true runs an image with one plane as a single plane (docs/PLANAR.md):
+    every quantity is 2D, voxel_dz_um is NaN, and the run records planar and spacing_source in its geometry,
+    "planar" in four stage sub-hashes and the done-marker extra {"planar": true}; ``io.voxel_size_um`` overrides
+    the file's voxel size in every run kind. Without these keys the run is exactly what it was. A single-plane
+    run with ``t`` is refused (planar.PLANAR_SERIES_REFUSED).
+
     ``read_fn`` (None by default) replaces the image reader (see ``_read_input``); only the pack golden runner
     passes one. A run whose config carries a pack record (``api.resolve_config(pack=...)``, ``--pack``) also
     records the pack and the runtime in run_manifest.json and ``<image_id>__stages.json`` and the device
-    Cellpose ran on (post_run.segment_device_used); no table, done marker or hash changes."""
+    Cellpose ran on (post_run.segment_device_used); no table, done marker or hash changes.
+
+    With ``segmentation.nuclei.labels_from`` set (docs/LABELS.md) the segment stage reads the image's labels file
+    instead of segmenting: no model is resolved (model_sha256 "unused"), segmentation_method reads labels_file,
+    the flag segment:labels_from_file is raised and run_geometry and the segment sub-hash record the file. Such a
+    run refuses ``t``.
+
+    ``sample`` (None by default) is the image's row of a sample sheet (germquant.io.sample_sheet.SampleRow,
+    docs/PROJECTS.md "Sample sheet"): its design cells replace the file name's (parse_sample) in every per-image
+    table, and the run records sample_sheet {source, row_sha256} in its geometry and sample_row_sha256 in its done
+    marker; a row the sheet does not have (row_sha256 None) keeps the file name's fields and raises
+    metadata:not_in_sample_sheet. The sheet is not hashed. A sample row with ``t`` is refused before the read."""
+    sample_row = sample                    # the sample sheet row; the name ``sample`` holds parse_sample's fields below
+    if sample_row is not None:
+        from .io import sample_sheet
+
+        sample_sheet.check_row(sample_row)            # anything but a SampleRow, before any pixel is read
+        if t is not None:
+            raise sample_sheet.SampleSheetError(sample_sheet.SERIES_REFUSAL)    # no sheet row for a time series (D21)
     nd2_path = Path(nd2_path)
     out_dir = Path(out_dir)
     os.makedirs(long_path(out_dir), exist_ok=True)
@@ -308,14 +350,13 @@ def process_image(
         meta, stack = _read_input(nd2_path, xy_stride=xy_stride, z_range=z_range, t=t, read_fn=read_fn)
     role_to_idx, ch_flags = cfg.channel_map.resolve(meta["channel_names"])
     flags += ch_flags
-    spacing = stack.spacing
-    if not stack.spacing_ok:
-        # voxel size unreadable -> spacing is a 1 µm isotropic guess; every physical
-        # length/area/volume is unreliable. Surface it loudly rather than silently.
-        flags.append("voxel:UNREADABLE_assumed_isotropic_1um")
     dapi_present = role_to_idx.get("dna") is not None
 
     sample = parse_sample(nd2_path, cfg.get("metadata.filename_regex"), cfg.get("metadata.defaults"))
+    if sample_row is not None:
+        # a sheet run: the row's design cells override the file name's; an image without a row keeps them and raises
+        # metadata:not_in_sample_sheet (docs/PROJECTS.md, "Sample sheet")
+        flags += sample_sheet.apply_row(sample, sample_row)
     if t is not None:
         # one timepoint of a series: the design columns were parsed from the raw stem above; the image id,
         # and so every per-image file name, carries the timepoint (three digits, one underscore)
@@ -328,15 +369,60 @@ def process_image(
     from . import planar, recipe_keys
 
     recipe_keys.check(cfg)
+    # single-plane images (io.planar) and the voxel size override (io.voxel_size_um), docs/PLANAR.md: decided here,
+    # before any stage runs. decide is None unless io.planar is auto or true, and voxel_override is None unless
+    # io.voxel_size_um is set, so every other run keeps the spacing as read, and today's flag (the else branch)
+    decision = planar.decide(cfg, meta, stack)
+    planar_run = bool(decision and decision["planar"])
+    if planar_run and t is not None:
+        raise planar.PlanarConfigError(planar.PLANAR_SERIES_REFUSED)    # no single-plane time series in T5 (D9)
+    override = None if planar_run else planar.voxel_override(cfg, stack)
+    if planar_run:
+        # array code receives (PLANAR_DZ, dy, dx); the tables write voxel_dz_um as NaN (the shared block below)
+        spacing = (planar.PLANAR_DZ, decision["dy"], decision["dx"])
+        flags += decision["flags"]
+    elif override is not None:
+        spacing = override["spacing"]
+        flags += override["flags"]
+    else:
+        spacing = stack.spacing
+        if not stack.spacing_ok:
+            # voxel size unreadable -> spacing is a 1 µm isotropic guess; every physical
+            # length/area/volume is unreliable. Surface it loudly rather than silently.
+            flags.append("voxel:UNREADABLE_assumed_isotropic_1um")
+    if planar_run or override is not None:
+        from dataclasses import replace
+
+        stack = replace(stack, spacing=spacing)     # the run's spacing from here on (the montage, on_stack)
+    # a single-plane run: 3D-only stages and backends without planar_ok are refused here (planar.prepare_planar);
+    # None on every other run
+    planar_prep = planar.prepare_planar(cfg, role_to_idx) if planar_run else None
     # projected runs (segmentation.nuclei.project, docs/PLANAR.md): 3D-only stages and a backend without planar_ok
-    # are refused and the plane to segment is resolved here, before any stage runs; None on every other run
-    projection = planar.prepare_projection(cfg, stack, role_to_idx)
+    # are refused and the plane to segment is resolved here, before any stage runs; None on every other run, and
+    # in a single-plane run, where one plane needs no projection (D7)
+    projection = None if planar_run else planar.prepare_projection(cfg, stack, role_to_idx)
+    # labels from files (segmentation.nuclei.labels_from, docs/LABELS.md): the image's labels file is read and
+    # hashed here, before any stage runs (a missing file, a .npy, a damaged TIFF, labels that do not fit the image,
+    # a time series and, in a projected run, a file with more than one plane are refused); None on every other run,
+    # which neither imports germquant.io.labels nor calls it
+    given = None
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
+        from .io import labels as labels_io
+
+        given = labels_io.labels_for_run(cfg, nd2_path, nz=labels_io.image_planes(meta, stack, z_range),
+                                         shape_zyx=stack.shape_zyx, xy_stride=xy_stride, z_range=z_range, t=t,
+                                         projected=projection is not None)
     # per-stage provenance (sub-hashes, model digest, run geometry): additive fields on the manifest and
     # the stage record, never table columns, so no CSV header changes.
     spot_instances(cfg)                    # a bad spots.instances declaration fails here, before any pixel is read
-    model_file = resolve_model_path(cfg)
-    model_sha = (provenance.file_sha256(model_file)
-                 if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
+    if given is not None:
+        # a labels run segments nothing: no model is resolved, hashed or pin-checked (model_sha256 "unused", as
+        # under the classical method)
+        model_file, model_sha = None, "unused"
+    else:
+        model_file = resolve_model_path(cfg)
+        model_sha = (provenance.file_sha256(model_file)
+                     if str(cfg.get("segmentation.nuclei.method", "auto")) != "classical" else "unused")
     if model_sha != "unused":
         model_key = str(cfg.get("segmentation.nuclei.cellpose_model") or "")
         if "@" in model_key:
@@ -350,7 +436,8 @@ def process_image(
     # the same for the segmentation backend (nuclei3d: its model sha256); {} on the default run
     seg_prov = segment_backend_provenance(cfg)
     stage_hashes = stage_hashes_fn(cfg, role_to_idx, provenance.tool_versions(), model_sha, spot_backend=spot_prov,
-                                   segment_backend=seg_prov)
+                                   segment_backend=seg_prov, **({"planar": True} if planar_run else {}),
+                                   **({} if given is None else {"labels_sha256": given["sha256"]}))
     run_geometry = {"xy_stride": int(xy_stride), "z_range": list(z_range) if z_range else None,
                     "stage_hashes": stage_hashes, "model_sha256": model_sha,
                     "enabled_stages": [s.name for s in STAGES if stage_enabled(cfg, s.name)]}
@@ -358,6 +445,9 @@ def process_image(
         run_geometry["spot_backend"] = spot_prov
     if seg_prov:
         run_geometry["segment_backend"] = seg_prov
+    if given is not None:
+        # the labels file enters the run geometry (manifest, stage record) ONLY in a labels run
+        run_geometry["labels_from"] = {"path": str(given["path"]), "sha256": given["sha256"]}
     if t is not None:
         # the timepoint enters the run geometry (manifest, stage record) and the marker ONLY for a series
         run_geometry["t_index"] = int(t)
@@ -373,6 +463,16 @@ def process_image(
     if projection is not None:
         # the projection enters the run geometry (manifest, stage record) ONLY for a projected run
         run_geometry["segment_projection"] = projection["record"]
+    if planar_run:
+        # a single-plane run (docs/PLANAR.md) is recorded in the run geometry (manifest, stage record) ONLY then
+        run_geometry["planar"] = True
+        run_geometry["spacing_source"] = decision["spacing_source"]
+    elif override is not None:
+        run_geometry["spacing_source"] = override["spacing_source"]      # io.voxel_size_um in a 3D run (D6)
+    if sample_row is not None:
+        # a sheet run: the sheet and the row's sha256 enter the run geometry (manifest, stage record) ONLY then; the
+        # sheet is never hashed (row_sha256 None: the image has no row)
+        run_geometry["sample_sheet"] = {"source": sample_row.source, "row_sha256": sample_row.row_sha256}
     prov = prov or provenance.write_manifest(out_dir, config_hash=cfg.hash, config=cfg.as_dict(),
                                              extra=run_geometry)
 
@@ -387,6 +487,8 @@ def process_image(
         "pipeline_version": prov["pipeline_version"], "git_sha": prov["git_sha"],
         "config_hash": cfg.hash, "run_timestamp": prov["run_timestamp"],
     }
+    if planar_run:
+        shared["voxel_dz_um"] = float("nan")       # one plane has no z step (PLANAR_DZ is a placeholder)
     outcomes["read"] = Outcome("ran", elapsed_s=time.perf_counter() - t_read, flags=list(flags))
     if on_stack is not None:
         # the caller's look at the stack as read (the series loop's reference volumes for registration); an
@@ -438,7 +540,35 @@ def process_image(
         flags.append(projection["flag"])
         return planar.repeat_through_z(lab2d, img.shape[0]), used
 
+    def _segment_single_plane(img, seg):
+        # a single-plane run: segment the one plane of the channel (segment_planar with the area gate), labels
+        # (1, Y, X); a projection setting is ignored, with its flag (D7)
+        if planar_prep["project_ignored"]:
+            flags.append("segment:project_ignored_planar")
+        return planar.segment_planar(
+            img, spacing, method=seg.get("method", "auto"),
+            cellpose_model=str(model_file) if model_file else "cpsam",
+            diameter_um=float(seg.get("diameter_um", 3.0)), min_area_um2=planar_prep["min_area_um2"],
+            device=seg.get("device"), backend=cfg.get("segmentation.nuclei.backend", "cellpose"),
+            cfg_section=cfg.get("segmentation.nuclei", {}))
+
     def _segment():
+        if given is not None:
+            # labels from files (docs/LABELS.md): nothing is segmented and require_channel does not apply; the
+            # labels read before any stage are the objects. A projected run keeps its projected measure and records;
+            # its projection is computed only for the montage, of the channel prepare_projection resolved the plane on
+            flags.append("segment:labels_from_file")
+            if planar_run and planar_prep["project_ignored"]:
+                flags.append("segment:project_ignored_planar")   # D7, as _segment_single_plane raises it
+            if projection is not None:
+                seg_img = stack.channel(role_to_idx.get(seg_role))
+                if seg_img is None and not bool(cfg.get("segmentation.nuclei.require_channel", False)):
+                    seg_img = stack.data[0]          # the channel prepare_projection resolved the plane on
+                projected.update(image=None if seg_img is None else
+                                 planar.project_image(seg_img, projection["mode"], projection["z"]),
+                                 labels2d=given["labels"][0])
+                flags.append(projection["flag"])
+            return given["labels"], "labels_file"
         img = stack.channel(role_to_idx.get(seg_role))
         if img is None:
             if bool(cfg.get("segmentation.nuclei.require_channel", False)):
@@ -450,6 +580,8 @@ def process_image(
             flags.append(f"segment:no_{seg_role}_channel_using_first_channel")
             img = stack.data[0]
         seg = cfg.segmentation.nuclei
+        if planar_run:
+            return _segment_single_plane(img, seg)
         if projection is not None:
             return _segment_projected(img, seg)
         return segment_nuclei(
@@ -474,7 +606,12 @@ def process_image(
     # ---- measure nuclei ----
     def _measure():
         intensity = {r: stack.data[i] for r, i in role_to_idx.items() if i is not None}
-        df = measure_objects(labels, intensity, spacing, compute_surface=False)
+        if planar_run:
+            # a single-plane run: measure_objects unchanged, then volume_um3 NA, centroid_z_um 0.0, area_um2 and
+            # equivalent_diameter_um (docs/PLANAR.md)
+            df = planar.measure_planar(labels, intensity, spacing)
+        else:
+            df = measure_objects(labels, intensity, spacing, compute_surface=False)
         if df.empty:
             return pd.DataFrame(columns=["nucleus_id"])
         df = df.rename(columns={"label": "nucleus_id"})
@@ -676,6 +813,9 @@ def process_image(
     spots = pd.DataFrame(columns=schema.SPOTS)
     per_nuc_spots = None  # kept so off-gonad (excluded) nuclei also get n_spots at re-attach
     spots_idx = role_to_idx.get("foci")
+    # a single-plane run detects spots on the plane: planar=True reaches the backend (spotmax declares planar_ok),
+    # and only then; the call of every other run is exactly what it always was
+    planar_kw = {"planar": True} if planar_run else {}
 
     def _spots():
         from .spots import detect_spots
@@ -695,12 +835,18 @@ def process_image(
             max_spot_candidates=int(cfg.get("spots.max_spot_candidates", 30000)),
             backend=backend, cfg_section=spot_backend_section(cfg),
             **spot_backend_channels(backend, role_to_idx, stack),   # {} for spotmax and log
+            **planar_kw,
         )
         df = nuclei
         if not df.empty and not per_nuc.empty:
             df = df.merge(per_nuc[["nucleus_id", "n_spots"]], on="nucleus_id", how="left")
             df["n_spots"] = df["n_spots"].fillna(0).astype(int)
         flags.append(f"spots:{backend}_n={len(per_spot)}")          # the default run still writes spots:spotmax_n=
+        if planar_run:
+            # spots:z_merge_off_planar; the channel is the built-in spotmax backend's (design 5.1 names no other)
+            stage_flags = _planar_stage_flags(per_spot, per_nuc)
+            if backend == "spotmax":
+                flags.extend(f"spots:{f}" for f in stage_flags)
         if backend != "spotmax":
             flags.append(f"spots:unvalidated_backend={backend}")  # only spotmax is cross-validated vs Imaris
         return per_spot, per_nuc, df
@@ -749,6 +895,7 @@ def process_image(
                 max_spot_candidates=int(p("max_spot_candidates", 30000)),
                 backend=backend, cfg_section=spot_backend_section(cfg, inst),
                 **spot_backend_channels(backend, role_to_idx, stack),   # {} for spotmax and log
+                **planar_kw,                                            # {} unless a single-plane run
             )
             df = nuclei
             if not df.empty:
@@ -765,6 +912,10 @@ def process_image(
                 summ[f"{name}_expected_per_nucleus"] = expected_sc_count(sample["germ_cell"]) or float("nan")
             nuclei = df
             flags.append(f"spots_{name}:{backend}_n={len(per_spot)}")
+            if planar_run:
+                stage_flags = _planar_stage_flags(per_spot, per_nuc)
+                if backend == "spotmax":
+                    flags.extend(f"spots_{name}:{f}" for f in stage_flags)
             if backend != "spotmax":
                 flags.append(f"spots_{name}:unvalidated_backend={backend}")
             return per_spot, per_nuc, summ
@@ -1049,9 +1200,31 @@ def process_image(
               "channel_crosstalk": crosstalk_table,
               **extra_spot_tables}
 
+    def _write_single_plane_images():
+        # a single-plane run writes its images as YX with the run's dy and dx (planar.write_*_yx); the 3D writers
+        # below are not edited. The granule, coloc and envelope products need stages that do not declare
+        # planar_ok, so a single-plane run makes none of them today; their YX writes are here for when one does.
+        iid, yx = sample["image_id"], spacing[1:]
+        if cfg.get("output.write_label_images", True):
+            planar.write_labels_yx(labels, out_dir / f"{iid}__nuclei_labels.tif", yx)
+        if cfg.get("output.write_spots_image", True) and len(spots):
+            planar.write_spots_yx(spots, labels.shape, yx, out_dir / f"{iid}__spots.tif",
+                                  radius_um=float(cfg.get("spots.spot_radius_um", 0.3)))
+        if cfg.get("output.write_label_images", True) and granule_labels is not None and granule_labels.max() > 0:
+            planar.write_labels_yx(granule_labels, out_dir / f"{iid}__granules_labels.tif", yx)
+        for mname in ("sc_ribbon", "syp_aggregate"):
+            m = masks.get(mname)
+            if m is not None and m.any():
+                planar.write_mask_yx(m, yx, out_dir / f"{iid}__{mname}.tif")
+        if env_ctx is not None and cfg.get("output.write_envelope_labels", True):
+            planar.write_labels_yx(env_ctx["envelope_labels"], out_dir / f"{iid}__envelope_labels.tif", yx)
+
     def _write():
         _write_tables(tables, shared, out_dir, sample["image_id"], cfg.get("output.formats", ["csv"]),
-                      **({"extra_declared": schema.PLANAR_COLUMNS} if projection is not None else {}))
+                      **({"extra_declared": schema.PLANAR_COLUMNS} if projection is not None or planar_run else {}))
+        if planar_run:
+            _write_single_plane_images()
+            return
         if cfg.get("output.write_label_images", True):
             _save_labels(labels, out_dir / f"{sample['image_id']}__nuclei_labels.tif", spacing)
         if cfg.get("output.write_spots_image", True) and len(spots):
@@ -1133,10 +1306,14 @@ def process_image(
     # completion marker: the LAST file written, so `germquant batch --resume` can trust a folder that has
     # it (same config_hash, enabled stages and run geometry, no failed stage) and reprocess one that does not.
     timepoint = {k: run_geometry[k] for k in ("t_index", "t_seconds") if k in run_geometry}   # {} for a fixed image
+    # a single-plane run's marker says so ({"planar": true}): batch.is_done then compares its planar segment hash
+    marker_extra = {**timepoint, **({"planar": True} if planar_run else {})}
+    if sample_row is not None:
+        marker_extra["sample_row_sha256"] = sample_row.row_sha256      # sheet runs only; batch.is_done compares it
     provenance.write_done_marker(
         out_dir, sample["image_id"], config_hash=cfg.hash, enabled_stages=run_geometry["enabled_stages"],
         stage_hashes=stage_hashes, xy_stride=run_geometry["xy_stride"], z_range=run_geometry["z_range"],
-        failed_stages=[n for n, oc in outcomes.items() if oc.status == "failed"], extra=timepoint or None)
+        failed_stages=[n for n, oc in outcomes.items() if oc.status == "failed"], extra=marker_extra or None)
 
     log.info("%s: %d nuclei, %d germline, spots=%d, qc_pass=%s",
              sample["image_id"], n_nuclei, n_germline_nuclei, len(spots), qc_pass)

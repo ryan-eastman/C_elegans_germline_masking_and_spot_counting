@@ -1,26 +1,33 @@
 """`germquant pack ...` and the torch-free `python -m germquant.packs ...` (docs/PACKS.md).
 
-  germquant pack list [--all] [--json]
-  germquant pack show ID[@VER] [--recipe R] [--json]
-  germquant pack check ID[@VER] [--recipe R] [--image FILE] [--deep] [--json]     (exit 2 when unusable or unknown)
-  germquant pack fetch-models ID[@VER] [--recipe R] [--from-file NAME=PATH ...]
+  germquant pack list [--all] [--json] [--project DIR]
+  germquant pack show ID[@VER] [--recipe R] [--json] [--project DIR]
+  germquant pack check ID[@VER] [--recipe R] [--image FILE] [--deep] [--json] [--project DIR]
+                                                                                  (exit 2 when unusable or unknown)
+  germquant pack fetch-models ID[@VER] [--recipe R] [--from-file NAME=PATH ...] [--project DIR]
   germquant pack fetch-example ID[@VER] [--example NAME] [--out DIR] [--no-download] [--json]
   germquant pack install SRC [--replace]
   germquant pack verify ID|DIR
   germquant pack build-sums DIR
   germquant pack lint DIR [--previous ZIP]
+  germquant pack derive --from ID@VER --recipe R --model PATH --card CARD --out DIR [--id NEW_ID] [--json]
+                                                                                  (exit 1 when refused)
   germquant pack golden ID[@VER] [--recipe R] [--tier recipe|model] [--update]   (germquant only; exit 1 when a
                                                                                   golden fails or none ran)
 
-This module imports nothing heavy at module level, so the same parsers serve cli.main (one line there) and
-germquant.packs.__main__, whose commands never load torch (gate G6). `golden` runs the pipeline and is offered
-by the full command line only; `check --deep` imports the pipeline first, as its docstring says.
+`--project DIR` searches DIR/packs (a project's copy of its pinned pack and its derived packs) before the other
+pack folders. This module imports nothing heavy at module level, so the same parsers serve cli.main (one line
+there) and germquant.packs.__main__, whose commands never load torch (gate G6). `golden` runs the pipeline and is
+offered by the full command line only; `check --deep` imports the pipeline first, as its docstring says.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+
+PROJECT_HELP = "search the project's packs folder (DIR/packs: its pinned pack and derived packs) first"
 
 
 def add_pack_commands(psub, *, light: bool = False) -> None:
@@ -28,11 +35,13 @@ def add_pack_commands(psub, *, light: bool = False) -> None:
     pl = psub.add_parser("list", help="list the packs this engine finds (built-in, $GERMQUANT_PACKS, user folder)")
     pl.add_argument("--all", action="store_true", help="also list unusable and shadowed packs, with the reason")
     pl.add_argument("--json", action="store_true", help="machine-readable output")
+    pl.add_argument("--project", default=None, metavar="DIR", help=PROJECT_HELP)
 
     ps = psub.add_parser("show", help="print a pack's card: recipes, models, citation")
     ps.add_argument("pack", metavar="ID[@VER]")
     ps.add_argument("--recipe", default=None)
     ps.add_argument("--json", action="store_true")
+    ps.add_argument("--project", default=None, metavar="DIR", help=PROJECT_HELP)
 
     pc = psub.add_parser("check", help="can this recipe run here? exit code 2 when not, with every fix")
     pc.add_argument("pack", metavar="ID[@VER]")
@@ -41,6 +50,7 @@ def add_pack_commands(psub, *, light: bool = False) -> None:
     pc.add_argument("--deep", action="store_true",
                     help="also load the pipeline (torch first) and the backends, and report the device")
     pc.add_argument("--json", action="store_true")
+    pc.add_argument("--project", default=None, metavar="DIR", help=PROJECT_HELP)
 
     pf = psub.add_parser("fetch-models", help="put the models a recipe needs into the model store (store, Cellpose "
                                               "cache, --from-file, then the pinned URL; every file checked)")
@@ -49,6 +59,7 @@ def add_pack_commands(psub, *, light: bool = False) -> None:
     pf.add_argument("--from-file", action="append", default=[], metavar="NAME=PATH",
                     help="a local copy of model NAME, checked by size and sha256 (repeatable)")
     pf.add_argument("--no-download", action="store_true", help="never download (the store, cache and files only)")
+    pf.add_argument("--project", default=None, metavar="DIR", help=PROJECT_HELP)
 
     pe = psub.add_parser("fetch-example", help="fetch a pack's real example image (public data, checked by size, "
                                                "sha256 and pixels_sha256) and assemble it into one OME-TIFF")
@@ -79,6 +90,22 @@ def add_pack_commands(psub, *, light: bool = False) -> None:
     pn.add_argument("--previous", default=None, metavar="ZIP", help="the previous release (zip or folder)")
     pn.add_argument("--json", action="store_true")
 
+    pd = psub.add_parser("derive", help="promote a model trained in a project into a derived pack: a recipe that "
+                                        "extends the parent by versioned name and names the model, its portable "
+                                        "card, and a copy of the parent (docs/PACKS.md, \"Derived packs\")")
+    pd.add_argument("--from", dest="parent", required=True, metavar="ID@VER", help="the parent pack and its version")
+    pd.add_argument("--recipe", required=True, help="the parent's recipe that the derived pack keeps")
+    pd.add_argument("--model", required=True, metavar="PATH",
+                    help="the model file (in a project: training/<round>/models/<name>/<file>)")
+    pd.add_argument("--card", required=True, metavar="CARD",
+                    help="its model card (<name>.card.json), written into the pack without machine paths")
+    pd.add_argument("--out", required=True, metavar="DIR",
+                    help="the packs folder to write into (<project>/packs, a $GERMQUANT_PACKS folder or the per-user "
+                         "folder); the pack goes to DIR/<id>/0.1.0/ and the parent's copy beside it")
+    pd.add_argument("--id", dest="new_id", default=None, metavar="NEW_ID",
+                    help="the derived pack's id (default: <parent id>_derived_<first 8 hex of the model's sha256>)")
+    pd.add_argument("--json", action="store_true", help="print the derived pack's record as JSON")
+
     if not light:
         pg = psub.add_parser("golden", help="run a recipe golden: the recipe tier on the pack's synthetic example "
                                             "with the classical segmenter and an empty model store")
@@ -93,7 +120,7 @@ def add_pack_commands(psub, *, light: bool = False) -> None:
 def add_parsers(sub) -> None:
     """The `germquant pack` group (cli.main calls this once)."""
     pk = sub.add_parser("pack", help="system packs: list, show, check, fetch-models, fetch-example, install, verify, "
-                                     "build-sums, lint, golden (docs/PACKS.md)")
+                                     "build-sums, lint, derive, golden (docs/PACKS.md)")
     psub = pk.add_subparsers(dest="pack_cmd", required=True)
     add_pack_commands(psub)
 
@@ -299,6 +326,40 @@ def _lint(args) -> int:
     return 1 if rep["problems"] else 0
 
 
+def _derive(args) -> int:
+    from . import packs as P
+
+    try:
+        rec = P.derive_pack(args.parent, args.recipe, args.model, args.card, args.out, pack_id=args.new_id)
+    except (P.PackDeriveError, P.PackInstallError, P.PackFormatError, OSError) as e:
+        # OSError: a missing file, or a model store or --out that cannot be written (read-only, full, too deep)
+        if args.json:
+            _print(json.dumps({"ok": False, "error": str(e)}, indent=1))
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        _print(json.dumps(rec, indent=1))
+        return 0
+    m, par = rec["model"], rec["parent"]
+    _print(("derived " if rec["status"] == "derived" else "already present, unchanged: ") + f"{rec['pack']} -> "
+           f"{rec['folder']}")
+    _print(f"  recipe {rec['recipe']}: extends {rec['extends']}, with the model {m['name']}; config_hash "
+           f"{rec['config_hash']}")
+    _print(f"  model in the store ({m['placed']}): {m['blob']}")
+    _print(f"  parent {par['pack']}: " + ("copied to " if par["copied"] else "") + par["folder"])
+    _print(f"  card {rec['card']}" + (f" (rewritten: {', '.join(rec['rewritten'])})" if rec["rewritten"] else ""))
+    if rec["where"] == "project":
+        _print(f"  a project's packs folder: list it with `germquant pack list --project "
+               f"{os.path.dirname(os.path.abspath(args.out))}`")
+    elif rec["where"] == "not searched":
+        _print(f"  warning: {args.out} is not a folder this engine searches for packs: install the pack with "
+               f"`germquant pack install {rec['folder']}`, or derive into a project's packs folder, a $GERMQUANT_PACKS "
+               f"folder or the per-user folder")
+    proj = " --project PROJECT_FOLDER" if rec["where"] == "project" else ""      # a project's pack: only with it
+    _print(f"  on another computer: germquant pack fetch-models {rec['id']}{proj} --from-file {m['name']}=PATH")
+    return 0
+
+
 def _golden(args) -> int:
     from . import packs as P
     from .packs_golden import run_pack_goldens
@@ -325,13 +386,22 @@ def _golden(args) -> int:
 
 HANDLERS = {"list": _list, "show": _show, "check": _check, "fetch-models": _fetch_models,
             "fetch-example": _fetch_example, "install": _install, "verify": _verify, "build-sums": _build_sums,
-            "lint": _lint, "golden": _golden}
+            "lint": _lint, "derive": _derive, "golden": _golden}
 
 
 def dispatch(args) -> int:
-    """Run the pack subcommand parsed into ``args`` (``args.pack_cmd``); FileNotFoundError is a clean exit 1."""
+    """Run the pack subcommand parsed into ``args`` (``args.pack_cmd``), with DIR/packs searched first when
+    ``--project DIR`` is given (packs.use_project); FileNotFoundError is a clean exit 1."""
     try:
-        return HANDLERS[args.pack_cmd](args)
+        project = getattr(args, "project", None)
+        if project is None:
+            return HANDLERS[args.pack_cmd](args)
+        from .packs import use_project
+
+        if not os.path.isdir(project):
+            raise FileNotFoundError(f"--project {project}: no such folder")
+        with use_project(project):
+            return HANDLERS[args.pack_cmd](args)
     except FileNotFoundError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
@@ -339,7 +409,7 @@ def dispatch(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """``python -m germquant.packs``: the torch-free entry (list, show, check, fetch-models, fetch-example,
-    install, verify, build-sums, lint, --version)."""
+    install, verify, build-sums, lint, derive, --version)."""
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--version" in argv:
         from . import packs as P
