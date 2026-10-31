@@ -69,9 +69,11 @@ EXAMPLE_ID = "test_pack_synthetic"
 
 def _study(folder: Path, *, spots: bool = True) -> Path:
     """config.yaml with the classical segmenter and no montage (and no spots when ``spots`` is false), outside the
-    repository: the gonad runs in about a second."""
-    lines = [f"extends: {(ROOT / 'config' / 'config.yaml').as_posix()}", "segmentation:", "  nuclei:",
-             "    method: classical", "render:", "  montage: false"]
+    repository: the gonad runs in about a second. It extends config.yaml by name, found under the engine's
+    built-in root, so its text and config_hash (the golden's sentinel) are the same in every checkout; an
+    absolute extends path would enter the hash with the checkout's folder."""
+    lines = ["extends: config.yaml", "segmentation:", "  nuclei:", "    method: classical", "render:",
+             "  montage: false"]
     if not spots:
         lines += ["spots:", "  enabled: false"]
     path = Path(folder) / ("study.yaml" if spots else "study_fast.yaml")
