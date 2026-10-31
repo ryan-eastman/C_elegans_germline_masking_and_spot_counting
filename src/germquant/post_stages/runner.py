@@ -126,6 +126,9 @@ def post_table_problems(out_dir, image_id: str, names) -> dict[str, str]:
         for table, want in (inputs.get("tables") or {}).items():
             if table not in digests:
                 digests[table] = _digest(_table_path(out_dir, image_id, table))
+            if digests[table] == "unreadable":
+                out[n] = f"the {table} table that post-stage {stage} read cannot be read now"
+                break
             if digests[table] != want:
                 out[n] = (f"post-stage {stage} read another {table} table than the folder now holds: run the "
                           f"post-stages again")
@@ -151,11 +154,15 @@ def _table_path(out_dir: Path, image_id: str, table: str) -> Path:
 
 
 def _digest(path: Path) -> str:
-    """sha256 of a file, LF-normalised for a CSV table; "absent" when there is no file."""
+    """sha256 of a file, LF-normalised for a CSV table; "absent" when there is no file, "unreadable" when it
+    cannot be read now (a lock, a share that dropped): no digest is recorded as that, so the stage runs again and
+    fails on its own read, and collect leaves its tables out, instead of the call raising."""
     try:
         data = Path(long_path(path)).read_bytes()
     except FileNotFoundError:
         return "absent"
+    except OSError:
+        return "unreadable"
     if path.suffix.lower() == ".csv":
         data = data.replace(b"\r\n", b"\n")
     return hashlib.sha256(data).hexdigest()
@@ -505,8 +512,12 @@ def run_post_stages(out_dir, image_id: str, entries, *, cfg, image_path, stack=N
         return result
     decls, reasons = as_declarations(None)
     if file_sha is None:
-        file_sha = text_sha256(canonical_text([{"name": e["name"], "params": dict(e.get("params") or {})}
-                                               for e in entries], decls))
+        listed = [{"name": e["name"], "params": dict(e.get("params") or {})} for e in entries]
+        try:
+            file_sha = text_sha256(canonical_text(listed, decls))
+        except Exception:  # noqa: BLE001 - a value YAML cannot write (a numpy scalar given from Python): its
+            # stage is refused below with the parameter's problem, and the list still needs a digest for the record
+            file_sha = text_sha256(json.dumps(listed, sort_keys=True, ensure_ascii=True, default=repr))
     problems: dict[str, list[str]] = {}
     for name, prob in problems_by_name(entries, decls, reasons):
         problems.setdefault(name, []).append(prob)

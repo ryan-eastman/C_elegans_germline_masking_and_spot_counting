@@ -338,7 +338,8 @@ def run_loaded(
     has written the folder, germquant.post_stages.run_post_stages runs them on it, with the stack the run read
     handed over (process_image's on_stack hook, passed only then: D34, D40), and the result gains ``post``, what
     the runner returns. A post-stage that is not installed here, or fails, is recorded in <image_id>__post.json
-    and never fails the image. Refused before any pixel is read: a list that cannot be read as one (ValueError,
+    and never fails the image; neither does an error of the runner itself, which ``post["error"]`` holds, as
+    `germquant batch` reports it. Refused before any pixel is read: a list that cannot be read as one (ValueError,
     or OSError for a file that cannot be opened), and a list that switches a post-stage on with ``t``
     (ValueError: time series are refused in this release, D33). An empty list with ``t`` runs the timepoint
     without post-stages."""
@@ -362,6 +363,13 @@ def run_loaded(
     kept: dict = {}
     kw["on_stack"] = kept.update                       # D34: the post-stages take the stack the run read
     res = process_image(image, cfg, out_dir, xy_stride=stride, z_range=zr, prov=None, **kw)
-    res["post"] = _post.run_post_stages(out_dir, res["image_id"], post_stages, cfg=cfg, image_path=image,
-                                        stack=kept.pop("stack", None))
+    try:
+        res["post"] = _post.run_post_stages(out_dir, res["image_id"], post_stages, cfg=cfg, image_path=image,
+                                            stack=kept.pop("stack", None))
+    except Exception as e:  # noqa: BLE001 - a post-stage never fails the image (design 5.6), as in `germquant batch`
+        import logging
+
+        logging.getLogger(__name__).exception("post-stages of %s", res["image_id"])
+        res["post"] = {"image_id": res["image_id"], "record": str(_post.post_record_path(out_dir, res["image_id"])),
+                       "ran": [], "skipped": [], "failed": [], "post": None, "error": f"{type(e).__name__}: {e}"}
     return res
