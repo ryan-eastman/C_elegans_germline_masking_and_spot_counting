@@ -4,7 +4,8 @@
   ``python -m germquant.packs list --json`` leave torch, cupy, spotmax and cellpose out of sys.modules; a
   malformed pack under $GERMQUANT_PACKS is listed as unusable, and a generic-profile run still resolves cpsam.
   So do ``python -m germquant.packs derive``, ``list --json --project DIR`` and ``--version --json`` (Train B,
-  P5-DERIVE), which also leave bioio and dask.array out.
+  P5-DERIVE), which also leave bioio and dask.array out, and a pack status of a recipe that needs a post-stage
+  (Train B, P5b), which reads the post-stage from metadata and never imports it.
 * ``python -m germquant --help`` works and imports torch before anything else of germquant.
 * ``germquant --version`` and ``python -m germquant.packs --version`` print the engine version, git sha and
   python.
@@ -143,6 +144,33 @@ def test_python_m_germquant_packs_check_with_an_image_stays_free_of_torch_and_cu
     assert r.returncode == 0 and re.search(r"EXIT (0|2)\b", r.stderr), r.stderr[-2000:]
     assert json.loads(r.stdout)["pack"] == "test_pack"
     assert heavy == "", f"python -m germquant.packs check --image loaded {heavy}"
+
+
+def test_needs_post_stages_check_stays_free_of_torch(tmp_path):
+    """Gate G6 for needs.post_stages (Train B P5b, acceptance 5): in one fresh interpreter, the shallow pack_status
+    of the post-stage pack (plan D35: its recipe basic needs the fixture post-stage) greys the recipe while the
+    fixture is not installed and passes it once the on-disk fixture distribution is on sys.path. It reads metadata
+    and the declaration file only: the fixture's package is never imported, and neither torch, CuPy, SpotMAX,
+    Cellpose, bioio nor dask.array is loaded."""
+    from post_helpers import POST_PACK_REF, make_post_pack
+
+    from germquant.post_stages.testing import FIXTURE_NAME, FIXTURE_PACKAGE, write_fixture_distribution
+
+    make_post_pack(tmp_path / "packs")
+    dist = write_fixture_distribution(tmp_path / "dist")
+    code = ("import importlib, sys\n"
+            "import germquant.packs as P\n"
+            f"st = P.pack_status({POST_PACK_REF!r}, recipe='basic')\n"
+            f"assert not st['usable'] and any({FIXTURE_NAME!r} in b['what'] for b in st['blockers']), st\n"
+            f"sys.path.append({str(dist)!r})\n"
+            "importlib.invalidate_caches()\n"
+            f"st = P.pack_status({POST_PACK_REF!r}, recipe='basic')\n"
+            "assert st['usable'], st['blockers']\n"
+            f"assert {FIXTURE_PACKAGE!r} not in sys.modules\n")
+    heavy, r = _heavy_after(code, heavy=HEAVY + READERS, GERMQUANT_PACKS=tmp_path / "packs",
+                            GERMQUANT_MODELS=tmp_path / "models")
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert heavy == "", f"pack status of needs.post_stages loaded {heavy}"
 
 
 def test_deep_check_imports_torch_before_any_backend(tmp_path):

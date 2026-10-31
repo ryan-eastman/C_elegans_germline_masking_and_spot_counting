@@ -8,6 +8,16 @@
 * ``heavy_after`` and ``run_child``: a fresh interpreter with this checkout's src (and any extra folder, such as
   an on-disk fixture distribution) on PYTHONPATH. A sys.modules assertion runs there, never in the suite's own
   process.
+
+For the run routes (phase WIRE):
+
+* ``make_post_pack`` and the ``post_pack_env`` fixture: the post-stage pack of plan D35, built at test time in
+  tmp_path and never committed: a copy of the test pack with the id post_pack, whose recipe basic needs the
+  fixture post-stage (needs.post_stages) and switches it on in post_stages/basic.yaml, its SHA256SUMS rebuilt;
+* ``counting_fixture``: the fixture post-stage registered in process under its own name with a function that also
+  records the image id of each call, so a test counts the calls of every route;
+* ``write_post_file``: a post_stages.yaml of the fixture with the given parameters, written by germquant;
+* ``tree``: every file under a folder with its bytes, by relative path.
 """
 from __future__ import annotations
 
@@ -162,3 +172,103 @@ def edit_marker(out_dir: Path, image_id: str, **changes) -> None:
 
 def post_record(out_dir: Path, image_id: str) -> dict:
     return json.loads((Path(out_dir) / f"{image_id}__post.json").read_text(encoding="ascii"))
+
+
+# ---- phase WIRE: the post-stage pack and the run routes ------------------------------------------------------
+
+POST_PACK_ID = "post_pack"
+POST_PACK_REF = "post_pack@0.1.0"
+# what the post-stage pack switches on for its recipe basic (post_stages/basic.yaml)
+POST_PACK_PARAMS = {"factor": 2.0, "statistic": "max"}
+
+
+def write_post_file(path, params: dict | None = None, *, name: str | None = None) -> Path:
+    """A post_stages.yaml switching the fixture post-stage on with ``params`` (or ``[]`` for ``params`` None and no
+    name), written by germquant against the fixture's own declaration, so no registration is needed to write it."""
+    from germquant.post_stages import write_post_stages_file
+    from germquant.post_stages.testing import FIXTURE_NAME, fixture_declaration
+
+    entries = [] if params is None and name is None else [{"name": name or FIXTURE_NAME, "params": dict(params or {})}]
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    return write_post_stages_file(path, entries, declarations={FIXTURE_NAME: fixture_declaration()})
+
+
+def make_post_pack(folder, *, needs=None, params: dict | None = None) -> Path:
+    """The post-stage pack (plan D35) in ``folder``/post_pack: the test pack copied with the id post_pack, its recipe
+    basic needing ``needs`` (default: the fixture post-stage) and switching the fixture on with ``params`` (default
+    POST_PACK_PARAMS) in post_stages/basic.yaml, then SHA256SUMS rebuilt. The recipe text is the test pack's, so its
+    config_hash is the test pack's basic hash. Returns the pack folder."""
+    from packs_helpers import TEST_PACK, copy_pack
+
+    from germquant import packs
+    from germquant.post_stages.testing import FIXTURE_NAME
+
+    need = [FIXTURE_NAME] if needs is None else list(needs)
+
+    def edit(data: dict) -> None:
+        data["id"] = POST_PACK_ID
+        data["title"] = "Post-stage pack: the test pack with the fixture post-stage switched on"
+        for recipe in data["recipes"]:
+            if recipe["id"] == "basic":
+                recipe["needs"]["post_stages"] = need
+
+    dest = copy_pack(TEST_PACK, Path(folder) / POST_PACK_ID, edit=edit, rebuild=False)
+    write_post_file(dest / "post_stages" / "basic.yaml", POST_PACK_PARAMS if params is None else params)
+    packs.write_sums(dest)
+    return dest
+
+
+@pytest.fixture
+def post_pack_env(pack_env, monkeypatch):
+    """pack_env (every pack root and store isolated) with $GERMQUANT_PACKS on a folder holding the post-stage pack,
+    then tests/fixtures/packs (the test pack)."""
+    from packs_helpers import FIXTURE_PACKS
+
+    from germquant import packs
+
+    folder = pack_env.tmp / "post_packs"
+    pack = make_post_pack(folder)
+    monkeypatch.setenv("GERMQUANT_PACKS", os.pathsep.join([str(folder), str(FIXTURE_PACKS)]))
+    packs.refresh()
+    return SimpleNamespace(**vars(pack_env), post_packs=folder, post_pack=pack)
+
+
+def register_counting(calls: list, *, name: str | None = None) -> str:
+    """Register the fixture post-stage in process (replacing any registration of its name) with a function that
+    appends each call's image id to ``calls``; returns the name. Undo with unregister_post_stage."""
+    from germquant.post_stages import register_post_stage
+    from germquant.post_stages.testing import FIXTURE_NAME, fixture_declaration, fixture_function
+
+    fn = fixture_function()
+
+    def measure(inputs, params):
+        calls.append(inputs.image_id)
+        return fn(inputs, params)
+
+    register_post_stage(name or FIXTURE_NAME, measure, fixture_declaration(), replace=True)
+    return name or FIXTURE_NAME
+
+
+@pytest.fixture
+def counting_fixture():
+    """The fixture post-stage registered in process for one test; yields the list of image ids it was called on."""
+    from germquant.post_stages import unregister_post_stage
+
+    calls: list = []
+    name = register_counting(calls)
+    try:
+        yield calls
+    finally:
+        unregister_post_stage(name)
+
+
+def tree(folder) -> dict[str, bytes]:
+    """{relative posix path: bytes} for every file under ``folder``."""
+    folder = Path(folder)
+    return {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+def changed_files(before: dict[str, bytes], after: dict[str, bytes]) -> dict[str, list[str]]:
+    """{"added", "removed", "changed"}: the paths of two ``tree`` snapshots that differ."""
+    return {"added": sorted(set(after) - set(before)), "removed": sorted(set(before) - set(after)),
+            "changed": sorted(k for k in before if k in after and before[k] != after[k])}
