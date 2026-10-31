@@ -92,7 +92,8 @@ from .tune import GridError, TuneRefused, TuningWarning, apply_tuning, tune_spot
 # `germquant import-labels`, docs/TRAINING.md); the sample sheet (SampleRow, SampleSheet, read_sample_sheet,
 # write_sample_sheet, with SampleSheetError and SampleSheetWarning: `--samples`, docs/PROJECTS.md "Sample sheet";
 # run and run_loaded take a row as sample=); batch formats (discover_options: the io.input_suffixes keywords
-# `germquant batch` gives discover_files).
+# `germquant batch` gives discover_files); post-stages (list_post_stages: what this environment offers,
+# docs/POST_STAGES.md; run and run_loaded take a post-stage list as post_stages=).
 __all__ = [
     "STAGES",
     "SUPPORTED_SUFFIXES",
@@ -188,6 +189,9 @@ __all__ = [
     # batch formats (README, "Other file formats"; PLAN.md 9.1 with 9.4 #13): {} for a recipe without
     # io.input_suffixes, so discover_files keeps the .nd2 files it always has
     "discover_options",
+    # post-stages (docs/POST_STAGES.md): the listing reads metadata only; importing germquant.api does not import
+    # germquant.post_stages, and a run without post-stages never does
+    "list_post_stages",
 ]
 
 
@@ -204,6 +208,16 @@ def list_spot_backends() -> list[str]:
     from .spots.backends import declared_backend_names
 
     return declared_backend_names()
+
+
+def list_post_stages(*, include_unusable: bool = False) -> list[dict]:
+    """The post-stages this environment offers (docs/POST_STAGES.md), read from metadata and their declaration
+    files without importing any: germquant.post_stages.list_post_stages, the listing `python -m
+    germquant.post_stages list --json` prints. ``include_unusable`` also lists the installed ones that cannot be
+    used, with the reason."""
+    from .post_stages import list_post_stages as _list_post_stages
+
+    return _list_post_stages(include_unusable=include_unusable)
 
 
 def resolve_config(config: str | Path | Config | None = None, profile: str | None = None,
@@ -257,6 +271,7 @@ def run(
     pack: str | None = None,
     recipe: str | None = None,
     sample=None,
+    post_stages=None,
 ) -> dict:
     """Process one image exactly as ``germquant run`` does and return its result record.
 
@@ -276,17 +291,31 @@ def run(
     ``pack_status`` first, as the command line does. ``sample`` is the image's row of a sample sheet
     (``germquant.io.sample_sheet.read_sample_sheet(path).row(image_id, image)``, a SampleRow; docs/PROJECTS.md,
     "Sample sheet"), as ``germquant run --samples`` passes it: its design columns replace the file name's; None, the
-    default, for none. A sample row with ``t`` is refused.
+    default, for none. A sample row with ``t`` is refused. ``post_stages`` is a post-stage list (the path of a
+    post_stages.yaml, or a list of {name, params}; docs/POST_STAGES.md) to run on the results folder after the
+    image, as ``germquant run --post-stages`` runs it (see run_loaded); with ``pack`` and no ``post_stages``, the
+    post_stages/<recipe>.yaml the pack ships for the recipe, when it ships one; an empty list switches every
+    post-stage off. None, the default, with no pack file, runs none.
 
     Returns the dict process_image returns: ``image_id``, ``n_nuclei``, ``qc_pass``, ``qc_flags``,
-    ``out_dir``, ``tables`` (one DataFrame per output table) and ``stages`` (the per-stage record). A QC
-    flag is not an error: only a failed read, segmentation or write raises.
+    ``out_dir``, ``tables`` (one DataFrame per output table) and ``stages`` (the per-stage record), plus ``post``
+    (what germquant.post_stages.run_post_stages returns) when post-stages ran. A QC flag is not an error: only a
+    failed read, segmentation or write raises, never a post-stage.
     """
     cfg = resolve_config(config, profile, pack=pack, recipe=recipe)
     for key, value in (overrides or {}).items():
         cfg.set(str(key), value)
-    return run_loaded(image, cfg, out, xy_stride=xy_stride, z_range=z_range, t=t,
-                      **({} if sample is None else {"sample": sample}))
+    kw = {} if sample is None else {"sample": sample}
+    if post_stages is None and pack is not None:
+        # a pack recipe's own post-stage list (design 5.6), unless the caller gives one; looked up in a pack run only
+        from .packs import find_pack as _find_pack
+        from .post_stages import post_stages_in_force
+
+        p = _find_pack(pack)
+        post_stages, _origin = post_stages_in_force(pack_folder=p.folder, recipe=p.recipe(recipe).id)
+    if post_stages is not None:
+        kw["post_stages"] = post_stages     # passed on only when there is one (D40)
+    return run_loaded(image, cfg, out, xy_stride=xy_stride, z_range=z_range, t=t, **kw)
 
 
 def run_loaded(
@@ -298,10 +327,21 @@ def run_loaded(
     z_range: tuple[int, int] | list[int] | None = None,
     t: int | None = None,
     sample=None,
+    post_stages=None,
 ) -> dict:
     """``run`` once the config is resolved and every override applied: the single call that the command
     line and the API share, so there is one code path to a results folder. ``sample``: the image's sample sheet
-    row (see ``run``)."""
+    row (see ``run``).
+
+    ``post_stages`` (None by default: none run, and nothing of germquant.post_stages is imported) is a post-stage
+    list, the path of a post_stages.yaml or a list of {name, params} (docs/POST_STAGES.md). After process_image
+    has written the folder, germquant.post_stages.run_post_stages runs them on it, with the stack the run read
+    handed over (process_image's on_stack hook, passed only then: D34, D40), and the result gains ``post``, what
+    the runner returns. A post-stage that is not installed here, or fails, is recorded in <image_id>__post.json
+    and never fails the image. Refused before any pixel is read: a list that cannot be read as one (ValueError,
+    or OSError for a file that cannot be opened), and a list that switches a post-stage on with ``t``
+    (ValueError: time series are refused in this release, D33). An empty list with ``t`` runs the timepoint
+    without post-stages."""
     out_dir = Path(out) if out is not None else default_out_dir(image)
     stride = int(xy_stride) if xy_stride else 1
     zr = (int(z_range[0]), int(z_range[1])) if z_range else None
@@ -310,4 +350,18 @@ def run_loaded(
     kw = {} if t is None else {"t": t}
     if sample is not None:
         kw["sample"] = sample              # a sample sheet row, passed on only when given (D40)
-    return process_image(image, cfg, out_dir, xy_stride=stride, z_range=zr, prov=None, **kw)
+    if post_stages is None:
+        return process_image(image, cfg, out_dir, xy_stride=stride, z_range=zr, prov=None, **kw)
+    from . import post_stages as _post
+
+    listed = _post.entries_of(post_stages)             # refused here when the list or its file cannot be read
+    if t is not None:
+        if listed:
+            raise ValueError(_post.SERIES_REFUSAL)      # D33: no post-stage for a timepoint in this release
+        return process_image(image, cfg, out_dir, xy_stride=stride, z_range=zr, prov=None, **kw)
+    kept: dict = {}
+    kw["on_stack"] = kept.update                       # D34: the post-stages take the stack the run read
+    res = process_image(image, cfg, out_dir, xy_stride=stride, z_range=zr, prov=None, **kw)
+    res["post"] = _post.run_post_stages(out_dir, res["image_id"], post_stages, cfg=cfg, image_path=image,
+                                        stack=kept.pop("stack", None))
+    return res
