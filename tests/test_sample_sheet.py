@@ -888,7 +888,7 @@ def test_collect_join_stays_aligned_past_an_unreadable_table(golden_runs, tmp_pa
     assert len(nuclei) and set(nuclei["image_id"]) == {IN_ID} and set(nuclei["slide"]) == {"S12"}
 
 
-def test_a_sample_sheet_that_cannot_be_opened_is_refused(tmp_path, capsys):
+def test_a_sample_sheet_that_cannot_be_opened_is_refused(tmp_path, monkeypatch, capsys):
     """Review pass 2, N4 (D49): a --samples file that cannot be opened is refused before any image or table, with
     exit 2 and one REFUSED line that names the sheet (not the \\\\?\\ form fsutil.long_path opens it by), on run,
     batch and collect."""
@@ -907,3 +907,9 @@ def test_a_sample_sheet_that_cannot_be_opened_is_refused(tmp_path, capsys):
         assert err.startswith(f"REFUSED: sample sheet {missing}: ") and "\\\\?\\" not in err, err
     assert not (tmp_path / "o1").exists() and not (tmp_path / "o2").exists()
     assert sorted(p.name for p in src.iterdir()) == [IN]
+    # a relative --samples value is named by its absolute path (review pass 2 part 2a, N2)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["collect", str(src), "--samples", missing.name])
+    named = capsys.readouterr().err.removeprefix("REFUSED: sample sheet ").split(": ")[0]
+    assert e.value.code == 2 and Path(named).is_absolute() and Path(named).name == missing.name, named

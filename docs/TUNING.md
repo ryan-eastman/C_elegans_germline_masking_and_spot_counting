@@ -220,6 +220,9 @@ print(res["best"], res["ranked"][:5], res["warnings"])
 tune.apply_tuning(project, res["run_dir"])
 ```
 
+tune_spots and apply_tuning are also in germquant.api, next to the project calls, with TuneRefused, GridError
+and TuningWarning.
+
 The tuners themselves work on any finished runs, outside a project too (the benchmark tune splits use them),
 also on the runs of `germquant batch`, whose `run_manifest.json` sits at the top of its output folder:
 
@@ -241,8 +244,8 @@ tune uses only `germquant.benchmark.stats`, `matching`, `nuclei3d` and `spots` a
 
 ## Not in this release
 
-- Single-plane (planar) runs are tuned once the single-plane path (Train B package P2b) is in the engine;
-  until then such a run is refused with that reason.
+- Single-plane runs are tuned with SpotMAX: the LoG detector does not declare planar_ok, so a single-plane run
+  with a LoG recipe is refused before any detection, as the pipeline refuses it (docs/PLANAR.md).
 - Time series are not tuned.
 - The matching tolerances are fixed (0.3 um in xy, 0.4 um in z); per-protocol tolerances for the public
   benchmarks come with their protocols.

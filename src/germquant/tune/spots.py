@@ -386,7 +386,6 @@ def _prepare(item, k: int, backend: str, warnings: list, current) -> dict:
     xy_stride = int(marker.get("xy_stride") or 1)
     z_range = tuple(int(v) for v in marker["z_range"]) if marker.get("z_range") else None
     if planar:
-        _check_planar_support(image_id)
         _check_planar_backend(image_id, backend)
     pts = item["points"]
     try:
@@ -505,21 +504,10 @@ def _run_spacing(summary: pd.DataFrame, image_id: str, planar: bool) -> tuple[fl
     if planar or not math.isfinite(dz):
         from germquant import planar as planar_mod
 
-        dz = float(getattr(planar_mod, "PLANAR_DZ", 1.0))
+        dz = float(planar_mod.PLANAR_DZ)
     if not all(math.isfinite(v) and v > 0 for v in (dz, dy, dx)):
         raise TuneRefused(f"{image_id}: its run records the voxel size {(dz, dy, dx)}, which spot detection cannot use")
     return dz, dy, dx
-
-
-def _check_planar_support(image_id: str) -> None:
-    """A single-plane (planar) run needs the planar spot branch of package P2b (detect_spots(planar=True))."""
-    import inspect
-
-    from germquant.spots import detect as D
-
-    if "planar" not in inspect.signature(D.detect_spots).parameters:
-        raise TuneRefused(f"{image_id}: its run is single-plane (planar); tuning it needs the planar spot branch "
-                          f"of package P2b, which this engine does not have yet")
 
 
 def _check_planar_backend(image_id: str, backend: str) -> None:

@@ -5,7 +5,8 @@ decisions D19 and D42; P5 acceptance 3 and 10).
   writes recipe.yaml with a versioned ``extends: pack:<id>@<version>/<recipe>`` and a new hash.
 * preview_roles returns exactly what write_recipe writes; a channel named with a Greek gamma round-trips as a
   YAML escape and still binds; write_recipe validates by origin; revert brings back no recipe.yaml and the
-  pack's hash; use_model writes the relative path and records the digest and the card.
+  pack's hash; use_model writes the relative path and records the digest and the card, and warns when the recipe
+  loads no Cellpose model.
 * `project edit --dry-run` writes nothing and prints what preview_roles returns; edit's --z-range, --runner,
   --interpreter, --device, --xy-stride, --samples and --no-<stage> write the manifest (D42).
 """
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -383,6 +385,42 @@ def test_use_model_writes_relative_path(project_env, tmp_path, capsys):  # noqa:
     out = last_json(capsys.readouterr().out)
     assert rc == 0 and out["config_hash"] == h and out["model"]["sha256"] == sha
     assert read_manifest_file(proj.root)["saved"]["plugin"] == "0.2.0.dev9"
+
+
+def test_use_model_warns_when_the_recipe_loads_no_cellpose_model(project_env, tmp_path, caplog):  # noqa: F811
+    """use_model records the model with a warning when the recipe never loads a Cellpose model: method classical,
+    labels from files (segmentation.nuclei.labels_from) or another segmentation backend, the three reasons pack
+    derive refuses a parent recipe for (reviews/P5_pass1.md N2). A Cellpose recipe gives no warning."""
+    ref = "training/r01/models/m1/m1"
+    tail = f", which loads no Cellpose model: {ref} is recorded but not used"
+
+    def project(name, recipe, nuclei=None):
+        proj = new_test_project(tmp_path / name, recipe=recipe)
+        new_round(proj)
+        _model(proj)
+        if nuclei:                       # a hand edit of the recorded recipe.yaml (origin manual), as a lab may make
+            write_recipe(proj, edits={"spots.log.min_snr": 3.0})
+            data = _recipe(proj.root)
+            data.setdefault("segmentation", {}).setdefault("nuclei", {}).update(nuclei)
+            (proj.root / "recipe.yaml").write_bytes(
+                yaml.safe_dump(data, allow_unicode=False, sort_keys=False).encode("ascii"))
+        return proj
+
+    def warned(proj) -> list[str]:
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="germquant.project"):
+            use_model(proj, ref)
+        return [r.getMessage() for r in caplog.records
+                if r.name == "germquant.project" and "loads no Cellpose model" in r.getMessage()]
+
+    assert warned(project("classical", "basic")) == ["the recipe segments with method classical" + tail]
+    labels = project("labels", "with_model", {"labels_from": "{image_dir}/{image_stem}_masks.tif"})
+    assert warned(labels) == ["the recipe takes its labels from files (segmentation.nuclei.labels_from)" + tail]
+    assert project_config(labels).get("segmentation.nuclei.labels_from") == "{image_dir}/{image_stem}_masks.tif"
+    other = project("nuclei3d", "with_model", {"backend": "nuclei3d"})
+    assert warned(other) == ["the recipe segments with the 'nuclei3d' backend" + tail]
+    assert _recipe(other.root)["segmentation"]["nuclei"]["cellpose_model"] == ref       # recorded all the same
+    assert warned(project("cellpose", "with_model")) == []
 
 
 def test_edit_dry_run_writes_nothing_and_prints_what_preview_roles_returns(project_env, tmp_path,  # noqa: F811

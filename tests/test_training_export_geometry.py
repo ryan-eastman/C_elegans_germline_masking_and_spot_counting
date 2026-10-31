@@ -578,3 +578,106 @@ def test_a_planar_batch_run_exports_the_channel_it_segmented(tmp_path, monkeypat
     r = TR.export_training_pairs(root, tmp_path / "pairs").iloc[0].to_dict()
     assert (r["orientation"], r["channel_role"], int(r["channel_index"])) == ("xy", "foci", 1)
     assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r["image"]), _u16(swapped[1, 0]))
+
+
+# ---- 3D runs of a batch tree: the role the recipe segments (FU8) --------------------------------------------
+
+LIVE, LIVE_ID = "live_001.nd2", "live_001"
+LIVE_CHANNELS = ["Brightfield", "EGFP"]           # the channel order of the lab's live GFP::SYP-2 series
+LIVE_META = {"sizes": {"C": 2, "Z": 20, "Y": 80, "X": 320}, "spacing": GONAD_SPACING, "spacing_ok": True,
+             "channel_names": LIVE_CHANNELS, "dtype": "float32", "is_2d": False}
+
+
+def _live_like() -> Stack:
+    """The synthetic gonad as a live GFP::SYP-2 stack: channel 0 Brightfield (a flat field with a gradient along
+    x), channel 1 EGFP (the gonad's nuclei). config/channel_maps/live_gfp_syp2.yaml has no dna role and resolves
+    central_element, the role config/profiles/live_syp2.yaml segments, to channel 1."""
+    nuclei = _synthetic_stack().data[0]
+    z, y, x = nuclei.shape
+    field = np.broadcast_to(np.float32(2000.0) + np.float32(3.0) * np.arange(x, dtype=np.float32), (z, y, x))
+    return Stack(data=np.stack([field, nuclei]), spacing=GONAD_SPACING, channel_names=list(LIVE_CHANNELS),
+                 path=Path(LIVE), spacing_ok=True)
+
+
+def test_a_3d_batch_run_exports_the_channel_it_segmented(tmp_path, monkeypatch):
+    """A batch writes one run_manifest.json, at its root, and its run folders hold none: every run of the batch,
+    3D ones included, takes its segmented role from the config of that manifest (the one above the folder that
+    records the run's config_hash; FU8). A 3D run of config/profiles/live_syp2.yaml, which segments central_element
+    (EGFP, channel 1; the map has no dna role), gives the slices of channel 1, exactly as the same run in a results
+    folder of its own, and the export records the role and the index. A manifest above the folder that records
+    another config_hash is not the run's, and without one the role stays dna as before: channel 0 (Brightfield),
+    the channel a run whose role does not resolve is exported from."""
+    from germquant import provenance
+
+    _patch_readers(monkeypatch)
+    stack = _live_like()
+    _STACKS[LIVE] = (LIVE_META, stack)
+    cfg = load_config(ROOT / "config" / "profiles" / "live_syp2.yaml")
+    cfg.set("segmentation.nuclei.method", "classical")
+    # the run in a results folder of its own: its run_manifest.json names the role, as it always did
+    pipeline.process_image(LIVE, cfg, tmp_path / "alone", prov=None)
+    alone = TR.export_training_pairs(tmp_path / "alone", tmp_path / "alone_pairs")
+    assert len(alone) == 9 and sorted(set(alone["orientation"])) == ["xy", "xz", "yz"]
+    assert set(alone["channel_role"]) == {"central_element"} and set(alone["channel_index"].astype(int)) == {1}
+    # the same run in a batch tree
+    root = tmp_path / "batch"
+    prov = provenance.write_manifest(root, config_hash=cfg.hash, config=cfg.as_dict(), extra={})
+    pipeline.process_image(LIVE, cfg, root / LIVE_ID, prov=prov)
+    assert not (root / LIVE_ID / "run_manifest.json").exists()
+    assert (root / LIVE_ID / f"{LIVE_ID}__stages.json").exists()
+    man = TR.export_training_pairs(root, tmp_path / "pairs")
+    assert set(man["channel_role"]) == {"central_element"} and set(man["channel_index"].astype(int)) == {1}
+    run = _export_json(tmp_path / "pairs")["runs"][0]
+    assert (run["folder"], run["channel_role"], run["channel_index"]) == (str(root / LIVE_ID), "central_element", 1)
+    assert _manifest_text(tmp_path / "pairs") == _manifest_text(tmp_path / "alone_pairs")
+    # the pixels: the slices of channel 1 with the run's labels, the pairs of the run in its own folder
+    labels = _labels(root / LIVE_ID, LIVE_ID)
+    for r in man.to_dict("records"):
+        im2, lab2, _px, _z_zoom = TR.isotropic_slice(stack.data[1], labels, r["orientation"], int(r["slice_index"]),
+                                                     GONAD_SPACING)
+        assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r["image"]), _u16(im2))
+        assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r["labels"]), lab2)
+        for kind in ("image", "labels"):
+            assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r[kind]),
+                                  tifffile.imread(tmp_path / "alone_pairs" / r[kind]))
+    # the dna default, as before: a manifest above the folder of another config_hash, then no manifest at all
+    other = json.loads((root / "run_manifest.json").read_text(encoding="utf-8"))
+    other["config_hash"] = "0" * len(cfg.hash)
+    (root / "run_manifest.json").write_text(json.dumps(other), encoding="utf-8")
+    TR.export_training_pairs(root, tmp_path / "other")
+    (root / "run_manifest.json").unlink()
+    TR.export_training_pairs(root, tmp_path / "none")
+    for name in ("other", "none"):
+        m = pd.read_csv(tmp_path / name / "manifest.csv")
+        assert set(m["channel_role"]) == {"dna"} and set(m["channel_index"]) == {0}, name
+        assert _export_json(tmp_path / name)["runs"][0]["channel_index"] is None, name
+        xy = m[m["orientation"] == "xy"].iloc[0]
+        assert np.array_equal(tifffile.imread(tmp_path / name / xy["image"]),
+                              _u16(stack.data[0][int(xy["slice_index"])])), name
+
+
+def test_a_3d_batch_run_of_a_dna_recipe_exports_as_before(tmp_path, monkeypatch, results):
+    """A 3D batch run of a recipe that segments dna (config/config.yaml) gives what it gave before FU8: the base
+    manifest of the synthetic gonad, byte for byte, export.json's keys and run record, and the pairs of the same
+    run in a results folder of its own, whose export test_3d_export_manifest_and_export_json_unchanged pins."""
+    from germquant import provenance
+
+    _patch_readers(monkeypatch)
+    cfg = load_config(ROOT / "config" / "config.yaml")
+    cfg._data["segmentation"]["nuclei"]["method"] = "classical"
+    root = tmp_path / "batch"
+    prov = provenance.write_manifest(root, config_hash=cfg.hash, config=cfg.as_dict(), extra={})
+    pipeline.process_image(GONAD, cfg, root / GONAD_ID, prov=prov)
+    assert not (root / GONAD_ID / "run_manifest.json").exists()
+    man = TR.export_training_pairs(root, tmp_path / "pairs")
+    assert _manifest_text(tmp_path / "pairs") == _base_manifest(BASE_DEFAULT)
+    exp = _export_json(tmp_path / "pairs")
+    assert list(exp) == BASE_EXPORT_KEYS and exp["orientations"] == ["xy", "xz", "yz"]
+    run = exp["runs"][0]
+    assert list(run) == BASE_RUN_KEYS
+    assert (run["folder"], run["channel_role"], run["channel_index"]) == (str(root / GONAD_ID), "dna", 0)
+    TR.export_training_pairs(results / "mixed" / "gonad", tmp_path / "alone")
+    for r in man.to_dict("records"):
+        for kind in ("image", "labels"):
+            assert np.array_equal(tifffile.imread(tmp_path / "pairs" / r[kind]),
+                                  tifffile.imread(tmp_path / "alone" / r[kind]))

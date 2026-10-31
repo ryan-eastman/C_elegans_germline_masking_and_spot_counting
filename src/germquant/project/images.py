@@ -2,10 +2,11 @@
 
 add_images takes files, folders and glob patterns. A folder is searched (recursively) for the recipe's
 io.input_suffixes when the recipe sets them, and for every suffix germquant reads (io.formats.SUPPORTED_SUFFIXES)
-otherwise, so a lab can add a folder of OME-TIFFs to a project on a pack whose base names only .nd2 files. The
-search always skips germquant's own outputs (files named <id>__nuclei_labels.tif and the other OUTPUT_SUFFIXES)
-and the project's own results/, runs/, training/, tuning/, annotations/ and packs/ folders. An OME-Zarr folder
-is one image and is not searched.
+otherwise, so a lab can add a folder of OME-TIFFs to a project on a pack whose base names only .nd2 files. A
+recipe whose io.input_suffixes recipe_keys refuses (as every run of it does) is refused before anything is
+added. The search always skips germquant's own outputs (files named <id>__nuclei_labels.tif and the other
+OUTPUT_SUFFIXES) and the project's own results/, runs/, training/, tuning/, annotations/ and packs/ folders. An
+OME-Zarr folder is one image and is not searched.
 
 Every candidate's header is read with project.headers (light for .nd2 and TIFF files). Refused, each with its
 reason, while the other files are still added: a missing file, an unsupported suffix, a germquant output, a file
@@ -26,6 +27,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from ..fsutil import long_path
 from ..io.formats import SUPPORTED_SUFFIXES, image_format, image_stem
+from ..recipe_keys import input_suffixes_problem
 from .manifest import PROJECT_DIRS
 
 log = logging.getLogger(__name__)
@@ -125,16 +127,19 @@ def discover_folder(folder, suffixes, root) -> list[Path]:
 
 
 def input_suffixes(cfg) -> tuple[str, ...]:
-    """The recipe's io.input_suffixes (lower case), or every suffix germquant reads when it sets none."""
+    """The recipe's io.input_suffixes, or every suffix germquant reads when it sets none. A value that
+    recipe_keys.input_suffixes_problem refuses (every run of the recipe and `germquant batch` refuse it too: the
+    rule is a non-empty list of the suffixes germquant reads, in lower case with the dot) is a ProjectError with
+    that message, so a folder is never searched with suffixes the recipe cannot run."""
     raw = cfg.get("io.input_suffixes")
     if raw is None:
         return tuple(SUPPORTED_SUFFIXES)
-    if isinstance(raw, str) or not isinstance(raw, (list, tuple)) or not all(isinstance(s, str) for s in raw):
+    problem = input_suffixes_problem(raw)
+    if problem:
         from .manifest import ProjectError
 
-        raise ProjectError(f"io.input_suffixes must be a list of file suffixes such as ['.nd2', '.ome.tif'], got "
-                           f"{raw!r}")
-    return tuple(s.strip().lower() for s in raw if s.strip())
+        raise ProjectError(problem)
+    return tuple(raw)
 
 
 def candidates(root, paths, suffixes) -> list[tuple[str, Path | None, str | None]]:

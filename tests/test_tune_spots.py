@@ -3,8 +3,8 @@
 On the planted examples of tests/tune_helpers.py, finished runs of the test pack's basic recipe:
 
 * the planted optimum is recovered in 3D, by the LoG grid (spots.log.min_snr 3 finds exactly the true foci)
-  and by SpotMAX (an effect_size_min between the brightest decoy and the faintest true focus); the 2D case
-  needs package P2b and skips, naming it, until merge #1 is synced into feat/t5-p5;
+  and by SpotMAX (an effect_size_min between the brightest decoy and the faintest true focus), and in 2D by
+  SpotMAX on single-plane runs (io.planar);
 * run once, then filter, equals direct SpotMAX runs at each effect size, table for table;
 * a LoG grid makes one detection per grid point and image (D24), SpotMAX one per effect-size group;
 * the run folder holds grid.yaml, trials.jsonl, ranked.csv and best.yaml as section 9.3 describes, plus run.json;
@@ -45,12 +45,6 @@ ES_KEY = "spots.effect_size_min"
 SPOTMAX_GRID = {ES_KEY: [float(v) for v in range(0, 61)]}                 # fine enough to land in the gap
 KEEP = (0, 20, 29)                                                        # sets whose SpotMAX tables are kept
 SPOT_COLS = ["spot_id", "nucleus_id", "z_um", "y_um", "x_um", "effect_size", "spot_mean_intensity", "detector"]
-
-
-def _require_p2b():
-    if not hasattr(planar, "decide"):
-        pytest.skip("the 2D case needs package P2b (single-plane runs: germquant.planar.decide); it runs once "
-                    "merge #1 is synced into feat/t5-p5")
 
 
 @pytest.fixture(scope="module")
@@ -117,7 +111,6 @@ def _gap(tables, planted) -> tuple[float, float]:
 @pytest.mark.parametrize("dims", ["3d", "2d"])
 def test_recovers_planted_optimum(dims, planted, request, tmp_path):
     if dims == "2d":
-        _require_p2b()
         _planar_case(tmp_path)
         return
     res = planted.log
@@ -163,7 +156,6 @@ def test_a_batch_made_single_plane_run_is_tuned_as_one(tmp_path):
     reads a single-plane run from the done marker ({"planar": true}), so it detects with planar=True, and it
     refuses a backend without planar_ok (log) before any detection (review P5-TUNE S1). The run keeps its spots
     stage off, so the test needs no SpotMAX."""
-    _require_p2b()
     from germquant import pipeline, provenance
 
     name = "flat_a"
@@ -827,3 +819,42 @@ def test_apply_reports_the_hash_it_leaves(planted, tmp_path, monkeypatch, capsys
     out, h = apply("r2")                                         # back to the pack's value: the last edit goes
     assert h == pack_hash and f"(was {tuned})" in out and not (root / "recipe.yaml").exists()
     assert P.open_project(root).manifest["recipe"]["origins"] == {}
+
+
+def test_detection_reproduces_a_single_plane_run(tmp_path):
+    """A single-plane SpotMAX run (io.planar) at 1.2 um pixels, made the way `germquant batch` makes it (one
+    manifest at the root, the per-image record in the done marker): the tuner's detection at the run's own
+    settings equals the run's spots table, effect sizes included. At these pixels the 3D SpotMAX chain gives
+    other effect sizes (review P5-TUNE S1); at the helpers' 0.2 um the two chains agree, so the 2D planted
+    optimum alone cannot tell them apart."""
+    pytest.importorskip("spotmax")
+    import tifffile
+
+    from germquant import pipeline, provenance
+    from germquant.tune.points import write_points
+
+    cfg = H.basic_recipe(**{"io.planar": True, "spots.backend": "spotmax", "spots.spot_radius_um": 1.5,
+                            "spots.gauss_sigma_um": 0.6})
+    es = float(cfg.get(ES_KEY, 3.0))
+    pix, truth, _ = H.planted_pixels(H.FIELD_2D_A, 5, shape=H.SHAPE_2D)
+    stack = H.Stack(data=pix.astype(np.float32), spacing=(0.5, 1.2, 1.2), channel_names=H.CHANNELS,
+                    path=Path("flat_a.nd2"), spacing_ok=True)
+    with pytest.MonkeyPatch.context() as mp:
+        H.patch_planted_reader(mp, {"flat_a.nd2": stack})
+        for mode in ("batch",):
+            rd = tmp_path / mode / "flat_a"
+            prov = provenance.write_manifest(tmp_path / mode, config_hash=cfg.hash, config=cfg.as_dict(),
+                                             extra={"n_files": 1})
+            pipeline.process_image(tmp_path / "flat_a.nd2", cfg, rd, prov=prov)
+            labels = tifffile.imread(rd / "flat_a__nuclei_labels.tif")
+            zyx = np.asarray(truth, float) / np.asarray(H.SPACING) * np.array([0.0, 1.2, 1.2])
+            pts = write_points(tmp_path / f"{mode}__points_x.csv", zyx, labels=labels, spacing=(float("nan"), 1.2, 1.2))
+            item = {"image_id": "flat_a", "image": tmp_path / "flat_a.nd2", "result_dir": rd, "points": pts}
+            got: dict = {}
+            S._tune([item], {ES_KEY: [es]}, S.OBJECTIVE, "project", backend="spotmax",
+                    out_dir=tmp_path / f"t_{mode}", max_runs=1, shortcut=False,
+                    on_tables=lambda i, k, ps, pn: got.__setitem__(k, ps))
+            run = pd.read_csv(rd / "flat_a__spots.csv", float_precision="round_trip")
+            assert len(run) > 0, mode
+            pd.testing.assert_frame_equal(got[0][SPOT_COLS].reset_index(drop=True), run[SPOT_COLS],
+                                          check_dtype=False, check_column_type=False, obj=mode)

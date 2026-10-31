@@ -10,8 +10,15 @@
                              [--json]
   germquant project rounds DIR [--new [NAME]] [--plugin-version V] [--json]
   germquant project unlock DIR --host H --pid P [--json]
+  germquant project run DIR [--images ID ...] [--no-resume] [--device auto|cuda|mps|cpu] [--shard K/N]
+                            [--run-id ID] [--via gui-subprocess|gui-inprocess|cli|snakemake] [--json]
+  germquant project status DIR [--json]
+  germquant project collect DIR [--json]
+  germquant project export-commands DIR [--shell sh|ps1] [--shards N] [--out FILE] [--json]
 
-Exit codes: 0 done; 1 done in part (`add` and `new --images` refused some files, each named with its reason);
+Exit codes: 0 done; 1 done in part (`add` and `new --images` refused some files, each named with its reason;
+`run`: an image failed, each named in the run's log, or the run stopped part way, with one ERROR line and, with
+--json, {"error", "kind": "RunError", "run_id", "log"});
 2 refused (no project, a locked project, an invalid edit, an unknown pack, a project file that is not YAML), with
 nothing written, or a write that stopped part way (a file still denied after 2 s), whose message names what it
 wrote: the same command again finishes it. The reason goes to stderr and, with --json, as {"error", "kind"} to
@@ -26,9 +33,15 @@ removing it; --samples FILE or none; --no-<stage>). --dry-run prints what would 
 with the bindings per image and the problems that make the edit itself refused (exit 0 all the same), and the new
 config_hash, and writes nothing. --plugin-version goes into the manifest's stamps.
 
+`run` runs the images into results/<image_id>/ and writes the run's log, runs/<run_id>.jsonl (germquant.project.run;
+docs/PROJECTS.md, "Running a project"); `status` prints what each image needs; `collect` stacks the tables with
+the recipe's QC settings; `export-commands` writes the commands that run the project headless. A refusal before any
+image (a bad run id, shard or device, a model that is not the one the manifest records, an unusable pack, a lock
+held by an edit) is exit 2, as for the commands above.
+
 This module imports nothing heavy at module level, so the same parsers serve cli.main (one line there) and
-germquant.project.__main__, whose commands never load torch (gate G6). The run, status, collect and
-export-commands commands come with unit P5-RUN and are offered by the full command line only.
+germquant.project.__main__, whose commands never load torch (gate G6). run, status, collect and export-commands
+are offered by the full command line only: run and status load the pipeline (torch first).
 """
 from __future__ import annotations
 
@@ -112,7 +125,46 @@ def add_project_commands(psub, *, light: bool = False) -> None:
     _common(pk, plugin=False)
 
     if not light:
-        pass                       # unit P5-RUN adds run, status, collect and export-commands here
+        _add_run_commands(psub)
+
+
+def _add_run_commands(psub) -> None:
+    """run, status, collect and export-commands: the full command line only (they load the pipeline)."""
+    from .project.runlog import VIA
+
+    prun = psub.add_parser("run", help="run the project's images into results/<image_id>/, one log per run under "
+                                       "runs/ (exit 0 done, 1 an image failed, 2 refused)")
+    prun.add_argument("dir", metavar="DIR")
+    prun.add_argument("--images", nargs="+", default=None, metavar="ID",
+                      help="run only these images (default: every image not excluded)")
+    prun.add_argument("--no-resume", action="store_true", help="run every image again, also those already done")
+    prun.add_argument("--device", default=None, choices=["auto", "cuda", "mps", "cpu"],
+                      help="the device to ask for on this computer (default: the project's run.device, else the "
+                           "engine's choice)")
+    prun.add_argument("--shard", default=None, metavar="K/N",
+                      help="run the K-th of N slices of the images (1 <= K <= N), for N jobs side by side")
+    prun.add_argument("--run-id", default=None, metavar="ID",
+                      help="the run's id, YYYYMMDDTHHMMSSZ_<8 hex> (default: a new one); names runs/<ID>.jsonl")
+    prun.add_argument("--via", default="cli", choices=list(VIA), help="who started the run (recorded in its log)")
+    prun.add_argument("--json", action="store_true", help="print the run's record as JSON (progress goes to stderr)")
+
+    pst = psub.add_parser("status", help="each image's status (done, stale with the reason, failed, missing), the "
+                                         "pack, models, lock and runs")
+    pst.add_argument("dir", metavar="DIR")
+    pst.add_argument("--json", action="store_true", help="machine-readable output (api.project_status)")
+
+    pco = psub.add_parser("collect", help="stack the images' tables into results/batch_<table>.csv with the "
+                                          "recipe's QC settings")
+    pco.add_argument("dir", metavar="DIR")
+    pco.add_argument("--json", action="store_true", help="machine-readable output")
+
+    pex = psub.add_parser("export-commands", help="print (or write) the commands that run the project headless")
+    pex.add_argument("dir", metavar="DIR")
+    pex.add_argument("--shell", default="sh", choices=["sh", "ps1"],
+                     help="sh (Linux, macOS, SLURM) or ps1 (Windows PowerShell); default sh")
+    pex.add_argument("--shards", type=int, default=None, metavar="N", help="one run line per shard, --shard K/N")
+    pex.add_argument("--out", default=None, metavar="FILE", help="write the commands to FILE instead of printing them")
+    pex.add_argument("--json", action="store_true", help="print {text, out, shell, shards} as JSON")
 
 
 def add_parsers(sub) -> None:
@@ -323,8 +375,127 @@ def _unlock(args) -> int:
     return 0
 
 
+def _run_argv(args) -> list[str]:
+    """The command line run_start records: the options given, in a fixed order."""
+    argv = ["germquant", "project", "run", str(args.dir)]
+    if args.images:
+        argv += ["--images", *[str(i) for i in args.images]]
+    if args.no_resume:
+        argv.append("--no-resume")
+    for opt, value in (("--device", args.device), ("--shard", args.shard), ("--run-id", args.run_id)):
+        if value is not None:
+            argv += [opt, str(value)]
+    argv += ["--via", str(args.via)]
+    if args.json:
+        argv.append("--json")
+    return argv
+
+
+def _progress_printer(stream):
+    state = {"n": 0, "i": 0}
+
+    def show(ev: dict) -> None:
+        kind = ev.get("event")
+        if kind == "run_start":
+            state["n"] = len(ev.get("images") or [])
+            shard = f", shard {ev['shard']}" if ev.get("shard") else ""
+            print(f"run {ev['run_id']}: {state['n']} image(s){shard}, config_hash {ev.get('config_hash')}, device "
+                  f"{ev.get('device_selected')}", file=stream, flush=True)
+        elif kind in ("image_done", "image_skipped", "image_failed"):
+            state["i"] += 1
+            what = {"image_done": f"done ({ev.get('elapsed_s')} s)", "image_skipped": "already done; skipped",
+                    "image_failed": f"FAILED: {ev.get('error')}"}[kind]
+            print(f"[{state['i']}/{state['n']}] {ev.get('image_id')}: {what}", file=stream, flush=True)
+        elif kind == "run_end":
+            c = ev.get("counts") or {}
+            stop = "; interrupted" if ev.get("interrupted") else ""
+            print(f"done {c.get('done', 0)}, skipped {c.get('skipped', 0)}, failed {c.get('failed', 0)}{stop}",
+                  file=stream, flush=True)
+
+    return show
+
+
+def _run(args) -> int:
+    from .project import run as R
+
+    token = R.RUN_ARGV.set(_run_argv(args))
+    try:
+        res = R.run_project(Path(args.dir), images=args.images, resume=not args.no_resume, device=args.device,
+                            shard=args.shard, progress=_progress_printer(sys.stderr if args.json else sys.stdout),
+                            via=args.via, run_id=args.run_id)
+    except R.RunError as e:                         # stopped after its start: an error, not a refusal
+        print(f"ERROR: {e}", file=sys.stderr)
+        if args.json:
+            _print(json.dumps({"error": str(e), "kind": "RunError", "run_id": e.run_id, "log": e.log}))
+        return 1
+    finally:
+        R.RUN_ARGV.reset(token)
+    if args.json:                                   # the warnings were logged at the start, and are in the record
+        _print(json.dumps(res, indent=1))
+    else:
+        _print(f"log: {res['log']}")
+        if res["message"]:
+            _print(res["message"])
+    return int(res["exit_code"])
+
+
+def _status(args) -> int:
+    from .project.status import project_status
+
+    st = project_status(Path(args.dir))
+    lines = [f"project {st['root']}: {st['name']}, pack {st['pack']['pinned']} (installed: "
+             f"{', '.join(st['pack']['installed']) or 'none'}; project copy: {'yes' if st['pack']['project_copy'] else 'no'}),"
+             f" config_hash {st['config_hash']}" + (" (edited)" if st["edited"] else ""),
+             f"validated: {st['validated'].get('value') if st['validated'] else None}"
+             + (f" ({st['validated'].get('why')})" if st["validated"] else "")]
+    for r in st["images"]:
+        why = "" if r["status"] == "done" else f": {r['reason']}"
+        qc = "" if r["qc_pass"] is None else f" (qc_pass {r['qc_pass']})"
+        lines.append(f"  {r['id']}  {r['status']}{qc}{why}")
+    lines += [f"  model {m['ref']}: " + ("not needed" if not m["needed"] else "verified" if m["verified"] else
+                                        "MISSING" if not m["present"] else f"MISMATCH {m['mismatch']}")
+              for m in st["models"]]
+    lines += [f"warning: {w}" for w in st["warnings"]]
+    lines.append(f"{len(st['runs'])} run(s) logged under runs/")
+    _emit(args, st, lines)
+    return 0
+
+
+def _collect(args) -> int:
+    from .project.collect import collect_project
+
+    rec = collect_project(Path(args.dir))
+    lines = [f"collected {rec['counts']} -> {rec['summary']} (qc.germline_outlier_factor {rec['outlier_factor']:g})"]
+    if rec["sample_sheet"] is not None:
+        joined = ", ".join(rec["sample_sheet"]["columns"]) or "none: the sheet has no column of its own"
+        lines.append(f"sample sheet {rec['sample_sheet']['path']}: columns joined: {joined}")
+    _emit(args, rec, lines)
+    return 0
+
+
+def _export_commands(args) -> int:
+    from .project.commands import export_commands
+    from .project.manifest import atomic_write
+
+    text = export_commands(Path(args.dir), shell=args.shell, shards=args.shards)
+    if args.out is not None:
+        # PowerShell 5.1 reads a script without a byte-order mark in the ANSI code page, so ps1 gets one
+        data = (b"\xef\xbb\xbf" if args.shell == "ps1" else b"") + text.encode("utf-8")
+        atomic_write(Path(args.out), data)
+    if args.json:
+        _print(json.dumps({"text": text, "out": None if args.out is None else str(args.out), "shell": args.shell,
+                           "shards": args.shards}))
+    elif args.out is not None:
+        _print(f"wrote {args.out}")
+    else:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    return 0
+
+
 HANDLERS = {"new": _new, "add": _add, "edit": _edit, "use-model": _use_model, "rounds": _rounds,
-            "unlock": _unlock}
+            "unlock": _unlock, "run": _run, "status": _status, "collect": _collect,
+            "export-commands": _export_commands}
 
 
 def dispatch(args) -> int:

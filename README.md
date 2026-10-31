@@ -299,6 +299,30 @@ and DNA repair foci) and `budding_yeast` (whole cells and spots). Each can fetch
 `germquant assemble` stacks images kept as one TIFF per channel into the one OME-TIFF germquant reads
 (`docs/PACKS.md`).
 
+### Projects (new in 0.2)
+
+A project is a folder that holds one study: the pack and recipe it uses, its images, any changes to the
+recipe, the models trained for it and the results. A project made in napari and one run from a terminal or a
+cluster are the same folder, and they write the same files.
+
+Without typing commands: in napari, the Project dock of the germquant plugin (napari-germquant 0.2) makes a
+project from a pack, adds the images, sets the channel roles and the recipe's parameters, runs the images and
+shows which are done, stale or failed. It runs the engine's own commands, below, so its numbers are those of a
+terminal run.
+
+From a terminal (the same commands on Windows and on a Mac, with the environment active):
+
+    germquant project new STUDY --pack cultured_cells --images "D:/scope/2026-10-20/*.ome.tif"
+    germquant project edit STUDY --role foci="Cy3 RAD-51" --dry-run
+    germquant project run STUDY
+    germquant project status STUDY
+    germquant project collect STUDY
+
+`project run` skips the images already done, and `--shard 1/3` (with 2/3 and 3/3) splits a project over three
+jobs, for example a SLURM array; `project export-commands` writes these commands into a script.
+`docs/PROJECTS.md` explains the project folder, recipe edits and channel roles, project models, the run logs,
+status, Snakemake and moving a project to another computer.
+
 ### Segmentation only (no spot counting)
 
 Add `--no-spots` to the run or batch command. It skips the RAD-51 spot detection, so it is much

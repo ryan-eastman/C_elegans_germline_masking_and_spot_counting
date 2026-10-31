@@ -7,6 +7,8 @@
 #   # HPC (SLURM, one GPU per job):
 #   snakemake -s workflow/Snakefile --configfile workflow/config.yaml \
 #             --workflow-profile config/profiles/slurm
+#   # a germquant project (docs/PROJECTS.md, "Snakemake"): one job per image of the project
+#   snakemake -s workflow/Snakefile --config project=/path/to/STUDY --cores 1
 #   # a system pack's recipe instead of germquant_config (docs/PACKS.md): germquant_pack replaces it
 #   snakemake -s workflow/Snakefile --configfile workflow/config.yaml \
 #             --config germquant_pack=cultured_cells@0.1.0 recipe=nuclei_foci --cores 8
@@ -20,6 +22,60 @@ from germquant.config import load_config
 from germquant.io.formats import image_stem
 
 configfile: "workflow/config.yaml"
+
+# Project mode (docs/PROJECTS.md, "Snakemake"): with --config project=DIR, one job per image of the project, each
+# `germquant project run DIR --images <id> --via snakemake`, then `germquant project collect DIR`. A job writes only
+# its own run log and its image's results folder, never the manifest. Its output is the image's completion record,
+# results/<id>/<id>__done.json (the series record <id>__series.json for an image with timepoints), so an image whose
+# record is missing runs again; the project's recorded config hash is a param, so after an edit Snakemake's params
+# rerun trigger (on by default) runs every job again. Snakemake deletes a job's output before running it, so a job
+# it runs processes its image again; `germquant project run DIR` runs only the images that are not done.
+PROJECT = config.get("project")
+
+if PROJECT:
+    import yaml as _yaml
+
+    PROJECT_ROOT = Path(PROJECT).resolve()
+    _manifest = _yaml.safe_load((PROJECT_ROOT / "germquant_project.yaml").read_bytes().decode("utf-8"))
+    _project_images = [e for e in (_manifest.get("images") or []) if not e.get("excluded")]
+    PROJECT_HASH = str((_manifest.get("recipe") or {}).get("expected_config_hash"))
+    _results = (PROJECT_ROOT / "results").as_posix()
+
+    def _project_record(e):
+        iid = str(e["id"])
+        kind = "series" if int(e.get("timepoints") or 1) > 1 else "done"
+        return f"{_results}/{iid}/{iid.strip()}__{kind}.json"
+
+    if not _project_images:
+        print(f"[germquant] WARNING: the project {PROJECT_ROOT} holds no image to run")
+
+    rule project_all:
+        input:
+            f"{_results}/batch_summary.csv",
+
+    rule project_image:
+        output:
+            _results + "/{iid}/{mid}__{kind}.json",
+        wildcard_constraints:
+            iid="[^/]+",
+            kind="done|series",
+        params:
+            root=str(PROJECT_ROOT),
+            config_hash=PROJECT_HASH,
+        resources:
+            gpu=1,
+        shell:
+            r'germquant project run "{params.root}" --images "{wildcards.iid}" --via snakemake'
+
+    rule project_collect:
+        input:
+            [_project_record(e) for e in _project_images],
+        output:
+            f"{_results}/batch_summary.csv",
+        params:
+            root=str(PROJECT_ROOT),
+        shell:
+            r'germquant project collect "{params.root}"'
 
 INPUT_ROOT  = Path(config["input_root"]).resolve()
 OUTPUT_ROOT = Path(config["output_root"]).resolve()
@@ -62,12 +118,12 @@ def _discover():
             print(f"[germquant] left out {f.name}: {why}")
     return files
 
-FILES = _discover()
+FILES = [] if PROJECT else _discover()          # project mode runs the project's images, not a folder
 # per-job out dir mirrors the input tree: <out>/<relative parent>/<image id>/
 OUT_DIRS = [OUTPUT_ROOT / p.relative_to(INPUT_ROOT).parent / image_stem(p) for p in FILES]
 IDX = list(range(len(FILES)))
 
-if not FILES:
+if not FILES and not PROJECT:
     _what = ", ".join(_gq_cfg.get("io.input_suffixes") or [".nd2"])
     print(f"[germquant] WARNING: no {_what} under {INPUT_ROOT}")
 

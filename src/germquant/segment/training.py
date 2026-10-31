@@ -105,7 +105,9 @@ def find_runs(root: str | Path) -> list[RunRef]:
     and ``<id>__image_summary.csv`` (a single results folder, the ``t<NNN>/`` folders of a series, or a batch
     tree). The source file is the ``file_path`` the run stamped on its tables, the geometry (xy_stride,
     z_range, t_index) and the segmented channel role (segmentation.nuclei.channel, default dna) come from the
-    manifest, and the channel index from the run's ``channel_map_json``. Sorted by series, timepoint, id."""
+    manifest, and the channel index from the run's ``channel_map_json``. A run folder of a batch tree holds
+    ``<id>__stages.json`` instead: the geometry comes from that record, and the role from the batch's
+    ``run_manifest.json`` above the folder when it records the run's config_hash. Sorted by series, timepoint, id."""
     root = Path(root)
     if not root.is_dir():
         raise FileNotFoundError(f"results folder not found: {root}")
@@ -139,19 +141,19 @@ def _run_ref(folder: Path, iid: str, labels_path: Path, summary_path: Path) -> R
             man = json.load(fh)
     else:
         # germquant batch writes one manifest at the batch root; the run's own geometry (xy_stride, z_range,
-        # t_index) is in its stage record, the segmented role defaults to dna
+        # t_index) is in its stage record, its segmented role in the batch's config
         with open(long_path(folder / f"{iid}__stages.json"), encoding="utf-8") as fh:
             rec = json.load(fh)
         man = {k: rec.get(k) for k in ("xy_stride", "z_range", "t_index") if rec.get(k) is not None}
         for nested in ("run_geometry", "geometry"):
             if isinstance(rec.get(nested), dict):
                 man.update({k: v for k, v in rec[nested].items() if k in ("xy_stride", "z_range", "t_index")})
-        if isinstance(rec.get("segment_projection"), dict) or rec.get("planar") is True:
-            # a projected or single-plane run of a batch: its 2D pair must be the channel the segmenter saw, so
-            # the segmented role comes from the batch's own config (3D batch runs keep the dna default, as before)
-            batch_man = _batch_manifest(folder, rec.get("config_hash"))
-            if batch_man is not None:
-                man["config"] = batch_man.get("config")
+        # every run of a batch, 3D, projected or single-plane: its pairs must be the channel the segmenter saw, so
+        # the segmented role comes from the batch's own config; without a batch manifest that records the run's
+        # config_hash the role stays dna
+        batch_man = _batch_manifest(folder, rec.get("config_hash"))
+        if batch_man is not None:
+            man["config"] = batch_man.get("config")
     s = pd.read_csv(long_path(summary_path), low_memory=False)
     row = s.iloc[0] if len(s) else pd.Series(dtype=object)
     src = row.get("file_path")

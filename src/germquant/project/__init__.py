@@ -12,8 +12,10 @@ updates the Project it was given; runs never write the manifest.
 
 Importing this package loads nothing heavy (no torch, CuPy, SpotMAX, Cellpose, bioio or dask.array; gate G6,
 rule R5), and neither does any function here on an .nd2 or TIFF image: the torch-free entry ``python -m
-germquant.project`` runs them (new, add, edit, use-model, rounds, unlock). run_project, project_status,
-collect_project and export_commands belong to unit P5-RUN.
+germquant.project`` runs them (new, add, edit, use-model, rounds, unlock). run_project (project/run.py, with its
+log, project/runlog.py) and project_status (project/status.py) import germquant.pipeline first, so torch loads
+before any reader or backend (decision D28); collect_project (project/collect.py) and export_commands
+(project/commands.py) read the project's files only.
 """
 from __future__ import annotations
 
@@ -36,19 +38,19 @@ from .manifest import (
     stamp,
     write_manifest,
 )
+from .collect import collect_project
+from .commands import export_commands
+from .run import RunError, run_project
+from .status import project_status
 
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "Project", "ProjectError", "ProjectLockedError", "add_images", "break_lock", "collect_project",
+    "Project", "ProjectError", "ProjectLockedError", "RunError", "add_images", "break_lock", "collect_project",
     "export_commands", "list_rounds", "new_project", "new_round", "open_project", "preview_roles",
     "project_config", "project_status", "revert_recipe", "run_project", "save_project", "use_model",
     "write_recipe",
 ]
-
-
-def _todo(name: str, unit: str) -> str:
-    return f"germquant.project.{name} is not built yet: unit {unit} of tranche 5 Train B builds it"
 
 
 @dataclass
@@ -427,7 +429,9 @@ def revert_recipe(project, *, plugin_version=None) -> str:
 def use_model(project, model, *, card=None, plugin_version=None) -> str:
     """Name a model file of the project (training/<round>/models/<name>/<file>; relative to the project root, or
     absolute inside it) by relative path in recipe.yaml (segmentation.nuclei.cellpose_model), and record its sha256
-    and its card (default <file>.card.json next to it) in the manifest's models. Returns the new config_hash."""
+    and its card (default <file>.card.json next to it) in the manifest's models. Returns the new config_hash. A
+    recipe that loads no Cellpose model (labels from files, method classical, another segmentation backend: the
+    three reasons pack derive refuses a parent recipe for) records the model all the same, with a warning."""
     from .recipe import MODEL_KEY, model_entry
 
     root = _root(project)
@@ -435,10 +439,14 @@ def use_model(project, model, *, card=None, plugin_version=None) -> str:
     entry = model_entry(root, model, card)
     plan = _apply(project, command="use-model", plugin_version=plugin_version, edits={MODEL_KEY: entry["ref"]},
                   origin="model", model_entry=entry)
-    if str(plan["config"].get("segmentation.nuclei.method", "auto")) == "classical":
-        log.warning("the recipe segments with method classical, which loads no model: %s is recorded but not used",
-                    entry["ref"])
-    return plan["config"].hash
+    cfg = plan["config"]
+    why = ("takes its labels from files (segmentation.nuclei.labels_from)" if cfg.get("segmentation.nuclei.labels_from")
+           else "segments with method classical" if str(cfg.get("segmentation.nuclei.method", "auto")) == "classical"
+           else f"segments with the {cfg.get('segmentation.nuclei.backend')!r} backend"
+           if str(cfg.get("segmentation.nuclei.backend", "cellpose")) != "cellpose" else None)
+    if why:
+        log.warning("the recipe %s, which loads no Cellpose model: %s is recorded but not used", why, entry["ref"])
+    return cfg.hash
 
 
 # ---- locks and rounds -------------------------------------------------------------------------------------------
@@ -475,26 +483,3 @@ def new_round(project, name=None, *, plugin_version=None) -> Path:
     if isinstance(project, Project):
         project.manifest = m
     return path
-
-
-# ---- unit P5-RUN ------------------------------------------------------------------------------------------------
-
-def run_project(project, images=None, resume=True, device=None, shard=None, progress=None, *, via="cli",
-                run_id=None, should_stop=None) -> dict:
-    """Run the project's images: ``{"run_id", "log", "counts": {"done", "failed", "skipped"}, "exit_code"}``."""
-    raise NotImplementedError(_todo("run_project", "P5-RUN"))
-
-
-def project_status(project) -> dict:
-    """The status record of PLAN.md section 9.3 (what `germquant project status --json` prints)."""
-    raise NotImplementedError(_todo("project_status", "P5-RUN"))
-
-
-def collect_project(project) -> dict:
-    """Collect the per-image tables of results/ with the recipe's qc.germline_outlier_factor."""
-    raise NotImplementedError(_todo("collect_project", "P5-RUN"))
-
-
-def export_commands(project, *, shell="sh", shards=None) -> str:
-    """The commands that run the project headless (sh or ps1), optionally split into shards."""
-    raise NotImplementedError(_todo("export_commands", "P5-RUN"))

@@ -13,9 +13,12 @@
   rule of io.ome_header, and one image per series.
 
 ``spacing`` and ``spacing_ok`` follow the readers' rule: (1, 1, 1) and False when any of dz, dy and dx is
-missing. ``spacing_yx_um`` is (dy, dx) whenever the file states both, even without a z step (a calibrated
-single-plane image, where io.ome_header and bioio give the (1, 1, 1) guess). ``single_plane`` comes from the
-sizes: no Z, or a Z of 1 (decision D11).
+missing. ``spacing_yx_um`` is (dy, dx) whenever the file states both as lengths, even without a z step (a
+calibrated single-plane image, where io.ome_header and bioio give the (1, 1, 1) guess), by the rule of the run's
+reader (io.bioio_reader._spacing_yx), which a single-plane run takes its pixel size from: an ImageJ TIFF without a
+unit or in pixels states no length (None), and a TIFF that is neither OME nor ImageJ states its pixel size in its
+resolution tags, scaled by its ResolutionUnit as bioio-tifffile scales them (None for the unit none, an aspect
+ratio). ``single_plane`` comes from the sizes: no Z, or a Z of 1 (decision D11).
 
 Any other format (CZI, LIF, OME-Zarr) is read only after ``import germquant.pipeline``: bioio imports dask.array,
 and dask imports CuPy whenever CuPy is installed, before torch, which on the RTX 5090 makes a later Cellpose run in
@@ -34,6 +37,10 @@ from ..io.ome_header import is_tiff
 
 _CORE = "TCZYX"
 _UNKNOWN_AXES = "QI"          # tifffile's unknown axis and image sequence, which bioio-tifffile guesses from the shape
+# micrometres per ResolutionUnit (TIFF tag 296: 2 inch, 3 centimetre, 4 millimetre, 5 micrometre), as bioio-tifffile
+# scales the resolution tags of a TIFF that is neither OME nor ImageJ; 1 (none) is an aspect ratio, not a length
+_RESOLUTION_UNIT_UM = {2: 25400.0, 3: 10000.0, 4: 1000.0, 5: 1.0}
+_NO_LENGTH = ("", "pixel", "pixels")   # ImageJ units that are not lengths (io.bioio_reader._tiff_without_length_unit)
 
 
 def _nd2_metadata(path) -> dict:
@@ -74,6 +81,9 @@ def _from_reader_metadata(meta: dict, *, n_images: int, reader: str) -> dict:
     z, y, x = (float(v) for v in meta.get("spacing", (1.0, 1.0, 1.0)))
     rec = _record(sizes, n_images, list(meta.get("channel_names") or []), z if ok else None, y if ok else None,
                   x if ok else None, reader)
+    if "spacing_yx_um" in meta:          # the bioio reader's own xy calibration of a one-plane file (D11), which
+        yx = meta["spacing_yx_um"]       # a single-plane run takes even when the file states no z step
+        rec["spacing_yx_um"] = None if yx is None else (float(yx[0]), float(yx[1]))
     return rec
 
 
@@ -129,13 +139,38 @@ def _series_header(tf) -> dict:
     sizes = {d: int(raw.get(d, 1)) for d in _CORE}
     sizes.update({d: n for d, n in raw.items() if d not in sizes})
     names = [f"Channel:0:{i}" for i in range(sizes["C"])]
+    length = True                                 # whether the xy calibration is a length (the run reader's rule)
     if tf.is_imagej:
         z, y, x = _imagej_sizes(tf)
+        unit = (tf.imagej_metadata or {}).get("unit")
+        length = unit is not None and str(unit).strip().lower() not in _NO_LENGTH
         reader = "tifffile (ImageJ)"
     else:
-        z = y = x = None
+        z = None
+        y, x = _resolution_yx(tf)
         reader = "tifffile"
-    return _record(sizes, len(tf.series), names, z, y, x, reader)
+    rec = _record(sizes, len(tf.series), names, z, y, x, reader)
+    if not length:
+        rec["spacing_yx_um"] = None               # pixels, not micrometres: a single-plane run assumes 1 um and flags it
+    return rec
+
+
+def _resolution_yx(tf) -> tuple[float | None, float | None]:
+    """(dy, dx) in micrometres from the resolution tags of the first page of a TIFF that is neither OME nor ImageJ,
+    scaled by its ResolutionUnit as bioio-tifffile scales them; (None, None) for the unit none (1, an aspect ratio)
+    and for a missing tag, where the run reader gives no xy calibration either (io.bioio_reader._spacing_yx)."""
+    try:
+        page = tf.series[0].pages[0] if tf.series else tf.pages[0]
+        tags = page.tags
+        unit = int(tags["ResolutionUnit"].value)
+        x_npix, x_units = tags["XResolution"].value
+        y_npix, y_units = tags["YResolution"].value
+        if unit == 1:
+            return None, None
+        scale = _RESOLUTION_UNIT_UM.get(unit, 1.0)
+        return _positive(scale * y_units / y_npix), _positive(scale * x_units / x_npix)
+    except (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError, AttributeError):
+        return None, None
 
 
 def _tiff_header(path: Path) -> dict:

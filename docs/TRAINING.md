@@ -49,10 +49,10 @@ The first path is a results folder, a time-lapse series folder or a batch tree. 
 export-training reads the image again from its source file at the xy stride, z range and timepoint the run
 recorded, so the exported images sit on exactly the grid the labels were made on, and takes the channel the run
 segmented (`segmentation.nuclei.channel`, through the run's channel map). In a batch tree the run folders hold
-no `run_manifest.json`: a projected or single-plane run then takes its role from the batch's own
-`run_manifest.json` (the one above the folder that records the run's config hash), and a 3D run of a batch is
-exported from the `dna` role, as before this release. What it writes follows the run's geometry
-(`--orientations auto`, the default):
+no `run_manifest.json`: every run of a batch, 3D, projected or single-plane, then takes its role from the batch's
+own `run_manifest.json` (the one above the folder that records the run's config hash). A run without such a
+manifest is exported from the `dna` role (channel 0, with a warning, when the run's channel map has no `dna` role).
+What it writes follows the run's geometry (`--orientations auto`, the default):
 
 | the run | what export writes | file names |
 |---|---|---|
@@ -290,10 +290,12 @@ recipe's spot settings for the best match; applying the result writes recipe.yam
 ## What is tested
 
 `tests/test_training_export_geometry.py` pins the 3D export of the synthetic gonad (manifest.csv and export.json)
-to what the export wrote before this change, and checks the proj pairs of projected runs (the recorded plane, the
-projections, the run's stride and z range, a run of a batch tree), the xy pairs of single-plane runs (the whole
-plane, the tiles of a plane of 1030 rows and 1100 columns and their offsets, the stride, the size cap, a batch
-tree), the spacing of runs with `io.voxel_size_um`, and trees that mix the geometries.
+to what the export wrote before this change, from a results folder and from a batch tree, checks that a 3D run of a
+batch tree whose recipe segments `central_element` (`live_syp2`) gives that channel's slices, as the same run in a
+results folder does, and checks the proj pairs of projected runs (the recorded plane, the projections, the run's
+stride and z range, a run of a batch tree), the xy pairs of single-plane runs (the whole plane, the tiles of a plane
+of 1030 rows and 1100 columns and their offsets, the stride, the size cap, a batch tree), the spacing of runs with
+`io.voxel_size_um`, and trees that mix the geometries.
 `tests/test_import_labels.py` imports TIFF, PNG (also with indexed colours) and Cell-ACDC npz files (one plane,
 every plane, with a T axis, and a time series, also from labels of one timepoint), refuses a `_seg.npy` without
 `--allow-pickle`, refuses a test image of a benchmark split by its file and by its pixels, warns without any split
