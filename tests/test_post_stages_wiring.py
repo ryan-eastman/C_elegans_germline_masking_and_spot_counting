@@ -640,3 +640,46 @@ def test_refused_before_any_image(post_pack_env, counting_fixture, monkeypatch, 
     finally:
         register_counting(counting_fixture)
     assert counting_fixture == []
+
+
+# ---------------------------------------------------------------------------------------------------
+# reviews/final_partA.md N2: one series refusal for `run --t` and `project run`
+# ---------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("case", ["plain", "labels", "planar_true", "planar_auto_plane", "planar_auto_stack",
+                                  "planar_malformed", "post_stages"])
+def test_one_series_refusal_for_run_t_and_project_run(case, monkeypatch, tmp_path):
+    """`germquant run --t` (cli._series_refusal) and `germquant project run` (project.run.series_refusal) refuse a
+    series for the same reasons with the same message: a recipe that reads labels from files, a single plane
+    (io.planar true, or auto on a one-plane header), a malformed io.planar, and post-stages switched on; a plain
+    recipe and io.planar auto on a stack run. Only the sample sheet differs, by design (D21): the command line
+    refuses any --samples, a project only a series that has a row."""
+    from germquant import planar
+    from germquant.io import labels as L
+    from germquant.io import sample_sheet as S
+    from germquant.project import run as R
+
+    keys = {"plain": "", "labels": "segmentation:\n  nuclei:\n    labels_from: '{image_dir}/{image_stem}_masks.tif'\n",
+            "planar_true": "io:\n  planar: true\n", "planar_auto_plane": "io:\n  planar: auto\n",
+            "planar_auto_stack": "io:\n  planar: auto\n", "planar_malformed": "io:\n  planar: 0\n",
+            "post_stages": ""}[case]
+    study = tmp_path / "study.yaml"
+    study.write_text(f"extends: {(ROOT / 'config' / 'profiles' / 'generic.yaml').as_posix()}\n{keys}", encoding="utf-8")
+    cfg = load_config(study)
+    sizes = {"C": 2, "Z": 5, "Y": 16, "X": 16} if case == "planar_auto_stack" else {"C": 2, "Y": 16, "X": 16}
+    monkeypatch.setattr(pipeline, "read_nd2_metadata", lambda *a, **k: {"sizes": dict(sizes)})
+    post = [{"name": FIXTURE_NAME}] if case == "post_stages" else None
+    want = {"plain": None, "labels": L.SERIES_REFUSAL, "planar_true": planar.PLANAR_SERIES_REFUSED,
+            "planar_auto_plane": planar.PLANAR_SERIES_REFUSED, "planar_auto_stack": None,
+            "planar_malformed": "io.planar must be false, auto or true (or null for false); got 0",
+            "post_stages": PS.SERIES_REFUSAL}[case]
+    path = tmp_path / "series.nd2"
+    assert cli._series_refusal(cfg, path, post_stages=post) == R.series_refusal(cfg, path, post_stages=post) == want
+    # the sheet, after the recipe's own refusals and before the post-stages': any --samples on the command line, in
+    # a project only a row the sheet has
+    intrinsic = None if case in ("plain", "planar_auto_stack", "post_stages") else want
+    assert cli._series_refusal(cfg, path, samples="samples.csv", post_stages=post) == (intrinsic or S.SERIES_REFUSAL)
+    no_row = S.SampleRow(fields={}, source="samples.csv", row_sha256=None)
+    row = S.SampleRow(fields={"sex": "male"}, source="samples.csv", row_sha256="0" * 64)
+    assert R.series_refusal(cfg, path, row=no_row, post_stages=post) == want
+    assert R.series_refusal(cfg, path, row=row, post_stages=post) == (intrinsic or S.SERIES_REFUSAL)

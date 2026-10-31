@@ -873,27 +873,17 @@ def _series_refusal(cfg, path, *, samples=None, post_stages=None) -> str | None:
     """Why ``run --t`` cannot run this series in this release, or None; _run_series prints it as "REFUSED:
     <message>" (D45). A labels recipe (segmentation.nuclei.labels_from, D15, docs/LABELS.md) is refused first,
     with no header read; then a single-plane run (io.planar true, or auto on a file whose header has one plane;
-    D9, docs/PLANAR.md); then a sample sheet (``samples``, the --samples file, which is not read: the series loop
-    gives its timepoints no sample row, D21, docs/PROJECTS.md); then post-stages (``post_stages``, the entries of
-    the list in force when it switches one on: D33, docs/POST_STAGES.md). process_image refuses each labels,
-    single-plane or sample timepoint as well."""
-    if cfg.get("segmentation.nuclei.labels_from") is not None:
-        from .io.labels import SERIES_REFUSAL
+    D9, docs/PLANAR.md), or a malformed io.planar: these two checks are project run's own
+    (germquant.project.run.series_refusal; reviews/final_partA.md N2), so both routes refuse a series alike. Then a
+    sample sheet (``samples``, the --samples file, which is not read: the series loop gives its timepoints no
+    sample row, D21, docs/PROJECTS.md), any sheet here where a project refuses only a series with a row; then
+    post-stages (``post_stages``, the entries of the list in force when it switches one on: D33,
+    docs/POST_STAGES.md). process_image refuses each labels, single-plane or sample timepoint as well."""
+    from .project.run import series_refusal
 
-        return SERIES_REFUSAL
-    from . import planar
-
-    try:
-        mode = planar.planar_setting(cfg)
-    except planar.PlanarConfigError as e:          # a malformed io.planar: refused before any timepoint too
-        return str(e)
-    if mode == "true":
-        return planar.PLANAR_SERIES_REFUSED
-    if mode == "auto":
-        from .pipeline import read_input_metadata
-
-        if planar.one_plane_header(read_input_metadata(path)):
-            return planar.PLANAR_SERIES_REFUSED
+    why = series_refusal(cfg, path)                # labels_from, then a single plane (both loaded lazily)
+    if why:
+        return why
     if samples:
         from .io.sample_sheet import SERIES_REFUSAL as SHEET_SERIES_REFUSAL
 

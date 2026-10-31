@@ -167,12 +167,14 @@ def series_refusal(cfg, path, *, row=None, post_stages=None) -> str | None:
     germquant.io.sample_sheet.SERIES_REFUSAL, the message `run --t ... --samples` and the API give), or
     ``post_stages``, the entries of the run's post-stage list, when it switches one on (D33:
     germquant.post_stages.SERIES_REFUSAL). The time-lapse loop is not changed in this release (design 4.13, PLAN.md
-    Q1), so such a series must never reach it."""
+    Q1), so such a series must never reach it. `germquant run --t` refuses with these labels and single-plane
+    checks too (cli._series_refusal; reviews/final_partA.md N2), so the two routes cannot drift apart."""
     if cfg.get(LABELS_KEY) is not None:
         from ..io.labels import SERIES_REFUSAL
 
         return SERIES_REFUSAL
-    if cfg.get("io.planar") not in (None, False):
+    raw = cfg.get("io.planar")
+    if raw is not None and raw is not False:          # planar_setting's own reading: a 0 is malformed, refused below
         from .. import planar
 
         try:
