@@ -5,6 +5,9 @@ small registry, so that another segmenter can be plugged in without forking the 
 head-to-head against the current model is a config change, not a rewrite. This document is the
 contract a backend has to meet.
 
+A measurement step that runs after the pipeline and writes tables of its own, without replacing a step,
+is not a backend but a post-stage: its contract is docs/POST_STAGES.md.
+
 ## Nucleus segmentation backends
 
 ### Picking one
@@ -561,3 +564,5 @@ whether a pack can run without loading anything.
 - The pack rule: a pack recipe sets `segmentation.nuclei.method: cellpose` (with whatever backend it names)
   or `classical`, never `auto`, so a missing Cellpose or a missing plugin fails loudly instead of falling
   back to the classical watershed.
+- Post-stages are named the same way: `needs.post_stages` lists the post-stages a recipe needs, and `germquant
+  pack check` greys the recipe where one is not offered, reading metadata only (docs/POST_STAGES.md).

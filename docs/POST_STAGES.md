@@ -121,10 +121,11 @@ A run switches post-stages on through a file of its own, `post_stages.yaml`, a l
 ```
 
 It sits in a project's root next to `recipe.yaml`, or ships in a pack as `post_stages/<recipe>.yaml`, or is
-given to a run as a file; a project's file, or one given to the run, replaces the pack's. An empty list switches
-every post-stage off (and so also replaces a pack's file). germquant's config loader never reads the file:
-switching a post-stage on or changing its parameters changes neither `config_hash`, nor a stage hash, nor the
-completion marker, so it reruns neither the image nor anything but the post-stage.
+given to a run with `--post-stages FILE`; a project's file, or one given to the run, replaces the pack's (see
+"Running post-stages" below). An empty list switches every post-stage off (and so also replaces a pack's file).
+germquant's config loader never reads the file: switching a post-stage on or changing its parameters changes
+neither `config_hash`, nor a stage hash, nor the completion marker, so it reruns neither the image nor anything
+but the post-stage.
 
 The file is checked against the post-stages installed in the environment that runs: each entry must name a
 usable post-stage, list it once, and give only declared parameters, each of its declared type and inside its
@@ -140,10 +141,73 @@ python -c "from germquant.post_stages import write_post_stages_file; write_post_
 
 or from the command line (see below). A file is also fine written by hand; the runner checks it the same way.
 
-## Running post-stages on a results folder
+## Running post-stages
 
-Until the run commands take post-stages, run them on a finished results folder from Python, with the
-environment that has them installed:
+The run commands take post-stages, in the environment that has them installed:
+
+```
+germquant run   IMAGE  --config CFG --out OUT --post-stages post_stages.yaml
+germquant batch FOLDER --config CFG --out OUT --post-stages post_stages.yaml [--resume]
+germquant project run DIR                        # the project's post_stages.yaml
+```
+
+and from Python `api.run(IMAGE, ..., post_stages="post_stages.yaml")` or `api.run_loaded(IMAGE, cfg, OUT,
+post_stages=[{"name": "ring_intensity", "params": {"radius_um": 0.8}}])`: a path or the list itself.
+
+**Which list a run uses.** `--post-stages FILE` (or `post_stages=`) when given; in a project, its own
+`post_stages.yaml`; else, for a pack recipe (`--pack`, `api.run(pack=)` or a project's recipe), the
+`post_stages/<recipe>.yaml` the pack ships, when it ships one; else none. So a project's file, or one given to the
+run, replaces the pack's, and a file holding `[]` switches every post-stage off. Without any of them nothing
+changes: no post file is written, and a run of a recipe file or a profile does not even import
+germquant.post_stages.
+
+**Checked before the first image.** The list in force is read and checked against this environment's
+post-stages before any image is processed (as `validate_post_stages` checks it). A list that cannot be read, or
+holds an entry that cannot run here, refuses the run: `run` and `batch` print one `REFUSED: post-stages <file>:
+<problems>` line and exit 2, `project run` refuses with its exit 2 before its run log exists. With
+`--no-pack-check` a pack's own list that cannot run here is a warning instead, and each image records the failure
+in its `__post.json`. api.run and api.run_loaded refuse only a list they cannot read (ValueError, or OSError for a
+file that cannot be opened); a post-stage that cannot run there is recorded as failed, image by image.
+
+**When they run.** Right after process_image has written the image's folder, on what it wrote, with the stack the
+run read handed over (the image is read once). `germquant run` and `batch` print a line per post-stage (done, up to
+date, or FAILED with the reason), and api.run's result gains `post`, what run_post_stages returns. A failure never
+fails the image or the batch: it is recorded in `__post.json`, and the image stays done.
+
+**Resume.** `batch --resume` and `project run` (which resumes by default) skip an image whose main run is done
+and run only its due post-stages: those whose sub-hash changed (a parameter, the file, a new version of the
+post-stage, or an input). That is the rerun "of the post-stage only": the main tables, label images, stage record
+and completion marker stay byte for byte as they were; the image is read again only for a post-stage
+that reads it. A resumed batch without `--post-stages` runs no post-stage and leaves the post files as they
+are. A run that processes the image again (`germquant run`, a batch without `--resume`, or
+`project run --no-resume`) gives it a new main run, so every post-stage listed reruns on it.
+
+**Time series.** Post-stages are refused for time series in this release. `germquant run IMAGE --t ...` with a
+list that switches a post-stage on (also a pack recipe's own) prints `REFUSED: post-stages are refused for time
+series ...` and exits 2 before any timepoint; api.run and api.run_loaded given `t` raise ValueError with the same
+message; `project run` fails each series with it (the project's other images run). An empty list switches them
+off, so `--post-stages` with a file holding `[]` runs such a series without them.
+
+**Collecting.** `germquant collect` (and `batch --resume`, and `project collect`) stack the post tables into
+`batch_post_<name>_<table>.csv` next to the other batch tables, with `image_id` as the first column (a post table
+holds only its declared columns) and a sample sheet's own columns joined as in every batch table. Only the tables
+in force are stacked: those an image's `__post.json` lists for a post-stage that is done and that ran on the
+folder's current main run (its recorded `main_run` and table digests are the folder's now). The tables of a
+post-stage switched off or failed since, or made before the main run was redone, stay on disk (nothing of a
+user's is deleted) and are left out, each with a warning naming the file and the reason.
+
+**Packs.** A pack recipe that needs a post-stage names it in `needs.post_stages`; `germquant pack check` greys
+the recipe where that post-stage is not installed or cannot be used, reading metadata and the declaration file
+only, and `run --pack` and `batch --pack` refuse it unless `--no-pack-check` is given. The pack's
+`post_stages/<recipe>.yaml` switches post-stages on for that recipe's runs (docs/PACKS.md).
+
+**napari-germquant** lists the post-stages and writes a project's `post_stages.yaml` through the engine
+environment (`python -m germquant.post_stages list --json` and `write`, below), because only that environment
+has the post-stages installed.
+
+### On a finished results folder, from Python
+
+The same runner works on a folder a run finished earlier:
 
 ```python
 from germquant import api
@@ -334,8 +398,8 @@ macOS and Linux:
 ```
 
 `list` prints `ring_intensity 0.1.0  (germquant-ring-intensity)` and its title. Then switch it on with a
-`post_stages.yaml` and run it on a finished results folder, as above. The folder gains
-`img_001__post_ring_intensity_rings.csv`:
+`post_stages.yaml` and run an image with it (`germquant run IMAGE ... --post-stages post_stages.yaml`), or run
+it on a finished results folder, as above. The folder gains `img_001__post_ring_intensity_rings.csv`:
 
 ```
 nucleus_id,ring_voxels,ring_mean,inside_mean
@@ -344,8 +408,8 @@ nucleus_id,ring_voxels,ring_mean,inside_mean
 3,688,47.62183161465408,48.86045501652794
 ```
 
-and the record `img_001__post.json` shown earlier. Change `radius_um` and call it again: only the post-stage
-reruns. Like a new backend, a post-stage's numbers are the lab's own: compare it with a known measurement on a
+and the record `img_001__post.json` shown earlier. Change `radius_um` and run again with `--resume` (a batch)
+or call run_post_stages again: only the post-stage reruns. Like a new backend, a post-stage's numbers are the lab's own: compare it with a known measurement on a
 few images before relying on it, and name it and its version in the methods.
 
 ## Testing a post-stage
@@ -388,3 +452,8 @@ engine's and the plugin's tests both use that one helper.
 | `register_post_stage(name, fn, declaration, *, replace=False)`, `unregister_post_stage(name)` | in-process registration |
 | `read_post_record(out_dir, image_id)`, `post_table_name(image_id, name, table)` | the record and the table file names |
 | `python -m germquant.post_stages list [--json] [--all]`, `write DIR --entries JSON [--json]` | the torch-free command line |
+| `germquant run ... --post-stages FILE`, `germquant batch ... --post-stages FILE`, `germquant project run DIR` | the run commands (above) |
+| `germquant.api.run(..., post_stages=None)`, `run_loaded(..., post_stages=None)`, `list_post_stages(*, include_unusable=False)` | the same from Python; `list_post_stages` is the listing above |
+| `entries_of(path or entries)` | the entries of a list, read (ValueError, or OSError, for one that cannot be read) |
+| `post_stages_in_force(given=None, *, project_root=None, pack_folder=None, recipe=None)`, `pack_post_stages_path(pack_folder, recipe)` | which list a run uses, and the list a pack ships for a recipe |
+| `post_table_problems(out_dir, image_id, names)` | why collect leaves a post table out (a table it does not name is in force) |
