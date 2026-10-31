@@ -350,7 +350,9 @@ The workflow's project mode runs one job per image of the project, each `germqua
 <id> --via snakemake`, then `germquant project collect STUDY`. The jobs are named by the image ids, so
 `gonad_01.ome.tif` is `gonad_01`. A job's output is the image's completion marker (the series record
 `<id>__series.json` for an image with timepoints): an image whose marker is missing runs again, and after a
-recipe edit every job runs again (the project's config_hash is one of the jobs' params). Snakemake deletes a
+recipe edit every job runs again (the project's config_hash is one of the jobs' params). The sample sheet is not
+one of them: after a row is edited, added or taken away, `project status` reads that image stale (sample_row) and
+`germquant project run STUDY` reruns it; Snakemake does not. Snakemake deletes a
 job's output before it runs the job, so every job it runs processes its image again, also an image that `project
 status` reads as done, and `--forcerun project_image` runs every image of the project again. An image whose stage
 failed keeps its marker, so Snakemake does not try it again; an image that fails ends its job with exit code 1,
