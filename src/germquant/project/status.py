@@ -191,13 +191,14 @@ def _image(entry: dict, ctx: dict) -> dict:
 
 
 def _series_refused(entry: dict, path, ctx: dict) -> str | None:
-    """The refusal every run fails this series with (run.series_refusal, with its row of the sheet), in the run's
-    words, or None."""
+    """The refusal every run fails this series with (run.series_refusal, with its row of the sheet and the
+    project's post-stage list), in the run's words, or None."""
     from .run import marker_id, series_refusal, series_refusal_text
 
     sheet = ctx["sheet"]
     try:
-        why = series_refusal(ctx["cfg"], path, row=None if sheet is None else sheet.row(marker_id(path), path))
+        why = series_refusal(ctx["cfg"], path, row=None if sheet is None else sheet.row(marker_id(path), path),
+                             post_stages=ctx.get("post_entries") or None)
     except Exception:  # noqa: BLE001 - io.planar auto reads the header; a run names that error itself
         return None
     return series_refusal_text(entry, why, ctx["root"]) if why else None
@@ -259,6 +260,14 @@ def project_status(project) -> dict:
         warnings.append(f"the project's sample sheet cannot be used, so a run is refused: {e}")
     if sheet is not None:
         warnings += sheet.warnings
+    from .run import project_post_stages
+
+    try:
+        with use_project(root):
+            _post, post_entries = project_post_stages(root, pack, recipe)
+    except ProjectError as e:          # reported, never raised: a run refuses such a list before any image
+        post_entries = []
+        warnings.append(f"the project's post-stage list cannot be used, so a run is refused: {e}")
     mix = _environment_mix(events)
     if mix:
         warnings.append(mix)
@@ -267,7 +276,7 @@ def project_status(project) -> dict:
     ctx = {"root": root, "cfg": cfg, "hashes": ResumeHashes(cfg, unresolved_ok=True),
            "xy_stride": int(m["run"].get("xy_stride") or 1),
            "z_range": (int(zr[0]), int(zr[1])) if zr else None, "last": last, "processed": processed,
-           "sheet": sheet}
+           "sheet": sheet, "post_entries": post_entries}
     with use_project(root):
         images = [_image(e, ctx) for e in m.get("images") or []]
         unresolved = _resolution_warning(cfg, m, models, ctx["hashes"].problem)
