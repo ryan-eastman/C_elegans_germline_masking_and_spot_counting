@@ -345,14 +345,20 @@ def test_two_formats_of_one_id_in_one_folder_keep_the_first(tmp_path, monkeypatc
     assert "img.ome.tif" in [f.name for f in files] and why["img.nd2"] == "exclude_pattern *.nd2"
     assert why["img.tif"].startswith("duplicate_id img: img.ome.tif in this folder")
     # one id twice in one format, where the file system tells letter case apart (Linux: x.tif and x.TIF, listed here
-    # as such a system lists them): one results folder, so the later is left out (review pass 2 part 2a, N1); the
-    # default suffixes keep 8eb73de's files, both z.ND2 and z.nd2 (D20)
-    listing = [case / "y.TIF", case / "y.tif", case / "z.ND2", case / "z.nd2"]
+    # as such a system lists them): one results folder, so the later is left out (review pass 2 part 2a, N1), also
+    # for a list of one suffix other than .nd2; two ids that differ in letter case (Q.nd2 and q.nd2) stay two images,
+    # checked on every system (part 2b, N3); the default suffixes keep 8eb73de's files, both z.ND2 and z.nd2 (D20)
+    listing = [case / n for n in ("Q.nd2", "q.nd2", "y.TIF", "y.tif", "z.ND2", "z.nd2")]
     monkeypatch.setattr(type(case), "glob", lambda self, pattern: iter(listing))
     kept, gone = batch.discover_files(case, "**/*", suffixes=(".nd2", ".tif"))
-    assert [f.name for f in kept] == ["y.TIF", "z.ND2"] and [f.name for f, _ in gone] == ["y.tif", "z.nd2"]
-    assert all(w.startswith("duplicate_id ") for _, w in gone)
-    assert [f.name for f in batch.discover_files(case, "**/*")[0]] == ["z.ND2", "z.nd2"]
+    assert [f.name for f in kept] == ["Q.nd2", "q.nd2", "y.TIF", "z.ND2"]
+    assert [f.name for f, _ in gone] == ["y.tif", "z.nd2"] and all(w.startswith("duplicate_id ") for _, w in gone)
+    kept, gone = batch.discover_files(case, "**/*", suffixes=(".tif",))
+    assert [f.name for f in kept] == ["y.TIF"] and [f.name for f, _ in gone] == ["y.tif"]
+    assert gone[0][1].startswith("duplicate_id y: y.TIF in this folder has the same image id")
+    default = batch.discover_files(case, "**/*")
+    assert [f.name for f in default[0]] == ["Q.nd2", "q.nd2", "z.ND2", "z.nd2"]
+    assert default == base_discover_files(case, "**/*")
 
 
 # ---------------------------------------------------------------------------------------------------

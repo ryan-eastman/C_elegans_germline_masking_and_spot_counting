@@ -350,7 +350,9 @@ The workflow's project mode runs one job per image of the project, each `germqua
 <id> --via snakemake`, then `germquant project collect STUDY`. The jobs are named by the image ids, so
 `gonad_01.ome.tif` is `gonad_01`. A job's output is the image's completion marker (the series record
 `<id>__series.json` for an image with timepoints): an image whose marker is missing runs again, and after a
-recipe edit every job runs again (the project's config_hash is one of the jobs' params). Snakemake deletes a
+recipe edit every job runs again (the project's config_hash is one of the jobs' params). The sample sheet is not
+one of them: after a row is edited, added or taken away, `project status` reads that image stale (sample_row) and
+`germquant project run STUDY` reruns it; Snakemake does not. Snakemake deletes a
 job's output before it runs the job, so every job it runs processes its image again, also an image that `project
 status` reads as done, and `--forcerun project_image` runs every image of the project again. An image whose stage
 failed keeps its marker, so Snakemake does not try it again; an image that fails ends its job with exit code 1,
@@ -399,6 +401,10 @@ that was stopped: readers use its complete lines.
 | missing | no results yet | |
 | unreachable | not done, and its file cannot be reached: is the NAS or VPN connected? | |
 | excluded | excluded from the project, with the reason | |
+
+A time series that finished before the sample sheet gave it a row reads stale (sample_row), not done: every run
+now fails it before anything of it is read (see Running a project), and its reason gives that refusal with the way
+out (take the row out of the sheet, or clear the sheet with `--samples none`).
 
 Each image also shows its qc_pass, the run that last processed it (last_run_id), the device its nuclei were
 segmented on and the file a run reads (a relative path joined to the project folder). Then:

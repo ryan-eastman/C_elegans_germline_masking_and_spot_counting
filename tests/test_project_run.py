@@ -716,8 +716,8 @@ def test_a_project_run_takes_each_image_its_sheet_row(project_env, tmp_path, mon
     its stage record, run manifest and marker; the sheet's warnings are reported once. The rest reuses that run: an
     image without a row gets the empty row (process_image flags it metadata:not_in_sample_sheet), a row keyed by a
     file path binds to the file the run reads, a resume compares each image's row (an edited row reruns that image
-    only), collect_project joins the sheet's own columns, and a sheet that cannot be read or opened is refused before
-    anything is written."""
+    only), collect_project joins the sheet's own columns (and `project collect` names them), and a sheet that cannot
+    be read or opened is refused before anything is written."""
     need_readers()
     import warnings
 
@@ -773,6 +773,10 @@ def test_a_project_run_takes_each_image_its_sheet_row(project_env, tmp_path, mon
     stacked = pd.read_csv(proj.root / "results" / "batch_image_summary.csv", dtype=str, keep_default_na=False)
     assert list(stacked.columns)[-1] == "slide" and dict(zip(stacked["image_id"], stacked["slide"])) == {
         "a": "S12", "b": ""}
+    capsys.readouterr()
+    assert cli.main(["project", "collect", str(proj.root)]) == 0         # the plain output names them (9.4 #15)
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1] == f"sample sheet {sheet}: columns joined: slide", out
     # a sheet that cannot be read, or opened, is refused before anything is written (exit 2), by collect too
     logs = sorted((proj.root / "runs").iterdir())
     sheet.write_bytes(b"image_id;genotype\na;N2\n")
@@ -972,8 +976,8 @@ PROJECT_NAMES = ["Project", "ProjectError", "ProjectLockedError", "RunError", "n
                  "save_project", "add_images", "read_header", "project_config", "preview_roles", "write_recipe",
                  "revert_recipe", "use_model", "run_project", "project_status", "collect_project",
                  "export_commands", "break_lock", "list_rounds", "new_round"]
-# the names of section 9.1 (and 9.4 #12) that other P5 units bring: (name, module, unit), each the very object of
-# its module in germquant.api and its __all__
+# the names of section 9.1 (and 9.4 #12 and #13) that other P5 units bring: (name, module, unit), each the very
+# object of its module in germquant.api and its __all__
 LATER_NAMES = [("tune_spots", "germquant.tune", "P5-TUNE"), ("apply_tuning", "germquant.tune", "P5-TUNE"),
                ("TuneRefused", "germquant.tune", "P5-TUNE"), ("GridError", "germquant.tune", "P5-TUNE"),
                ("TuningWarning", "germquant.tune", "P5-TUNE"),
@@ -981,7 +985,10 @@ LATER_NAMES = [("tune_spots", "germquant.tune", "P5-TUNE"), ("apply_tuning", "ge
                ("SampleRow", "germquant.io.sample_sheet", "P5-SHEET"),
                ("SampleSheet", "germquant.io.sample_sheet", "P5-SHEET"),
                ("read_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET"),
-               ("write_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET")]
+               ("write_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET"),
+               ("SampleSheetError", "germquant.io.sample_sheet", "P5-SHEET"),
+               ("SampleSheetWarning", "germquant.io.sample_sheet", "P5-SHEET"),
+               ("discover_options", "germquant.batch", "P5-SHEET")]
 
 
 def test_api_re_exports_the_project_names():

@@ -18,9 +18,11 @@ stages, geometry, planar_flag, segment_hash or sample_row); ``failed`` when its 
 (reason_code failed_stages) or, without results, when the last run that processed it failed (its error);
 ``unreachable`` when it is not done and its file cannot be reached (a NAS or VPN not connected); ``excluded``; else
 ``missing`` (for a time series that the recipe, or its row of the sheet, keeps from running as one, the reason adds
-the refusal every run fails it with, run.series_refusal). ``path`` is the file a run reads (a relative manifest
-path joined to the project root, an absolute or UNC path as it is). qc_pass comes from its image summary,
-device_used from its stage record, last_run_id from the last run that processed it (done or failed).
+the refusal every run fails it with, run.series_refusal). A time series that finished before the sheet gave it a
+row is ``stale`` with reason_code sample_row and that refusal, not done: every run now fails it before
+process_series (D21, D33). ``path`` is the file a run reads (a relative manifest path joined to the project root,
+an absolute or UNC path as it is). qc_pass comes from its image summary, device_used from its stage record,
+last_run_id from the last run that processed it (done or failed).
 
 ``config_hash`` is computed now (open_project); ``pack.installed`` lists the versions of the pinned pack installed
 in this environment outside the project, ``project_copy`` whether packs/<id>/<version>/ holds the project's copy.
@@ -139,15 +141,26 @@ def _image(entry: dict, ctx: dict) -> dict:
             done, why = ctx["hashes"].is_done(out / f"t{k:03d}", f"{mid}_t{k:03d}", path, t=k, **geo)
             if not done:
                 whys.append((k, why))
-        if not whys:
+        sheet = ctx["sheet"]
+        if not whys and (sheet is None or sheet.row(mid, path).row_sha256 is None):
             from .run import summary_qc_pass
 
             passes = [summary_qc_pass(out / f"t{k:03d}", f"{mid}_t{k:03d}") for k in range(int(entry["timepoints"]))]
             rec.update(status="done", reason="done", qc_pass=all(bool(p) for p in passes))
             return rec
-        stale = [(k, w) for k, w in whys if w != "no completion marker"]
-        done, why = False, (f"t{stale[0][0]:03d}: {stale[0][1]}" if stale else "no completion marker")
-        code = reason_code(stale[0][1]) if stale else None
+        if not whys:
+            # every timepoint finished before the sample sheet gave the series a row: a run now fails it before
+            # process_series (D21, D33), so it is not done; the reason names the refusal, in the run's words
+            from ..io.sample_sheet import SERIES_REFUSAL
+            from .run import series_refusal_text
+
+            done, why = False, ("sample row: the series ran without a row of the sample sheet, and a run fails a "
+                                "series that has one: " + series_refusal_text(entry, SERIES_REFUSAL, root))
+            code = "sample_row"
+        else:
+            stale = [(k, w) for k, w in whys if w != "no completion marker"]
+            done, why = False, (f"t{stale[0][0]:03d}: {stale[0][1]}" if stale else "no completion marker")
+            code = reason_code(stale[0][1]) if stale else None
         fields = {}
     else:
         sheet = ctx["sheet"]
