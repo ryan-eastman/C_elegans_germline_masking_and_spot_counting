@@ -154,7 +154,7 @@ def _fabricate(proj, src: str, dest: str, **marker_changes) -> None:
 
 # ---- the run log (P5 acceptance 2, second half; D17, D48) ---------------------------------------------------
 
-def test_run_log_events(project_env, tmp_path):  # noqa: F811
+def test_run_log_events(project_env, tmp_path, monkeypatch):  # noqa: F811
     need_readers()
     proj = project_with_images(tmp_path)
     before = (proj.root / "germquant_project.yaml").read_bytes()
@@ -204,9 +204,12 @@ def test_run_log_events(project_env, tmp_path):  # noqa: F811
         assert list(e)[3:] == PLUGIN_IMAGE_DONE and e["status"] == "skipped"
         assert {k: e[k] for k in ("done_sha256", "config_hash", "stage_hashes", "qc_pass")} == \
                {k: old[k] for k in ("done_sha256", "config_hash", "stage_hashes", "qc_pass")}
-    # --no-resume reruns what it is given, done or not (one image here, which keeps the test short)
+    # --no-resume reruns what it is given, done or not: a stand-in for api.run_loaded shows the call for a done
+    # image (one image, and no second pixel run of it, which keeps the test short)
+    again = []
+    fake_run_loaded(monkeypatch, again)
     res3 = P.run_project(proj, images=["a"], resume=False)
-    assert res3["counts"] == {"done": 1, "failed": 0, "skipped": 0}
+    assert res3["counts"] == {"done": 1, "failed": 0, "skipped": 0} and [s["image"] for s in again] == ["a.ome.tif"]
     assert sorted(p.name for p in (proj.root / "runs").iterdir()) == sorted(
         f"{r['run_id']}.jsonl" for r in (res, res2, res3))
     assert runlog.read_logs(proj.root) == sorted(ev + ev2 + log_events(res3["log"]), key=lambda e: e["time"])
@@ -244,10 +247,11 @@ def test_run_id_via_and_exit_codes(project_env, tmp_path, capsys):  # noqa: F811
                              "--via", "snakemake", "--json"]
     assert cli.main(["project", "run", str(proj.root), "--run-id", rid]) == 2
     assert "already" in capsys.readouterr().err and (runs / f"{rid}.jsonl").read_bytes() == first
-    # 1: some image failed (its file is no image any more); the others still run
+    # 1: some image failed (its file is no image any more); the others still count (a, done, is skipped: no second
+    # pixel run of it)
     (proj.root / "images" / "b.ome.tif").write_bytes(b"not a TIFF any more")
-    res = P.run_project(proj, resume=False)
-    assert res["exit_code"] == 1 and res["counts"] == {"done": 1, "failed": 1, "skipped": 0}
+    res = P.run_project(proj)
+    assert res["exit_code"] == 1 and res["counts"] == {"done": 0, "failed": 1, "skipped": 1}
     failed = [e for e in log_events(res["log"]) if e["event"] == "image_failed"]
     assert [e["image_id"] for e in failed] == ["b"] and failed[0]["status"] == "failed"
     assert list(failed[0])[3:] == PLUGIN_IMAGE_DONE and failed[0]["error"] and failed[0]["done_sha256"] is None
