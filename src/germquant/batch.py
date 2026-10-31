@@ -81,26 +81,86 @@ def load_exclusions(path: str | Path | None, base_dir: Path | None = None) -> Ex
 
 
 def discover_files(root: str | Path, glob: str = "**/*.nd2", exclude_patterns: list[str] | None = None,
-                   exclusions: Exclusions | Iterable[str] | None = None) -> tuple[list[Path], list[tuple[Path, str]]]:
+                   exclusions: Exclusions | Iterable[str] | None = None, *, suffixes: Iterable[str] = (".nd2",),
+                   skip_root: str | Path | None = None) -> tuple[list[Path], list[tuple[Path, str]]]:
     """Files to process, sorted, plus the (file, reason) pairs that were dropped. ``exclude_patterns``
     are filename globs (10x overviews, largeimage); ``exclusions`` are the study's Exclusions (a plain
-    list of patterns is accepted too)."""
+    list of patterns is accepted too), matched against the image id (io.formats.image_stem).
+
+    ``suffixes`` (io.input_suffixes, docs/DESIGN_system_packs.md 7.8) are the formats kept, matched on the whole
+    format suffix in any letter case (io.formats.image_suffix: x.ome.tif is .ome.tif, never .tif). The default keeps
+    exactly the .nd2 files of 8eb73de, under the same ids (image_stem is Path.stem for an .nd2). germquant's own
+    output images (project.images.OUTPUT_SUFFIXES: <id>__nuclei_labels.tif and the like) are never kept; none of them
+    ends in .nd2, so the default set is unchanged. With ``skip_root`` (the batch's output root, given only when
+    io.input_suffixes is set, PLAN.md D20) nothing under that folder is kept either, when it lies inside ``root``
+    (results in a folder of the input tree); an output root at or above ``root`` (results next to the images, or
+    around them) holds the inputs themselves, so there only germquant's own images are left out.
+
+    Two files of one folder whose image ids are equal (in any letter case) but whose formats differ (x.nd2 and an
+    export x.tif) would share one results folder: the first in sorted order is kept, and each other one is dropped
+    with the reason ``duplicate_id``. So is a later file of the same format whose id is equal in letter case too
+    (x.tif and x.TIF, two files where the file system tells letter case apart), when the suffixes are not the
+    default set. With the default suffixes every file is an .nd2 and neither rule applies, so a default batch
+    keeps 8eb73de's files (PLAN.md D20)."""
+    from .io.formats import image_stem, image_suffix
+    from .project.images import is_output_name
+
     root = Path(root)
     excl = exclusions if isinstance(exclusions, Exclusions) else Exclusions([str(x) for x in (exclusions or [])])
+    want = tuple(str(s).lower() for s in suffixes)
+    skip = None if skip_root is None else os.path.normcase(os.path.abspath(skip_root))
+    if skip is not None and not skip.startswith(os.path.normcase(os.path.abspath(root)).rstrip(os.sep) + os.sep):
+        skip = None                        # at or above the input folder, or beside it: nothing of root lies under it
     keep: list[Path] = []
     dropped: list[tuple[Path, str]] = []
+    first: dict[tuple[str, str], Path] = {}     # (folder, image id in any letter case) -> the file kept for it
+    held: dict[tuple[str, str], Path] = {}      # (folder, image id) -> the file kept for it
+    exact = want != (".nd2",)                   # io.input_suffixes set: one id twice in one format is a twin too
     for f in sorted(root.glob(glob)):
-        if f.suffix.lower() != ".nd2":
+        if image_suffix(f) not in want or is_output_name(f.name):
             continue
+        if skip is not None:
+            full = os.path.normcase(os.path.abspath(f))
+            if full == skip or full.startswith(skip.rstrip(os.sep) + os.sep):
+                continue
         name = f.name.lower()
         pat = next((p for p in (exclude_patterns or []) if fnmatch.fnmatch(name, p.lower())), None)
         if pat is not None:
             dropped.append((f, f"exclude_pattern {pat}")); continue
-        hit = excl.matches(f.stem)
+        hit = excl.matches(image_stem(f))
         if hit is not None:
             dropped.append((f, f"exclusions_file {hit}")); continue
+        here, iid = str(f.parent), image_stem(f)
+        other = first.setdefault((here, iid.casefold()), f)
+        twin = (other if other is not f and image_suffix(other) != image_suffix(f)
+                else held.get((here, iid)) if exact else None)
+        if twin is not None:
+            # one image id in two formats (x.nd2 and x.tif), or twice in one format where the file system tells letter
+            # case apart (x.tif and x.TIF): both would write the one results folder <id>/
+            dropped.append((f, f"duplicate_id {iid}: {twin.name} in this folder has the same image id, "
+                               f"which names one results folder")); continue
+        held[(here, iid)] = f
         keep.append(f)
     return keep, dropped
+
+
+def discover_options(cfg, out_root: str | Path | None = None) -> dict:
+    """The keywords a recipe adds to discover_files, so `germquant batch` and workflow/Snakefile discover alike: {}
+    when io.input_suffixes is unset (a default batch discovers the .nd2 files it always has, D20), else
+    ``{"suffixes": (...), "skip_root": out_root}``. ValueError for a malformed io.input_suffixes
+    (recipe_keys.input_suffixes_problem), before any file is discovered."""
+    raw = cfg.get("io.input_suffixes")
+    if raw is None:
+        return {}
+    from .recipe_keys import input_suffixes_problem
+
+    problem = input_suffixes_problem(raw)
+    if problem:
+        raise ValueError("recipe refused before any file was discovered: " + problem)
+    kw: dict = {"suffixes": tuple(raw)}
+    if out_root is not None:
+        kw["skip_root"] = Path(out_root)
+    return kw
 
 
 def enabled_stage_names(cfg) -> list[str]:
@@ -109,7 +169,7 @@ def enabled_stage_names(cfg) -> list[str]:
 
 def is_done(out_dir: str | Path, image_id: str, cfg, *, xy_stride: int = 1, z_range=None,
             segment_hash: str | None = None, retry_failed: bool = True, t: int | None = None,
-            segment_hash_planar: str | None = None) -> tuple[bool, str]:
+            segment_hash_planar: str | None = None, sample_row_sha256: str | None = None) -> tuple[bool, str]:
     """True when ``<image_id>__done.json`` exists in out_dir with the same config_hash, the same set of
     enabled stages, the same run geometry (xy_stride, z_range), no failed stage (unless
     retry_failed=False) and, when given, the same segment sub-hash (model file or Cellpose version).
@@ -119,7 +179,13 @@ def is_done(out_dir: str | Path, image_id: str, cfg, *, xy_stride: int = 1, z_ra
     planar payload, so it is compared with ``segment_hash_planar`` (None by default). A caller that gives only
     ``segment_hash`` (the time-lapse loop, an outside caller) has it compared with that hash, which a planar
     marker never matches: the image is reprocessed with the reason "planar flag", never skipped on a hash that
-    was not checked. Without any segment hash the check is skipped, as before."""
+    was not checked. Without any segment hash the check is skipped, as before.
+
+    ``sample_row_sha256`` (None by default; the image's sample sheet row, germquant.io.sample_sheet) is compared
+    with the marker's: a sheet run records the row's sha256, or null for an image the sheet has no row for. The two
+    must agree, None standing for no row, so a corrected design cell reruns that image, and so does a row added for
+    an image that ran without one, or a row (or the whole sheet) taken away from an image that ran with one; the
+    reason starts with "sample row". A marker of a run without a sheet, checked without a row, is unchanged."""
     m = provenance.read_done_marker(out_dir, image_id)
     if not m:
         return False, "no completion marker"
@@ -136,17 +202,46 @@ def is_done(out_dir: str | Path, image_id: str, cfg, *, xy_stride: int = 1, z_ra
         return False, f"t_index {m.get('t_index', 'absent')} != {int(t)}"
     if retry_failed and m.get("failed_stages"):
         return False, f"stage(s) failed last run: {', '.join(m['failed_stages'])}"
+    if sample_row_sha256 is not None or m.get("sample_row_sha256") is not None:
+        # the sample sheet row (docs/PROJECTS.md, "Sample sheet"): a marker without the key ran without a sheet
+        why = _sample_row_differs(m, sample_row_sha256)
+        if why:
+            return False, why
     if m.get("planar") is True and (segment_hash is not None or segment_hash_planar is not None):
         # a single-plane marker: its segment sub-hash is the planar one (the safe default of D8 without it)
         want = segment_hash_planar if segment_hash_planar is not None else segment_hash
         if m.get("stage_hashes", {}).get("segment") != want:
             if segment_hash_planar is None:
                 return False, "planar flag: a single-plane marker, and no planar segment hash was given to compare"
-            return False, "segment stage hash differs (model file or Cellpose version changed)"
+            return False, _segment_differs(cfg)
         return True, "done"
     if segment_hash is not None and m.get("stage_hashes", {}).get("segment") != segment_hash:
-        return False, "segment stage hash differs (model file or Cellpose version changed)"
+        return False, _segment_differs(cfg)
     return True, "done"
+
+
+def _segment_differs(cfg) -> str:
+    """The reason is_done gives for a segment sub-hash that differs. A labels run (segmentation.nuclei.labels_from,
+    docs/LABELS.md) resolves no model, so there the labels file or the segment stage's tools moved it (D52); every
+    other run keeps the text it always had."""
+    if cfg.get("segmentation.nuclei.labels_from") is not None:
+        return "segment stage hash differs (the labels file, or the Cellpose or torch version, changed)"
+    return "segment stage hash differs (model file or Cellpose version changed)"
+
+
+def _sample_row_differs(marker: dict, given: str | None) -> str | None:
+    """Why the marker's sample sheet row is not the ``given`` one (None: the image has no row now), or None."""
+    have = marker.get("sample_row_sha256")
+    if have == given:
+        return None
+    if given is None:
+        return ("sample row: the image ran with a sample sheet row, and none was given to compare (no sample sheet, "
+                "or no row for this image in it)")
+    if "sample_row_sha256" not in marker:
+        return "sample row differs (the image ran without a sample sheet)"
+    if have is None:
+        return "sample row differs (the image had no row in the sample sheet when it ran)"
+    return "sample row differs (this image's row in the sample sheet changed)"
 
 
 def apply_framing_qc(rows: list[dict], factor: float = 1.8) -> list[dict]:
@@ -214,9 +309,27 @@ def collect_series_summaries(out_root: str | Path) -> int | None:
     return len(df)
 
 
+def _join_sheet(df: pd.DataFrame, table: str, frames: list, frame_ids: list[str], columns: list[str],
+                values: dict[str, dict[str, str]]) -> pd.DataFrame:
+    """batch_<table>.csv with a sample sheet's extra ``columns`` appended: every row takes the value its image's row
+    gives (``values``, by the image id of the table file the row came from), "" for an image without a row. A
+    column the table already has is left as it is, with a warning."""
+    ids = [iid for iid, frame in zip(frame_ids, frames) for _ in range(len(frame))]
+    new = {}
+    for c in columns:
+        if c in df.columns:
+            log.warning("collect: the sample sheet's column %s is already a column of batch_%s.csv; it is not joined "
+                        "there", c, table)
+            continue
+        new[c] = [values.get(i, {}).get(c, "") for i in ids]
+    if not new:
+        return df
+    return pd.concat([df, pd.DataFrame(new, index=df.index, dtype=object)], axis=1)
+
+
 def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES), *,
             image_ids: set[str] | None = None, extra_rows: list[dict] | None = None,
-            outlier_factor: float | None = 1.8, require_marker: bool = True) -> dict[str, int]:
+            outlier_factor: float | None = 1.8, require_marker: bool = True, sample_sheet=None) -> dict[str, int]:
     """Stack every per-image ``<image_id>__<table>.csv`` under out_root into ``batch_<table>.csv`` and
     rebuild ``batch_summary.csv`` (image_id, n_nuclei, n_germline, qc_pass, qc_flags, out_dir).
 
@@ -229,9 +342,21 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
     * time-lapse series (timelapse.series): the per-timepoint folders stack like any image (their ids
       carry the _t<NNN> suffix), and when any ``<stem>__series_summary.csv`` is present those are stacked
       into ``batch_series_summary.csv`` as well (counted under ``series_summary``; nothing is written
-      without one).
+      without one);
+    * ``sample_sheet`` (None by default; a SampleSheet or a sheet's path, germquant.io.sample_sheet): its extra
+      columns (neither the key nor a design column) are appended to every ``batch_<table>.csv``, joined by the
+      image id of each table file, empty for an image without a row. A column a stacked table already has is not
+      joined there (a warning says so); the design columns stay the ones each image ran with, and
+      batch_summary.csv keeps its six columns.
     Idempotent; safe to rerun after any subset of images was reprocessed. Returns {table: n_rows}."""
     out_root = Path(out_root)
+    sheet_columns, sheet_values = [], {}
+    if sample_sheet is not None:
+        from .io.sample_sheet import SampleSheet, read_sample_sheet
+
+        if not isinstance(sample_sheet, SampleSheet):
+            sample_sheet = read_sample_sheet(sample_sheet)
+        sheet_columns, sheet_values = sample_sheet.extra_columns, sample_sheet.extra_values()
     counts: dict[str, int] = {}
     summaries = _find(out_root, "__image_summary.csv")
     folders: dict[str, tuple[Path, dict | None]] = {}
@@ -246,15 +371,19 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
                     if "__spots_" in f.name and f.name.split("__")[0] in complete})
     for t in tuple(tables) + tuple(x for x in extra if x not in tables):
         frames = []
+        frame_ids: list[str] = []          # the image id of each frame (its file name), for the sample sheet join
         for f in _find(out_root, f"__{t}.csv"):
             iid = f.name.split("__")[0]
             if iid not in complete:
                 continue
             try:
                 frames.append(pd.read_csv(long_path(f), low_memory=False))
+                frame_ids.append(iid)
             except Exception as e:  # noqa: BLE001 - one unreadable table must not block the stack
                 log.warning("collect: skipping %s (%s)", f, e)
         df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=schema.TABLES.get(t, schema.SPOTS))
+        if sheet_columns:
+            df = _join_sheet(df, t, frames, frame_ids, sheet_columns, sheet_values)
         df.to_csv(long_path(out_root / f"batch_{t}.csv"), index=False)
         counts[t] = len(df)
     n_series = collect_series_summaries(out_root)

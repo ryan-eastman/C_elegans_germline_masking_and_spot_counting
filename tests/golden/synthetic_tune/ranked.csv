@@ -1,0 +1,7 @@
+rank,objective,objective_value,tie_break,tie_break_value,spots.log.min_snr
+1,object_ccc,1.0,point_f1,1.0,3.0
+2,object_ccc,0.89,point_f1,0.945,2.5
+3,object_ccc,0.707,point_f1,0.897,1.5
+4,object_ccc,0.707,point_f1,0.897,2.0
+5,object_ccc,0.083,point_f1,0.207,4.0
+6,object_ccc,0.083,point_f1,0.207,5.0

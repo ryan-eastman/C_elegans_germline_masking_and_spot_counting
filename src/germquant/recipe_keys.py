@@ -31,14 +31,18 @@ than a float64, which a config could only hold through cfg.set and which the run
 project_plane, min_area_um2) are checked by germquant.planar.prepare_projection in projected runs, where they
 are read.
 
-The two keys of single-plane images (package P2b, docs/PLANAR.md) are checked the same way, in IO_KEYS:
+The two keys of single-plane images (package P2b, docs/PLANAR.md) and the batch formats key (package P5,
+docs/DESIGN_system_packs.md 7.8) are checked the same way, in IO_KEYS:
 
     io.planar           null, false, true or auto (code default false)
     io.voxel_size_um    null, a positive number, or a list of two ([dy, dx]) or three ([dz, dy, dx]) positive
                         numbers, in micrometres
+    io.input_suffixes   null (['.nd2']) or a list of the file suffixes germquant reads (INPUT_SUFFIXES), in lower
+                        case with the dot: what `germquant batch` and the Snakefile discover
 
-They are listed apart from CHECKED_KEYS because one shipped profile sets one of them:
-config/profiles/generic_2d.yaml sets io.planar auto. No shipped config sets a key of CHECKED_KEYS.
+They are listed apart from CHECKED_KEYS because one shipped profile sets two of them:
+config/profiles/generic_2d.yaml sets io.planar auto and io.input_suffixes. No shipped config sets a key of
+CHECKED_KEYS.
 
 The module imports only the standard library (no numpy, backend, torch, Cellpose or SpotMAX), so a recipe
 linter can use it.
@@ -61,8 +65,12 @@ CHECKED_KEYS = (
     *(f"spots.{k}" for k in SPOT_LENGTH_KEYS + SPOT_FLAG_KEYS),
     "segmentation.nuclei.labels_from", "segmentation.nuclei.labels_frame",
 )
-# the single-plane keys (P2b): checked like the keys above, listed apart because generic_2d.yaml sets io.planar
-IO_KEYS = ("io.planar", "io.voxel_size_um")
+# the single-plane keys (P2b) and the batch formats key (P5): checked like the keys above, listed apart because
+# generic_2d.yaml sets io.planar and io.input_suffixes
+IO_KEYS = ("io.planar", "io.voxel_size_um", "io.input_suffixes")
+# the suffixes io.input_suffixes may list: io.formats.SUPPORTED_SUFFIXES (a test keeps the two in step without
+# importing the io package here)
+INPUT_SUFFIXES = (".nd2", ".ome.tif", ".ome.tiff", ".tif", ".tiff", ".czi", ".lif", ".ome.zarr", ".zarr")
 # the fields of a labels_from template (germquant.io.labels formats it)
 LABELS_TEMPLATE_FIELDS = ("image_dir", "image_stem", "image_id")
 
@@ -129,6 +137,29 @@ def voxel_size_problem(value) -> str | None:
     return None
 
 
+def input_suffixes_problem(value) -> str | None:
+    """None when io.input_suffixes is null or a non-empty list of suffixes from INPUT_SUFFIXES (lower case, with the
+    dot); otherwise the message naming the key."""
+    if value is None:
+        return None
+    want = (f"a list of the file suffixes germquant reads, in lower case with the dot ({', '.join(INPUT_SUFFIXES)}), "
+            f"or null for ['.nd2']")
+    if isinstance(value, str):
+        return f"io.input_suffixes must be {want}; got {value!r} (a single suffix is still a list: [{value!r}])"
+    if not isinstance(value, (list, tuple)) or not value:
+        return f"io.input_suffixes must be {want}; got {value!r}"
+    for v in value:
+        if isinstance(v, str) and v in INPUT_SUFFIXES:
+            continue
+        hint = ""
+        if isinstance(v, str) and v.strip().lower() in INPUT_SUFFIXES:
+            hint = f" (write it in lower case: {v.strip().lower()!r})"
+        elif isinstance(v, str) and "." + v.strip().lower() in INPUT_SUFFIXES:
+            hint = f" (write it with the dot: {'.' + v.strip().lower()!r})"
+        return f"io.input_suffixes must be {want}; got {v!r} in {value!r}{hint}"
+    return None
+
+
 def labels_template_problem(key: str, value) -> str | None:
     """None when ``value`` is null or a path template: a non-empty string whose fields are only {image_dir},
     {image_stem} and {image_id}, with no format spec or conversion ({{ and }} are literal braces). Otherwise the
@@ -179,6 +210,7 @@ def problems(cfg) -> list[str]:
     found: list[str] = []
     found.append(planar_problem(cfg.get("io.planar")))
     found.append(voxel_size_problem(cfg.get("io.voxel_size_um")))
+    found.append(input_suffixes_problem(cfg.get("io.input_suffixes")))
     seg = cfg.get("segmentation.nuclei", {}) or {}
     if isinstance(seg, dict):
         found.append(object_diameter_problem(seg))
