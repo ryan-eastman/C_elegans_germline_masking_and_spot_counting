@@ -22,7 +22,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import __version__
-from .batch import collect, discover_files, enabled_stage_names, is_done, load_exclusions
+from .batch import collect, discover_files, discover_options, enabled_stage_names, is_done, load_exclusions
 from .config import Config, default_config_path, find_profile, load_config
 from .import_labels import import_labels
 from .io import (
@@ -83,7 +83,8 @@ from .tune import GridError, TuneRefused, TuningWarning, apply_tuning, tune_spot
 # apply_tuning: `germquant tune-spots`, docs/TUNING.md, with TuneRefused, GridError and TuningWarning; germquant.tune
 # holds the tuners, grids and point files); training pairs from labels drawn in another program (import_labels:
 # `germquant import-labels`, docs/TRAINING.md); the sample sheet (SampleRow, SampleSheet, read_sample_sheet,
-# write_sample_sheet: `--samples`, docs/PROJECTS.md "Sample sheet"; run and run_loaded take a row as sample=).
+# write_sample_sheet: `--samples`, docs/PROJECTS.md "Sample sheet"; run and run_loaded take a row as sample=);
+# batch formats (discover_options: the io.input_suffixes keywords `germquant batch` gives discover_files).
 __all__ = [
     "STAGES",
     "SUPPORTED_SUFFIXES",
@@ -172,6 +173,9 @@ __all__ = [
     "SampleSheet",
     "read_sample_sheet",
     "write_sample_sheet",
+    # batch formats (README, "Other file formats"; PLAN.md 9.1 with 9.4 #13): {} for a recipe without
+    # io.input_suffixes, so discover_files keeps the .nd2 files it always has
+    "discover_options",
 ]
 
 

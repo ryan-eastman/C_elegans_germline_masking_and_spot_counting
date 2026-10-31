@@ -972,8 +972,8 @@ PROJECT_NAMES = ["Project", "ProjectError", "ProjectLockedError", "RunError", "n
                  "save_project", "add_images", "read_header", "project_config", "preview_roles", "write_recipe",
                  "revert_recipe", "use_model", "run_project", "project_status", "collect_project",
                  "export_commands", "break_lock", "list_rounds", "new_round"]
-# the names of section 9.1 (and 9.4 #12) that other P5 units bring: (name, module, unit), each the very object of
-# its module in germquant.api and its __all__
+# the names of section 9.1 (and 9.4 #12 and #13) that other P5 units bring: (name, module, unit), each the very
+# object of its module in germquant.api and its __all__
 LATER_NAMES = [("tune_spots", "germquant.tune", "P5-TUNE"), ("apply_tuning", "germquant.tune", "P5-TUNE"),
                ("TuneRefused", "germquant.tune", "P5-TUNE"), ("GridError", "germquant.tune", "P5-TUNE"),
                ("TuningWarning", "germquant.tune", "P5-TUNE"),
@@ -981,7 +981,8 @@ LATER_NAMES = [("tune_spots", "germquant.tune", "P5-TUNE"), ("apply_tuning", "ge
                ("SampleRow", "germquant.io.sample_sheet", "P5-SHEET"),
                ("SampleSheet", "germquant.io.sample_sheet", "P5-SHEET"),
                ("read_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET"),
-               ("write_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET")]
+               ("write_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET"),
+               ("discover_options", "germquant.batch", "P5-SHEET")]
 
 
 def test_api_re_exports_the_project_names():
