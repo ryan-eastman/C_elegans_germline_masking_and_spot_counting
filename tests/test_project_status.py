@@ -215,9 +215,9 @@ def test_a_finished_series_given_a_row_reads_stale(project_env, tmp_path):  # no
 
 def test_the_sample_row_reason_and_a_sheet_that_cannot_be_read(project_env, tmp_path):  # noqa: F811
     """Status compares each fixed image's row of the project's sample sheet as a run does (reason_code sample_row,
-    which covers batch.is_done's four reasons); a sheet that cannot be read is one warning naming the run's refusal
-    (status never raises for it), and the images are then compared without rows. The finished images are markers
-    with the run's own hashes, made without a run."""
+    which covers batch.is_done's four reasons); the sheet's own warnings are status warnings, each said once; a sheet
+    that cannot be read is one warning naming the run's refusal (status never raises for it), and the images are
+    then compared without rows. The finished images are markers with the run's own hashes, made without a run."""
     from germquant import batch, provenance
     from germquant.io import sample_sheet as SS
     from germquant.project import run as R
@@ -236,14 +236,19 @@ def test_the_sample_row_reason_and_a_sheet_that_cannot_be_read(project_env, tmp_
     finished("b", sample_row_sha256=None)                                    # ran in a sheet run, without a row
     finished("c")                                                            # ran without a sheet
     sheet = proj.root / "samples.csv"
-    SS.write_sample_sheet(sheet, [{"image_id": "a", "genotype": "N2"}])
+    # z: a row for no image of the project, with a date that is not ISO (one of the sheet's own warnings)
+    SS.write_sample_sheet(sheet, [{"image_id": "a", "genotype": "N2"},
+                                  {"image_id": "z", "acquisition_date": "11/5/2025"}])
     P.save_project(proj, samples="samples.csv")
 
     def status():
         st = P.project_status(proj)
         return {r["id"]: (r["status"], r["reason_code"]) for r in st["images"]}, st
 
-    assert status()[0] == {"a": ("done", None), "b": ("done", None), "c": ("done", None)}
+    got, st = status()
+    assert got == {"a": ("done", None), "b": ("done", None), "c": ("done", None)}
+    # the sheet's own warnings are status warnings, each said once, as a run says them
+    assert len([w for w in st["warnings"] if "acquisition_date '11/5/2025'" in w]) == 1, st["warnings"]
     # a's row changed, b got a row it ran without, c got one and ran without a sheet: each reruns
     SS.write_sample_sheet(sheet, [{"image_id": "a", "genotype": "syp-2(ok307)"}, {"image_id": "b", "sex": "male"},
                                   {"image_id": "c", "genotype": "N2"}])

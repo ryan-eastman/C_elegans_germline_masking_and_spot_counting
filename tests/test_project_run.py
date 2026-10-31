@@ -716,8 +716,8 @@ def test_a_project_run_takes_each_image_its_sheet_row(project_env, tmp_path, mon
     its stage record, run manifest and marker; the sheet's warnings are reported once. The rest reuses that run: an
     image without a row gets the empty row (process_image flags it metadata:not_in_sample_sheet), a row keyed by a
     file path binds to the file the run reads, a resume compares each image's row (an edited row reruns that image
-    only), collect_project joins the sheet's own columns, and a sheet that cannot be read or opened is refused before
-    anything is written."""
+    only), collect_project joins the sheet's own columns (and `project collect` names them), and a sheet that cannot
+    be read or opened is refused before anything is written."""
     need_readers()
     import warnings
 
@@ -773,6 +773,10 @@ def test_a_project_run_takes_each_image_its_sheet_row(project_env, tmp_path, mon
     stacked = pd.read_csv(proj.root / "results" / "batch_image_summary.csv", dtype=str, keep_default_na=False)
     assert list(stacked.columns)[-1] == "slide" and dict(zip(stacked["image_id"], stacked["slide"])) == {
         "a": "S12", "b": ""}
+    capsys.readouterr()
+    assert cli.main(["project", "collect", str(proj.root)]) == 0         # the plain output names them (9.4 #15)
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1] == f"sample sheet {sheet}: columns joined: slide", out
     # a sheet that cannot be read, or opened, is refused before anything is written (exit 2), by collect too
     logs = sorted((proj.root / "runs").iterdir())
     sheet.write_bytes(b"image_id;genotype\na;N2\n")
