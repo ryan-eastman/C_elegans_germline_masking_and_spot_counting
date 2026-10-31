@@ -279,7 +279,10 @@ switches; an unmodified project therefore runs with the config_hash of `germquan
   (docs/TIMELAPSE.md), into `results/<image_id>/t<NNN>/`. A recipe that reads labels from files (labels_from,
   docs/LABELS.md) or runs single-plane images (io.planar true, or auto on an image with one plane, docs/PLANAR.md)
   cannot run a series in this release: such an image fails with that message, before anything of it is read, and
-  the other images run.
+  the other images run. Every series fails the same way while the project's post-stage list (its post_stages.yaml,
+  else the pack's post_stages/<recipe>.yaml; docs/POST_STAGES.md) switches a post-stage on: switch them off with
+  `python -m germquant.post_stages write STUDY --entries []`, or run the series outside the project with
+  `germquant run --t`.
 - With a sample sheet (`project edit STUDY --samples samples.csv`, see Sample sheet below) each image runs with its
   row, as `batch --samples` runs it, and a resume reruns the images whose row changed. A time series that has a row
   fails before anything of it is read (the time-lapse loop gives its timepoints no row: take the row out, or clear
@@ -305,6 +308,9 @@ The run is refused, before any image is read and with nothing written (exit 2, t
   `germquant pack fetch-models`;
 - the sample sheet the project names cannot be opened or read (the message names the file, as `batch --samples`
   does);
+- the project's post-stage list (its post_stages.yaml, else the pack's post_stages/<recipe>.yaml) cannot be opened
+  or read, or holds an entry that cannot run in this environment (docs/POST_STAGES.md, "Checked before the first
+  image");
 - an edit holds the project's lock. A lock older than 12 hours is reported instead, and the run goes on (a run
   never removes a lock).
 
@@ -410,7 +416,10 @@ that was stopped: readers use its complete lines.
 
 A time series that finished before the sample sheet gave it a row reads stale (sample_row), not done: every run
 now fails it before anything of it is read (see Running a project), and its reason gives that refusal with the way
-out (take the row out of the sheet, or clear the sheet with `--samples none`).
+out (take the row out of the sheet, or clear the sheet with `--samples none`). Before any run, a time series that
+every run fails (a labels_from or single-plane recipe, a row of the sample sheet, or post-stages switched on)
+reads missing, and its reason adds the refusal a run gives it. A series that finished before post-stages were
+switched on still reads done, although a run now fails it.
 
 Each image also shows its qc_pass, the run that last processed it (last_run_id), the device its nuclei were
 segmented on and the file a run reads (a relative path joined to the project folder). Then:
@@ -429,8 +438,9 @@ segmented on and the file a run reads (a relative path joined to the project fol
   a model a run would refuse (missing, not the expected file, or a segmentation model the engine cannot resolve
   on this computer, which status reports instead of failing; when the recipe segments with that model, the
   images' segment stage is then not compared), the sample sheet's own warnings, or a sheet a run would refuse
-  (the images are then compared as without a sheet), and an environment mix: runs that used more than one device,
-  interpreter or engine version (git sha), whose results can differ.
+  (the images are then compared as without a sheet), a post-stage list a run would refuse (the series are then
+  read as without post-stages), and an environment mix: runs that used more than one device, interpreter or
+  engine version (git sha), whose results can differ.
 
 `--json` prints the same as one JSON object, the record germquant.project.project_status returns: format, root,
 name, config_hash, expected_config_hash, edited, validated, pack, models, images (one object per image, with the

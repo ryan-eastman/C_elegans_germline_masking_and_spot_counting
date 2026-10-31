@@ -327,8 +327,8 @@ PowerShell, keeping the GPU out of it:
     $env:CUDA_VISIBLE_DEVICES = "-1"
     .venv\Scripts\python.exe -m pytest -q
 
-Mac or Linux, in the activated environment: `pytest -q`. The whole suite is 1551 tests;
-`pytest -q -m "not model"`, what CI and `scripts/t5_gate.py` run, passes 1541, skips 9 and deselects 1 in about
+Mac or Linux, in the activated environment: `pytest -q`. The whole suite is 1557 tests;
+`pytest -q -m "not model"`, what CI and `scripts/t5_gate.py` run, passes 1547, skips 9 and deselects 1 in about
 11 minutes on the workstation's CPU. The skips are the environment and opt-in skips of the lists above and
 below (the workstation pins, the POSIX twin of the long-path check, the real goldens, the Snakemake dry runs
 without `GERMQUANT_SNAKEMAKE`, the card with a real pack base, the training smoke). Useful selections:

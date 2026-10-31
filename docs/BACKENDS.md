@@ -72,7 +72,9 @@ and the fixes (fetch the release model with `germquant get-model <name>`, set `G
 that holds `models/<name>`, or give the file's absolute path). Cellpose itself would not stop: it would log
 "pretrained model ... not found, using default model" and segment with its stock weights, and the run would
 record `model_sha256: absent`. A run that loads no Cellpose model is not checked: method `classical`, another
-backend, or method `auto` where Cellpose is not installed (the classical watershed runs, as before). Every
+backend, method `auto` where Cellpose is not installed (the classical watershed runs, as before), or a recipe
+that reads its nuclei from labels files (`segmentation.nuclei.labels_from`, docs/LABELS.md: no model is
+resolved at all, decision D12). Every
 path that resolves behaves as before. To segment with the stock weights on purpose, name them:
 `cellpose_model: cpsam`. The check covers config-driven runs (`germquant run`, `run --t`, `batch`,
 `api.run`); a direct call of a building block (`api.segment_nuclei`, a backend called with `model=`) hands
