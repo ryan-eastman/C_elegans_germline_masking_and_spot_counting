@@ -163,8 +163,10 @@ germquant.post_stages.
 
 **Checked before the first image.** The list in force is read and checked against this environment's
 post-stages before any image is processed (as `validate_post_stages` checks it). A list that cannot be read, or
-holds an entry that cannot run here, refuses the run: `run` and `batch` print one `REFUSED: post-stages <file>:
-<problems>` line and exit 2, `project run` refuses with its exit 2 before its run log exists. With
+holds an entry that cannot run here, refuses the run: `run` and `batch` print one `REFUSED:` line and exit 2
+(`REFUSED: post-stages <file>: <problems>` for entries that cannot run here or a file that cannot be opened,
+`REFUSED: <file> cannot be read as YAML ...` or `REFUSED: <file>: post-stages must be a list ...` for one that is
+not a list of {name, params}), `project run` refuses with its exit 2 before its run log exists. With
 `--no-pack-check` a pack's own list that cannot run here is a warning instead, and each image records the failure
 in its `__post.json`. api.run and api.run_loaded refuse only a list they cannot read (ValueError, or OSError for a
 file that cannot be opened); a post-stage that cannot run there is recorded as failed, image by image.
@@ -409,8 +411,10 @@ nucleus_id,ring_voxels,ring_mean,inside_mean
 ```
 
 and the record `img_001__post.json` shown earlier. Change `radius_um` and run again with `--resume` (a batch)
-or call run_post_stages again: only the post-stage reruns. Like a new backend, a post-stage's numbers are the lab's own: compare it with a known measurement on a
-few images before relying on it, and name it and its version in the methods.
+or call run_post_stages again: only the post-stage reruns.
+
+Like a new backend, a post-stage's numbers are the lab's own: compare it with a known measurement on a few images
+before relying on it, and name it and its version in the methods.
 
 ## Testing a post-stage
 
