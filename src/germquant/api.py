@@ -36,7 +36,14 @@ from .io import (
     read_nd2_metadata,
     read_stack,
 )
-from .io.sample_sheet import SampleRow, SampleSheet, read_sample_sheet, write_sample_sheet
+from .io.sample_sheet import (
+    SampleRow,
+    SampleSheet,
+    SampleSheetError,
+    SampleSheetWarning,
+    read_sample_sheet,
+    write_sample_sheet,
+)
 from .models_registry import get_model, known_models, register_local_model
 from .packs import fetch_example, fetch_pack_models, find_pack, install_pack, list_packs, load_pack, pack_status
 from .pipeline import process_image, resolve_model_path, spot_instances
@@ -83,8 +90,9 @@ from .tune import GridError, TuneRefused, TuningWarning, apply_tuning, tune_spot
 # apply_tuning: `germquant tune-spots`, docs/TUNING.md, with TuneRefused, GridError and TuningWarning; germquant.tune
 # holds the tuners, grids and point files); training pairs from labels drawn in another program (import_labels:
 # `germquant import-labels`, docs/TRAINING.md); the sample sheet (SampleRow, SampleSheet, read_sample_sheet,
-# write_sample_sheet: `--samples`, docs/PROJECTS.md "Sample sheet"; run and run_loaded take a row as sample=);
-# batch formats (discover_options: the io.input_suffixes keywords `germquant batch` gives discover_files).
+# write_sample_sheet, with SampleSheetError and SampleSheetWarning: `--samples`, docs/PROJECTS.md "Sample sheet";
+# run and run_loaded take a row as sample=); batch formats (discover_options: the io.input_suffixes keywords
+# `germquant batch` gives discover_files).
 __all__ = [
     "STAGES",
     "SUPPORTED_SUFFIXES",
@@ -173,6 +181,10 @@ __all__ = [
     "SampleSheet",
     "read_sample_sheet",
     "write_sample_sheet",
+    # SampleSheetError (a ValueError): a sheet read_sample_sheet cannot read or write_sample_sheet refuses, or a row
+    # given to run with t; SampleSheetWarning (a UserWarning): each warning of a sheet that is read (PLAN.md 9.4 #13)
+    "SampleSheetError",
+    "SampleSheetWarning",
     # batch formats (README, "Other file formats"; PLAN.md 9.1 with 9.4 #13): {} for a recipe without
     # io.input_suffixes, so discover_files keeps the .nd2 files it always has
     "discover_options",

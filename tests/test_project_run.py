@@ -982,6 +982,8 @@ LATER_NAMES = [("tune_spots", "germquant.tune", "P5-TUNE"), ("apply_tuning", "ge
                ("SampleSheet", "germquant.io.sample_sheet", "P5-SHEET"),
                ("read_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET"),
                ("write_sample_sheet", "germquant.io.sample_sheet", "P5-SHEET"),
+               ("SampleSheetError", "germquant.io.sample_sheet", "P5-SHEET"),
+               ("SampleSheetWarning", "germquant.io.sample_sheet", "P5-SHEET"),
                ("discover_options", "germquant.batch", "P5-SHEET")]
 
 
