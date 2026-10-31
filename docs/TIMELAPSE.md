@@ -3,8 +3,9 @@
 Status: the reader ("Reading one timepoint"), the series loop with its resume logic and command line switch
 ("Running a series"), the live GFP::SYP-2 profile and the nucleus training loop ("Segmenting without DAPI"),
 the drift registration ("Registration") and its piecewise variant along the gonad axis ("Piecewise
-registration"), the tracking exchange ("Tracking") and the biologist validation ("Validating the linking") are
-implemented and tested on synthetic series. The first real series (the October 2026 DLW93 hermaphrodite) has
+registration"), the tracking exchange ("Tracking"), the flow-prior linking backend ("Flow-prior linking") and the
+biologist validation ("Validating the linking") are implemented and tested on synthetic series; the flow-prior
+backend has also been scored on simulated series with known identities, not yet on hand-followed real nuclei. The first real series (the October 2026 DLW93 hermaphrodite) has
 been run through the loop, the registration, the linking and the piecewise registration (results and their
 limits in `C:/Users/ryane/live_results/FIRST_LOOK.md`); the hand-followed validation set has been picked but not
 yet followed, so no linking result is validated. The design is [DESIGN_timelapse.md](DESIGN_timelapse.md).
@@ -292,7 +293,7 @@ germline crop at stride 2 is about 45 MB per timepoint before compression.
 ### Linking: `germquant track-link`
 
 ```
-germquant track-link results/SERIES --backend overlap|overlap_inhouse|laptrack|none [--gap 2] [--max-dist-um 3.0] [--min-overlap 0.4] [--stride 2] [--all-nuclei] [--registration rigid|piecewise]
+germquant track-link results/SERIES --backend overlap|overlap_inhouse|laptrack|none|laptrack_flow [--gap 2] [--max-dist-um 3.0] [--min-overlap 0.4] [--stride 2] [--all-nuclei] [--registration rigid|piecewise] [--flow-* (laptrack_flow)]
 ```
 
 links the germline nuclei (`--all-nuclei`: every label) across the timepoints on disk and writes
@@ -326,7 +327,9 @@ backends:
   segmentation lost for a frame, or a whole timepoint that failed); 0 turns gap closing off. This is what
   closes the single-frame gaps the overlap tracker cannot;
 * `none`: no linking; the points table is written with `time_track_id` empty and `link_source` `none`, so
-  every measurement can be plotted per timepoint without tracks.
+  every measurement can be plotted per timepoint without tracks;
+* `laptrack_flow`: the `laptrack` linking with every nucleus matched at the position the motion of its
+  neighbours predicts for it, a flow prior ("Flow-prior linking" below; the `--flow-*` options).
 
 The nearest-neighbour spacing of the packed rows is 3.3 to 4.7 um median and 1.2 um at the 10th percentile
 (design section 10): keep `--max-dist-um` below the spacing, and look at the strips before trusting a
@@ -399,6 +402,210 @@ tests/test_timelapse_tracking.py plants a flipped frame and checks the velocity;
 plants a curved gonad with a jittering per-frame origin and checks that the fixed-axis velocity recovers
 the true flow while the refitted one does not.
 
+### Flow-prior linking: `--backend laptrack_flow`
+
+```
+germquant track-link results/SERIES --backend laptrack_flow [--registration rigid|piecewise] [--gap 2] [--max-dist-um 3.0]
+    [--flow-search-um 6] [--flow-link-radius-um 3] [--flow-ratio 0.5] [--flow-k 8] [--flow-iterations 2] [--flow-cutoff-um C] [--flow-fb]
+```
+
+Why. The germline moves as a tissue: neighbouring nuclei move together. The `laptrack` backend compares every
+nucleus with the nuclei of the next timepoint at its own registered position, so wherever the registration leaves a
+region displaced by a large part of the spacing (a slide that starts inside a piecewise segment, a step longer than
+the registration's 5 um cap, the end of the gonad a rigid registration does not follow), the cutoff either misses the
+partner or takes a neighbour. `laptrack_flow` first predicts where each nucleus will be from the motion of its
+neighbours, then links as `laptrack` does on the predicted positions (`germquant.timelapse.flowlink`). It is the
+first backend with linking code of germquant's own (the flow estimate and the cost of a pair; the design's stance
+was to write none, DESIGN_timelapse.md): the assignment and the gap closing are still laptrack's.
+
+What it does, for every step between two consecutive timepoints on disk, in the registered frame of `--registration`
+(the flow it estimates is the motion that registration left; with `piecewise` it starts from the segment shifts):
+
+1. **Local consensus** (`--flow-search-um`, 6 um). For every nucleus, the candidate displacements are the vectors to
+   the nuclei of the next timepoint within the search radius; its `--flow-k` (8) nearest neighbours vote. The
+   displacement most of them share (another of their candidates within 1 um) is its initial prediction, when at
+   least half the neighbourhood agrees and no rival displacement more than 2 um away has 80 percent of that support;
+   otherwise the prediction is zero (the registration alone). Quasi-random packing makes the common displacement
+   stand out: a wrong partner of each nucleus lies in its own direction. `--flow-search-um 0` switches it off.
+2. **Confident links**: mutual nearest neighbours between the predicted positions and the next timepoint's nuclei, at
+   most `--flow-link-radius-um` (3 um) apart, that pass the ratio test both ways (the nearest distance at most
+   `--flow-ratio`, 0.5, times the second-nearest).
+3. **The flow field.** Each confident link is a sample of the displacement. A link that deviates from the median of
+   its `--flow-k` nearest other links by more than max(1 um, 3 times the median deviation) is dropped; the field at
+   any point is the component-wise median of the displacements of the `--flow-k` links nearest to it. A step with
+   fewer than 8 confident links keeps the registration alone (zero field) and the record says so.
+4. Steps 2 and 3 run `--flow-iterations` (2) times, each round predicting with the previous field.
+5. **Predictions**: every nucleus is carried along the step fields to each of the next `--gap` timepoints (a missing
+   timepoint is spanned by the step between its neighbours, so the search radius must then cover two steps of motion).
+6. **Linking**: laptrack as the `laptrack` backend runs it (squared distance, the cutoff, gap closing over `--gap`
+   frames, no splitting or merging), but the cost of joining a nucleus at t to one at t + d is the squared distance
+   between the first's predicted position at t + d and the second's position. Two things differ, both because the
+   costs are now small: the cutoff is `--flow-cutoff-um` when given, else `--max-dist-um` (3 um); and the gap-closing
+   start and end costs are set to 1.05 times the cutoff squared (laptrack's frame linking uses 1.05 times its
+   largest candidate cost, which is close to that) instead of laptrack's automatic 1.05 times the 90th percentile of
+   the gap-closing candidate costs. That rule assumes the candidates are mostly wrong pairs; on predicted positions
+   most are right ones, and it then refuses gap closings that miss by more than 1.7 to 2.2 um on the simulated series
+   below (0.5 um on the synthetic sheet of the tests). So a gap is closed whenever the miss is within the cutoff and
+   the assignment has no better use for the two ends. `--flow-fb` (forward-backward consistency) scores a link by the
+   mean of the forward miss and the backward one (the later nucleus carried back along the backward fields), so both
+   directions must agree.
+
+The settings are keys too (a flag wins over the key, the key over the code default; no shipped config names them):
+
+| option | key | code default |
+|---|---|---|
+| `--flow-search-um` | `timelapse.track.flow_search_um` | 6.0 |
+| `--flow-link-radius-um` | `timelapse.track.flow_link_radius_um` | 3.0 |
+| `--flow-ratio` | `timelapse.track.flow_ratio` | 0.5 (in (0, 1]) |
+| `--flow-k` | `timelapse.track.flow_k` | 8 |
+| `--flow-iterations` | `timelapse.track.flow_iterations` | 2 |
+| `--flow-cutoff-um` | `timelapse.track.flow_cutoff_um` | not set: `--max-dist-um` |
+| `--flow-fb` | `timelapse.track.flow_fb` | false |
+
+A `--flow-*` option with another backend, or a value out of range, stops the command with exit code 1 and names the
+option and its key; `link_series(..., flow={...})` takes the same settings by the names of `flowlink.DEFAULTS`.
+Every operation is deterministic (k-d tree queries, medians, laptrack's assignment): the same series gives the same
+tracks, and the rows in another order give the same partition of the nuclei into tracks.
+
+What it writes. The same two tables as `laptrack`, in the registered frame of `--registration` (steps, speeds and
+`axis_velocity_um_per_min` mean what they mean for `laptrack` under that registration; the flow prior changes only
+which nuclei are joined), with `link_source` `laptrack_flow` and three extra columns on the track points:
+`flow_step_z_um`, `flow_step_y_um`, `flow_step_x_um`, the predicted step of the nucleus to the next timepoint on disk
+(the flow its neighbours moved with, relative to the registration; 0 where the step kept the registration alone,
+empty at the last timepoint). `backend_info` in `<stem>__track_link.json` carries the cutoff and where it came from,
+every setting and constant, one entry per step (`t_from`, `t_to`, the nuclei on both sides, `n_consensus` and
+`consensus_fraction` (the fraction of the nuclei at `t_from` that found a consensus; empty with `--flow-search-um 0`),
+`n_confident` and `confident_fraction`, `n_used`, `iterations_run`, the residual of the confident links against their
+neighbours' median, median and 95th percentile, the median and largest predicted step, and `fallback` when the step
+kept the registration alone), the medians over the series, and the consensus over the series
+(`consensus_fraction_median`, `consensus_fraction_lowest` and its step, and `consensus_low_steps`, below). The command
+prints the step count, the steps on the registration alone, the residual median and the cutoff, then the lowest and
+the median consensus fraction, and a note naming any step in `consensus_low_steps`.
+
+**When the motion is beyond the search.** If the motion the registration leaves at a step exceeds
+`--flow-search-um`, the true displacement is not among the candidates. The flow prior then makes plain `laptrack`'s
+wrong links at that step, while its confident links (mutual nearest neighbours of a wrong displacement) and their
+residual look normal, so neither the fallback count nor the residual shows it: on the faster simulated flow without
+any registration it made 130 to 212 identity switches with no step on the registration alone and a 0.52 um residual.
+What does show it is the consensus fraction of the step. On the simulator the steps that failed that way reached
+0.44 to 0.50 of the series median, while every run without motion beyond the search, the heat-shock-like ones
+included (whose lowest steps reach only 0.47 to 0.54, from the noise and the misses), stayed at 0.63 of its
+median or more at its lowest step. So a step whose consensus fraction is under 0.6 of the series median, and short of
+it by 10 nuclei or more (so that one or two nuclei of a small series do not count), is listed in
+`consensus_low_steps`, and `track-link` prints
+
+```
+  note: the local consensus is under 0.6 of its median at 1 step(s) (t21 to t22): there the motion the registration left may exceed --flow-search-um (6 um) and the links may be plain laptrack's; check those steps, or rerun with a larger --flow-search-um or a registration that follows the motion
+```
+
+The note changes nothing in the tables. On the simulator it named one step in each of the three runs of the faster
+flow without registration, the step with the most switches of the run (84, 138 and 114 of 130, 144 and 212), and
+nothing in the other 45 runs with the default settings (every scenario under every registration, the cumulative
+oracle's frame included). It is a pointer, not a full list: in two of those runs a second weak step (0.69 and 0.65 of
+the median) carried 39 and 77 switches without being named, so once the note appears look at every step's
+`consensus_fraction` in the record. A step where many nuclei lose their partner can also bring it: with `--flow-k 12`
+(not the default) it named one late step of a heat-shock-like case, 0.49 of the median, where the motion was within
+the search. A whole-field jump of 6.5 um or more in the plane (the tests plant 6.5 to 7.5 um) or a stage re-centring
+like the 20 to 37 um of Kate Walsh's heat-shock movies, which the rigid registration's 5 um step cap cannot follow, is
+where to expect it.
+
+**Evaluation on simulated series** (`C:/Users/ryane/trackers_work/sim`, README.md there; four scenarios, three seeds
+each, 25 timepoints 5 minutes apart, about 340 nuclei per timepoint, with known identities; calibrated to the
+published numbers of FIRST_LOOK.md, so absolute scores are not a prediction for the real series). Means over the seeds,
+whole field, `--gap 2 --max-dist-um 3.0`: identity switches / missing edges / fraction of visible lives tracked whole
+(`eval_flowprior/summary.md` there has the ranges, precision, recall, the sub-field and the sensitivity runs). The last
+column is the ceiling of any flow prior: the same backend with its flow estimate replaced by the true tissue step of
+every nucleus (the simulator's flow, creep, refocus jumps and drift; not the individual jitter, which no flow prior
+can know):
+
+| scenario | `laptrack` rigid | `laptrack` piecewise | `laptrack_flow`, no registration | `laptrack_flow` rigid | `laptrack_flow` piecewise | true per-step flow (ceiling) |
+|---|---|---|---|---|---|---|
+| like the October series | 118 / 229 / 0.54 | 15 / 165 / 0.77 | 8 / 159 / 0.78 | 8 / 159 / 0.78 | 8 / 159 / 0.78 | 9 / 156 / 0.78 |
+| a stack deep enough to keep every nucleus | 114 / 129 / 0.59 | 15 / 61 / 0.82 | 11 / 52 / 0.84 | 11 / 52 / 0.84 | 11 / 52 / 0.85 | 11 / 52 / 0.85 |
+| heat-shock-like (noisier, 26 percent missed, splits, merges) | 243 / 293 / 0.32 | 142 / 212 / 0.45 | 133 / 194 / 0.47 | 132 / 192 / 0.47 | 133 / 193 / 0.47 | 126 / 190 / 0.49 |
+| flow twice as fast (7 um slides) | 549 / 350 / 0.42 | 84 / 183 / 0.66 | 162 / 164 / 0.52 | 16 / 148 / 0.80 | 15 / 148 / 0.80 | 8 / 140 / 0.82 |
+
+What that says, and where it does not help:
+
+* On motion like the October series `laptrack_flow` halves the switches left after the piecewise registration (15 to
+  8), the level the true flow reaches (9), and changes little else. Of its lives tracked whole (0.776 against 0.767)
+  nearly all of the gain, and all of the fewer missing edges, come from the gap-closing costs of step 6, which give
+  plain `laptrack` the same (16 / 158 / 0.774 with those costs alone; the flow prior with laptrack's own gap rule
+  gives 8 / 167 / 0.767); the flow prior's own effect there is on the switches. Its other gain there is that it
+  hardly depends on the registration any more: rigid, piecewise or none give nearly the same tracks (8 to 11 of
+  about 690 differ between rigid and piecewise, none and rigid are identical on two of the three seeds), because the
+  consensus catches the 3.5 to 5.4 um refocus jumps and the slides by itself.
+* On the faster flow it does what the piecewise registration cannot: switches 84 to 15, lives tracked whole 0.66 to
+  0.80, where the true per-step flow would give 8 switches and 0.82. Here the gain is the flow prior's own (15
+  switches and 0.79 with laptrack's gap rule; the gap costs alone give plain `laptrack` 86 and 0.66). Without any
+  registration the 7 um slides plus the refocus jumps are beyond the 6 um search, and it falls to 162 switches (the
+  record names those steps; "When the motion is beyond the search" above).
+* On the heat-shock-like series the gain is small (142 to 133 switches, 0.45 to 0.47; true per-step flow: 126, 0.49),
+  and about half of the lives-whole gain is the gap costs': what is left there is localisation noise, splits, merges
+  and misses, not flow.
+* The simulator's other reference, the true tissue displacement since t0 handed to `laptrack` as a registration (its
+  "cumulative oracle"), is not a ceiling: mapping every timepoint back to t0 squeezes the distal tissue that the flow
+  stretches over the movie (nearest-neighbour spacing within 30 um of the tip at t24: 2.8 um median against 3.9 um
+  raw on the October-like series, 1.7 against 4.1 um on the faster flow), while the jitter and the localisation noise
+  are not squeezed, so late in the movie neighbours come within the cutoff at the distal end, where 13 of its 16 and
+  54 of its 58 switches sit. The ceiling above is the true flow of each step instead.
+* `--flow-fb` changed nothing measurable (within two switches and 0.003 of lives whole) and costs a quarter more
+  time; it stays off. The automatic gap-closing costs of laptrack in place of the cutoff-based ones (step 6) cost
+  0.006 to 0.012 of lives whole in every scenario. A tighter cutoff on the predicted positions (2.5 um) removes a few
+  switches but cuts more true links, because the residual left after the flow is dominated by centroid jumps of the
+  segmentation (partial pieces, splits, nuclei cut by the stack edge), not by motion; 3.5 um does the opposite.
+  `--flow-k` 5 or 12 is within the noise. Without the consensus (`--flow-search-um 0`) the faster flow costs twice
+  the switches (29 against 15).
+* Gap closing over 3 frames (`--gap 3`) raises the lives tracked whole for both backends, more for this one (0.84
+  against 0.83 on the October-like series, 0.85 against 0.70 on the faster flow); the default stays 2 so that the
+  comparison with `laptrack` holds one thing fixed.
+* Time: about 10 s per 25-timepoint series of 8,500 nucleus-timepoints against 5 to 6 s for `laptrack` (the cost
+  of a pair on predicted positions is a Python function laptrack calls for every candidate pair).
+
+Limits.
+
+* The consensus relies on the quasi-random packing of the nuclei: in a lattice-like stretch (a single file of nuclei
+  at even spacing) a displacement by one spacing can gather nearly as much support as the true one; the rival check
+  then falls back to the registration, but not in every case.
+* `--flow-search-um` must cover the motion the registration leaves (twice that across a missing timepoint); the
+  consensus note above is the only sign when it does not.
+* A step with fewer than 8 confident links keeps the registration alone even when the consensus is unanimous (a
+  5-nucleus series whose 4 um step the consensus found with full support was then linked as `laptrack` links it).
+  That does not happen at 300 or more nuclei per timepoint; on a tightly cropped or sparse series use a registration
+  that follows the motion.
+* The simulator is the flow prior's best case. Its motion is a smooth flow along the gonad axis plus an independent
+  jitter of every nucleus (SD 0.28 um per axis, about 0.17 um per step), with no shear across the tube and no nucleus
+  moving on its own, so it cannot show whether the prior does harm where neighbours do not move together. Its raw
+  per-step motion is about 15 percent smaller than the October series' (nearest-neighbour residual without
+  registration 0.86 to 1.19 against 1.01 to 1.41 um by segment), its distal flow slower (0.10 against 0.14 um/min),
+  its counts after the refocus jumps lower (0.99 and 0.98 of t0 at t12 and t24, against 1.14 and 1.04), and its
+  nuclei tables carry the true arc length as `axis_position_um`, which the piecewise registration reads. Its scorer
+  lets either fragment of a split nucleus carry the nucleus's links, where `track-validate` counts a hand point in the
+  other fragment as a switch, so the heat-shock-like switch counts are a lower bound.
+* The hand-followed nuclei (`germquant track-validate`) remain the test on real data; the simulated scores only say
+  how the backends compare. On the October series (stride 4, 25 timepoints, about 8,350 germline nucleus-timepoints)
+  it runs in about 10 s per registration, no step fell back to the registration alone, the residual of the
+  confident links was 0.45 um (median), close to the 0.50 um of the October-like simulation (0.86 on the
+  heat-shock-like one), and the consensus fraction was 0.93 to 0.95 at its lowest step against a median of 0.99, so
+  no note; its tracks there are kept out of sight until the hand-followed nuclei have been scored.
+
+Tests: tests/test_timelapse_flowlink.py checks the settings (defaults, keys, explicit values, every refused value),
+the mutual-nearest-neighbour links (radius, ratio test both ways, mutuality), the median field, the consensus (a shift
+larger than the spacing is found; one beyond the search radius is not), a step without enough links, and predictions
+that compose the step fields and span a missing timepoint; on a quasi-random sheet of about 170 nuclei under a
+smooth 4 um per step shear with a random walk and 4 percent misses, plain laptrack makes hundreds of wrong links and
+`laptrack_flow` none, the predicted steps follow the planted shear, the result is deterministic and independent of
+the row order, `--flow-fb` and an explicit cutoff behave as described, and a missing timepoint is bridged; the record
+keeps the consensus and confident fractions of every step, the series summary names the low steps by both of its
+rules, and a whole-field jump beyond the search (7.5 um in x, 7.0 um in y, 6.5 um in z between two timepoints of the
+sheet) is named in the record and in the printed note, while the clean sheet gets no note; through
+`link_series` and the command line, on the series folders of test_timelapse_piecewise (4.6 um shear) and
+test_timelapse_tracking (drift, a dropout, off-gonad nuclei), it links the shear without any registration and with
+the piecewise one, writes the extra columns and the record, prints the consensus line (and no note on the
+18-nucleus tracking series, whose low fractions are one or two nuclei), and refuses misplaced or malformed options; and every
+existing backend gives, on those folders, the tables it gave at origin/main 8eb73de (digests of the points, the
+tracks and the assignment).
+
 ### Importing a tracker's result: `germquant track-import`
 
 ```
@@ -461,14 +668,25 @@ texture, one frame per timepoint.
 | `timelapse.track.strip_planes` | 3 | track-strips (`--planes`) |
 | `timelapse.track.strip_tile_px` | 64 | track-strips (tile side in output pixels) |
 | `timelapse.track.registration` | `rigid` | track-link (`--registration`) |
+| `timelapse.track.flow_search_um` | 6.0 | track-link laptrack_flow (`--flow-search-um`) |
+| `timelapse.track.flow_link_radius_um` | 3.0 | track-link laptrack_flow (`--flow-link-radius-um`) |
+| `timelapse.track.flow_ratio` | 0.5 | track-link laptrack_flow (`--flow-ratio`) |
+| `timelapse.track.flow_k` | 8 | track-link laptrack_flow (`--flow-k`) |
+| `timelapse.track.flow_iterations` | 2 | track-link laptrack_flow (`--flow-iterations`) |
+| `timelapse.track.flow_cutoff_um` | not set (`max_dist_um`) | track-link laptrack_flow (`--flow-cutoff-um`) |
+| `timelapse.track.flow_fb` | false | track-link laptrack_flow (`--flow-fb`) |
 | `timelapse.register.piecewise_segments` | 4 | register `--mode piecewise` (`--segments`) |
 | `timelapse.register.piecewise_margin_um` | 6.0 | register `--mode piecewise` (`--margin-um`) |
 | `timelapse.register.piecewise_taper` | 0.25 | register `--mode piecewise` (`--taper`) |
+| `timelapse.register.piecewise_seed` | `none` | register `--mode piecewise` (`--seed none\|rigid`; "Seeding the piecewise registration") |
+| `timelapse.register.piecewise_axis_guard` | false | register `--mode piecewise` (`--axis-guard`, `--no-axis-guard`; "The folded-axis guard") |
+| `timelapse.register.piecewise_axis_fold_ratio` | 4.0 | register `--mode piecewise`: the guard's threshold on the spread ratio |
 
 A command line flag wins over the key; the key wins over the code default. No shipped config file names
 any of them, so every config hash is unchanged.
 
-From code: `germquant.timelapse.export_cellacdc`, `link_series` (with `registration=`), `import_tracks`,
+From code: `germquant.timelapse.export_cellacdc`, `link_series` (with `registration=` and, for `laptrack_flow`,
+`flow=`; the pieces of the flow prior are in `germquant.timelapse.flowlink`), `import_tracks`,
 `track_strips`, `register_series_piecewise` and `load_piecewise`, and `find_series` / `load_shifts` /
 `object_table` in `germquant.timelapse.layout` for reading a series folder and its registered coordinates.
 
@@ -823,6 +1041,17 @@ step when capped, cumulative, brightfield step and cumulative, disagreement, qua
 lists of capped and disagreeing timepoints, the errors, the median quality before and after, the largest
 step, the cumulative shift at the last timepoint, and the rigid fits when asked for.
 
+With `--max-step-at` or `--prior stage` ("Per-gap caps and the acquisition record" below) the table gains, after
+the declared columns, `cap_um` (the cap of the gap into that timepoint; empty for no cap) and `cap_source`
+(`max_step_at`, `prior:stage` or `max_step_um`) and, with the prior, `stage_dx_um`, `stage_dy_um`, `stage_dz_um`,
+`refocus_pauses`, `stack_overlap_um` and `prior_flags`; the report gains `parameters.max_step_at` and
+`parameters.prior` (only the ones given), a top-level `prior` block and the cap and gap prior of each `steps`
+entry. Without them the table and the report are exactly what they were. The stage columns are in stage
+coordinates, not image axes: on the Ti2 of Kate's movies the image moved (dy, dx) = (-stage dy, +stage dx), at 0.86 to
+0.91 of the stage step's length ("Per-gap caps and the acquisition record" below), so `stage_dy_um` and `step_dy_um`
+have opposite signs at a re-centring; and the image z step is mostly of the opposite sign to `stage_dz_um` (at 44 of
+the 63 shown gaps with a stack z step of 0.5 um or more).
+
 The quality numbers are a sanity check, not a loss: after a good registration what remains is the real flow
 of the nuclei plus segmentation jitter, so `quality_after_um` should drop well below `quality_before_um` and
 stay well under the nearest-neighbour spacing (3.3 to 4.7 um in the goldens). On the lab series the flow
@@ -905,7 +1134,10 @@ parameters, the segments, the per-step and per-segment summaries, the capped, di
 steps, the errors, the quality medians per segment and the cumulative displacement at the last timepoint. The
 rigid `<stem>__register_shifts.csv` is not touched; `track-link --registration piecewise` reads the piecewise
 table (`load_piecewise`), rebuilding the fixed axis from the origin's nuclei table exactly as the registration
-built it.
+built it. The opt-in options of the next three sections append their own columns after the declared ones, only
+when given: `cap_um`, `cap_source` and the gap prior's columns (`--max-step-at`, `--prior stage`, `--seed`; the
+same on every segment row of a gap), the seed's columns (`--seed rigid`) and `axis_source` with the PC1 axis
+columns (`--axis-guard`).
 
 What the registered frame means here: it follows the germline itself, segment by segment. Linking in it sees
 nearly stationary nuclei, which is the point, but the tracks' speeds and `axis_velocity_um_per_min` are then the
@@ -932,6 +1164,234 @@ writes the finer ones next to them (one read-back per timepoint, no stage runs),
 `timelapse.reference_stride: 8` to keep using the old ones. The second limit: the brightfield cross-check is not a test of a sliding segment, because the gonad has texture
 in transmitted light too: on the fine volumes of the stride-2 run the brightfield crops over the two sliding
 proximal segments moved 67 to 93 percent as far as the GFP crops while the whole-field brightfield stayed put.
+
+### Per-gap caps and the acquisition record (`--max-step-at`, `--prior stage`)
+
+```
+germquant register results/SERIES --max-step-um 15 --prior stage
+germquant register results/SERIES --max-step-at 6=40 [--max-step-at 9=45]
+germquant register results/SERIES --prior stage --nd2 D:/live_local/kate/MOVIE.nd2
+```
+
+Why. Kate Walsh's heat-shock movies (`C:/Users/ryane/live_results/kate_movies/KATE_FIRST_LOOK.md`, sections 4 and 5)
+have three hand re-centrings of the stage, 19.9 to 36.9 um (20261008 into t8, 20261013 herm into t9, 20261020 into
+t6), and crawls, whole-field GFP moves of 6 to 16 um between frames. The cap is a clip after the estimate: the
+full-field correlation finds every re-centring within 0.13 to 0.86 um of the motion forensics once the cap lets it
+through, but the 5 um default shortens it, so the runs set `--max-step-um 40` or 45 for the whole movie and gave up
+the cap everywhere else. Refocusing is recorded in the file before any pixel is read.
+
+The record. `germquant.io.nd2_stage.read_stage_record` reads from the nd2's metadata, without a pixel, per
+timepoint of position 0 (the one `read_stack` reads): the first frame's time stamp, the median stage X and Y, the Z
+Coord of the stack's first and last frame and the median Ti2 ZDrive (empty without that tag), the z stack's
+geometry, and the events, each placed after the last timepoint that started before it. The per-frame X, Y and Z
+columns are not in nd2's public API (0.11.3: `events()` zips the per-frame columns down to a one-value exposure tag
+on these files, and `frame_metadata(i)` reports one position for every frame); they come from the reader's
+`_custom_tags()`, the one private call, and a version without it, or a file without the X, Y or Z column, is refused
+(`StageRecordUnavailable`, naming the nd2 version). On the six shown movies the record equals the per-timepoint
+tables of the Kate work's metadata reader within their 4-decimal rounding, events included (the six records took
+2.5 s).
+
+`--prior stage` keeps the record next to the series record as `<stem>__stage_record.json`
+(`"format": "germquant.stage_record/1"`): the source, the stack, the series' own timepoints only and the events
+between its first and last timepoint (a part folder gets its own; the 20261022 t25 to t36 folder holds nothing of t0
+to t24). It is found in this order: `--nd2 PATH`; else the series record's `file_path` when it is an .nd2 that
+exists (both read and written as the record file); else an existing `<stem>__stage_record.json` (a folder moved
+without its nd2, the simulator), refused when its `series_id` is another series'; else the command exits 1 saying
+which to give. An nd2 that nd2 cannot open exits 1 with nd2's reason. An nd2 whose timepoint count differs from the
+series record's, or whose first-frame time stamps differ from the series record's `t_seconds` by more than 1 ms at
+any timepoint, is refused and nothing is written: it is not the movie the series was run from. The series record's
+times are the stamps of the same frames, so the run's own movie matches to the bit (all six shown movies), while
+two movies of one protocol do not (20261013 herm and herm001, both 25 timepoints, differ by up to 0.155 s; every
+shown pair of the same length differs by more than 0.1 s). The record is read at `register` time, not at `run`
+time: a run-time key would change the config hash, and `--resume` would then segment every timepoint again.
+
+The prior of a gap, between two registrable timepoints (not always consecutive): the stage xy step in stage
+coordinates (never mapped to image axes: at the three re-centrings the GFP image moved 0.86 to 0.91 times the recorded
+step, 1.9 to 5.3 degrees off (dy, dx) = (-stage y, +stage x), and the brightfield 0.90 to 0.95 times it, 0.4 to 2.7
+degrees off; a scope fact the prior does not need. The project lead confirmed on 2026-10-24 that the pixel size of these movies is correct, 0.108333 x 0.108333 x 0.2 um, and that the stage record is the approximate part on this scope, so the scale is the record's and no germquant number depends on it), the move of the stack's centre in Z Coord, the depth both stacks
+share (within the run's `z_range`), the refocus pauses (events whose description holds "Refocus") and the stack
+depth.
+
+The cap of the gap into timepoint T is, in this order:
+
+1. `--max-step-at T=UM` (repeatable; 0 = no cap at that gap), source `max_step_at`. A T that is not a registrable
+   timepoint of the series after the first one is an error, not a silent no-op.
+2. With `--prior stage`: `--max-step-um` plus the stage xy step when it is 1.0 um or more (between frames without a
+   re-centring the shown stage moved at most 0.95 um) plus, when the stack z step is 0.5 um or more (every ZDrive
+   step of that size falls in a paused gap), as much of it as the estimate's own z uses: min(|stack dz|, |estimate
+   dz|), for the piecewise registration the largest |dz| over the gap's segments. Source `prior:stage`. The cap clips
+   the 3D length, so adding the full focus step would also admit that much xy (at 20261013 herm t3 to t4, a stack z
+   step of -8.26 um with no stage move, an xy-only step of up to 13.26 um would have passed a base of 5); the focus
+   allowance is spent on z only. A seeded piecewise step leaves the stage xy term out (the seed carries the move). A
+   base of 0 stays "no cap".
+3. Otherwise `--max-step-um`, source `max_step_um`.
+
+The cap is still a clip on the 3D length with the direction kept. Over the 125 shown gaps, with the steps of the
+report's rigid GFP registration A:
+
+| cap rule | gaps capped |
+|---|---|
+| `--max-step-um 5` (the default), no prior | 21, the three re-centrings among them |
+| `--max-step-um 5 --prior stage` | 14, all crawl or refocus gaps (largest 16.1 um, 20261013 herm t5 to t6); no re-centring |
+| `--max-step-um 10 --prior stage` | 5 crawls (20261020 t3 to t4, 20261013 herm t4 to t5 and t5 to t6, 20261008 t3 to t4 and t4 to t5) |
+| `--max-step-um 15 --prior stage` | none |
+| `--max-step-um 15` or 20, no prior | 4 or 2 |
+
+Spending the focus allowance on z only costs two gaps at a base of 5 (20261013 herm t3 to t4 and 20261022 t33 to t34)
+and two at 10 (20261013 herm t5 to t6, 20261008 t3 to t4) that a full focus allowance would have let through: crawls
+the rigid step got right, which the base must cover anyway. So for these movies `--max-step-um 15 --prior stage` (or
+20 for margin): the crawls, which the record cannot see, set the base. With it every rigid step of the seven shown
+base folders equals the report's A table bit for bit, nothing is capped, and the cap is raised at 63 of the 64 gaps
+with a recorded stage move or stack z step, by exactly the rule above (at the 64th, 20261008 t2 to t3, the rigid
+step's z is exactly 0, so its 0.69 um focus step adds nothing and `cap_source` stays `max_step_um`).
+
+The flags, in `prior_flags` (";"-joined) and the report's `prior` block, are advisory: nothing is changed by one.
+
+* `z_beyond_record`: the estimate's |dz| (before the cap; for the piecewise registration any segment's) is more
+  than 2.5 um above the record's |dz|. On the 125 shown gaps it marks exactly three, all failures of the report's
+  check, by 3.61, 3.79 and 2.81 um: 20261013 herm001 t12 to t13 (a sample move at the z wrap with no refocus),
+  20261022 t34 to t35 (the dim frame) and 20261008 t0 to t1 (where the forensics' two z estimators disagree). At the
+  102 gaps that pass the check the estimate exceeds the record's |dz| by at most 1.87 um (20261020 t6 to t7); a
+  threshold of 2.0 um marks the same three gaps, 3.0 um only the first two.
+* `no_shared_depth`: the two stacks share no depth (20261022 t24 to t25; not inside any shown series).
+* `stage_step_mismatch` (rigid only): at a recorded stage move of 1 um or more the estimate's xy length differs from
+  the stage step's by more than the base cap (5 um when the base is 0), or, at a stage move of 5 um or more, is under
+  half the stage step. The second rule catches a step locked near zero at any base, where the first alone goes blind
+  once the base reaches the stage step (at `--max-step-um 20` a lock at the 19.9 um re-centring of 20261008 would
+  differ by less than the base). The three re-centrings differ by 2.5 to 4.5 um and moved 0.86 to 0.91 of the stage
+  step, so neither rule marks them. Lengths only: a match of the right length in another direction is not caught,
+  since that needs the scope's stage to image mapping, which the prior leaves out.
+* `seed_step_mismatch` (seeded piecewise only): the same rules on the gap's rigid seed, so a seed shortened by the
+  seed table's cap or locked is marked where the record moved.
+* `no_record`: the record lacks one of the gap's timepoints; that gap keeps the base cap.
+
+The unseeded piecewise registration with the prior also warns, in the report and on the console, at a gap whose
+stage move is larger than `--margin-um`: its crops cannot follow it (use `--seed rigid`).
+
+No z seed. The record bounds z and flags it; it does not seed it. At the 63 shown gaps with a ZDrive step of 0.5 um
+or more the image z step over the ZDrive step has a median of -0.22 and ranges from -9.6 to +0.8 (Kate refocuses to
+follow the sample), so a z search centred on a fraction of the focus step would move 20261013 herm t5 to t6 out of
+the window (-1.66 um would read +10.54) and bring no true value into it, and the one real z failure (20261013
+herm001 t12 to t13) had no focus move to centre on.
+
+### Seeding the piecewise registration (`--seed rigid`)
+
+```
+germquant register results/SERIES --max-step-um 15 --prior stage            # the rigid table: the seed
+germquant register results/SERIES --mode piecewise --seed rigid --max-step-um 10 [--prior stage] [--axis-guard]
+germquant register results/SERIES --mode piecewise --seed rigid --seed-table SAVED/STEM__register_shifts.csv  # another rigid table of this series
+```
+
+Why. The piecewise registration cuts the same crop box out of both volumes, the segment's extent widened by
+`--margin-um`, so content that moved further than the margin is not in the moving crop: it cannot cross a stage
+re-centring, and the Kate runs registered the parts between re-centrings separately.
+
+What `--seed rigid` (key `timelapse.register.piecewise_seed`, code default none) does, per gap from timepoint a to b:
+
+1. The seed is the rigid step of that gap, cum(b) minus cum(a) of `<stem>__register_shifts.csv` (or of
+   `--seed-table`, any rigid table of this series): the difference of cumulative shifts works for either `--reference`
+   and for gaps across error rows. No table is an error naming `germquant register`, and so is a table whose
+   `series_id` column names another series; a gap whose two timepoints are not both in the table is unseeded
+   (`seed_source` "none: no rigid step for tNNN", `cap_basis` "step"). A seed is only as good as the rigid table: when
+   that registration capped a step inside the gap (its `capped` column; the 5 um default clips every re-centring),
+   the seed is a shortened step, not the move. Such a gap is still seeded, but says so (`seed_source` "rigid, capped
+   in the seed table"), the report and the console warn with the command to run (`germquant register DIR
+   --max-step-um 15 --prior stage`), and with `--prior stage` the gap is flagged `seed_step_mismatch` where the record
+   moved.
+2. The moving crop follows the seed: the seed's y and x are rounded to whole reference voxels (`seed_shift_y_vox`,
+   `seed_shift_x_vox`), the reference box is main's, clipped so that the moved box stays inside the volume, and the
+   estimate is the correlation of the reference crop with the moved crop plus that offset. The rounding, at most half
+   a voxel, stays in the residual. z is not seeded: every plane and the circular z estimate stay.
+3. The cap applies to the departure from the seed, estimate minus (0, seed y, seed x); when the departure is capped
+   the step is the seed plus the capped departure, otherwise the step is the estimate itself. With `--prior stage`
+   only the recorded z move is added to a seeded gap's cap, as far as the segments' own z uses it.
+4. The brightfield cross-check uses the same moving box. A seed below half a voxel moves no crop: there the estimate
+   is the unseeded one exactly (tested), which is why every gap is seeded and not only the large moves.
+
+The table gains `seed_dz_um`, `seed_dy_um`, `seed_dx_um` (the rigid step; z recorded, never applied),
+`seed_shift_y_vox`, `seed_shift_x_vox`, `mov_crop_y0` to `mov_crop_x1` (the moving box; the declared `crop_*` stay
+the reference box), `seed_source`, `cap_basis` ("departure"), and `cap_um` and `cap_source`; the report a `seed` block
+(the table, its sha256, its own report's parameters, the timepoints it capped, the seeded and unseeded gaps, the
+warnings) and `seed_um`, `departure_um` and `mov_crop_yx` per segment step.
+
+On the shown series (`C:/Users/ryane/regpriors_work/eval/`; laptrack 3.0 um, gap 2; the segment steps against the
+nearest of the five forensics windows along the gonad):
+
+| movie | registration | segment steps within 1 um of their window | full-length tracks | continuing at the gaps that matter |
+|---|---|---|---|---|
+| 20261020 s2, t0 to t24 | unseeded, cap 40 (what main can do) | 95 of 96 (one 20.5 um off at the re-centring) | 433 | re-centring t5 to t6: 0.784 |
+| 20261020 s2, t0 to t24 | `--seed rigid`, cap 10 | 95 of 96 (worst 1.10 um) | 525 (rigid A 426) | crawl 0.970 and 0.973, re-centring 0.967, t6 to t7 0.824 (A 0.934, 0.789, 0.965, 0.820) |
+| 20261013 herm, t0 to t24 | `--seed rigid`, cap 10 | 95 of 96 | 95 (A 76) | t3 to t6: 0.908, 0.899, 0.984 (the report's part at cap 10: 0.908, 0.587, 0.667); re-centring 0.943 |
+| 20261013 herm001, t0 to t24 | unseeded / seeded, cap 10 | 84 / 92 of 96 | 0 / 0 | crawls t0 to t1 0.496 / 0.538, t6 to t7 0.810 / 0.834; t12 to t13 0.000 (the z wrap) |
+| 20261008, t0 to t24 | `--seed rigid`, cap 10 | 84 of 96 (2 capped) | 154 (A 123) | t0 to t1 0.718, t1 to t2 0.641; re-centring 0.989 |
+| 20261008, t0 to t24 | the same with `--prior stage` | 84 of 96 (1 capped) | 194 | t1 to t2 0.785 (its 3.3 um refocus raises that gap's cap) |
+| 20261008, t0 to t7 | `--seed-table` of a `--taper 0.25` rigid table | 19 of 28 (27 within 2 um) | 211 of 573 tracks (the part at cap 10: 124 of 725) | t1 to t2 0.817 (A 0.692, the part 0.651) |
+| 20261022 t25 to t36, 20260917 | unseeded and seeded | 39 of 44; 72 of 72 | 22; 1 | unchanged |
+
+On a re-centring scenario of the tracker simulator (`C:/Users/ryane/regpriors_work/sim/recentre_sim.py`, on
+`C:/Users/ryane/trackers_work/sim/`: its `nohs_like` motion plus crawls of 9.9 and 7.6 um into t4 and t5 with a 1.5
+um gradient along the gonad, a 27.2 um re-centring into t6 and its acquisition record; scored against the true
+identities, means of three seeds) the seeded registration links every nucleus across the re-centring and is as good
+as the simulator's own tissue displacement used as the registration: 17 identity switches and 0.766 of the lives
+tracked whole (the tissue displacement: 21 and 0.774), against 143 and 0.617 unseeded at cap 40, 217 and 0.147
+unseeded at cap 10 (its step into t6 capped), 122 and 0.545 rigid at cap 40 or at cap 15 with the prior, and 615 and
+0.082 rigid at the default cap of 5 um (`regpriors_work/sim/data/recentre_crawl/e5_scores.csv`).
+
+A limit, measured: the segments stay the origin's. Tissue that comes into the field after a re-centring lies beyond
+the outermost segment centre and takes that segment's displacement. On 20261020 at t6 to t7 the 222 nuclei at x below
+30 um (a cluster at the left field edge that joins the gonad after the re-centring) continue 0.568 under the seeded
+registration, against 0.919 under the report's part t6 to t24 whose origin is t6; the nuclei at x of 60 um or more
+continue 0.933 under both. So use one seeded registration to keep tracks across a re-centring, and still start a part
+at the re-centring to track the tissue that enters there; both are cheap.
+
+### The folded-axis guard (`--axis-guard`)
+
+```
+germquant register results/SERIES --mode piecewise --axis-guard [--seed rigid]
+```
+
+Why. The segments are placed on the origin's axis, and when the axis stage folded the origin's axis (two limbs side
+by side, as at 20261020 t0 at xy stride 4), equal-count segments put spatially distant nuclei into one segment: there
+the t0 to t5 segment steps were up to 2.60 um off their forensics windows.
+
+The measure (the spread ratio): for each of the origin's K equal-count segments, the 5th to 95th percentile range of
+its nuclei's projection on the first principal direction of the origin's germline yx centroids, over the segment's
+axis span; the guard takes the largest. A sound axis, straight or curved, reads about 1 (a segment on a bend spreads
+less along the global direction than along the axis); a fold or a collapsed stretch reads high. With `--axis-guard`
+(key `timelapse.register.piecewise_axis_guard`, code default off) a ratio above
+`timelapse.register.piecewise_axis_fold_ratio` (code default 4) replaces the axis by PC1, the straight principal axis
+of the origin's germline yx centroids. Its sign makes the Spearman correlation with `axis_position_um` non-negative
+where the origin has five or more positions (so segment 0 sits as near the axis stage's distal end as the fold
+allows), else the SVD's sign is kept, and it is zeroed at the smallest origin value. A default axis whose positions
+do not split into K segments at all counts as folded. `--no-axis-guard` turns off a guard the key turned on.
+
+PC1 is straight by construction, so it always reads well on the spread ratio, and the ratio cannot say whether PC1
+fits the gonad. The guard therefore records `pc1_variance_fraction`, the share of the origin's yx variance along PC1
+(1 for nuclei on a line), and when it trips with a fraction under 0.85 it warns, in the report and on the console,
+that the straight axis it fell back on is a poor fit (a curved or L-shaped germline). At the five shown timepoints
+where the ratio is above 4, PC1 explains 0.962 to 0.973; it explains under 0.85 at 36 others (20261020 from t6 on,
+where the germline curves), whose axes are sound (ratios 0.85 to 2.96), so the guard keeps them.
+
+Storage. The table gains `axis_source` on every row ("pc1", or the default axis's source when the guard did not trip)
+and, for PC1, its direction, centre and offset (`axis_pc1_vy`, `axis_pc1_vx`, `axis_pc1_cy_um`, `axis_pc1_cx_um`,
+`axis_pc1_offset_um`); `load_piecewise`, so `track-link --registration piecewise`, builds the same function from
+those columns (no refit). A table without `axis_source` is read exactly as before. The report gains
+`parameters.axis_guard` and an `axis_guard` block: the threshold, the ratio per segment and the largest, whether it
+tripped, the axis used, PC1's numbers and variance fraction, the warning (or none) and the segment spans before and
+after.
+
+Evidence, over the 156 shown timepoints: the ratio is above 4 at five, 39.6 (20261020 s4 t0, the fold), 17.9
+(20261013 herm t2), 5.95 and 5.10 (20261013 herm t22 and t21) and 4.96 (20261013 herm t0); every other timepoint
+reads 0.85 to 3.42. Among the origins of the report's parts the guard trips at 20261020 s4 t0 and 20261013 herm t0
+only.
+
+* 20261020 s4, t0 to t5 (unseeded, cap 15): with PC1, 20 of 20 segment steps within 1 um of their windows instead of
+  14, the largest error 0.87 um instead of 2.60, 573 full-length tracks instead of 562. Over the whole movie with
+  `--seed rigid`: 96 of 96, 493 full-length tracks (A 406).
+* 20261013 herm t0 trips at 4.96 and costs nothing: 95 of 96 segment steps within 1 um either way, 94 full-length
+  tracks against 95.
+* The test gonad of test_timelapse_piecewise with its axis turned back at the middle reads 7.4 (a threshold of 8
+  would miss it); its straight axis reads 0.9.
 
 ### Tests
 
@@ -966,6 +1426,37 @@ options it refuses, the segment count from the series' run_manifest.json and fro
 `--registration piecewise` without the table exits 1, the default stays rigid); the missing-volume and
 too-few-nuclei errors; and that `register_piecewise` is appended last to `schema.SERIES_TABLES`.
 
+tests/test_timelapse_priors.py covers the registration priors. The reader runs against a fake ND2File (a 3 T x 2 P x
+4 Z movie with a stage move into t2 and a refocus pause in the gap t0 to t1): only position 0 is read, the medians
+and the first and last Z per timepoint, the events placed after their timepoint, an empty ZDrive without the tag, and
+the refusals (no X column, a short one, no `_custom_tags`, a file nd2 cannot open or decode) naming the nd2 version;
+the record file's round trip, its series-only timepoints and events, the precedence of `--nd2`, the series record's
+nd2 and the record file, and the refusals of a movie that is not the series' (another timepoint count, frame times
+0.155 s off at one timepoint; 0.4 ms is accepted, a series record without times is not checked) and of a record file
+of another series. The gap prior across an error row and within a `z_range`, the 1.0 and 0.5 um floors, the focus
+term min(|stack dz|, |estimate dz|) and the flags with the lock rule (a lock at a 20 um stage move is flagged at a
+base of 20; a step of the right length in the wrong direction is not, which the docs state). The rigid caps on the
+1.62 um jump of test_timelapse_register: uncapped at 1.0 + 1.6 um where the record says the stage moved 1.6 um while
+every other gap keeps 1.0, still capped at 1.0 + 0.12 um where the record has a 5 um focus step and the image moved
+in x only, `--max-step-at 3=0`, the refusals, the three flags on planted cases (a 3 um z jump with no recorded focus
+step, a recorded focus step deeper than the stack, a recorded stage move with no image move, flagged by the lock rule
+at a base of 9 too), a recorded 3 um focus step the image followed (uncapped, unflagged), and without a new option
+main's columns and report keys. The seed on a 240 um wide copy of the piecewise gonad with a whole-field move of
+(0, +8, +30) um into t2 that the brightfield shares: unseeded the four segment steps at t2 are 19.6 to 34.4 um off;
+seeded every step is the planted move plus the shear within 0.3 um and laptrack links all 60 nuclei full length with
+no wrong link; seeds below half a voxel reproduce the unseeded table exactly; the departure cap clips only the
+departure; `--seed-table`, a missing table and a missing row; the prior's caps and its margin warning; a seed table
+registered at the 5 um default (the move clipped: "rigid, capped in the seed table", the warning in the report and on
+the console, `seed_step_mismatch`) and one of another series (refused); `--max-step-at` in the piecewise registration
+(0 at one gap, a departure cap of 1 um seeded, the origin refused) and, with every estimate 3 um deeper than the
+record, `z_beyond_record`, `no_shared_depth` and the focus terms of the caps. The guard on the piecewise gonad with
+its origin axis turned back at the middle: off, the segments pair the limbs and the displacement is 2.9 to 10.4 um off
+the flow; on, PC1 is used, the steps follow the shear within 0.3 um and track-link's registered coordinates give the
+table's own quality numbers; on the straight gonad it does not trip and the table is the unguarded one exactly; on an
+L-shaped origin with a folded axis it trips and warns that PC1 explains only 0.8 of the yx variance. The command line:
+the flags reach the functions, the refusals exit 1, `--no-axis-guard` overrides the manifest key, the cap line is
+printed only with a cap option, and without a new flag every new keyword is None.
+
 ## What stays unchanged
 
 The fixed-image path is byte-identical: `process_image` without `t` makes the same reader call, the
@@ -973,3 +1464,17 @@ same image id, the same tables and the same marker keys as before; `tests/test_g
 synthetic goldens unchanged, and `config/config.yaml`, the study configs and the channel maps are not
 edited. Every new key is read with a code default; the new schema entries are appended, not inserted.
 `segmentation.nuclei.channel` is read with the code default `dna`, the value every shipped config carries.
+
+The registration priors (`--max-step-at`, `--prior stage`, `--seed`, `--seed-table`, `--axis-guard` and their keys)
+are opt-in: without them `register` runs main's statements in main's order and writes the same tables and reports.
+Checked on 2026-10-24, last after the review fixes (`C:/Users/ryane/regpriors_work/identity/` and
+`regpriors_work/fixes/identity/`), by running every registration and linking command of the existing fixtures
+(rigid: default, `--reference t0`, `--rigid`, `--channel brightfield`, `--taper 0.25`, `--max-step-um 1.0` on three
+fixtures; piecewise: default and `--segments 3`; track-link with laptrack rigid and piecewise, `overlap_inhouse` and
+`laptrack_flow`) and the Kate runs' own commands on a copy of the shown 20261020_herm_s4 under 0c29949 and under this
+code: every CSV equal as text, every parquet equal value for value and every JSON equal, apart from the git sha, the
+timestamps and the elapsed times (39 CSV, 39 parquet and 33 JSON files). The review's own set gave the same: eight
+fixtures (among them the 240 um moved gonad, one without brightfield, a jump in the nuclei only, a rotation and a
+manifest that names the new keys at their code defaults) under 8 rigid, 6 piecewise and 5 linking variants, and the
+Kate commands on a copy of the shown 20261013_herm_s4 (122 CSV, 122 parquet, 106 JSON and 204 console outputs). The
+rigid and piecewise tables of both copies also equal the Kate report's own tables of 8eb73de.

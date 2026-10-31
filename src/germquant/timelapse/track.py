@@ -11,9 +11,11 @@ as files, and the result is two series tables.
 * ``link_series`` (``germquant track-link``): links the nuclei across timepoints with one of the backends
   ``overlap`` (Cell-ACDC's own overlap tracker, headless), ``overlap_inhouse`` (the same majority-overlap rule
   in NumPy, used when Cell-ACDC is not importable), ``laptrack`` (LAP linking of the registered centroids with
-  gap closing, splitting and merging off) or ``none`` (no linking: the points table only), in the frame of the
-  rigid registration (one shift per timepoint) or of the piecewise one (timelapse.piecewise: one displacement
-  per nucleus, interpolated along the gonad axis; the overlap backends then move each label by its own shift).
+  gap closing, splitting and merging off), ``none`` (no linking: the points table only) or ``laptrack_flow``
+  (the same LAP linking, each nucleus matched at the position the motion of its neighbours predicts for it;
+  timelapse.flowlink), in the frame of the rigid registration (one shift per timepoint) or of the piecewise one
+  (timelapse.piecewise: one displacement per nucleus, interpolated along the gonad axis; the overlap backends then
+  move each label by its own shift).
 * ``import_tracks`` (``germquant track-import``): a TrackMate spots CSV or XML, an Imaris points table or a
   Cell-ACDC tracked ``segm.npz`` becomes the same two tables with ``link_source`` ``imported:<tool>``.
 * ``track_strips`` (``germquant track-strips``): one PNG per track with a tile per timepoint, the
@@ -66,7 +68,8 @@ DEFAULTS = {
     "strip_tile_px": 64,         # strips: tile side in output pixels (nearest-neighbour upscale)
     "registration": "rigid",     # track-link: rigid (<stem>__register_shifts.csv) | piecewise (<stem>__register_piecewise.csv)
 }
-BACKENDS = ("overlap", "overlap_inhouse", "laptrack", "none")
+# the laptrack_flow backend reads its own keys, timelapse.track.flow_* (flowlink.DEFAULTS), and max_dist_um / gap_frames
+BACKENDS = ("overlap", "overlap_inhouse", "laptrack", "none", "laptrack_flow")
 REGISTRATIONS = ("rigid", "piecewise")
 IMPORT_SOURCES = ("trackmate", "imaris", "cellacdc")
 LINK_RECORD = "track_link"           # <stem>__track_link.json
@@ -608,7 +611,7 @@ def _link_laptrack(objects: pd.DataFrame, *, max_dist_um: float, gap_frames: int
 def link_series(series_dir: str | Path, *, backend: str = "overlap", gap: int | None = None,
                 max_dist_um: float | None = None, min_overlap: float | None = None, stride: int | None = None,
                 germline_only: bool = True, stem: str | None = None, cfg=None, write: bool = True,
-                registration: str | None = None) -> dict:
+                registration: str | None = None, flow: dict | None = None) -> dict:
     """``germquant track-link``: link the nuclei of a finished series across its timepoints with ``backend``
     (BACKENDS) and write ``<stem>__track_points.csv`` and ``<stem>__tracks.csv`` next to the timepoint folders,
     plus ``<stem>__track_link.json`` (the backend, its parameters, the registration and shift source, the axis
@@ -616,16 +619,27 @@ def link_series(series_dir: str | Path, *, backend: str = "overlap", gap: int | 
     imported. ``registration`` (REGISTRATIONS; default the ``timelapse.track.registration`` key, code default
     ``rigid``): ``rigid`` subtracts the timepoint's cumulative shift of ``<stem>__register_shifts.csv`` (zero
     without the table), ``piecewise`` each nucleus's displacement interpolated along the gonad axis from
-    ``<stem>__register_piecewise.csv`` (``germquant register --mode piecewise``; required). Returns the points and
-    tracks DataFrames, the link record and the file paths."""
+    ``<stem>__register_piecewise.csv`` (``germquant register --mode piecewise``; required). ``flow``: settings of
+    the ``laptrack_flow`` backend by the names of flowlink.DEFAULTS (a value wins over its
+    ``timelapse.track.flow_*`` key; refused with any other backend). Returns the points and tracks DataFrames, the
+    link record and the file paths."""
     t_start = time.perf_counter()
     backend = str(backend).lower()
     if backend not in BACKENDS:
         raise ValueError(f"backend must be one of {', '.join(BACKENDS)}, got {backend!r}")
+    flow_given = {k: v for k, v in (flow or {}).items() if v is not None}
+    if flow_given and backend != "laptrack_flow":
+        raise ValueError(f"flow settings ({', '.join(sorted(flow_given))}) apply to the laptrack_flow backend only, "
+                         f"not to {backend!r}")
     reg_mode = str(registration if registration is not None
                    else cfg_get(cfg, "timelapse.track.registration", DEFAULTS["registration"])).strip().lower()
     if reg_mode not in REGISTRATIONS:
         raise ValueError(f"registration must be one of {', '.join(REGISTRATIONS)}, got {reg_mode!r}")
+    flow_cfg = None
+    if backend == "laptrack_flow":
+        from .flowlink import flow_settings
+
+        flow_cfg = flow_settings(cfg, **flow_given)        # validated before anything is read
     layout = find_series(series_dir, stem)
     spacing = layout.spacing()
     shifts, shift_source = load_shifts(layout)
@@ -665,6 +679,11 @@ def link_series(series_dir: str | Path, *, backend: str = "overlap", gap: int | 
             binfo["placement"] = "per-nucleus whole-voxel shift (piecewise registration)"
     elif used == "laptrack":
         assign, binfo = _link_laptrack(objects, max_dist_um=max_dist_um, gap_frames=gap)
+    elif used == "laptrack_flow":
+        from .flowlink import link_flow
+
+        assign, binfo, flow_cols = link_flow(objects, max_dist_um=max_dist_um, gap_frames=gap, settings=flow_cfg)
+        objects = pd.concat([objects, flow_cols], axis=1)     # the predicted step rides along into track_points
     else:
         assign, binfo = {}, {}
     link_source = used if used != "none" else "none"

@@ -62,6 +62,24 @@ a registered model: a release asset `get-model` has downloaded, or a model added
 register-model` (`models_registry.register_local_model`), which resolves to the registered file and puts
 its sha256 in the run manifest as always.
 
+A file path must name a file. An absolute path is used as it stands. A relative one is looked for under
+`$GERMQUANT_MODELS` (with and without its leading `models/`), then next to the config (its base folder),
+then from the working directory, where Cellpose itself looks. A relative path that a profile inherits from
+a base config in another folder was already made absolute against that folder when the config loaded, so
+`$GERMQUANT_MODELS` is not searched for it. A path found nowhere stops the run before segmentation
+(`pipeline.resolve_model_path`, `germquant/model_paths.py`): a FileNotFoundError lists the places looked in
+and the fixes (fetch the release model with `germquant get-model <name>`, set `GERMQUANT_MODELS` to a folder
+that holds `models/<name>`, or give the file's absolute path). Cellpose itself would not stop: it would log
+"pretrained model ... not found, using default model" and segment with its stock weights, and the run would
+record `model_sha256: absent`. A run that loads no Cellpose model is not checked: method `classical`, another
+backend, or method `auto` where Cellpose is not installed (the classical watershed runs, as before). Every
+path that resolves behaves as before. To segment with the stock weights on purpose, name them:
+`cellpose_model: cpsam`. The check covers config-driven runs (`germquant run`, `run --t`, `batch`,
+`api.run`); a direct call of a building block (`api.segment_nuclei`, a backend called with `model=`) hands
+its model value to Cellpose unchecked. `germquant finetune --pretrained` takes a model file or a name
+Cellpose's command line knows (`cpsam`, `cpsam_v2`, `cpdino`, `cpdino-vitb`) and refuses anything else,
+for the same reason.
+
 ### What the output says
 
 `segmentation_method` in `<image_id>__image_summary.csv` (the only table that carries it) names the backend that produced the labels

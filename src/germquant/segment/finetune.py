@@ -22,6 +22,10 @@ from ..io.channel_map import ChannelMap
 
 log = logging.getLogger(__name__)
 
+# the model names Cellpose 4's own command line loads by name (cellpose.models.MODEL_NAMES in 4.2.1.1); "sam",
+# which germquant's segmenter maps to the built-in model, is not one of them
+CELLPOSE_CLI_MODEL_NAMES = ("cpsam", "cpsam_v2", "cpdino", "cpdino-vitb")
+
 
 def _stretch_uint16(a: np.ndarray) -> np.ndarray:
     a = a.astype(np.float32)
@@ -78,9 +82,22 @@ def finetune_cellpose(
 
     Expects `labeled_dir` to contain the annotation TIFs + their *_seg.npy masks
     (from the Cellpose GUI). Returns the command that was/would be run.
+    `pretrained` must be a model file or one of CELLPOSE_CLI_MODEL_NAMES: anything else raises
+    FileNotFoundError before training (with run=False it is only a warning), because Cellpose's command
+    line would fine-tune from its stock weights instead.
     """
     labeled_dir = Path(labeled_dir)
     out_model = Path(out_model)
+    if not Path(str(pretrained)).is_file() and str(pretrained) not in CELLPOSE_CLI_MODEL_NAMES:
+        # Cellpose's command line takes a missing path for an unknown model name and fine-tunes from its stock
+        # weights; a printed command (run=False) may be meant for another machine, so it only warns there
+        msg = (f"--pretrained {str(pretrained)!r} is not a model file or a model name Cellpose's command line "
+               f"knows ({', '.join(CELLPOSE_CLI_MODEL_NAMES)}): Cellpose would log 'pretrained model ... not "
+               f"found, using default model' and fine-tune from its stock weights. Give the path of the model "
+               f"file to start from (a germquant model name is not looked up here)")
+        if run:
+            raise FileNotFoundError(msg)
+        log.warning("%s", msg)
     out_model.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable, "-m", "cellpose", "--train",

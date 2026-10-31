@@ -47,8 +47,8 @@ slides inside the worm non-rigidly.
 
 Tracking a finished series (docs/TIMELAPSE.md, "Tracking" and "Validating the linking"):
   germquant track-export   SERIES_DIR --out DIR [--crop germline|all] [--stride 2]   (a Cell-ACDC position folder)
-  germquant track-link     SERIES_DIR --backend overlap|overlap_inhouse|laptrack|none [--gap 2] [--max-dist-um 3.0]
-                           [--registration rigid|piecewise]
+  germquant track-link     SERIES_DIR --backend overlap|overlap_inhouse|laptrack|none|laptrack_flow [--gap 2]
+                           [--max-dist-um 3.0] [--registration rigid|piecewise] [--flow-* settings of laptrack_flow]
   germquant track-import   SERIES_DIR --from trackmate|imaris|cellacdc FILE
   germquant track-strips   SERIES_DIR --out DIR [--size-um 8]
   germquant track-validate SERIES_DIR --points hand.csv
@@ -194,6 +194,31 @@ def main(argv: list[str] | None = None) -> int:
     prg.add_argument("--margin-um", type=float, default=None, metavar="UM",
                      help="piecewise: how far a segment's crop reaches beyond its nuclei in y and x (default: the "
                           "timelapse.register.piecewise_margin_um key, code default 6.0)")
+    prg.add_argument("--max-step-at", action="append", default=None, metavar="T=UM",
+                     help="the cap of the one gap into timepoint T in microns instead of --max-step-um (0 = no cap "
+                          "at that gap); repeatable, for example --max-step-at 6=40 for a stage re-centring into t6")
+    prg.add_argument("--prior", choices=["stage"], default=None,
+                     help="stage: read the movie's acquisition record (stage X and Y, stack Z, ZDrive, refocus "
+                          "pauses; metadata only), raise each gap's cap by the stage and focus moves recorded in it "
+                          "and flag the gaps the record cannot explain (docs/TIMELAPSE.md, 'Per-gap caps and the "
+                          "acquisition record')")
+    prg.add_argument("--nd2", default=None, metavar="PATH",
+                     help="with --prior stage: the movie the record is read from (default: the series record's nd2, "
+                          "else <stem>__stage_record.json next to the series record); refused when its timepoint "
+                          "count or frame times differ from the series record's")
+    prg.add_argument("--seed", choices=["none", "rigid"], default=None,
+                     help="piecewise: start every gap from the rigid step of <stem>__register_shifts.csv, the moving "
+                          "crop following it, so one registration crosses a stage re-centring (default: the "
+                          "timelapse.register.piecewise_seed key, code default none)")
+    prg.add_argument("--seed-table", default=None, metavar="PATH",
+                     help="piecewise, with --seed rigid: the rigid table to seed from instead of the folder's own, "
+                          "for example one registered with --taper 0.25")
+    prg.add_argument("--axis-guard", action=argparse.BooleanOptionalAction, default=None,
+                     help="piecewise: when the origin's axis folds (a segment's nuclei spread along the gonad more "
+                          "than timelapse.register.piecewise_axis_fold_ratio, code default 4, times its axis span), "
+                          "use the straight principal axis of the origin's nuclei (default: the "
+                          "timelapse.register.piecewise_axis_guard key, code default off; --no-axis-guard overrides "
+                          "the key)")
     gcfg = prg.add_mutually_exclusive_group(required=False)
     gcfg.add_argument("--config", help="config yaml for the timelapse.register.* keys (default: the series' run_manifest.json)")
     gcfg.add_argument("--profile", help="profile name instead of --config")
@@ -537,13 +562,17 @@ def _add_track_parsers(sub) -> None:
     pl = sub.add_parser("track-link", help="link the nuclei across timepoints and write <stem>__track_points.csv and "
                                            "<stem>__tracks.csv next to the timepoint folders")
     common(pl)
-    pl.add_argument("--backend", choices=["overlap", "overlap_inhouse", "laptrack", "none"], default="overlap",
+    pl.add_argument("--backend", choices=["overlap", "overlap_inhouse", "laptrack", "none", "laptrack_flow"], default="overlap",
                     help="overlap: Cell-ACDC's overlap tracker run headless (falls back to overlap_inhouse, the same rule in "
                          "NumPy, when it cannot be imported); laptrack: LAP linking of the registered centroids with gap "
-                         "closing; none: the points table only (measurements per timepoint, no tracks)")
-    pl.add_argument("--gap", type=int, default=None, help="laptrack: bridge a track end at t to a start at t + d for 1 <= d <= GAP "
-                                                          "(default 2 = one missing timepoint; 0 = off)")
-    pl.add_argument("--max-dist-um", type=float, default=None, help="laptrack: largest registered displacement linked (default 3.0)")
+                         "closing; none: the points table only (measurements per timepoint, no tracks); laptrack_flow: the "
+                         "laptrack linking with every nucleus matched at the position the motion of its neighbours "
+                         "predicts for it (a flow prior; the --flow-* options)")
+    pl.add_argument("--gap", type=int, default=None, help="laptrack, laptrack_flow: bridge a track end at t to a start at t + d for "
+                                                          "1 <= d <= GAP (default 2 = one missing timepoint; 0 = off)")
+    pl.add_argument("--max-dist-um", type=float, default=None,
+                    help="laptrack: largest registered displacement linked; laptrack_flow: largest miss of a predicted "
+                         "position linked, unless --flow-cutoff-um is given (default 3.0)")
     pl.add_argument("--min-overlap", type=float, default=None,
                     help="overlap backends: least intersection over the previous nucleus' volume (default 0.4, Cell-ACDC's)")
     pl.add_argument("--stride", type=int, default=None, help="overlap backends: xy stride of the label grid (default 2)")
@@ -553,6 +582,25 @@ def _add_track_parsers(sub) -> None:
                          "each nucleus's displacement interpolated along the gonad axis from <stem>__register_piecewise.csv "
                          "(germquant register --mode piecewise). Default: the timelapse.track.registration key, code "
                          "default rigid")
+    fl = pl.add_argument_group("laptrack_flow (the flow prior; each option defaults to its timelapse.track.flow_* key, "
+                               "then to the code default; refused with any other backend)")
+    fl.add_argument("--flow-search-um", type=float, default=None,
+                    help="local consensus: the largest displacement a nucleus's neighbours vote on, um (default 6.0; "
+                         "0 = start from the registration alone)")
+    fl.add_argument("--flow-link-radius-um", type=float, default=None,
+                    help="confident links: the largest distance between a predicted position and its mutual nearest "
+                         "neighbour, um (default 3.0)")
+    fl.add_argument("--flow-ratio", type=float, default=None,
+                    help="confident links: the nearest distance at most this times the second-nearest, both ways (default 0.5)")
+    fl.add_argument("--flow-k", type=int, default=None,
+                    help="neighbourhood: the nuclei that vote and the confident links the field takes its median over (default 8)")
+    fl.add_argument("--flow-iterations", type=int, default=None,
+                    help="rounds of confident links, field and prediction (default 2)")
+    fl.add_argument("--flow-cutoff-um", type=float, default=None,
+                    help="the LAP cutoff on the predicted positions, um (default: --max-dist-um)")
+    fl.add_argument("--flow-fb", action=argparse.BooleanOptionalAction, default=None,
+                    help="forward-backward consistency: score a link by the mean of the forward prediction's and the "
+                         "backward prediction's squared miss (default off; --no-flow-fb overrides the key)")
 
     pi = sub.add_parser("track-import", help="turn a tracker's result (TrackMate CSV / XML, an Imaris points table, a "
                                              "Cell-ACDC tracked segm.npz) into the same two tables, link_source imported:<tool>")
@@ -617,22 +665,47 @@ def _track_export(args) -> int:
     return 0
 
 
+_FLOW_OPTIONS = {"search_um": "flow_search_um", "link_radius_um": "flow_link_radius_um", "ratio": "flow_ratio",
+                 "k": "flow_k", "iterations": "flow_iterations", "cutoff_um": "flow_cutoff_um", "fb": "flow_fb"}
+
+
 def _track_link(args) -> int:
     from .timelapse.track import link_series
 
     from .timelapse.piecewise import PiecewiseRegistrationMissing
 
+    flow = {name: getattr(args, dest, None) for name, dest in _FLOW_OPTIONS.items()}
+    given = sorted("--" + _FLOW_OPTIONS[n].replace("_", "-") for n, v in flow.items() if v is not None)
+    if given and args.backend != "laptrack_flow":
+        print(f"ERROR: {', '.join(given)} apply to --backend laptrack_flow only, not to --backend {args.backend}",
+              file=sys.stderr)
+        return 1
     try:
         res = link_series(args.series_dir, backend=args.backend, gap=args.gap, max_dist_um=args.max_dist_um,
                           min_overlap=args.min_overlap, stride=args.stride, germline_only=not args.all_nuclei,
-                          stem=args.stem, cfg=_track_cfg(args), registration=args.registration)
+                          stem=args.stem, cfg=_track_cfg(args), registration=args.registration,
+                          flow=flow if args.backend == "laptrack_flow" else None)
     except PiecewiseRegistrationMissing as e:
         print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        msg = str(e)
+        if "timelapse.track.flow_" not in msg:
+            raise
+        for name, dest in _FLOW_OPTIONS.items():         # name the option as well as the key
+            key = f"timelapse.track.flow_{name}"
+            msg = msg.replace(key, f"--{dest.replace('_', '-')} ({key})")
+        print(f"ERROR: {msg}", file=sys.stderr)
         return 1
     rec = res["record"]
     print(f"{rec['series_id']}: backend {rec['backend']} ({rec['link_source']}): {rec['n_objects']} nucleus-timepoints over "
           f"{len(rec['timepoints'])} timepoint(s) -> {rec['n_tracks']} track(s), {rec['n_full_length']} full length; "
           f"{rec['registration']} registration, shifts from {rec['shift_source']}")
+    if rec["backend"] == "laptrack_flow":
+        from .timelapse.flowlink import summary_lines
+
+        for line in summary_lines(rec.get("backend_info", {})):   # steps, residual, cutoff, the consensus (and a note)
+            print(f"  {line}")
     if rec.get("note"):
         print(f"  note: {rec['note']}")
     flipped = [t for t, s in rec.get("axis_sign_by_t", {}).items() if int(s) < 0]
@@ -1217,12 +1290,14 @@ def _register(args) -> int:
     docs/TIMELAPSE.md "Registration"). Exit code 1, with the reason, when the folder is not a series or holds no
     reference volumes; a timepoint that cannot be registered is a row with an error, not a failure. ``--mode
     piecewise`` registers each axial segment of the germline (timelapse.piecewise) instead."""
+    from .timelapse.priors import console_lines, parse_max_step_at
     from .timelapse.register import DEFAULTS as RIGID_DEFAULTS
     from .timelapse.register import register_series
 
     if getattr(args, "mode", "rigid") == "piecewise":
         return _register_piecewise(args)
-    for opt, given in (("--segments", args.segments), ("--margin-um", args.margin_um)):
+    for opt, given in (("--segments", args.segments), ("--margin-um", args.margin_um), ("--seed", args.seed),
+                       ("--seed-table", args.seed_table), ("--axis-guard", args.axis_guard)):
         if given is not None:
             print(f"ERROR: {opt} applies to --mode piecewise only", file=sys.stderr)
             return 1
@@ -1230,7 +1305,9 @@ def _register(args) -> int:
         res = register_series(args.series_dir, reference=args.reference, upsample=args.upsample,
                               max_step_um=args.max_step_um, channel=args.channel, rigid=args.rigid,
                               normalization=args.normalization,
-                              taper=RIGID_DEFAULTS["taper"] if args.taper is None else args.taper)
+                              taper=RIGID_DEFAULTS["taper"] if args.taper is None else args.taper,
+                              max_step_at=parse_max_step_at(args.max_step_at) if args.max_step_at else None,
+                              prior=args.prior, nd2=args.nd2)
     except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
@@ -1258,6 +1335,8 @@ def _register(args) -> int:
         angles = [r["rotation_deg"] for r in rep["rigid"] if r.get("rotation_deg") is not None]
         print(f"  rigid fit (experimental, report only): {len(angles)} step(s) fitted, largest rotation "
               f"{max(angles) if angles else 0.0:.2f} deg")
+    for line in console_lines(rep):
+        print(line)
     for k, why in rep.get("errors", {}).items():
         print(f"  t{int(k):03d}: {why}")
     print(f"  -> {res['table_path']}, {res['report_path']}")
@@ -1268,6 +1347,7 @@ def _register_piecewise(args) -> int:
     """``germquant register SERIES_DIR --mode piecewise``: one translation per axial segment per timepoint
     (timelapse.piecewise, docs/TIMELAPSE.md "Piecewise registration")."""
     from .timelapse.piecewise import register_series_piecewise
+    from .timelapse.priors import console_lines, parse_max_step_at
 
     if args.reference != "previous":
         print("ERROR: --mode piecewise registers every timepoint against the previous one (--reference previous)",
@@ -1280,7 +1360,10 @@ def _register_piecewise(args) -> int:
         cfg = _track_cfg(args)
         res = register_series_piecewise(args.series_dir, segments=args.segments, margin_um=args.margin_um,
                                         taper=args.taper, upsample=args.upsample, max_step_um=args.max_step_um,
-                                        channel=args.channel, normalization=args.normalization, cfg=cfg)
+                                        channel=args.channel, normalization=args.normalization, cfg=cfg,
+                                        max_step_at=parse_max_step_at(args.max_step_at) if args.max_step_at else None,
+                                        prior=args.prior, nd2=args.nd2, seed=args.seed, seed_table=args.seed_table,
+                                        axis_guard=args.axis_guard)
     except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
@@ -1301,6 +1384,8 @@ def _register_piecewise(args) -> int:
               f"{qtxt}{dtxt}")
     print(f"  {len(rep['capped'])} segment step(s) capped, {len(rep['brightfield_disagreement'])} above the "
           f"{par['disagreement_um']:g} um disagreement threshold, {len(rep['filled'])} filled from neighbours")
+    for line in console_lines(rep):
+        print(line)
     for k, why in rep.get("errors", {}).items():
         print(f"  t{int(k):03d}: {why}")
     print(f"  -> {res['table_path']}, {res['report_path']}")

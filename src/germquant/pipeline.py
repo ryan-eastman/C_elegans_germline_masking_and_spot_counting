@@ -168,13 +168,21 @@ def resolve_model_path(cfg):
     the steps above find nothing and today's code raises: it resolves to the verified blob of an installed
     pack's model spec, and a declared but missing blob raises FileNotFoundError naming `germquant pack
     fetch-models`. Under segmentation.nuclei.method classical such a value is returned unresolved (the
-    classical segmenter never loads a model; model_sha256 is "unused")."""
+    classical segmenter never loads a model; model_sha256 is "unused").
+
+    A path (absolute, or relative with a folder part) that is no file anywhere is refused where Cellpose would
+    load it (``model_paths.model_file_or_refusal``): Cellpose takes a missing path for an unknown model name, logs
+    "pretrained model ... not found, using default model" and segments with its stock weights, while the run
+    records model_sha256 "absent". Every value that resolves is returned as before, including a relative path
+    that is a file only from the working directory (where Cellpose itself looks)."""
     model_path = cfg.get("segmentation.nuclei.cellpose_model")
     if not model_path:
         return model_path
     p = Path(str(model_path))
     if p.is_absolute():
-        return model_path
+        from .model_paths import model_file_or_refusal
+
+        return model_file_or_refusal(cfg, model_path)
     root = os.environ.get("GERMQUANT_MODELS")
     if root:
         for cand in (Path(root) / p, Path(root) / Path(*p.parts[1:]) if len(p.parts) > 1 and p.parts[0] == "models" else None):
@@ -216,7 +224,9 @@ def resolve_model_path(cfg):
                 f"model {model_path!r} is not a file, not a model registered in {local_registry_path()} and not a "
                 f"Cellpose built-in {CELLPOSE_BUILTIN_NAMES}; give the model file's absolute path in "
                 f"segmentation.nuclei.cellpose_model, or register it in this environment")
-    return model_path
+    from .model_paths import model_file_or_refusal
+
+    return model_file_or_refusal(cfg, model_path)
 
 
 def read_input_metadata(path: str | Path) -> dict:
