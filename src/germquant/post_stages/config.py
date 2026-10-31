@@ -29,6 +29,7 @@ from ..fsutil import long_path
 from .declaration import DECLARATION_KEYS, declaration_problems, normalise_declaration, normalise_value, param_problem
 
 POST_STAGES_FILE = "post_stages.yaml"
+PACK_POST_STAGES_DIR = "post_stages"       # a pack's lists, one per recipe: post_stages/<recipe>.yaml (design 3.2)
 ENTRY_KEYS = ("name", "params")
 _HEADER = ("# post_stages.yaml: the post-stages this run switches on (docs/POST_STAGES.md).\n"
            "# Not part of config_hash. Written by germquant; check entries with python -m germquant.post_stages.\n")
@@ -103,6 +104,46 @@ def load_post_stages_file(path) -> list[dict]:
     if probs:
         raise ValueError(f"{p}: " + "; ".join(probs))
     return [_entry(e) for e in data]
+
+
+def entries_of(source) -> list[dict]:
+    """The entries of a post-stage list as [{"name", "params"}]: ``source`` is the path of a post_stages.yaml
+    (load_post_stages_file) or the list itself. ValueError for a list or file that cannot be read as one, OSError
+    for a file that cannot be opened; the names and values are checked by validate_post_stages."""
+    if isinstance(source, (str, os.PathLike)):
+        return load_post_stages_file(source)
+    probs = entries_problems(source)
+    if probs:
+        raise ValueError("; ".join(probs))
+    return [_entry(e) for e in source]
+
+
+def pack_post_stages_path(pack_folder, recipe: str) -> Path | None:
+    """The post-stage list a pack ships for its recipe ``recipe``, <pack folder>/post_stages/<recipe>.yaml, or None
+    when it ships none (design 3.2: optional, and not hashed)."""
+    path = Path(pack_folder) / PACK_POST_STAGES_DIR / f"{recipe}.yaml"
+    return path if os.path.isfile(long_path(path)) else None
+
+
+def post_stages_in_force(given=None, *, project_root=None, pack_folder=None, recipe: str | None = None):
+    """``(source, origin)``: the post-stage list a run uses (design 5.6), the first of
+    * ``given`` (a list, or the path of a file: `--post-stages FILE`, api.run's post_stages=) when it is not None,
+      origin "given";
+    * the project's own post_stages.yaml in ``project_root``, when it is there, origin "project";
+    * the post_stages/<recipe>.yaml that the pack in ``pack_folder`` ships for ``recipe``, origin "pack";
+    else (None, None). So the project's file, or one given to the run, replaces the pack's, and an empty list
+    switches every post-stage off (replacing the pack's as well)."""
+    if given is not None:
+        return given, "given"
+    if project_root is not None:
+        own = Path(project_root) / POST_STAGES_FILE
+        if os.path.isfile(long_path(own)):
+            return own, "project"
+    if pack_folder is not None and recipe is not None:
+        shipped = pack_post_stages_path(pack_folder, recipe)
+        if shipped is not None:
+            return shipped, "pack"
+    return None, None
 
 
 def as_declarations(declarations=None) -> tuple[dict[str, dict], dict[str, list[str]]]:

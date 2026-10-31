@@ -28,6 +28,9 @@ config_hash, recording the refusal for every stage.
 
 Imports: run_post_stages imports germquant.pipeline before anything else (D28), so torch claims its cuBLAS before
 a reader, CuPy or the post-stage's own module can. This module itself imports nothing heavy.
+
+``post_table_problems`` tells batch.collect which post tables of a folder are in force: those the record lists for
+a done stage whose recorded inputs (the main run's run_timestamp, the table digests) are still the folder's.
 """
 from __future__ import annotations
 
@@ -61,10 +64,6 @@ RECORD_FORMAT = 1
 LABELS_FILE = "{image_id}__nuclei_labels.tif"
 SERIES_REFUSAL = ("post-stages are refused for time series in this release (design 5.6): run the series without "
                   "post-stages")
-# germquant.planar.PLANAR_DZ (1.0, frozen with P2b): the z spacing a single-plane run hands its own array code while
-# its tables record voxel_dz_um as NaN. germquant.planar reaches this branch with P2b; phase WIRE then imports the
-# constant inside _run_facts (which runs after germquant.pipeline, D28) in place of this stand-in.
-_PLANAR_DZ = 1.0
 
 
 class PostStageContractError(RuntimeError):
@@ -91,6 +90,47 @@ def read_post_record(out_dir, image_id: str) -> dict | None:
     except (OSError, ValueError):
         return None
     return rec if isinstance(rec, dict) else None
+
+
+def post_table_problems(out_dir, image_id: str, names) -> dict[str, str]:
+    """{file name: why collect leaves it out} for the post table files ``names`` of one results folder; the files
+    not named are in force. A post table is in force when <image_id>__post.json lists it for a stage that is done
+    and whose recorded inputs are still the folder's: its main_run is the image_summary table's run_timestamp, and
+    each table digest it recorded is the digest of that table now. So the tables of a post-stage switched off, or
+    failed, since, and those made before the main run was redone (by a run without post-stages, which never
+    touches them), stay on disk and are left out. The post-stage need not be installed: only the record is read."""
+    out_dir = Path(out_dir)
+    names = list(names)
+    rec = read_post_record(out_dir, image_id)
+    if rec is None or rec.get("format") != RECORD_FORMAT or not isinstance(rec.get("stages"), dict):
+        return {n: f"the folder holds no readable {image_id}__post.json" for n in names}
+    listed: dict[str, tuple[str, dict]] = {}
+    for stage, st in rec["stages"].items():
+        if isinstance(st, dict) and st.get("done") is True:
+            for t in st.get("tables") or []:
+                listed[str(t)] = (str(stage), st)
+    main_run = _main_run(_summary_row(out_dir, image_id))
+    digests: dict[str, str] = {}
+    out: dict[str, str] = {}
+    for n in names:
+        if n not in listed:
+            out[n] = (f"{image_id}__post.json lists it for no post-stage that is done: the post-stage was switched "
+                      f"off, or failed, after it wrote the table")
+            continue
+        stage, st = listed[n]
+        inputs = st.get("inputs") if isinstance(st.get("inputs"), dict) else {}
+        if inputs.get("main_run") != main_run:
+            out[n] = (f"post-stage {stage} ran on the main run of {inputs.get('main_run')}, and the folder now holds "
+                      f"the main run of {main_run}: run the post-stages again")
+            continue
+        for table, want in (inputs.get("tables") or {}).items():
+            if table not in digests:
+                digests[table] = _digest(_table_path(out_dir, image_id, table))
+            if digests[table] != want:
+                out[n] = (f"post-stage {stage} read another {table} table than the folder now holds: run the "
+                          f"post-stages again")
+                break
+    return out
 
 
 def sub_hash(payload: dict) -> str:
@@ -129,26 +169,41 @@ def _read_table(path: Path):
     return pd.read_csv(long_path(path), low_memory=False, float_precision="round_trip")
 
 
+def _summary_row(out_dir: Path, image_id: str):
+    """The first row of the main run's image_summary table, or None when the folder holds none that can be read."""
+    try:
+        df = _read_table(_table_path(out_dir, image_id, "image_summary"))
+    except Exception:  # noqa: BLE001 - a missing or damaged summary leaves the facts unknown
+        return None
+    return None if df.empty else df.iloc[0]
+
+
+def _main_run(row) -> str | None:
+    """The run_timestamp of an image_summary row (None for no row, or no stamp)."""
+    import pandas as pd
+
+    stamp = None if row is None else row.get("run_timestamp")
+    return None if stamp is None or bool(pd.isna(stamp)) else str(stamp)
+
+
 def _run_facts(out_dir: Path, image_id: str) -> tuple[tuple[float, float, float] | None, dict, str | None]:
     """(spacing (dz, dy, dx) in um, {role: channel index or None}, the main run's run_timestamp) as the main run
     recorded them in its image_summary table (the voxel_d*_um, channel_map_json and run_timestamp columns). The
     table is the only source, so every route (a stack handed over or not) gets the same values. A single-plane
-    run records voxel_dz_um as NaN: its spacing is then (PLANAR_DZ, dy, dx), what its own array code received."""
-    path = _table_path(out_dir, image_id, "image_summary")
-    try:
-        df = _read_table(path)
-    except Exception:  # noqa: BLE001 - a missing or damaged summary leaves the facts unknown
+    run records voxel_dz_um as NaN: its spacing is then (germquant.planar.PLANAR_DZ, dy, dx), what its own array
+    code received. Called after germquant.pipeline is imported (run_post_stages, D28)."""
+    row = _summary_row(out_dir, image_id)
+    if row is None:
         return None, {}, None
-    if df.empty:
-        return None, {}, None
-    import pandas as pd                            # loaded by _read_table already
-
-    row = df.iloc[0]
     spacing = None
     try:
         dz, dy, dx = (float(row[c]) for c in ("voxel_dz_um", "voxel_dy_um", "voxel_dx_um"))
         if not (math.isnan(dy) or math.isnan(dx)):
-            spacing = (_PLANAR_DZ if math.isnan(dz) else dz, dy, dx)
+            if math.isnan(dz):
+                from ..planar import PLANAR_DZ     # one plane: the dz the run's array code received (P2b)
+
+                dz = PLANAR_DZ
+            spacing = (dz, dy, dx)
     except (KeyError, TypeError, ValueError):
         spacing = None
     roles: dict = {}
@@ -158,9 +213,7 @@ def _run_facts(out_dir: Path, image_id: str) -> tuple[tuple[float, float, float]
             roles = {str(k): (None if v is None else int(v)) for k, v in parsed.items()}
     except (KeyError, TypeError, ValueError):
         roles = {}
-    stamp = row.get("run_timestamp")
-    main_run = None if stamp is None or bool(pd.isna(stamp)) else str(stamp)
-    return spacing, roles, main_run
+    return spacing, roles, _main_run(row)
 
 
 def _read_only(arr):

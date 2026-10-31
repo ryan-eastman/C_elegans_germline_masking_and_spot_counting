@@ -17,13 +17,23 @@ is loaded (gate G6). ``run_post_stages`` imports germquant.pipeline first, so to
 reader or the post-stage does (D28). The torch-free command entry is ``python -m germquant.post_stages list
 [--json] [--all]`` and ``write DIR --entries JSON [--json]``. germquant.post_stages.testing holds the fixture
 post-stage that the engine and plugin tests share.
+
+The run commands take post-stages (docs/POST_STAGES.md, "Running post-stages"): `germquant run` and `germquant
+batch` with ``--post-stages FILE``, api.run and api.run_loaded with ``post_stages=``, and `germquant project run`
+with the project's post_stages.yaml; a pack recipe's post_stages/<recipe>.yaml is in force unless one of those
+replaces it (post_stages_in_force). A run of a recipe file or a profile without them imports none of this
+package; a pack run imports it to look for the pack's file.
 """
 from __future__ import annotations
 
 from .config import (
+    PACK_POST_STAGES_DIR,
     POST_STAGES_FILE,
     dump_post_stages,
+    entries_of,
     load_post_stages_file,
+    pack_post_stages_path,
+    post_stages_in_force,
     post_stages_sha256,
     validate_post_stages,
     write_post_stages_file,
@@ -44,6 +54,7 @@ from .runner import (
     PostStageContractError,
     post_record_path,
     post_table_name,
+    post_table_problems,
     read_post_record,
     run_post_stages,
 )
@@ -54,4 +65,6 @@ __all__ = [
     "list_post_stages", "load_post_stage", "load_post_stages_file", "post_record_path", "post_stages_sha256",
     "post_table_name", "read_post_record", "register_post_stage", "run_post_stages", "unregister_post_stage",
     "validate_post_stages", "write_post_stages_file",
+    # the run routes (phase WIRE): which list a run uses, and which post tables collect gathers
+    "PACK_POST_STAGES_DIR", "entries_of", "pack_post_stages_path", "post_stages_in_force", "post_table_problems",
 ]
