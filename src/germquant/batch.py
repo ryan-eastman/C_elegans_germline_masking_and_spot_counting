@@ -327,6 +327,54 @@ def _join_sheet(df: pd.DataFrame, table: str, frames: list, frame_ids: list[str]
     return pd.concat([df, pd.DataFrame(new, index=df.index, dtype=object)], axis=1)
 
 
+def _collect_post(out_root: Path, files: list[Path], sheet_columns: list[str],
+                  sheet_values: dict[str, dict[str, str]]) -> dict[str, int]:
+    """batch_post_<name>_<table>.csv from the post tables ``files`` (each <image_id>__post_<name>_<table>.csv):
+    the files in force, image_id first, the sample sheet's extra columns joined; {post_<name>_<table>: n_rows}.
+    A batch file is written for every post table name found, header only when none of its files is in force."""
+    from .post_stages import post_table_problems
+
+    left: dict[Path, str] = {}
+    by_folder: dict[tuple[Path, str], list[Path]] = {}
+    for f in files:
+        by_folder.setdefault((f.parent, f.name.split("__")[0]), []).append(f)
+    for (folder, iid), group in by_folder.items():
+        problems = post_table_problems(folder, iid, [f.name for f in group])
+        left.update({f: problems[f.name] for f in group if f.name in problems})
+    by_name: dict[str, list[Path]] = {}
+    for f in files:
+        by_name.setdefault(f.name.split("__", 1)[1], []).append(f)
+    counts: dict[str, int] = {}
+    for rest, group in sorted(by_name.items()):
+        frames, frame_ids, header = [], [], None
+        for f in group:
+            if f in left:
+                log.warning("collect: left out %s: %s", f, left[f])
+                if header is None:
+                    try:
+                        header = list(pd.read_csv(long_path(f), nrows=0).columns)
+                    except Exception:  # noqa: BLE001 - a header only names the columns of an empty table
+                        header = []
+                continue
+            try:
+                frames.append(pd.read_csv(long_path(f), low_memory=False))
+                frame_ids.append(f.name.split("__")[0])
+            except Exception as e:  # noqa: BLE001 - one unreadable table must not block the stack
+                log.warning("collect: skipping %s (%s)", f, e)
+        for frame, iid in zip(frames, frame_ids):
+            if "image_id" not in frame.columns:
+                frame.insert(0, "image_id", iid)       # a post table holds only its declared columns
+        if frames:
+            df = pd.concat(frames, ignore_index=True)
+        else:
+            df = pd.DataFrame(columns=["image_id", *[c for c in (header or []) if c != "image_id"]])
+        if sheet_columns:
+            df = _join_sheet(df, rest[:-4], frames, frame_ids, sheet_columns, sheet_values)
+        df.to_csv(long_path(out_root / f"batch_{rest}"), index=False)
+        counts[rest[:-4]] = len(df)
+    return counts
+
+
 def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES), *,
             image_ids: set[str] | None = None, extra_rows: list[dict] | None = None,
             outlier_factor: float | None = 1.8, require_marker: bool = True, sample_sheet=None) -> dict[str, int]:
@@ -347,7 +395,14 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
       columns (neither the key nor a design column) are appended to every ``batch_<table>.csv``, joined by the
       image id of each table file, empty for an image without a row. A column a stacked table already has is not
       joined there (a warning says so); the design columns stay the ones each image ran with, and
-      batch_summary.csv keeps its six columns.
+      batch_summary.csv keeps its six columns;
+    * post tables (docs/POST_STAGES.md): every ``<image_id>__post_<name>_<table>.csv`` of a complete folder is
+      stacked into ``batch_post_<name>_<table>.csv`` (counted under ``post_<name>_<table>``), image_id first
+      unless the table has that column, and the sample sheet's extra columns joined as above. Only the post tables
+      in force are stacked (germquant.post_stages.post_table_problems): those the image's __post.json lists for a
+      done stage that ran on the folder's current main run. A post table of a post-stage switched off or failed
+      since, or of an earlier main run, stays on disk and is left out, with a warning. Nothing is written for post
+      tables when the tree holds none, and germquant.post_stages is not imported then.
     Idempotent; safe to rerun after any subset of images was reprocessed. Returns {table: n_rows}."""
     out_root = Path(out_root)
     sheet_columns, sheet_values = [], {}
@@ -366,8 +421,10 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
             continue
         folders[iid] = (f.parent, provenance.read_done_marker(f.parent, iid))
     complete = {iid for iid, (_d, m) in folders.items() if m or not require_marker}
-    # extra spot-instance tables (spots_<name>) are discovered from disk so no schema change is needed
-    extra = sorted({f.name.split("__", 1)[1][:-4] for f in _find(out_root, ".csv")
+    # extra spot-instance tables (spots_<name>) are discovered from disk so no schema change is needed; the one walk
+    # also finds the post tables (<image_id>__post_<name>_<table>.csv), gathered below
+    csvs = _find(out_root, ".csv")
+    extra = sorted({f.name.split("__", 1)[1][:-4] for f in csvs
                     if "__spots_" in f.name and f.name.split("__")[0] in complete})
     for t in tuple(tables) + tuple(x for x in extra if x not in tables):
         frames = []
@@ -386,6 +443,9 @@ def collect(out_root: str | Path, tables: tuple[str, ...] = tuple(schema.TABLES)
             df = _join_sheet(df, t, frames, frame_ids, sheet_columns, sheet_values)
         df.to_csv(long_path(out_root / f"batch_{t}.csv"), index=False)
         counts[t] = len(df)
+    post = [f for f in csvs if f.name.split("__", 1)[-1].startswith("post_") and f.name.split("__")[0] in complete]
+    if post:
+        counts.update(_collect_post(out_root, post, sheet_columns, sheet_values))
     n_series = collect_series_summaries(out_root)
     if n_series is not None:
         counts["series_summary"] = n_series
