@@ -1,0 +1,35 @@
+{
+ "format": 1,
+ "image_id": "20251105_n2_nohs_HERM_001",
+ "post_stages_file_sha256": "7073f1f13ea5c42f31d45246cfaf1e6fb7489a4d16cd9b8ea831cf4f765b3b43",
+ "stages": {
+  "fixture_nuclei": {
+   "done": true,
+   "error": null,
+   "inputs": {
+    "image": {
+     "xy_stride": 1,
+     "z_range": null
+    },
+    "roles": {
+     "foci": 2
+    },
+    "spacing": [
+     0.4,
+     0.2,
+     0.2
+    ]
+   },
+   "params": {
+    "factor": 3.0,
+    "fail": false,
+    "min_voxels": 0,
+    "statistic": "max"
+   },
+   "tables": [
+    "20251105_n2_nohs_HERM_001__post_fixture_nuclei_per_nucleus.csv"
+   ],
+   "version": "1.0.0"
+  }
+ }
+}

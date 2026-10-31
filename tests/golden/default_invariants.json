@@ -36,7 +36,8 @@
   "synthetic_2d": "fcbd61243484",
   "synthetic_labels": "02500074ad84",
   "synthetic_tune": "02bb83cf74f9",
-  "synthetic_sheet": "84bdda5a5230"
+  "synthetic_sheet": "84bdda5a5230",
+  "synthetic_post": "31a28c354572"
  },
  "channel_maps_sha256_lf": {
   "config/channel_maps/ccw77_dapi_syp_pgl_lamin.yaml": "7dac727682e7fb281cda789950ac9f8f592c47ae98ce4780d135e890466b7844",
