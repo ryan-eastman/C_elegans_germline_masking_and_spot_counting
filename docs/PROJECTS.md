@@ -400,6 +400,10 @@ that was stopped: readers use its complete lines.
 | unreachable | not done, and its file cannot be reached: is the NAS or VPN connected? | |
 | excluded | excluded from the project, with the reason | |
 
+A time series that finished before the sample sheet gave it a row reads stale (sample_row), not done: every run
+now fails it before anything of it is read (see Running a project), and its reason gives that refusal with the way
+out (take the row out of the sheet, or clear the sheet with `--samples none`).
+
 Each image also shows its qc_pass, the run that last processed it (last_run_id), the device its nuclei were
 segmented on and the file a run reads (a relative path joined to the project folder). Then:
 
