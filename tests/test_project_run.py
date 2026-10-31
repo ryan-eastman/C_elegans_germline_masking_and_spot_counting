@@ -82,12 +82,28 @@ def example_copy(folder: Path, name: str = "test_pack_synthetic") -> Path:
     return dest
 
 
+_TEMPLATES: dict[tuple, Path] = {}
+
+
 def project_with_images(tmp_path: Path, names=("a", "b"), recipe=None, *, folder: str = "proj"):
-    """A test_pack project holding copies of the example under images/, one per name, added by relative path."""
+    """A test_pack project holding copies of the example under images/, one per name, added by relative path.
+
+    The first call with these arguments in a pytest process makes the project and keeps a copy of it, as made, in
+    the session's temporary folder; a later call copies that template (its manifest, id and stamps included, which no
+    test compares between two projects; the copies keep the files' mtimes, as the manifest records them) instead of
+    vendoring the pack and reading the image headers again, about 0.3 s a project (PLAN.md D41)."""
+    key = (tuple(names), recipe, folder)
+    template = _TEMPLATES.get(key)
+    if template is not None and template.is_dir():
+        shutil.copytree(template, tmp_path / folder)
+        return P.open_project(tmp_path / folder)
     proj = new_test_project(tmp_path / folder, recipe)
     imgs = [example_copy(proj.root / "images", n) for n in names]
     res = P.add_images(proj, imgs)
     assert res["refused"] == [] and res["added"] == list(names), res
+    template = tmp_path.parent / "project_templates" / str(len(_TEMPLATES)) / folder
+    shutil.copytree(proj.root, template)
+    _TEMPLATES[key] = template
     return proj
 
 
