@@ -444,6 +444,8 @@ checks the bump. A recipe may say `status: validated` only with a passing valida
 
 The plain `germquant collect` keeps the worm's framing check (an image with 1.8 times the median germline count
 is flagged). For an outside pack collect with `germquant batch FOLDER --pack ID --out OUT --resume`, which reads
-the pack's `qc.germline_outlier_factor`. `germquant batch` runs the .nd2 files of a folder; folders of TIFF or
-OME-TIFF images come with projects in a later germquant package, so run those one at a time with `germquant run`
-for now.
+the pack's `qc.germline_outlier_factor`. `germquant batch` runs the .nd2 files of a folder, and other formats only
+when the recipe lists them in io.input_suffixes (README, "Other file formats"), which no built-in pack's recipe
+does. For a folder of TIFF or OME-TIFF images, make a project (`germquant project new` and
+`germquant project add DIR FOLDER`, which finds every format germquant reads; docs/PROJECTS.md) and run and collect
+it there: `germquant project collect` reads the pack's `qc.germline_outlier_factor` too.

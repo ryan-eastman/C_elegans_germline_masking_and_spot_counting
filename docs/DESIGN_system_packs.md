@@ -2208,6 +2208,102 @@ because Train B edits nothing under constraints/. GitHub keeps the two newest ma
 the images of the next macOS arrive; a later train then moves the label again. The plugin workflow (8.10) takes the
 same label in its own commit.
 
+Decisions and contract changes after 2026-10-23 (Train B). The plan's integration agent took decisions D43 to D59
+after the answers above and kept the plan's interface contract (its section 9; the record of each change, with its
+date and the units it concerns, is its section 9.4); the files are in C:/Users/ryane/germquant_golden/t5_train_b/
+(PLAN.md, handoff/T5B-INT_decisions.md). Two of the plan's own decisions are listed first, because docs/LABELS.md
+cites them here with T5B-0's D13 and D14:
+- D12 (4.11): labels runs (segmentation.nuclei.labels_from set) skip model resolution and the pin check and record
+  model_sha256 "unused", as the classical method does; `germquant batch` follows the same rule. run_project skips
+  the segmentation model in its digest check with a warning, and project_status reports that model as not needed.
+  pack_status does not require the segmentation model of a recipe that sets labels_from itself: a problem with that
+  model (missing, the wrong size, another sha256) is a warning, not a blocker.
+- D15 (4.11, 4.13): labels_from with a time series is refused wherever D9 refuses a single-plane one: `germquant run
+  --t` before any timepoint, run_project before process_series, and process_image when given t. The doc is
+  docs/LABELS.md.
+- D43 (4.7, 5.1): the planar stage-flag channel is internal to the built-in spotmax backend. A planar call returns
+  tables whose attrs["stage_flags"] lists flag names; the pipeline raises each as spots:<name> (for an instance
+  spots_<instance>:<name>) and removes the key from every table of every backend before anything is written. 5.1's
+  backend contract (planar_ok and the planar keyword) is unchanged, and attrs that a third-party backend leaves are
+  dropped. spots:z_merge_off_planar is raised only when the recipe asks for the z-split merge
+  (spots.merge_z_columns true). Confirmed by the project lead on 2026-10-30.
+- D44 (4.9, 7.8): `germquant batch` passes the single-plane segment hash to its resume check only when the recipe
+  sets io.planar, so a default batch makes exactly the base's call.
+- D45 (4.13): every time-series refusal of the command line (single-plane, labels_from, a sample sheet,
+  post-stages) prints "REFUSED: <message>" on stderr and exits 2 before any timepoint; "ERROR:" stays for usage
+  errors.
+- D46 (4.11): the per-image labels hash is public: germquant.io.labels.segment_hashes(cfg, image_path, *,
+  model_sha="unused") returns (segment_hash, segment_hash_planar, problem), for labels runs only, and
+  UNREADABLE_HASH ("labels-unreadable") for a file it cannot hash, so batch, run_project and project_status
+  resume labels runs alike.
+- D47 (7.8): `germquant project run --device` accepts auto, cuda, mps and cpu.
+- D48 (7.7): the engine run log's done_sha256 is the sha256 of the done marker's bytes with CRLF normalised to LF.
+- D49 (7.8): `project run`, `status`, `collect` and `export-commands` refuse as the other project commands do (exit
+  2, "REFUSED: <message>" on stderr, {"error", "kind"} on stdout with --json); `project run` exits 0, 1 or 2;
+  commands built before keep their recorded forms.
+- D50: the command line's docstring and the torch-free pack entry's first docstring line name `pack derive`; a
+  test ties the latter to the light parser.
+- D51: base code that takes plain paths (packs/install.py, segment/training.py's reads) moves to fsutil.long_path
+  in a follow-up; until then docs/PROJECTS.md asks for a project folder path under about 170 characters on Windows
+  without long paths.
+- D52 (4.11): in a labels run the resume reason is "segment stage hash differs (the labels file, or the Cellpose or
+  torch version, changed)"; every other run keeps the base's text.
+- D53 (8.4, 8.7): the plugin's Project and Spot tuning docks are in napari.yaml, and the one plugin test that pins
+  the exact set of docks is widened by the commit that adds a dock (it stays an equality). Confirmed by the project
+  lead on 2026-10-30.
+- D54: the macOS note above.
+- D55 (11.3): the style check of gate G7 runs on tranche 5 branch names only: in CI's T5 step, and in
+  tests/test_t5_style_check.py's check of the checkout, which skips on any other branch and on a detached HEAD. The
+  project lead's word (2026-10-30): the no en or em dash rule is for prose, not code, so main gets no dash check.
+- D56 (10): export-training of a `germquant batch` tree takes each run's config from the batch manifest, so a 3D
+  recipe that segments a role other than dna exports that role's channel (the base exported channel 0 as dna); no
+  run number changes. Taken in Train B by the project lead's yes of 2026-10-30.
+- D57 (8.10): the plugin's run widget test reads config_hash as text, so a hash of digits with one inner e is not
+  read as a number. The project lead's yes of 2026-10-30.
+- D58: the last unit merges into the P5 package branch went in as one --no-ff octopus merge per round (unit heads
+  synced on one package head, each gated and green on its own), with the gate rerun on the merged tree.
+- D59: the final review ran in two parts: part A on the P5 package head before its merge into the train (the whole
+  train against main), part B on the head G4 ran on, before G4 (every delta since part A).
+
+The interface contract's changes (plan section 9.4, numbered as there):
+1. (2026-10-24) the planar stage-flag channel of D43.
+2. (2026-10-24) planar.PLANAR_SERIES_REFUSED, planar.one_plane_header and planar.PlanarConfigError (a ValueError),
+   and the bioio header key spacing_yx_um ((dy, dx) or None; one plane only).
+3. (2026-10-24) the command line's series refusal form of D45.
+4. (2026-10-24) germquant.io.labels.segment_hashes and UNREADABLE_HASH (D46).
+5. (2026-10-24) the batch resume call of D44.
+6. (2026-10-24) the project package as built: `project unlock --json`, Project.config_hash, ProjectError and
+   ProjectLockedError, preview_roles' record, `project edit --dry-run`, the refusal form, the word none that clears
+   a setting; (2026-10-31) `project add` and `project new --images` refuse an io.input_suffixes that the recipe
+   check refuses.
+7. (2026-10-24) tune-spots as built: the apply form, the --json records, the exit codes, tuning/<run>/run.json and
+   TuningWarning; (2026-10-30) a refusal is one ERROR line and nothing on stdout.
+8. (2026-10-24) pack derive as built: germquant.packs' new names, the --json record, derived_from, and the "projects"
+   feature entering with run_project.
+9. (2026-10-24) the post-stage package's additions: run_post_stages(resume=), list_post_stages(include_unusable=),
+   the stage records' inputs, `post_stages list --all`, the write record and its exit codes.
+10. (2026-10-24) project runs: D47 to D49.
+11. (2026-10-30) import-labels and train-curve as built: channel=, the import record, the pairs manifest's new
+    columns, tiles above 1024 px, pixels_sha256 in little-endian byte order, --frame, the exit codes;
+    (2026-10-30) train-curve's refusal form; (2026-10-31) D56's export rule, and a channel named by digits is given
+    by its index on the command line.
+12. (2026-10-30) germquant.api re-exports germquant.tune's TuneRefused, GridError and TuningWarning.
+13. (2026-10-30) the sample sheet and batch formats as built: the module's names, the row hash over the row's
+    non-empty design cells, the resume check's sample row reasons, the separator, root and duplicate_id rules, the
+    refusal forms of --samples and batch.discover_options; (2026-10-31) one image id twice in one format is a
+    duplicate_id too, and germquant.api re-exports batch.discover_options and the sheet's SampleSheetError and
+    SampleSheetWarning.
+14. (2026-10-30) planar.write_labels_yx and planar.write_spots_yx, and the stride reading of Stack.spacing_yx.
+15. (2026-10-31) project runs with a sample sheet: collect_project's "sample_sheet", the sheet read once per run, a
+    sheet that cannot be used, the series refusal with the project's remedy, reason_code sample_row; (2026-10-31) a
+    series that finished before the sheet gave it a row reads stale.
+16. (2026-10-31) the post-stage wiring as built: `--post-stages FILE` on run and batch, the list in force (the file
+    given, else a project's post_stages.yaml, else the pack's post_stages/<recipe>.yaml), checked before any image;
+    api.list_post_stages and post_stages= on api.run and run_loaded; a failed post-stage, and an error that leaves
+    the post-stage runner itself, never fail the image; one series refusal function for `run --t` and `project run`,
+    which `project status` asks too, with the project's post-stage list; collect's batch_post_<name>_<table>.csv of
+    the post-stages in force; the post_stages feature.
+
 ## 15. Findings to raise (number-relevant; not fixed in T5)
 
 - a. Since Cellpose 4.2.0 (2026-06-11), the bare name cpsam runs cpsam_v2. nuclei._cellpose passes no

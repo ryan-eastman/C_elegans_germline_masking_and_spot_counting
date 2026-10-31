@@ -43,6 +43,15 @@ inherits through `extends` is not anchored to the base recipe's folder, so a rec
 a format spec such as `{image_id:>9}` or an unbalanced brace is refused before any stage runs; write `{{` and `}}`
 for a literal brace.
 
+Labels files kept next to the images, as in the example, are image files too. `germquant batch` (and the
+Snakemake workflow) with a recipe that lists their suffix in `io.input_suffixes`, as
+`config/profiles/generic_2d.yaml` does for `.tif`, takes each `<stem>_masks.tif` for an image of its own, and so
+does `germquant project add` given the folder. That image fails before any stage runs, on every run and every
+`--resume`, because its own labels file (`<stem>_masks_masks.tif`) does not exist. For a batch, leave the labels
+files out with `io.exclude_patterns`, which replaces config.yaml's list, so keep its entries, for example
+`exclude_patterns: ["*largeimage*", "*10x*", "*_10x_*", "*_masks.tif"]`, or keep them in a folder the batch does
+not search; for a project, add the images by name or by a glob such as `"D:/data/*.ome.tif"` instead of by folder.
+
 Run it like any other recipe.
 
 Windows:

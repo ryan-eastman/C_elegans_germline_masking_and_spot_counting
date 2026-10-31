@@ -171,8 +171,7 @@ first to set one.
 the C. elegans stages off; `docs/GENERIC_PROFILE.md`) with `io.planar: auto`, `segmentation.nuclei.min_area_um2:
 20.0`, `spots.merge_z_columns: false`, the granule and coloc stages off and a filename regex that matches nothing
 (the design columns then read `unknown`; a study profile sets its own regex). Its `io.input_suffixes` lists the
-formats a single plane usually comes in; `germquant batch` reads that key from tranche 5 package P5 on, so until
-then a batch with this profile finds `.nd2` files only and other formats run one at a time with `germquant run`.
+formats a single plane usually comes in, and `germquant batch` finds those files (README, "Other file formats").
 
 Windows:
 ```

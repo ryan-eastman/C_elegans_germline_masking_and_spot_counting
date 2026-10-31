@@ -506,9 +506,11 @@ On either machine:
   and run it from there, or use the terminal route with `--out` pointing at a folder of yours.
 - It said DONE but the montage shows blocky, merged, fragmented or missing nuclei: the nucleus
   step did not run the trained model. Open `..._image_summary.csv` and look at the
-  `segmentation_method` column; it must say `cellpose`. If it says `classical`, the trained model
-  or the graphics set-up is missing and a rough backup method was used; run `check-gpu`, then the
-  `get-model` command from the set-up section, and run the image again.
+  `segmentation_method` column; it must say `cellpose`. If it says `classical`, Cellpose could not
+  run (it is not installed, or the graphics set-up failed) and a rough backup method was used; run
+  `check-gpu` and run the image again. With Cellpose installed, a missing trained model stops the run
+  instead, with an error that says where it looked; the `get-model` command from the set-up section
+  fetches the model.
 - It found 0 nuclei, or the montage shows the wrong channels: the image's channel names do not
   match the config. Run the `info` command on the file and compare with `config/channel_maps/`.
   Tell whoever maintains the tool.
@@ -717,7 +719,12 @@ detector and the 3D nucleus segmentation against the Imaris expert truth gonad b
 `docs/TIMELAPSE.md` (time series: reading one timepoint of an .nd2 or OME-TIFF series with `t=<index>`,
 what the header reports about the time axis, how a timepoint run is named and recorded, the `live_syp2`
 profile, the `segmentation.nuclei.channel` key, and the training loop for a nucleus model without DAPI:
-`export-training`, `train-nuclei`, `register-model`),
+`export-training`, `train-nuclei`, `register-model`), `docs/TRAINING.md` (the training loop on any system:
+`export-training` by run geometry, `import-labels`, `train-nuclei` with its model card, `train-curve`),
+`docs/PACKS.md` (system packs), `docs/PROJECTS.md` (projects, the sample sheet and Snakemake), `docs/PLANAR.md`
+(single-plane images and projected runs), `docs/LABELS.md` (labels from files), `docs/TUNING.md` (spot tuning
+from truth points), `docs/POST_STAGES.md` (post-stages: a measurement step that another package adds after each
+image),
 `analysis/coloc/README.md` (the SYP-3 / PGL-1 analysis layer).
 
 Configuration: `config/config.yaml` holds every tunable value with a comment saying why it is set
@@ -742,10 +749,13 @@ Other CLI commands: `validate` (compare a pipeline table or label image with han
 truth), `imaris-truth` (read the expert Spots, Surfaces and nucleus masks out of an Imaris `.ims`
 project into truth files in our frame, `docs/IMARIS_TRUTH.md`), `prep-training` (export DAPI slices
 for annotation), `finetune` (fine-tune the Cellpose model on a labelled folder), `export-training`
-(paired 2D slices and labels from a run's own segmentation, in xy, xz and yz, for correction),
-`train-nuclei` (train a Cellpose nucleus model on corrected pairs in process, split by image or series,
-with a model card and hold-out F1), `register-model` (add a trained model to the registry so a profile
-can name it in `segmentation.nuclei.cellpose_model`; `docs/TIMELAPSE.md`), `check-gpu`,
+(paired 2D images and labels from a run's own segmentation, for correction, by the run's geometry: xy, xz and
+yz slices of a 3D run, the 2D image of a projected run, the plane of a single-plane run), `import-labels`
+(labels drawn in another program, written as training pairs), `train-nuclei` (train a Cellpose nucleus model on
+corrected pairs in process, split by image or series, with a model card and hold-out F1), `train-curve` (a
+learning curve over nested subsets of the pairs), `register-model` (add a trained model to the registry so a
+profile can name it in `segmentation.nuclei.cellpose_model`; `docs/TRAINING.md`), `tune-spots` (spot settings
+tuned from truth points in a project, `docs/TUNING.md`), `project` (`docs/PROJECTS.md`), `check-gpu`,
 `get-model` (release assets and registered local models), `collect`, `trace`, `restage`. Run the program
 with `--help` for the options.
 

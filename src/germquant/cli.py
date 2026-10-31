@@ -6,24 +6,53 @@
   germquant register results/SERIES [--reference previous|t0] [--upsample 10] [--max-step-um 5] [--channel ROLE] [--rigid]
   germquant register results/SERIES --mode piecewise [--segments 4] [--margin-um 6] [--taper 0.25]
   germquant batch /nas/folder --config config/config.yaml --out /nas/folder_results
+  germquant collect /nas/folder_results [--samples samples.csv]
   germquant run   STACK.nd2 --pack celegans_germline [--recipe rad51_foci] --out results/   (a system pack)
-  germquant pack  list | show | check | fetch-models | fetch-example | install | verify | build-sums | lint | golden
+  germquant pack  list | show | check | fetch-models | fetch-example | install | verify | build-sums | lint | derive | golden
   germquant assemble --channels A.tif B.tif --names Bright Cy3 --spacing DZ DY DX --out X.ome.tif
   germquant --version
 
 System packs (docs/PACKS.md) bundle the recipes and pinned models for one kind of sample; `--pack ID[@VER]`
-runs one of a pack's recipes with the config_hash of `--config <that recipe file>`.
+runs one of a pack's recipes with the config_hash of `--config <that recipe file>`. `pack derive` turns a model
+trained in a project into a derived pack, and `pack list | show | check | fetch-models --project DIR` also see a
+project's own packs.
 
 `info` and `run` also take TIFF / OME-TIFF, CZI, LIF and OME-Zarr files when the optional `readers`
-extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders.
+extra is installed (uv pip install -e ".[readers]" from the repository folder); `batch` works on .nd2 folders, and
+on the formats a config lists in io.input_suffixes (README, "Other file formats"). `info` names a single plane, and
+a single-plane run follows docs/PLANAR.md. `run`, `batch` and `collect` take `--samples FILE`, a sample sheet that
+gives each image its design columns (docs/PROJECTS.md, "Sample sheet"); `run --t` refuses it. `run` and `batch`
+also take `--post-stages FILE`, the post-stages to run after each image (docs/POST_STAGES.md); `run --t` refuses
+a list that switches one on. `python -m germquant.post_stages list | write` lists the post-stages installed here
+and writes a project's list (its post_stages.yaml) without loading torch.
 `run --t` processes the named timepoints of a time-lapse one by one into results/t<NNN>/ and writes the
 series record and summary next to them (docs/TIMELAPSE.md); without --t a run is the single-image run.
 
-The nucleus training loop (docs/TIMELAPSE.md, "Segmenting without DAPI: the training loop"):
+Projects (docs/PROJECTS.md): one folder per study that pins a pack version and holds its images, recipe edits,
+sample sheet, post-stage list, runs and training rounds:
 
-  germquant export-training RESULTS_OR_SERIES_DIR --out PAIRS [--orientations xy,xz,yz] [--slices-per-image 3]
+  germquant project new DIR --pack ID[@VER] [--recipe R] [--images GLOB ...]
+  germquant project add DIR PATH|FOLDER|GLOB ...
+  germquant project edit DIR [--set KEY=VALUE ...] [--role ROLE=CHANNEL ...] [--samples FILE] [--dry-run]
+  germquant project run DIR [--images ID ...] [--shard K/N] [--device auto|cuda|mps|cpu]
+  germquant project status | collect | export-commands DIR
+  germquant project use-model | rounds | unlock DIR ...
+
+`python -m germquant.project new|add|edit|use-model|rounds|unlock ...` makes the same changes without loading torch.
+
+The nucleus training loop (docs/TRAINING.md):
+
+  germquant export-training RESULTS_OR_SERIES_DIR --out PAIRS [--orientations auto|xy,xz,yz] [--slices-per-image 3]
+  germquant import-labels SRC --format tiff|png|cellacdc-npz|cellpose-npy --image IMG --pairs PAIRS [--channel C]
   germquant train-nuclei --pairs PAIRS --out MODELDIR [--base cpsam] [--epochs 150] [--split-by series] [--cpu]
+                         [--system S] [--kind K] [--dataset D]
+  germquant train-curve --pairs PAIRS --out DIR --sizes 1,2,4,8,16,all --repeats 3 --seed S --base B
   germquant register-model --model MODELDIR/NAME --card MODELDIR/NAME.card.json [--name NAME]
+
+Spot tuning on the truth points of a project (docs/TUNING.md):
+
+  germquant tune-spots --project DIR [--points annotations/] [--grid FILE] [--max-runs N]
+  germquant tune-spots --project DIR --apply tuning/<run>
 
 The EXPERIMENTAL net3d RAD-51 foci detector (docs/BENCHMARK.md, "net3d"), trained on the bench cache against
 the Imaris spots of the train gonads, selected on the val gonads, never on test:

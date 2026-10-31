@@ -30,6 +30,7 @@ STUDY/
   germquant_project.yaml   the manifest (not hashed, ASCII)
   recipe.yaml              hashed; exists only after an edit
   channel_map.yaml         hashed with the recipe; exists only after a role edit
+  post_stages.yaml         not hashed; the post-stage list, in place of the pack's (docs/POST_STAGES.md)
   samples.csv              optional design sheet
   runs/                    one log per run, runs/<run_id>.jsonl
   images/                  optional; images may live anywhere (absolute or UNC paths)
@@ -80,6 +81,10 @@ Only the commands that edit a project write it: new, add, edit, use-model, round
   value and the suffixes allowed.
 - The search skips germquant's own outputs (`<id>__nuclei_labels.tif`, `<id>__spots.tif` and the other label
   and mask images) and the project's own results/, runs/, training/, tuning/, annotations/ and packs/ folders.
+  It does not skip label images of other tools kept next to the images, such as Cellpose's `x_masks.tif` or the
+  labels files of a recipe that sets segmentation.nuclei.labels_from (docs/LABELS.md): each is added as an image
+  of its own, which such a recipe then fails on every run. Add those images by name or by a glob such as
+  `"D:/data/*.ome.tif"` instead of by folder.
 - Each file's header is read. A file is refused, with the reason, when it is missing, has an unsupported suffix,
   is a germquant output or lies in the project's own folders, has a header that cannot be read, holds more than
   one image (a multi-scene OME-TIFF; split it into one file per scene), is an .nd2 with more than one position
@@ -234,8 +239,9 @@ silently falls back to the watershed; docs/DESIGN_system_packs.md, rule R5). A C
 after the pipeline has loaded torch.
 
 The napari plugin makes every project change through this entry (a tuning result through
-`germquant tune-spots --apply`, docs/TUNING.md), with the engine's own interpreter, so the code that writes a
-project is the code that runs it. With `--json` each command prints one JSON object on stdout (an
+`germquant tune-spots --apply`, docs/TUNING.md, and a project's post-stage list through
+`python -m germquant.post_stages write`, docs/POST_STAGES.md), with the engine's own interpreter, so the code
+that writes a project is the code that runs it. With `--json` each command prints one JSON object on stdout (an
 error as `{"error": ..., "kind": ...}`); the exit code is 0 when done, 1 when `add` (or `new --images`) refused
 some files, and 2 when the command was refused. A refusal writes nothing. Exit 2 also reports the rare write that
 stops part way, when Windows still denies a file after 2 seconds (an indexer or a virus scanner holding it):
