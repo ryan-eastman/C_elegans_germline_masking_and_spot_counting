@@ -9,8 +9,12 @@ The shallow check imports nothing heavy (no torch, Cellpose, SpotMAX or CuPy):
 * each needed backend name is declared (the built-ins plus entry-point names read from metadata), and each
   needed module is found by importlib.util.find_spec (the built-in cellpose name is always declared, so the
   module check is what greys a pack in an environment without Cellpose or torch);
+* each needed post-stage (needs.post_stages, docs/POST_STAGES.md) is offered here, read from metadata and its
+  declaration file by germquant.post_stages without importing it, and imported only for a recipe that needs one;
 * each model is present with the right size; its sha256 is verified when its size or mtime differs from its
-  verification record, and trusted otherwise;
+  verification record, and trusted otherwise. A recipe that reads its nuclei from labels files
+  (segmentation.nuclei.labels_from, docs/LABELS.md) segments nothing, so its segmentation model is not required:
+  that model's problem is a warning, not a blocker (D12);
 * the readers extra is present when the input is not an .nd2;
 * with an image given, its pixel size and z step fall inside ``expects`` (a warning, never a block). The
   shallow check reads only an .nd2 header (the nd2 package) or a TIFF header (tifffile,
@@ -127,6 +131,53 @@ def _expects_warnings(pack: Pack, image, *, deep: bool = False) -> tuple[list[di
     return out, None
 
 
+def _post_stage_blockers(names: list[str]) -> list[dict]:
+    """A blocker for each post-stage in ``names`` (needs.post_stages) that this environment does not offer: not
+    installed, or installed but unusable (with the reason). germquant.post_stages reads metadata and declaration
+    files only and never imports a post-stage (gate G6); it is imported only for a recipe that needs one."""
+    if not names:
+        return []
+    from ..post_stages import list_post_stages
+
+    rows = {row["name"]: row for row in list_post_stages(include_unusable=True)}
+    out = []
+    for name in names:
+        row = rows.get(name)
+        if row is not None and row.get("usable"):
+            continue
+        if row is None:
+            out.append({"what": f"post-stage {name!r} is not installed",
+                        "fix": f"install the package that provides the {name!r} post-stage (an entry point in "
+                               f"germquant.post_stages with its germquant_post_stage.yaml, docs/POST_STAGES.md) into "
+                               f"this environment"})
+        else:
+            out.append({"what": f"post-stage {name!r} is installed but cannot be used: {'; '.join(row['problems'])}",
+                        "fix": "install a corrected version of the package that provides it (`python -m "
+                               "germquant.post_stages list --all` names the problem)"})
+    return out
+
+
+def _labels_model(cfg) -> str | None:
+    """The segmentation model a recipe names (segmentation.nuclei.cellpose_model) when the recipe reads its nuclei
+    from labels files (segmentation.nuclei.labels_from) and names that model under no other key, else None: such
+    a run resolves no segmentation model (D12), so pack status does not require it."""
+    if cfg is None or cfg.get("segmentation.nuclei.labels_from") is None:
+        return None
+    name = cfg.get("segmentation.nuclei.cellpose_model")
+    if name is None:
+        return None
+
+    def keys(data, prefix=""):
+        for k, v in (data or {}).items():
+            key = f"{prefix}.{k}" if prefix else str(k)
+            if isinstance(v, dict):
+                yield from keys(v, key)
+            elif v == name:
+                yield key
+
+    return str(name) if set(keys(cfg.as_dict())) == {"segmentation.nuclei.cellpose_model"} else None
+
+
 def pack_status(pack, recipe: str | None = None, image=None, deep: bool = False) -> dict:
     """``{"pack", "version", "recipe", "usable", "blockers", "warnings", "models", "device"}``. Each blocker and
     warning is ``{"what", "fix"}``. ``pack`` is a Pack or a name (``id`` or ``id@version``)."""
@@ -198,6 +249,8 @@ def pack_status(pack, recipe: str | None = None, image=None, deep: bool = False)
     for mod in r.need("modules"):
         if not _module_present(mod):
             blockers.append({"what": f"Python module {mod!r} is not installed", "fix": _install_fix(mod)})
+    blockers.extend(_post_stage_blockers(r.need("post_stages")))
+    unneeded = _labels_model(cfg)                  # D12: the segmentation model of a labels_from recipe, else None
     for mname in r.need("models"):
         mspec = p.model(mname)
         if mspec is None:
@@ -205,9 +258,15 @@ def pack_status(pack, recipe: str | None = None, image=None, deep: bool = False)
         st = check_blob(mspec)
         out["models"].append({"name": mname, **st})
         if st["state"] in ("missing", "wrong_size", "mismatch"):
-            blockers.append({"what": f"model {mname} is not usable: {st['detail']} ({st['path']})",
-                             "fix": f"germquant pack fetch-models {p.id}"
-                                    + (f" --recipe {r.id}" if len(p.recipes) > 1 else "")})
+            item = {"what": f"model {mname} is not usable: {st['detail']} ({st['path']})",
+                    "fix": f"germquant pack fetch-models {p.id}" + (f" --recipe {r.id}" if len(p.recipes) > 1 else "")}
+            if mname == unneeded:
+                warnings.append({"what": f"{item['what']}; recipe {r.id} reads its nuclei from labels files "
+                                         f"(segmentation.nuclei.labels_from), so its segmentation model is not needed",
+                                 "fix": f"nothing for this recipe; {item['fix']} fetches it for a run without labels "
+                                        f"files"})
+            else:
+                blockers.append(item)
     pending = None
     if image is not None:
         from ..io.formats import image_format
