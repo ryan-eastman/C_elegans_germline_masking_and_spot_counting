@@ -237,10 +237,12 @@ def test_the_sample_row_reason_and_a_sheet_that_cannot_be_read(project_env, tmp_
 
 
 def test_edit_marks_every_image_stale_with_reason(project_env, tmp_path):  # noqa: F811
-    """P5 acceptance 3, the run half: an edit changes the hash and every finished image reads stale."""
+    """P5 acceptance 3, the run half: an edit changes the hash and every finished image reads stale. Image b's
+    results are a's finished run copied under its id (one pixel run fewer; the rule reads only the marker)."""
     need_readers()
     proj = project_with_images(tmp_path, names=("a", "b"))
-    assert P.run_project(proj)["counts"]["done"] == 2
+    assert P.run_project(proj, images=["a"])["counts"]["done"] == 1
+    _fabricate(proj, "a", "b")
     assert {r["status"] for r in P.project_status(proj)["images"]} == {"done"}
     assert cli_projects.main(["edit", str(proj.root), "--set", "spots.log.min_snr=3", "--json"]) == 0
     st = P.project_status(proj.root)

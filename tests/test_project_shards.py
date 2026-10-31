@@ -48,8 +48,10 @@ def test_shards_cover_each_image_once():
 
 
 def test_three_parallel_shards(project_env, tmp_path):  # noqa: F811
+    """One image per shard keeps the test short (each process imports torch before it runs its image); how the
+    shards split longer lists is test_shards_cover_each_image_once's."""
     need_readers()
-    ids = ("a", "b", "c", "d", "e")
+    ids = ("a", "b", "c")
     proj = project_with_images(tmp_path, names=ids)
     manifest = (proj.root / "germquant_project.yaml").read_bytes()
     run_ids = [f"20261024T12000{k}Z_0000000{k}" for k in (1, 2, 3)]
