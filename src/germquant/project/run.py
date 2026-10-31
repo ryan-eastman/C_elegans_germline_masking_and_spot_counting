@@ -35,9 +35,18 @@ through timelapse.process_series, and writes the run's log, runs/<run_id>.jsonl 
 
 An image with timepoints that this release cannot run as a series is refused before process_series is called,
 which would resolve and hash the segmentation model before its loop (D33): a recipe with labels_from (D15), one
-that runs single-plane images (io.planar true, or auto on a one-plane header; D9), or a series that has a row in the
-project's sample sheet (D21: the time-lapse loop gives its timepoints no row). A series without a row runs as
-before, its design columns from the file name.
+that runs single-plane images (io.planar true, or auto on a one-plane header; D9), a series that has a row in the
+project's sample sheet (D21: the time-lapse loop gives its timepoints no row), or any series while post-stages are
+switched on (design 5.6). A series without a row runs as before, its design columns from the file name.
+
+Post-stages (docs/POST_STAGES.md, design 5.6): the project's own post_stages.yaml, next to recipe.yaml, replaces
+the post_stages/<recipe>.yaml its pack ships, and without either none run. The list in force is read and checked
+against this environment's post-stages once, before the run log exists: a list that cannot be read, or that holds
+an entry that cannot run here, refuses the run (ProjectError).
+Each fixed image then runs its post-stages through api.run_loaded(post_stages=), right after its main run; an image
+that resume skips runs the due ones only (a changed parameter, file or input; a post-only rerun reads the image
+again when a post-stage reads it). A post-stage's failure is recorded in the image's __post.json, never in the run
+log: the image stays done.
 
 GERMQUANT_DEVICE is set from ``device`` (the caller's choice, auto included, D47), else from the manifest's
 run.device, for the run, and restored afterwards; with neither it is left as it is. The run settings xy_stride
@@ -151,12 +160,14 @@ def unreachable_text(path) -> str:
     return f"not reachable: {path} (is the NAS or VPN connected?)"
 
 
-def series_refusal(cfg, path, *, row=None) -> str | None:
+def series_refusal(cfg, path, *, row=None, post_stages=None) -> str | None:
     """Why an image with timepoints cannot run as a series under this recipe in this release, or None: a recipe
     that reads labels from files (D15), one that runs single-plane images (io.planar true, or auto on a header with
-    one plane; D9), or ``row``, the series' row of the project's sample sheet, when the sheet has one for it (D21:
-    germquant.io.sample_sheet.SERIES_REFUSAL, the message `run --t ... --samples` and the API give). The time-lapse
-    loop is not changed in this release (design 4.13, PLAN.md Q1), so such a series must never reach it."""
+    one plane; D9), ``row``, the series' row of the project's sample sheet, when the sheet has one for it (D21:
+    germquant.io.sample_sheet.SERIES_REFUSAL, the message `run --t ... --samples` and the API give), or
+    ``post_stages``, the entries of the run's post-stage list, when it switches one on (D33:
+    germquant.post_stages.SERIES_REFUSAL). The time-lapse loop is not changed in this release (design 4.13, PLAN.md
+    Q1), so such a series must never reach it."""
     if cfg.get(LABELS_KEY) is not None:
         from ..io.labels import SERIES_REFUSAL
 
@@ -179,6 +190,10 @@ def series_refusal(cfg, path, *, row=None) -> str | None:
         from ..io.sample_sheet import SERIES_REFUSAL as SHEET_SERIES_REFUSAL
 
         return SHEET_SERIES_REFUSAL
+    if post_stages:
+        from ..post_stages import SERIES_REFUSAL as POST_SERIES_REFUSAL
+
+        return POST_SERIES_REFUSAL
     return None
 
 
@@ -194,7 +209,50 @@ def series_refusal_text(entry: dict, why: str, root=None) -> str:
         text += (f". In a project: take the row of {entry['id']} out of the project's sample sheet, or stop using the "
                  f"sheet with `germquant project edit {where} --samples none`; the series then runs, its design "
                  f"columns from the file name")
+    elif why.startswith("post-stages are refused"):
+        where = "DIR" if root is None else f'"{root}"'
+        text += (f". In a project the post-stage list (its post_stages.yaml, else the pack's post_stages/<recipe>.yaml) "
+                 f"applies to every image: switch the post-stages off with `python -m germquant.post_stages write "
+                 f"{where} --entries []`, or run the series outside the project with `germquant run --t`")
     return text
+
+
+def project_post_stages(root, pack, recipe) -> tuple[str | None, list]:
+    """``(path, entries)`` of the post-stage list a project run uses (docs/POST_STAGES.md): the project's own
+    post_stages.yaml, else the post_stages/<recipe>.yaml its pack (the project's copy) ships for the recipe
+    (germquant.post_stages.post_stages_in_force); ``(None, [])`` without either. The list is read and checked
+    against the post-stages of this environment here: a list that cannot be read, or holds an entry that cannot
+    run here, is a ProjectError (the run's refusal, exit 2)."""
+    from ..post_stages import entries_of, post_stages_in_force, validate_post_stages
+
+    source, _origin = post_stages_in_force(project_root=root, pack_folder=pack.folder, recipe=recipe.id)
+    if source is None:
+        return None, []
+    try:
+        entries = entries_of(source)
+    except ValueError as e:
+        raise ProjectError(str(e)) from None
+    except OSError as e:
+        raise ProjectError(f"post-stages {Path(source).absolute()}: {e.strerror or e}") from None
+    problems = validate_post_stages(entries)
+    if problems:
+        raise ProjectError(f"post-stages {Path(source).absolute()}: " + "; ".join(problems))
+    return str(source), entries
+
+
+def _post_only(out_dir: Path, mid: str, path, ctx: dict) -> None:
+    """The due post-stages of an image whose main run resume skips (germquant.post_stages.run_post_stages: a
+    changed parameter, file or input reruns that post-stage only). A failure is the image's __post.json's, and
+    nothing here fails the image or the run."""
+    from .. import post_stages as PS
+
+    try:
+        res = PS.run_post_stages(out_dir, mid, ctx["post"], cfg=ctx["cfg"], image_path=path)
+    except Exception:  # noqa: BLE001 - a post-stage never fails the image (design 5.6)
+        log.exception("%s: the post-stages could not be run", mid)
+        return
+    for name in res.get("failed") or []:
+        log.warning("%s: post-stage %s failed (see %s)", mid, name, res.get("record"))
 
 
 def read_project_sheet(root, manifest: dict):
@@ -551,7 +609,7 @@ def _run_one(entry: dict, ctx: dict) -> tuple[str, dict]:
     row = None if sheet is None else sheet.row(mid, path)
     if is_series(entry):
         try:
-            why = series_refusal(cfg, path, row=row)
+            why = series_refusal(cfg, path, row=row, post_stages=ctx.get("post_entries") or None)
         except Exception as e:  # noqa: BLE001 - io.planar auto reads the header: one image failing must not stop the run
             if not reachable(path):
                 return finish("image_failed", error=unreachable_text(path))
@@ -578,12 +636,16 @@ def _run_one(entry: dict, ctx: dict) -> tuple[str, dict]:
             log.exception("FAILED %s", iid)
             return finish("image_failed", error=f"the resume check failed: {type(e).__name__}: {e}"[:4000])
         if done:
+            if ctx.get("post") is not None:
+                _post_only(out_dir, mid, path, ctx)        # its due post-stages only
             return finish("image_skipped", **finished_fields(out_dir, mid))
         if why != "no completion marker":
             log.info("%s: reprocessing: %s", iid, why)
     if not reachable(path):
         return finish("image_failed", error=unreachable_text(path))
     kw = {} if row is None else {"sample": row}          # a project with a sheet only (D40)
+    if ctx.get("post") is not None:
+        kw["post_stages"] = ctx["post"]                  # its post-stage list, only when there is one (D40)
     try:
         res = api.run_loaded(path, cfg, out_dir, xy_stride=ctx["xy_stride"], z_range=ctx["z_range"], **kw)
     except Exception as e:  # noqa: BLE001 - one image failing must not stop the run
@@ -674,6 +736,7 @@ def run_project(project, images=None, resume=True, device=None, shard=None, prog
             if why:
                 raise ProjectError(why)
         sheet = read_project_sheet(root, m)               # once, before anything is written (D21; 9.4 #13)
+        post, post_entries = project_post_stages(root, pack, recipe)    # read and checked once, before the log
         warnings += model_warnings
         if sheet is not None:
             warnings += sheet.warnings
@@ -694,7 +757,7 @@ def run_project(project, images=None, resume=True, device=None, shard=None, prog
         interrupted = False
         failures: list[str] = []
         ctx = {"root": root, "cfg": cfg, "xy_stride": xy_stride, "z_range": z_range, "resume": bool(resume),
-               "hashes": ResumeHashes(cfg), "sheet": sheet}
+               "hashes": ResumeHashes(cfg), "sheet": sheet, "post": post, "post_entries": post_entries}
         with device_env(run_dev):
             emit(rlog.start(**_start_fields(root, m, cfg, entries, via=via,
                                             shard=None if k_n is None else f"{k_n[0]}/{k_n[1]}", xy_stride=xy_stride)))
