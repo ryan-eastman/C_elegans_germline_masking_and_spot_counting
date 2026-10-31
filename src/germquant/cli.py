@@ -119,6 +119,12 @@ def main(argv: list[str] | None = None) -> int:
                          "germ_cell, treatment, replicate and acquisition_date): this image's row gives its design "
                          "columns instead of the file name; without a row the file name's are kept and the image is "
                          "flagged metadata:not_in_sample_sheet (docs/PROJECTS.md, \"Sample sheet\"). Refused with --t")
+    pr.add_argument("--post-stages", default=None, metavar="FILE",
+                    help="a post_stages.yaml (a list of {name, params}; docs/POST_STAGES.md): the post-stages to run on "
+                         "the results folder after the image, each writing only its own new tables and "
+                         "<image_id>__post.json; it replaces a --pack recipe's post_stages/<recipe>.yaml, and a file "
+                         "holding [] switches every post-stage off. Not part of config_hash. With --t a list that "
+                         "switches a post-stage on is refused")
     _add_stage_switches(pr)
 
     pb = sub.add_parser("batch", help="process every .nd2 under a folder (or the formats the config lists in "
@@ -135,6 +141,11 @@ def main(argv: list[str] | None = None) -> int:
                          "image without a row keeps the file name's and is flagged metadata:not_in_sample_sheet; "
                          "--resume reruns an image whose row changed, and joins the sheet's own columns into the "
                          "batch tables (docs/PROJECTS.md, \"Sample sheet\")")
+    pb.add_argument("--post-stages", default=None, metavar="FILE",
+                    help="a post_stages.yaml (docs/POST_STAGES.md): the post-stages to run on each image after it is "
+                         "processed; it replaces a --pack recipe's post_stages/<recipe>.yaml ([] switches them off). "
+                         "Not part of config_hash: --resume skips a finished image and runs only those of its "
+                         "post-stages whose parameters, file or inputs changed")
     _add_stage_switches(pb)
 
     pc = sub.add_parser("collect", help="stack the per-image tables under a results folder into batch_<table>.csv "
@@ -802,6 +813,12 @@ def _run(args) -> int:
         raise SystemExit("--resume applies to a time series: give --t as well (for example --t all)")
     sheet = _sample_sheet(args)           # --samples FILE: this image's row (None without the option)
     kw = {} if sheet is None else {"sample": _sheet_row(sheet, Path(args.nd2))}
+    post, refused = _post_stages(args)     # --post-stages FILE or a --pack recipe's list, checked; None without
+    if refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        return 2
+    if post is not None:
+        kw["post_stages"] = post           # passed on only when there is one (D40)
     # germquant.api.run is the one path to a results folder: a GUI or a notebook calling it with the same
     # settings writes the same files (process_image writes run_manifest.json itself)
     res = run(args.nd2, config=cfg, out=args.out, xy_stride=args.xy_stride, z_range=args.z_range, **kw)
@@ -810,6 +827,8 @@ def _run(args) -> int:
     if res["qc_flags"]:
         print("  flags:", "; ".join(res["qc_flags"]))
     print(f"  -> {res['out_dir']}")
+    if "post" in res:
+        _print_post(res["post"], "  ")
     # QC status is recorded in the output tables; a flagged image is NOT a process
     # failure (so unattended Snakemake batches complete). Only exceptions are errors.
     return 0
@@ -822,7 +841,17 @@ def _run_series(args, cfg) -> int:
     timepoint (_series_refusal)."""
     from .timelapse import process_series
 
-    refused = _series_refusal(cfg, args.nd2, samples=getattr(args, "samples", None))
+    # the post-stage list in force (--post-stages FILE, or a --pack recipe's own): a series takes none in this release
+    source, origin = _post_stages_source(args)
+    entries, refused = _post_stages_entries(source)
+    if not refused:
+        refused = _series_refusal(cfg, args.nd2, samples=getattr(args, "samples", None), post_stages=entries or None)
+        if refused and entries and origin == "pack":
+            from .post_stages import SERIES_REFUSAL as POST_SERIES_REFUSAL
+
+            if refused == POST_SERIES_REFUSAL:
+                refused += (f" (the pack recipe's {source} switches them on: give --post-stages with a file that "
+                            f"holds [] to switch them off)")
     if refused:
         print(f"REFUSED: {refused}", file=sys.stderr)       # one prefix for every series refusal (D45)
         return 2
@@ -840,12 +869,14 @@ def _run_series(args, cfg) -> int:
     return 0 if n_done else 1
 
 
-def _series_refusal(cfg, path, *, samples=None) -> str | None:
+def _series_refusal(cfg, path, *, samples=None, post_stages=None) -> str | None:
     """Why ``run --t`` cannot run this series in this release, or None; _run_series prints it as "REFUSED:
     <message>" (D45). A labels recipe (segmentation.nuclei.labels_from, D15, docs/LABELS.md) is refused first,
     with no header read; then a single-plane run (io.planar true, or auto on a file whose header has one plane;
     D9, docs/PLANAR.md); then a sample sheet (``samples``, the --samples file, which is not read: the series loop
-    gives its timepoints no sample row, D21, docs/PROJECTS.md). process_image refuses each such timepoint as well."""
+    gives its timepoints no sample row, D21, docs/PROJECTS.md); then post-stages (``post_stages``, the entries of
+    the list in force when it switches one on: D33, docs/POST_STAGES.md). process_image refuses each labels,
+    single-plane or sample timepoint as well."""
     if cfg.get("segmentation.nuclei.labels_from") is not None:
         from .io.labels import SERIES_REFUSAL
 
@@ -867,6 +898,10 @@ def _series_refusal(cfg, path, *, samples=None) -> str | None:
         from .io.sample_sheet import SERIES_REFUSAL as SHEET_SERIES_REFUSAL
 
         return SHEET_SERIES_REFUSAL
+    if post_stages:
+        from .post_stages import SERIES_REFUSAL as POST_SERIES_REFUSAL
+
+        return POST_SERIES_REFUSAL
     return None
 
 
@@ -906,6 +941,96 @@ def _sheet_row(sheet, path: Path, indent: str = ""):
     return row
 
 
+def _post_stages_source(args):
+    """``(source, origin)``: the post-stage list a run of `run` or `batch` uses (docs/POST_STAGES.md;
+    germquant.post_stages.post_stages_in_force): ``--post-stages FILE`` (origin "given"), else the
+    post_stages/<recipe>.yaml a --pack recipe ships (origin "pack"), else (None, None). A run of a recipe file or
+    a profile without --post-stages imports nothing of germquant.post_stages."""
+    given = getattr(args, "post_stages", None)
+    pack_ref = None if given is not None else getattr(args, "pack", None)
+    if given is None and not pack_ref:
+        return None, None
+    from .post_stages import post_stages_in_force
+
+    folder = recipe = None
+    if pack_ref:
+        from . import packs as P
+
+        pack = P.find_pack(pack_ref)           # the pack the run resolved (the pack check found it already)
+        folder, recipe = pack.folder, pack.recipe(getattr(args, "recipe", None)).id
+    return post_stages_in_force(None if given is None else Path(given), pack_folder=folder, recipe=recipe)
+
+
+def _post_stages_entries(source) -> tuple[list, str | None]:
+    """``(entries, refusal)`` of the post-stage list ``source`` (None: none): a file that cannot be opened is
+    refused as "post-stages <absolute path>: <strerror>", one that cannot be read as a list with the reader's
+    message (it names the file)."""
+    if source is None:
+        return [], None
+    from .post_stages import entries_of
+
+    try:
+        return entries_of(source), None
+    except OSError as e:
+        # an OSError's own text names the long-path form of the file (fsutil.long_path): name the file instead
+        return [], f"post-stages {Path(source).absolute()}: {e.strerror or e}"
+    except ValueError as e:
+        return [], str(e)
+
+
+def _post_stages(args) -> tuple[str | None, str | None]:
+    """``(path, refusal)``: the post-stage list this run of `run` or `batch` uses (_post_stages_source), checked
+    before any image against the post-stages of this environment (germquant.post_stages.validate_post_stages).
+    ``path`` is None when there is none; ``refusal`` is the message the caller prints as "REFUSED:" with exit 2
+    (D49): a list that cannot be read, or holds an entry that cannot run here. Under --no-pack-check a pack's own
+    list that cannot run here is a warning instead, and each image records the failure in its __post.json."""
+    source, origin = _post_stages_source(args)
+    entries, refused = _post_stages_entries(source)
+    if source is None or refused:
+        return None, refused
+    from .post_stages import validate_post_stages
+
+    problems = validate_post_stages(entries)
+    if problems:
+        text = f"post-stages {Path(source).absolute()}: " + "; ".join(problems)
+        if not (origin == "pack" and getattr(args, "no_pack_check", False)):
+            return None, text
+        print(f"warning: {text} (--no-pack-check: each image records the failure in its __post.json)")
+    names = ", ".join(e["name"] for e in entries) or "none: every post-stage is switched off"
+    print(f"Post-stages {source}: {names}")
+    return str(source), None
+
+
+def _print_post(res: dict, indent: str) -> None:
+    """What germquant.post_stages.run_post_stages did on one image: a line per post-stage (done, up to date, or
+    FAILED with the reason), and the reason when the list itself could not be run."""
+    if res.get("error"):
+        print(f"{indent}post-stages not run: {res['error']}")
+    stages = (res.get("post") or {}).get("stages") or {}
+    for name in res.get("ran") or []:
+        print(f"{indent}post-stage {name}: done")
+    for name in res.get("skipped") or []:
+        print(f"{indent}post-stage {name}: up to date")
+    for name in res.get("failed") or []:
+        print(f"{indent}post-stage {name}: FAILED ({(stages.get(name) or {}).get('error')})")
+
+
+def _batch_post(out_dir: Path, image_id: str, post: str, cfg, image: Path, *, stack=None, indent: str = "    ") -> None:
+    """The post-stages of a batch on one finished image (germquant.post_stages.run_post_stages): after the image,
+    with the stack it read, or for an image the batch resumes, the due ones only (a post-only rerun reads the image
+    again when a post-stage reads it, D34). A post-stage's failure is recorded in <image_id>__post.json; nothing
+    here fails the image or the batch."""
+    from .post_stages import run_post_stages
+
+    try:
+        res = run_post_stages(out_dir, image_id, post, cfg=cfg, image_path=image, stack=stack)
+    except Exception as e:  # noqa: BLE001 - a post-stage never fails the image (design 5.6)
+        logging.exception("post-stages of %s", image_id)
+        print(f"{indent}post-stages not run: {type(e).__name__}: {e}")
+        return
+    _print_post(res, indent)
+
+
 def _batch(args) -> int:
     import pandas as pd
 
@@ -930,6 +1055,10 @@ def _batch(args) -> int:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
     sheet = _sample_sheet(args)            # --samples FILE (docs/PROJECTS.md, "Sample sheet"); None without it
+    post, refused = _post_stages(args)     # --post-stages FILE or a --pack recipe's list, checked before any image
+    if refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        return 2
 
     files, dropped = B.discover_files(root, glob, excludes, exclusions, **formats_kw)
     for f, why in dropped:
@@ -1007,11 +1136,16 @@ def _batch(args) -> int:
                                   **row_kw)
             if done:
                 print("    already done (completion marker matches); skipping")
+                if post is not None:
+                    _batch_post(out_dir, image_id, post, cfg, f)     # its due post-stages only (3.3 c)
                 continue
             if why != "no completion marker":
                 print(f"    reprocessing: {why}")
+        kept: dict = {}
         try:
             kw = {} if row is None else {"sample": row}      # a sheet run only (D40)
+            if post is not None:
+                kw["on_stack"] = kept.update                 # D34: the post-stages take the stack the run read
             res = process_image(f, cfg, out_dir, xy_stride=args.xy_stride, prov=prov, **kw)
             isum = res["tables"]["image_summary"]
             n_germ = int(isum["n_germline_nuclei"].iloc[0]) if "n_germline_nuclei" in isum else 0
@@ -1022,6 +1156,9 @@ def _batch(args) -> int:
             logging.exception("FAILED %s", f.name)
             summaries.append({"image_id": image_id, "n_nuclei": 0, "n_germline": 0, "qc_pass": False,
                               "qc_flags": f"EXCEPTION:{e}", "out_dir": str(out_dir)})
+        else:
+            if post is not None:
+                _batch_post(out_dir, res["image_id"], post, cfg, f, stack=kept.pop("stack", None))
 
     # Framing QC: flag images whose germline count is a strong outlier vs the batch median (a robust,
     # threshold-free proxy for "two gonad arms / extra tissue / fuller distal capture in frame", worth
