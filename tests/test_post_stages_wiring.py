@@ -683,3 +683,77 @@ def test_one_series_refusal_for_run_t_and_project_run(case, monkeypatch, tmp_pat
     row = S.SampleRow(fields={"sex": "male"}, source="samples.csv", row_sha256="0" * 64)
     assert R.series_refusal(cfg, path, row=no_row, post_stages=post) == want
     assert R.series_refusal(cfg, path, row=row, post_stages=post) == (intrinsic or S.SERIES_REFUSAL)
+
+
+# ---------------------------------------------------------------------------------------------------
+# the P5b package review (reviews/P5b.md): S1, a runner error never fails the image; N1, collect's in-force rule
+# and the project route's resume without post-stages
+# ---------------------------------------------------------------------------------------------------
+
+def test_an_error_of_the_post_runner_never_fails_the_image(counting_fixture, monkeypatch, tmp_path):  # noqa: F811
+    """Design 5.6 on every route: a list from Python whose parameter value YAML cannot write (a numpy integer)
+    fails its stage with the parameter's problem; an input that cannot be read now fails the stage, and collect
+    leaves the stage's table out instead of stopping; and when the runner itself raises, api.run_loaded returns the
+    image's result with post["error"], as `germquant batch` reports it."""
+    import numpy as np
+    from post_helpers import make_result_folder
+
+    rf = make_result_folder(tmp_path / "tree")
+    entries = [{"name": FIXTURE_NAME, "params": {"min_voxels": np.int64(1)}}]
+    res = PS.run_post_stages(rf.out_dir, rf.image_id, entries, cfg=rf.cfg, image_path=None, stack=rf.stack)
+    assert res["failed"] == [FIXTURE_NAME] and "min_voxels" in res["post"]["stages"][FIXTURE_NAME]["error"]
+    res = PS.run_post_stages(rf.out_dir, rf.image_id, [{"name": FIXTURE_NAME}], cfg=rf.cfg, image_path=None,
+                             stack=rf.stack)
+    assert res["ran"] == [FIXTURE_NAME]
+    spots = rf.out_dir / f"{rf.image_id}__spots.csv"
+    spots.unlink()
+    spots.mkdir()                          # stands for a table that cannot be read now (a lock, a share that dropped)
+    assert batch.collect(rf.out_dir.parent)[f"post_{TABLE}"] == 0
+    res = PS.run_post_stages(rf.out_dir, rf.image_id, [{"name": FIXTURE_NAME}], cfg=rf.cfg, image_path=None,
+                             stack=rf.stack)
+    assert res["failed"] == [FIXTURE_NAME] and res["ran"] == []
+    _patch_gonad(monkeypatch)
+    image = tmp_path / IN
+    image.write_bytes(b"")
+
+    def boom(*a, **k):
+        raise OSError("the share dropped")
+
+    monkeypatch.setattr(PS, "run_post_stages", boom)
+    out = tmp_path / "out"
+    res = api.run_loaded(image, load_config(_study(tmp_path, spots=False)), out, post_stages=[{"name": FIXTURE_NAME}])
+    assert res["post"]["error"] == "OSError: the share dropped" and res["post"]["ran"] == []
+    assert provenance.read_done_marker(out, IN_ID) is not None
+
+
+def test_collect_leaves_out_post_tables_of_changed_inputs_and_unfinished_folders(batch_runs, tmp_path):
+    """Reading 6's other two rules: a post table whose stage read a table that has changed since (the main run's
+    run_timestamp the same) is left out, and a folder without a completion marker gives no post rows, as it gives
+    no main rows."""
+    root = tmp_path / "copy"
+    for iid in (IN_ID, OTHER_ID):
+        shutil.copytree(batch_runs.out / iid, root / iid)
+    nuclei = root / IN_ID / f"{IN_ID}__nuclei.csv"
+    nuclei.write_bytes(nuclei.read_bytes() + bytes([10]))      # another nuclei table, byte for byte (a blank line)
+    (root / OTHER_ID / f"{OTHER_ID}__done.json").unlink()
+    counts = batch.collect(root)
+    assert counts[f"post_{TABLE}"] == 0 and pd.read_csv(root / f"batch_post_{TABLE}.csv")["image_id"].tolist() == []
+    assert set(pd.read_csv(root / "batch_nuclei.csv")["image_id"]) == {IN_ID}      # the unfinished folder: no rows
+
+
+def test_project_resume_without_post_stages_calls_nothing(post_pack_env, counting_fixture, monkeypatch, tmp_path):  # noqa: F811
+    """Acceptance 1 on the project route's resume: an image that resume skips runs no post-stage while none is in
+    force (the runner is not called); with the project's own list it runs its due ones."""
+    from germquant.project import run as R
+
+    calls = []
+    monkeypatch.setattr(PS, "run_post_stages", lambda out_dir, image_id, entries, **kw: calls.append(image_id) or
+                        {"failed": []})
+    monkeypatch.setattr(R.ResumeHashes, "is_done", lambda self, *a, **k: (True, "done"))
+    proj = new_test_project(tmp_path / "proj")
+    P.add_images(proj, [example_copy(proj.root / "images")])
+    assert P.run_project(proj)["counts"] == {"done": 0, "failed": 0, "skipped": 1}
+    assert calls == []
+    write_post_file(proj.root / PS.POST_STAGES_FILE, {"factor": 2.0})
+    assert P.run_project(proj)["counts"] == {"done": 0, "failed": 0, "skipped": 1}
+    assert calls == [EXAMPLE_ID]
