@@ -7,10 +7,13 @@ and passes elsewhere; binary files are skipped (git's detection, a NUL byte, the
 rule); a dash in a cp1252 line is found, and a UTF-16 or UTF-32 text file (binary to git) is reported; an
 untracked nested repository is skipped, and an unreadable file gives exit code 2; untracked files count
 without --head and ignored ones never; the base is the scope check's, so main's own lines are never charged
-to the branch; and the frozen R8 paths are never opened. The last test
-runs the check on this checkout when its full history and origin/main are present, so t5_gate's pytest step
-enforces G7 on the workstation; CI's shallow checkout skips it, and the T5 step of the workflow runs the
-script on the pushed commit instead.
+to the branch; and the frozen R8 paths are never opened. test_this_checkout_passes_the_style_check runs the
+check on this checkout when the checked-out branch is a tranche 5 branch by CI's T5 rule (its name contains
+"tranche5" or "/t5", or starts with "t5") and its full history and origin/main are present, so t5_gate's
+pytest step enforces G7 on the workstation on this train's branches. On main, on any other branch and on a
+detached HEAD it skips (decision D55 of the Train B plan, the project lead's word: the no-dash rule is for
+prose, not code); CI's shallow checkout skips it too, and the T5 step of the workflow runs the script on the
+pushed commit of a tranche 5 branch instead.
 
 Every non-ASCII character below is built with chr(), so this file itself stays ASCII.
 """
@@ -281,6 +284,12 @@ def test_text_suffixes_are_those_of_the_packs_format():
     assert style.TEXT_SUFFIXES == TEXT_SUFFIXES
 
 
+def tranche5_branch(name: str | None) -> bool:
+    """CI's T5 rule for a branch name (.github/workflows/ci.yml, the T5 step's condition): it contains
+    "tranche5" or "/t5", or it starts with "t5". None, a detached HEAD, is no tranche 5 branch (D55)."""
+    return bool(name) and ("tranche5" in name or "/t5" in name or name.startswith("t5"))
+
+
 def _checkout_problem() -> str | None:
     """None when this checkout can run the check on itself, otherwise why it cannot."""
     def git(*args: str) -> subprocess.CompletedProcess:
@@ -288,6 +297,12 @@ def _checkout_problem() -> str | None:
 
     if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
         return "not a git checkout"
+    branch = git("symbolic-ref", "--quiet", "--short", "HEAD")
+    name = branch.stdout.strip() if branch.returncode == 0 else None
+    if not tranche5_branch(name):
+        where = f"the branch {name}" if name else "a detached HEAD"
+        return (f"{where}: the style check runs on tranche 5 branch names only, as CI's T5 step does "
+                f"(decision D55: the no-dash rule is for prose, not code)")
     if git("rev-parse", "--is-shallow-repository").stdout.strip() != "false":
         return "a shallow clone, as in CI: the history the base needs is missing (CI's T5 step runs the check)"
     if git("rev-parse", "--verify", "--quiet", "origin/main^{commit}").returncode != 0:
@@ -303,3 +318,12 @@ def test_this_checkout_passes_the_style_check():
     rep = style.check(ROOT)
     assert rep["status"] == "PASS", "\n".join(f"{f['path']}:{f['line']}: ({f['rule']}) {f['what']}: {f['text']}"
                                               for f in rep["findings"])
+
+
+@pytest.mark.parametrize("name,runs", [("main", False), ("feat/sc-ribbon-quant", False), (None, False),
+                                       ("feat/t5-train-b", True), ("feat/t5-p5-sheet", True),
+                                       ("feat/tranche5", True)])
+def test_the_checkout_check_runs_on_tranche5_branch_names_only(name, runs):
+    """D55: the checkout's own style check runs where CI's T5 step runs, on tranche 5 branch names only; None
+    stands for a detached HEAD, which skips too."""
+    assert tranche5_branch(name) is runs
