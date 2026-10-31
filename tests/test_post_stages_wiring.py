@@ -757,3 +757,22 @@ def test_project_resume_without_post_stages_calls_nothing(post_pack_env, countin
     write_post_file(proj.root / PS.POST_STAGES_FILE, {"factor": 2.0})
     assert P.run_project(proj)["counts"] == {"done": 0, "failed": 0, "skipped": 1}
     assert calls == [EXAMPLE_ID]
+
+
+def test_status_names_the_post_stage_refusal_and_a_list_that_refuses_every_run(post_pack_env, counting_fixture,  # noqa: F811
+                                                                                  monkeypatch, tmp_path):
+    """project status (reviews/P5b.md, For T5B-INT item 1): before any run, a series that every run refuses for
+    post-stages reads missing with the run's refusal and the project's remedy, as for a labels, planar or sheet
+    refusal; and a project list that refuses every run is a warning, as a sample sheet a run refuses is."""
+    image = tmp_path / "series.nd2"
+    image.write_bytes(b"")
+    fake_nd2_headers(monkeypatch, {"series.nd2": {"sizes": {"T": 3, "C": 2, "Z": 4, "Y": 16, "X": 16}}})
+    proj = new_test_project(tmp_path / "proj")
+    P.add_images(proj, [image])
+    path = write_post_file(proj.root / PS.POST_STAGES_FILE, {"factor": 2.0})
+    (rec,) = P.project_status(proj)["images"]
+    assert rec["status"] == "missing" and PS.SERIES_REFUSAL in rec["reason"] and "--entries []" in rec["reason"], rec
+    path.write_text(path.read_text(encoding="ascii").replace(FIXTURE_NAME, "not_installed"), encoding="ascii")
+    st = P.project_status(proj)
+    (warning,) = [w for w in st["warnings"] if "post-stage list" in w]
+    assert "not_installed" in warning and "a run is refused" in warning
